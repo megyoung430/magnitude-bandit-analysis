@@ -67,7 +67,6 @@ def _expand_content_columns(df: pd.DataFrame, content_col: str = "content") -> p
     
     return df
 
-
 def _normalize_tower_token(token) -> Optional[str]:
     """Normalize a tower token to a clean string identifier."""
     if token is None or (isinstance(token, float) and pd.isna(token)):
@@ -76,7 +75,6 @@ def _normalize_tower_token(token) -> Optional[str]:
         stripped = token.strip().strip("[]'\"")
         return stripped or None
     return str(token)
-
 
 def _normalize_tower_list(value) -> set:
     """Best-effort parsing of tower lists that may be JSON, Python repr, or CSV."""
