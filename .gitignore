@@ -1,0 +1,23 @@
+# Conda / environments
+env/
+.env/
+.conda/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.dist-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Packaging / builds
+build/
+dist/
+
+# Data
+data/
