@@ -1,7 +1,7 @@
 from collections import Counter
 from src.behavior_analysis.get_variables_across_sessions import *
 
-def get_reversal_info(data, pre=5, post=15, required_reward_pattern=(4, 1, 0),):
+def get_good_reversal_info(data, pre=5, post=15, required_reward_pattern=(4, 1, 0),):
     """
     For each subject:
       - Find GOOD reversal indices (where cumulative good_reversals increments).
