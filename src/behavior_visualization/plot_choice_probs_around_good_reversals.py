@@ -39,7 +39,7 @@ def plot_reversal_probs_around_good_reversals(x, across, show_chance=True, save_
 
     ax.set_xlabel("Trials from Good Reversal", fontsize=12)
     ax.set_ylabel("Choice Probability", fontsize=12)
-    ax.set_title(f"Good Reversal-Aligned Choices (mean ± std across subjects | n={across['num_subjects']} subjects and n={across['num_reversals']} reversals)")
+    ax.set_title(f"Good Reversal-Aligned Choices\n(mean ± std across subjects | n={across['num_subjects']} subjects and n={across['num_reversals']} reversals)")
 
     ax.legend(loc="upper right", fontsize=10)
     ax.spines["top"].set_visible(False)
