@@ -11,20 +11,20 @@ mpl.rcParams["axes.labelsize"] = 12
 mpl.rcParams["axes.titlesize"] = 14
 
 def plot_reversal_probs_around_good_reversals(x, across, show_chance=True, save_path=None):
-    """Plots across-subject mean with +/- 1 std fill."""
+    """Plots across-subject mean with +/- 1 se fill."""
     COLOR_MAP = {
         "prev_best": "#5DA5DA",   
         "next_best": "#60BD68",
         "third":     "#7f7f7f",
     }
     mean = across["mean"]
-    std = across["std"]
+    se = across["se"]
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
 
     for label, plot_label in [("prev_best", "Previous Best"), ("next_best", "New Best"), ("third", "Third Arm"),]:
         y = np.asarray(mean.get(label, None), dtype=float)
-        s = np.asarray(std.get(label, None), dtype=float)
+        s = np.asarray(se.get(label, None), dtype=float)
 
         if y is None or s is None:
             continue
@@ -39,7 +39,7 @@ def plot_reversal_probs_around_good_reversals(x, across, show_chance=True, save_
 
     ax.set_xlabel("Trials from Good Reversal", fontsize=12)
     ax.set_ylabel("Choice Probability", fontsize=12)
-    ax.set_title(f"Good Reversal-Aligned Choices\n(mean ± std across subjects | n={across['num_subjects']} subjects and n={across['num_reversals']} reversals)")
+    ax.set_title(f"Good Reversal-Aligned Choices\n(mean ± se across subjects | n={across['num_subjects']} subjects and n={across['num_reversals']} reversals)")
 
     ax.legend(loc="upper right", fontsize=10)
     ax.spines["top"].set_visible(False)

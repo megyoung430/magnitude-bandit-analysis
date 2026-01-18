@@ -15,7 +15,7 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, fi
         - "num_reversals": int
       across: dict with keys:
         - "mean": dict[label]->np.array
-        - "std":  dict[label]->np.array
+        - "se":  dict[label]->np.array
         - "num_subjects": int
     """
     T = pre + post
@@ -82,13 +82,13 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, fi
     if num_subjects == 0:
         return x, per_subject, {
             "mean": {"prev_best": None, "next_best": None, "third": None},
-            "std":  {"prev_best": None, "next_best": None, "third": None},
+            "se":  {"prev_best": None, "next_best": None, "third": None},
             "num_subjects": 0
         }
 
-    # --- Across-subject mean/std ---
+    # --- Across-subject mean/se ---
     across_mean = {}
-    across_std = {}
+    across_se = {}
 
     mean_key_map = {
         "prev_best": "prev_best_mean",
@@ -99,14 +99,14 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, fi
     for k, mk in mean_key_map.items():
         stack = np.vstack([per_subject[subj][mk] for subj in subj_list])
         across_mean[k] = np.nanmean(stack, axis=0)
-        across_std[k]  = (
-            np.nanstd(stack, axis=0, ddof=1)
+        across_se[k]  = (
+            np.nanstd(stack, axis=0, ddof=1) / np.sqrt(num_subjects)
             if num_subjects > 1 else np.zeros(T)
         )
 
     across = {
         "mean": across_mean,
-        "std": across_std,
+        "se": across_se,
         "num_subjects": num_subjects,
         "num_reversals": sum(per_subject[subj]["num_reversals"] for subj in subj_list)
     }

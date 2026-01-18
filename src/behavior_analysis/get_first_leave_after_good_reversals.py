@@ -41,7 +41,7 @@ def average_first_leave_across_subjects(per_subject_counts):
     """
     Returns:
       mean: dict[label] -> float
-      std:  dict[label] -> float
+      se:  dict[label] -> float
       n_subjects: int
     """
     new_vals = []
@@ -50,7 +50,6 @@ def average_first_leave_across_subjects(per_subject_counts):
     for subj, c in per_subject_counts.items():
         if c["total"] == 0:
             continue
-
         new_vals.append(c["new_best"] / c["total"])
         third_vals.append(c["third"] / c["total"])
 
@@ -59,12 +58,12 @@ def average_first_leave_across_subjects(per_subject_counts):
         "third": np.mean(third_vals),
         "num_reversals": np.sum([c["total"] for c in per_subject_counts.values()]),
     }
-    std = {
-        "new_best": np.std(new_vals, ddof=1) if len(new_vals) > 1 else 0.0,
-        "third": np.std(third_vals, ddof=1) if len(third_vals) > 1 else 0.0,
+    se = {
+        "new_best": np.std(new_vals, ddof=1) / np.sqrt(len(new_vals)) if len(new_vals) > 1 else 0.0,
+        "third": np.std(third_vals, ddof=1) / np.sqrt(len(third_vals)) if len(third_vals) > 1 else 0.0,
     }
 
-    return mean, std, len(new_vals)
+    return mean, se, len(new_vals)
 
 # ========== Classifying Towers at Good Reversals ==========
 def classify_towers_at_good_reversals(reversal):
