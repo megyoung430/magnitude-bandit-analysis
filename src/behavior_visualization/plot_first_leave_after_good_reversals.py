@@ -11,10 +11,10 @@ mpl.rcParams["ytick.labelsize"] = 12
 mpl.rcParams["axes.labelsize"] = 12
 mpl.rcParams["axes.titlesize"] = 14
 
-def plot_first_leave_after_good_reversals(mean, std, per_subject_counts, save_path=None):
+def plot_first_leave_after_good_reversals(mean, se, per_subject_counts, save_path=None):
     labels = ["New Best", "Third Arm"]
     means = [mean["new_best"], mean["third"]]
-    errs = [std["new_best"], std["third"]]
+    errs = [se["new_best"], se["third"]]
 
     x = np.arange(len(labels))
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
@@ -58,7 +58,7 @@ def plot_first_leave_after_good_reversals(mean, std, per_subject_counts, save_pa
     ax.set_ylim(0.0, 1.07)
     ax.set_title(
         f"First Choice After Leaving Previous Best\n"
-        f"(mean ± std across subjects | n={len(per_subject_counts)} subjects "
+        f"(mean ± se across subjects | n={len(per_subject_counts)} subjects "
         f"and n={mean['num_reversals']} reversals)", pad=20
     )
 
