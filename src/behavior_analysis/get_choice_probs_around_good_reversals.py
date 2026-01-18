@@ -111,6 +111,9 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, fi
         "num_reversals": sum(per_subject[subj]["num_reversals"] for subj in subj_list)
     }
 
+    # --- Check: probabilities sum to 1 ---
+    assert np.isclose(across["mean"]["prev_best"] + across["mean"]["next_best"] + across["mean"]["third"], 1.0, atol=1e-6).all(), "Choice probabilities do not sum to 1."
+
     return x, per_subject, across
 
 # ========== Classifying Towers at Good Reversals ==========
