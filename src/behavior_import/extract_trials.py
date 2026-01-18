@@ -175,16 +175,33 @@ def unpack_choices(session_data):
     return session_data
 
 def unpack_chosen_rank(session_data):
-    possible_ranks = session_data['rank_counts'][0].keys()
+    # Map inconsistent labels to standardized labels
+    rank_map = {
+        "second_best": "second",
+        "third_best": "third",
+        "second": "second",
+        "third": "third",
+        "best": "best",
+    }
+
+    # Standardize chosen_rank values
+    chosen_std = [rank_map.get(r, r) for r in session_data["chosen_rank"]]
+    session_data["chosen_rank"] = chosen_std
+
+    # Standardize rank keys from rank_counts (won't vary within session)
+    possible_ranks = []
+    for k in session_data["rank_counts"][0].keys():
+        k2 = rank_map.get(k, k)
+        if k2 not in possible_ranks:
+            possible_ranks.append(k2)
+
+    # Build one-hot choices_by_rank with standardized keys
     choices_by_rank = {k: [] for k in possible_ranks}
-    for i in range(len(session_data['chosen_rank'])):
-        current_choice = session_data['chosen_rank'][i]
-        for rank in possible_ranks:
-            if current_choice == rank:
-                choices_by_rank[rank].append(1)
-            else:
-                choices_by_rank[rank].append(0)
-    session_data['choices_by_rank'] = choices_by_rank
+    for r in chosen_std:
+        for k in possible_ranks:
+            choices_by_rank[k].append(1 if r == k else 0)
+
+    session_data["choices_by_rank"] = choices_by_rank
     return session_data
 
 # ========== Merging Rules for Multiple Files within a Session ==========
