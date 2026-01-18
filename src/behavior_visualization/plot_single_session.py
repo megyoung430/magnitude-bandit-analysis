@@ -129,30 +129,6 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
         plt.show()
     plt.close(fig)
 
-# --- Data Unpacking Helper Functions ---
-def unpack_reward_magnitudes(session_data):
-    choice_towers = session_data['reward_magnitudes'][0].keys()
-    magnitude_by_tower = {k: [] for k in choice_towers}
-    for i in range(len(session_data['reward_magnitudes'])):
-        current_reward_magnitudes = session_data['reward_magnitudes'][i]
-        for tower in choice_towers:
-            magnitude_by_tower[tower].append(current_reward_magnitudes[tower])
-    session_data['reward_magnitudes_by_tower'] = magnitude_by_tower
-    return session_data
-
-def unpack_choices(session_data):
-    choice_towers = session_data['choice_towers'][0]
-    choices_by_tower = {k: [] for k in choice_towers}
-    for i in range(len(session_data['choice'])):
-        current_choice = session_data['choice'][i]
-        for tower in choice_towers:
-            if current_choice == tower:
-                choices_by_tower[tower].append(1)
-            else:
-                choices_by_tower[tower].append(0)
-    session_data['choices_by_tower'] = choices_by_tower
-    return session_data
-
 # --- Reversal Identification Helper Function ---
 def event_indices_from_cumulative(counter, N=None):
     """
