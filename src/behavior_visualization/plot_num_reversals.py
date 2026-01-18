@@ -8,6 +8,8 @@ mpl.rcParams["font.family"] = "sans-serif"
 mpl.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial"]
 mpl.rcParams["xtick.labelsize"] = 12
 mpl.rcParams["ytick.labelsize"] = 12
+mpl.rcParams["axes.labelsize"] = 12
+mpl.rcParams["axes.titlesize"] = 14
 
 def plot_num_reversals(subjects_trials, save_path=None):
 

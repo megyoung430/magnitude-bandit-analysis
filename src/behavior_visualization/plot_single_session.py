@@ -8,6 +8,8 @@ mpl.rcParams["font.family"] = "sans-serif"
 mpl.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial"]
 mpl.rcParams["xtick.labelsize"] = 12
 mpl.rcParams["ytick.labelsize"] = 12
+mpl.rcParams["axes.labelsize"] = 12
+mpl.rcParams["axes.titlesize"] = 14
 
 def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choice_key="choices_by_tower", 
                         ema_keys=("ema_best_arm_choices", "ema_second_arm_choices"), title=None, save_path=None):
