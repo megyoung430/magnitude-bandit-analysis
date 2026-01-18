@@ -87,6 +87,11 @@ def extract_trials(data):
                 trial_info_list.append(trial_info)
                 trial_vars = transpose_trials(trial_info, ALIASES)
                 trial_vars_list.append(trial_vars)
+            if len(trial_info_list[0]) == 0:
+                print(f"[WARNING] No trial information found for subject {current_subject}, session {current_session}")
+                data[current_subject][current_session]["trial_variables"] = {}
+                data[current_subject][current_session]["trial_info"] = []
+                continue
             data[current_subject][current_session]["trial_variables"] = trial_vars_list
             data[current_subject][current_session]["trial_info"] = trial_info_list
             if len(trial_vars_list) == 1:
@@ -114,6 +119,9 @@ def extract_trials(data):
                         combined[var_name] = out
                 for var_name, values in combined.items():
                     data[current_subject][current_session][var_name] = values
+            data[current_subject][current_session] = unpack_reward_magnitudes(data[current_subject][current_session])
+            data[current_subject][current_session] = unpack_choices(data[current_subject][current_session])
+            data[current_subject][current_session] = unpack_chosen_rank(data[current_subject][current_session])
     return data
 
 def standardize_variables(dictionary, aliases):
@@ -141,6 +149,43 @@ def transpose_trials(trial_dicts, aliases, keep=None):
         for k in standardized_keys:
             out[k].append(canon.get(k))
     return out
+
+# --- Data Unpacking Helper Functions ---
+def unpack_reward_magnitudes(session_data):
+    choice_towers = session_data['reward_magnitudes'][0].keys()
+    magnitude_by_tower = {k: [] for k in choice_towers}
+    for i in range(len(session_data['reward_magnitudes'])):
+        current_reward_magnitudes = session_data['reward_magnitudes'][i]
+        for tower in choice_towers:
+            magnitude_by_tower[tower].append(current_reward_magnitudes[tower])
+    session_data['reward_magnitudes_by_tower'] = magnitude_by_tower
+    return session_data
+
+def unpack_choices(session_data):
+    choice_towers = session_data['choice_towers'][0]
+    choices_by_tower = {k: [] for k in choice_towers}
+    for i in range(len(session_data['choice'])):
+        current_choice = session_data['choice'][i]
+        for tower in choice_towers:
+            if current_choice == tower:
+                choices_by_tower[tower].append(1)
+            else:
+                choices_by_tower[tower].append(0)
+    session_data['choices_by_tower'] = choices_by_tower
+    return session_data
+
+def unpack_chosen_rank(session_data):
+    possible_ranks = session_data['rank_counts'][0].keys()
+    choices_by_rank = {k: [] for k in possible_ranks}
+    for i in range(len(session_data['chosen_rank'])):
+        current_choice = session_data['chosen_rank'][i]
+        for rank in possible_ranks:
+            if current_choice == rank:
+                choices_by_rank[rank].append(1)
+            else:
+                choices_by_rank[rank].append(0)
+    session_data['choices_by_rank'] = choices_by_rank
+    return session_data
 
 # ========== Merging Rules for Multiple Files within a Session ==========
 def concat_serial_numeric(segments):

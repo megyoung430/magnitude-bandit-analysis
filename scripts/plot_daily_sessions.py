@@ -5,7 +5,8 @@ from src.behavior_import.import_data import *
 from src.behavior_import.extract_trials import *
 from src.behavior_visualization.plot_single_session import *
 
-root = "../data/cohort-2/rawdata/"
+cohort = "cohort-02"
+root = f"../data/{cohort}/rawdata/"
 subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
 
@@ -14,12 +15,9 @@ for current_subject in all_subjects:
     subject_sessions = subjects_trials[current_subject]
     all_sessions = list(subject_sessions.keys())
     for current_session in all_sessions:
-        print(f"Plotting {current_subject} | {current_session}")
-        if current_subject == "MY_05_N" and current_session == "ses-1_date-20260111":
-            print("Skipping session with no trials")
+        if not subject_sessions[current_session]["trial_info"]:
+            print(f"Skipping {current_subject} | {current_session}. There are no trials.")
             continue
-        ses = subjects_trials[current_subject][current_session]
-        ses = unpack_reward_magnitudes(ses)
-        ses = unpack_choices(ses)
-        curr_save_path = Path(f"../results/figures/single_sessions/{current_subject}/{current_session}/Session Plot")
-        plot_single_session(ses, title=f"{current_subject} | {current_session}", save_path=curr_save_path)
+        print(f"Plotting {current_subject} | {current_session}")
+        curr_save_path = Path(f"../results/figures/{cohort}/single-sessions/{current_subject}/{current_session}/Session Plot")
+        plot_single_session(subject_sessions[current_session], title=f"{current_subject} | {current_session}", save_path=curr_save_path)
