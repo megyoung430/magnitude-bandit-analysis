@@ -47,7 +47,7 @@ def plot_first_leave_after_good_reversals(mean, se, per_subject_counts, save_pat
 
         jitter = 0.03
         ax.plot([0 + np.random.uniform(-jitter, jitter), 1 + np.random.uniform(-jitter, jitter)],[nv, tv],color=c,linewidth=2.5,alpha=0.9,marker="o",markersize=6)
-        legend_handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", label=subj))
+        legend_handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", label=f"{subj} (n={counts['total']} reversals)"))
 
     ax.legend(handles=legend_handles, fontsize=10, loc="upper right")
     ax.spines["top"].set_visible(False)
