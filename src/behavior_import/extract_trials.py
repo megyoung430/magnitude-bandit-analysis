@@ -121,6 +121,7 @@ def extract_trials(data):
                     data[current_subject][current_session][var_name] = values
             data[current_subject][current_session] = unpack_reward_magnitudes(data[current_subject][current_session])
             data[current_subject][current_session] = unpack_choices(data[current_subject][current_session])
+            data[current_subject][current_session] = fill_missing_chosen_rank_from_rank_counts(data[current_subject][current_session])
             data[current_subject][current_session] = unpack_chosen_rank(data[current_subject][current_session])
     return data
 
@@ -202,6 +203,77 @@ def unpack_chosen_rank(session_data):
             choices_by_rank[k].append(1 if r == k else 0)
 
     session_data["choices_by_rank"] = choices_by_rank
+    return session_data
+
+def fill_missing_chosen_rank_from_rank_counts(session_data):
+    """
+    If session_data['chosen_rank'][i] is None, infer it from rank_counts increments.
+    Assumes rank_counts is a list of dicts with cumulative counts per rank per trial.
+    Does NOT change existing non-None chosen_rank entries.
+    """
+    if "chosen_rank" not in session_data or "rank_counts" not in session_data:
+        return session_data
+
+    chosen = session_data.get("chosen_rank", [])
+    rank_counts = session_data.get("rank_counts", [])
+
+    if not chosen or not rank_counts or len(chosen) != len(rank_counts):
+        return session_data
+
+    key_map = {
+        "second_best": "second",
+        "third_best": "third",
+        "second best": "second",
+        "third best": "third",
+        "best": "best",
+        "second": "second",
+        "third": "third",
+    }
+
+    def standardized_key(k):
+        if k is None:
+            return k
+        if isinstance(k, str):
+            return key_map.get(k.strip().lower(), key_map.get(k, k.strip().lower()))
+        return k
+
+    standardized_rank_counts = []
+    for d in rank_counts:
+        if not isinstance(d, dict):
+            standardized_rank_counts.append({})
+            continue
+        dd = {}
+        for k, v in d.items():
+            kk = standardized_key(k)
+            if kk in ("best", "second", "third"):
+                dd[kk] = v
+        standardized_rank_counts.append(dd)
+
+    filled = list(chosen)
+
+    for i in range(len(filled)):
+        if filled[i] is not None:
+            continue
+
+        curr = standardized_rank_counts[i]
+        prev = standardized_rank_counts[i - 1] if i > 0 else {}
+
+        deltas = {
+            rk: (curr.get(rk, 0) or 0) - (prev.get(rk, 0) or 0)
+            for rk in ("best", "second", "third")
+        }
+
+        inc = [rk for rk, dv in deltas.items() if dv > 0]
+        if len(inc) == 1:
+            filled[i] = inc[0]
+        elif i == 0:
+            rk0 = max(("best", "second", "third"), key=lambda rk: curr.get(rk, 0) or 0)
+            if (curr.get(rk0, 0) or 0) > 0:
+                filled[i] = rk0
+        else:
+            pass
+
+    session_data["chosen_rank"] = filled
     return session_data
 
 # ========== Merging Rules for Multiple Files within a Session ==========

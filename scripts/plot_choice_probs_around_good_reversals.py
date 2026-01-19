@@ -15,7 +15,7 @@ post=40
 
 subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
-reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post)
+reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
 x, per_subject, across = get_choice_probs_around_good_reversals(reversal_windows, pre=pre, post=post)
 curr_save_path = Path(f"../results/figures/{cohort}/reversal-stats/Choice Probabilities Around Good Reversals")
 plot_reversal_probs_around_good_reversals(x, across, show_chance=True, save_path=curr_save_path)

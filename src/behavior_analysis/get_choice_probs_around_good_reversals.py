@@ -1,6 +1,6 @@
 import numpy as np
 
-def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, filter_subjects=False, subjects_to_keep=None):
+def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40):
     """
     NaN-padded aggregation of good reversals.
     Returns:
@@ -21,17 +21,6 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, fi
     T = pre + post
     x = np.arange(-pre, post)
     per_subject = {}
-
-    def filter_reversal_windows_by_subject(reversal_windows, subjects_to_keep):
-        subjects_to_keep = set(subjects_to_keep)
-        return {
-            subj: revs
-            for subj, revs in reversal_windows.items()
-            if subj in subjects_to_keep
-        }
-
-    if filter_subjects and subjects_to_keep is not None:
-        reversal_windows = filter_reversal_windows_by_subject(reversal_windows, subjects_to_keep)
 
     for subj, revs in reversal_windows.items():
         if not revs:
