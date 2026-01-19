@@ -1,13 +1,13 @@
 from collections import Counter
 from src.behavior_analysis.get_variables_across_sessions import *
 
-def get_good_reversal_info(data, pre=5, post=15, required_reward_pattern=(4, 1, 0),):
+def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_pattern=(4, 1, 0)):
     """
     For each subject:
       - Find GOOD reversal indices (where cumulative good_reversals increments).
       - Collect window indices:
           pre  = trials [idx-pre, ..., idx-1]
-          post = trials [idx, ..., idx+post-1]  (includes the reversal trial)
+          post = trials [idx, ..., idx+post-1]  (includes the reversal trial, or goes until the next good reversal if post is None)
       - Keep only those reversals where the reward magnitudes on trial idx-1
         across towers match required_reward_pattern in ANY order (multiset match).
       - Infer towers from reward_magnitudes_by_tower keys (preferred), else choices_by_tower keys.
@@ -66,11 +66,13 @@ def get_good_reversal_info(data, pre=5, post=15, required_reward_pattern=(4, 1, 
             continue
 
         good_rev_indices = find_increment_indices(good)
+        if include_first_block and n_trials > 0 and good[0] == 0:
+            good_rev_indices = [0] + good_rev_indices
+
         subj_results = []
 
-        for idx in good_rev_indices:
-            if idx - 1 < 0:
-                continue
+        for k, idx in enumerate(good_rev_indices):
+            before_trial = idx - 1 if idx > 0 else 0
 
             missing = [t for t in towers if t not in reward_by_tower]
             if missing:
@@ -78,7 +80,7 @@ def get_good_reversal_info(data, pre=5, post=15, required_reward_pattern=(4, 1, 
                 continue
 
             try:
-                before_vals = [reward_by_tower[t][idx - 1] for t in towers]
+                before_vals = [reward_by_tower[t][before_trial] for t in towers]
             except IndexError:
                 print(f"[SKIP] {subj} reversal@{idx}: reward_magnitudes_by_tower too short for idx-1")
                 continue
@@ -94,13 +96,17 @@ def get_good_reversal_info(data, pre=5, post=15, required_reward_pattern=(4, 1, 
 
             pre_start = max(0, idx - pre)
             pre_end = idx
+
             post_start = idx
-            post_end = min(n_trials, idx + post)
+            if post is None:
+                post_end = good_rev_indices[k + 1] if (k + 1) < len(good_rev_indices) else n_trials
+            else:
+                post_end = min(n_trials, idx + post)
 
             pre_idx = list(range(pre_start, pre_end))
             post_idx = list(range(post_start, post_end))
 
-            reward_before = {t: reward_by_tower[t][idx - 1] for t in towers}
+            reward_before = {t: reward_by_tower[t][before_trial] for t in towers}
             try:
                 reward_after = {t: reward_by_tower[t][idx] for t in towers}
             except IndexError:

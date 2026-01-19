@@ -16,7 +16,7 @@ post=40
 subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
 
-reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post)
+reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
 first_leave_per_subject = get_first_leave_after_good_reversals(reversal_windows)
 mean, std, n_subjects = average_first_leave_across_subjects(first_leave_per_subject)
 curr_save_path = Path(f"../results/figures/{cohort}/reversal-stats/First Leave After Good Reversals")

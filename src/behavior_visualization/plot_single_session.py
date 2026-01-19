@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -120,7 +121,9 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
         ax.spines["right"].set_visible(False)
         ax.spines["left"].set_linewidth(1.2)
         ax.spines["bottom"].set_linewidth(1.2)
-    plt.tight_layout()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        plt.tight_layout()
     
     if save_path:
         base = Path(save_path)
