@@ -87,8 +87,12 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, save_path=None):
         np.nanmean([v["second"] for v in per_mouse.values()]),
         np.nanmean([v["third"] for v in per_mouse.values()]),
     ]
+    mouse_se = [
+        np.nanstd([v[k] for v in per_mouse.values()], ddof=1) / np.sqrt(len(per_mouse))
+        for k in ["best", "second", "third"]
+    ]
 
-    ax.bar(x, mouse_means, width=0.55, color="#999999", edgecolor="black", linewidth=1.5, alpha=0.55, zorder=0)
+    ax.bar(x, mouse_means, yerr=mouse_se, capsize=6, width=0.55, color="#999999", edgecolor="black", linewidth=1.5, alpha=0.55, zorder=0)
 
     for xi, m in zip(x, mouse_means):
         if np.isfinite(m):
@@ -139,9 +143,12 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, save_path=None):
         np.nanmean([b["second"] for b in per_block]) if per_block else np.nan,
         np.nanmean([b["third"] for b in per_block]) if per_block else np.nan,
     ]
+    block_se = [
+        np.nanstd([b[k] for b in per_block], ddof=1) / np.sqrt(len(per_block))
+        for k in ["best", "second", "third"]
+    ]
 
-    ax.bar(x, block_means, width=0.55, color="#999999", edgecolor="black", linewidth=1.5, alpha=0.55, zorder=0)
-
+    ax.bar(x, block_means, yerr=block_se, capsize=6, width=0.55, color="#999999", edgecolor="black", linewidth=1.5, alpha=0.55, zorder=0)
     for xi, m in zip(x, block_means):
         if np.isfinite(m):
             ax.text(xi, 1.05, f"{m:.2f}", ha="center", va="bottom", fontsize=12)
@@ -212,8 +219,13 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
             c = block_colors[rev_idx % len(block_colors)]
             ax.plot(x + np.random.uniform(-jitter, jitter, size=len(x)), y, color=c, linewidth=2.2, alpha=0.85, marker="o", markersize=5)
             legend_handles.append(Line2D([0], [0], color=c, lw=2.2, marker="o", label=f"Block {rev_idx + 1}"))
-        mean_y = [np.nanmean([r["best_prop"] for r in rows]), np.nanmean([r["second_prop"] for r in rows]), np.nanmean([r["third_prop"] for r in rows])]
-        ax.bar(x, mean_y, width=0.55, color="#9E9E9E", edgecolor="black", linewidth=1.4, alpha=0.45, zorder=0)
+        mean_y = [np.nanmean([r["best_prop"] for r in rows]), 
+                  np.nanmean([r["second_prop"] for r in rows]), 
+                  np.nanmean([r["third_prop"] for r in rows])]
+        se_y = [np.nanstd([r["best_prop"] for r in rows], ddof=1) / np.sqrt(len(rows)) if len(rows) > 1 else np.nan,
+                np.nanstd([r["second_prop"] for r in rows], ddof=1) / np.sqrt(len(rows)) if len(rows) > 1 else np.nan,
+                np.nanstd([r["third_prop"] for r in rows], ddof=1) / np.sqrt(len(rows)) if len(rows) > 1 else np.nan]
+        ax.bar(x, mean_y, yerr=se_y, capsize=6, width=0.55, color="#9E9E9E", edgecolor="black", linewidth=1.4, alpha=0.45, zorder=0)
         for xi, m in zip(x, mean_y):
             ax.text(xi, 1.05, f"{m:.2f}", ha="center", va="bottom", fontsize=12)
 
@@ -305,8 +317,13 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
             block_second.append(rr.get("second_prop", np.nan))
             block_third.append(rr.get("third_prop", np.nan))
 
-        mean_y = [np.nanmean(block_best) if len(block_best) else np.nan, np.nanmean(block_second) if len(block_second) else np.nan, np.nanmean(block_third) if len(block_third) else np.nan]
-        ax.bar(x, mean_y, width=bar_width, color="#999999", edgecolor="black", linewidth=1.5, alpha=0.55, zorder=0)
+        mean_y = [np.nanmean(block_best) if len(block_best) else np.nan, 
+                  np.nanmean(block_second) if len(block_second) else np.nan, 
+                  np.nanmean(block_third) if len(block_third) else np.nan]
+        se_y = [np.nanstd(block_best, ddof=1) / np.sqrt(len(block_best)) if len(block_best) > 1 else np.nan,
+                np.nanstd(block_second, ddof=1) / np.sqrt(len(block_second)) if len(block_second) > 1 else np.nan,
+                np.nanstd(block_third, ddof=1) / np.sqrt(len(block_third)) if len(block_third) > 1 else np.nan]
+        ax.bar(x, mean_y, yerr=se_y, capsize=6, width=bar_width, color="#999999", edgecolor="black", linewidth=1.5, alpha=0.55, zorder=0)
 
         for xi, m in zip(x, mean_y):
             if np.isfinite(m):
