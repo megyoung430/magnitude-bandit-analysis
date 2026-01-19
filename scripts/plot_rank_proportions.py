@@ -15,5 +15,5 @@ subjects_trials = extract_trials(subjects_data)
 reversal_windows = get_good_reversal_info(subjects_trials, include_first_block=True)
 rank_counts_by_good_reversal = get_rank_counts_by_good_reversal(reversal_windows)
 
-save_path = f"../results/{cohort}/figures/choice-stats/Rank Proportions"
+save_path = f"../results/figures/{cohort}/choice-stats/Rank Proportions"
 plot_rank_proportions(rank_counts_by_good_reversal, save_path=save_path)
