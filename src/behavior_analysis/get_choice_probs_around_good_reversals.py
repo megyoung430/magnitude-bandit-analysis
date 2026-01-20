@@ -1,25 +1,24 @@
 import numpy as np
 
-def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40):
-    """
-    NaN-padded aggregation of good reversals.
-    Returns:
-      x: np.array of relative trial indices, length pre+post ([-pre ... post-1])
-      per_subject: dict[subj] -> dict with keys:
-        - "prev_best": (num_reversals x T) np.array
-        - "next_best": (num_reversals x T) np.array
-        - "third": (num_reversals x T) np.array
-        - "prev_best_mean": np.array
-        - "next_best_mean": np.array
-        - "third_mean": np.array
-        - "num_reversals": int
-      across: dict with keys:
-        - "mean": dict[label]->np.array
-        - "se":  dict[label]->np.array
-        - "num_subjects": int
-    """
-    T = pre + post
-    x = np.arange(-pre, post)
+def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, skip_n_trials_after_reversal=0):
+
+    def keep_zero_then_skip(post_list, skip):
+        if skip <= 0:
+            return post_list
+        return post_list[:1] + post_list[skip:]
+
+    if skip_n_trials_after_reversal < 0:
+        raise ValueError("skip_n_trials_after_reversal must be >= 0")
+    if skip_n_trials_after_reversal >= post:
+        raise ValueError("skip_n_trials_after_reversal must be < post (otherwise post window is empty).")
+
+    T = pre + (post - skip_n_trials_after_reversal)
+
+    x = np.concatenate([
+        np.arange(-pre, 0),
+        np.arange(0, post - skip_n_trials_after_reversal)
+    ])
+
     per_subject = {}
 
     for subj, revs in reversal_windows.items():
@@ -32,11 +31,19 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40):
         for r in revs:
             prev_best, next_best, third = classify_towers_at_good_reversals(r)
 
-            prev_raw  = r["choices_by_tower"][prev_best]["pre"] + r["choices_by_tower"][prev_best]["post"]
-            next_raw  = r["choices_by_tower"][next_best]["pre"] + r["choices_by_tower"][next_best]["post"]
-            third_raw = r["choices_by_tower"][third]["pre"] + r["choices_by_tower"][third]["post"]
+            prev_pre   = r["choices_by_tower"][prev_best]["pre"]
+            prev_post  = keep_zero_then_skip(r["choices_by_tower"][prev_best]["post"], skip_n_trials_after_reversal)
 
-            # --- NaN pad to length T ---
+            next_pre   = r["choices_by_tower"][next_best]["pre"]
+            next_post  = keep_zero_then_skip(r["choices_by_tower"][next_best]["post"], skip_n_trials_after_reversal)
+
+            third_pre  = r["choices_by_tower"][third]["pre"]
+            third_post = keep_zero_then_skip(r["choices_by_tower"][third]["post"], skip_n_trials_after_reversal)
+
+            prev_raw  = prev_pre  + prev_post
+            next_raw  = next_pre  + next_post
+            third_raw = third_pre + third_post
+
             def pad(arr):
                 out = np.full(T, np.nan, dtype=float)
                 n = min(len(arr), T)
@@ -68,14 +75,6 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40):
     subj_list = list(per_subject.keys())
     num_subjects = len(subj_list)
 
-    if num_subjects == 0:
-        return x, per_subject, {
-            "mean": {"prev_best": None, "next_best": None, "third": None},
-            "se":  {"prev_best": None, "next_best": None, "third": None},
-            "num_subjects": 0
-        }
-
-    # --- Across-subject mean/se ---
     across_mean = {}
     across_se = {}
 
@@ -88,10 +87,11 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40):
     for k, mk in mean_key_map.items():
         stack = np.vstack([per_subject[subj][mk] for subj in subj_list])
         across_mean[k] = np.nanmean(stack, axis=0)
-        across_se[k]  = (
-            np.nanstd(stack, axis=0, ddof=1) / np.sqrt(num_subjects)
-            if num_subjects > 1 else np.zeros(T)
-        )
+
+        if num_subjects > 1:
+            across_se[k] = np.nanstd(stack, axis=0, ddof=1) / np.sqrt(num_subjects)
+        else:
+            across_se[k] = np.zeros(T)
 
     across = {
         "mean": across_mean,
@@ -100,17 +100,14 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40):
         "num_reversals": sum(per_subject[subj]["num_reversals"] for subj in subj_list)
     }
 
-    # --- Check: probabilities sum to 1 ---
-    assert np.isclose(across["mean"]["prev_best"] + across["mean"]["next_best"] + across["mean"]["third"], 1.0, atol=1e-6).all(), "Choice probabilities do not sum to 1."
+    s = across["mean"]["prev_best"] + across["mean"]["next_best"] + across["mean"]["third"]
+    finite = np.isfinite(s)
+    assert finite.any(), "No finite bins to validate (all-NaN after padding/filtering)."
+    assert np.isclose(s[finite], 1.0, atol=1e-6).all(), "Choice probabilities do not sum to 1 (finite bins)."
 
     return x, per_subject, across
 
-# ========== Classifying Towers at Good Reversals ==========
 def classify_towers_at_good_reversals(reversal):
-    """
-    Returns:
-      prev_best, next_best, third
-    """
     before = reversal["reward_magnitudes_by_tower_before"]
     after  = reversal["reward_magnitudes_by_tower_after"]
 
