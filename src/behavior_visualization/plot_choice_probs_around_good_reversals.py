@@ -61,6 +61,11 @@ def plot_reversal_probs_around_good_reversals(x, across, show_chance=True, skip_
         _plot_all(ax, (np.nanmin(x_disp), np.nanmax(x_disp)))
         ax.set_xlabel("Trials from Good Reversal")
         ax.set_ylabel("Choice Probability")
+        title = "Good Reversal-Aligned Choices\n" \
+            f"(mean ± se across subjects | " \
+            f"n={across.get('num_subjects', 0)} subjects, " \
+            f"n={across.get('num_reversals', 0)} reversals)\n"
+        ax.set_title(title, pad=20)
         ax.legend(loc="upper right", fontsize=10)
         plt.tight_layout()
 
