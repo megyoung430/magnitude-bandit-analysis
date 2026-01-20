@@ -12,7 +12,7 @@ mpl.rcParams["ytick.labelsize"] = 12
 mpl.rcParams["axes.labelsize"] = 12
 mpl.rcParams["axes.titlesize"] = 14
 
-def plot_rank_proportions(rank_counts_by_good_reversal, save_path=None, by_mouse=True, by_block=True, average=True):
+def plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None, by_mouse=True, by_block=True, average=True):
     if by_mouse:
         mouse_save_path = save_path + " by Mouse" if save_path else None
         plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=mouse_save_path)
@@ -21,9 +21,9 @@ def plot_rank_proportions(rank_counts_by_good_reversal, save_path=None, by_mouse
         plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=block_save_path)
     if average:
         average_save_path = save_path + " by Average" if save_path else None
-        plot_rank_proportions_average(rank_counts_by_good_reversal, save_path=average_save_path)
+        plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=average_across_mice_pvalues, save_path=average_save_path)
 
-def plot_rank_proportions_average(rank_counts_by_good_reversal, save_path=None):
+def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None):
     """
     Two-panel summary:
       (Left)  Average across mice: bars = mean across mice, lines = individual mice (mouse colors).
@@ -94,10 +94,26 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, save_path=None):
 
     ax.bar(x, mouse_means, yerr=mouse_se, capsize=6, width=0.55, color="#999999", edgecolor="black", linewidth=1.5, alpha=0.55, zorder=0)
 
+    if average_across_mice_pvalues:
+        p_bs = average_across_mice_pvalues.get("best_vs_second", None)
+        p_bt = average_across_mice_pvalues.get("best_vs_third", None)
+        p_st = average_across_mice_pvalues.get("second_vs_third", None)
+    else:
+        p_bs = p_bt = p_st = None
+
+    xi_s = []
     for xi, m in zip(x, mouse_means):
         if np.isfinite(m):
             ax.text(xi, 1.05, f"{m:.2f}", ha="center", va="bottom", fontsize=12)
-
+            xi_s.append(xi)
+    
+    if p_bs is not None:
+        ax.text(xi_s[0], 0.6, f"p(Best vs Second):\n{p_bs:.3f}", ha="center", va="bottom", fontsize=12)
+    if p_bt is not None:
+        ax.text(xi_s[2], 0.6, f"p(Best vs Third):\n{p_bt:.3f}", ha="center", va="bottom", fontsize=12)
+    if p_st is not None:
+        ax.text(xi_s[1], 0.6, f"p(Second vs Third):\n{p_st:.3f}", ha="center", va="bottom", fontsize=12)
+    
     legend_handles = []
     for i, (subj, v) in enumerate(per_mouse.items()):
         c = mouse_colors[i % len(mouse_colors)]
