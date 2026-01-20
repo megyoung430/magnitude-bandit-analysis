@@ -24,7 +24,7 @@ p_value = pvalue_paired_t_new_vs_third(first_leave_per_subject, alternative="gre
 curr_save_path = Path(f"../results/figures/{cohort}/reversal-stats/First Leave After Good Reversals")
 plot_first_leave_after_good_reversals(mean, se, first_leave_per_subject, p_value, save_path=curr_save_path)
 
-early, late = split_good_reversals_early_late(reversal_windows)
+early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
 first_leave_per_subject_early = get_first_leave_after_good_reversals(early)
 mean_early, se_early, n_subjects_early = average_first_leave_across_subjects(first_leave_per_subject_early)
 p_value_early = pvalue_paired_t_new_vs_third(first_leave_per_subject_early, alternative="greater")

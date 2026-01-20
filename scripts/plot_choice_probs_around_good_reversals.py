@@ -11,7 +11,7 @@ from src.behavior_visualization.plot_choice_probs_around_good_reversals import *
 # With all trials after reversal
 cohort = "cohort-02"
 root = f"../data/{cohort}/rawdata/"
-pre = 30
+pre = 10
 post = 30
 
 subjects_data = import_data(root)
@@ -31,9 +31,9 @@ curr_save_path = Path(f"../results/figures/{cohort}/reversal-stats/Choice Probab
 plot_reversal_probs_around_good_reversals(x, across, show_chance=True, skip_n_trials_after_reversal=0, save_path=curr_save_path)
 
 # Skipping trials after a reversal
-pre = 30
-post = 50
-skip_n_trials_after_reversal = 20
+pre = 10
+post = 30
+skip_n_trials_after_reversal = 10
 
 subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
