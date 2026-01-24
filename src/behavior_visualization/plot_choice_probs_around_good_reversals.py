@@ -12,7 +12,7 @@ mpl.rcParams["ytick.labelsize"] = 12
 mpl.rcParams["axes.labelsize"] = 12
 mpl.rcParams["axes.titlesize"] = 14
 
-def plot_reversal_probs_around_good_reversals(x, across, show_chance=True, skip_n_trials_after_reversal=0, save_path=None):
+def plot_choice_probs_around_good_reversals(x, across, show_chance=True, skip_n_trials_after_reversal=0, save_path=None):
     COLOR_MAP = {
         "prev_best": "#5DA5DA",
         "next_best": "#60BD68",

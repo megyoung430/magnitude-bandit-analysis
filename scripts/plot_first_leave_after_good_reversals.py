@@ -11,13 +11,11 @@ from src.behavior_visualization.plot_first_leave_after_good_reversals import *
 
 cohort = "cohort-02"
 root = f"../data/{cohort}/rawdata/"
-pre=10
-post=40
 
 subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
 
-reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
+reversal_windows = get_good_reversal_info(subjects_trials, include_first_block=False)
 first_leave_per_subject = get_first_leave_after_good_reversals(reversal_windows)
 mean, se, n_subjects = average_first_leave_across_subjects(first_leave_per_subject)
 p_value = pvalue_paired_t_new_vs_third(first_leave_per_subject, alternative="greater")

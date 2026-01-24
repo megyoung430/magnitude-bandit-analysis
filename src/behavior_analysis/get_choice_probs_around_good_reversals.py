@@ -107,6 +107,116 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, sk
 
     return x, per_subject, across
 
+def apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=5, mode="centered",
+    use_keys=("prev_best_mean", "next_best_mean", "third_mean"),
+    out_keys=("prev_best_mean_sm", "next_best_mean_sm", "third_mean_sm"),
+    split_at=0):
+    """
+    Applies NaN-aware moving average separately to pre (x < split_at) and post (x >= split_at)
+    so there is no smoothing bleedthrough across the reversal boundary.
+    """
+
+    def nan_moving_average(y, window, mode="centered"):
+        if window is None or window <= 1:
+            return np.asarray(y, dtype=float)
+
+        y = np.asarray(y, dtype=float)
+        w = int(window)
+        if w < 1:
+            return y
+
+        valid = np.isfinite(y).astype(float)
+        y0 = np.nan_to_num(y, nan=0.0)
+        kernel = np.ones(w, dtype=float)
+
+        if mode == "trailing":
+            num = np.convolve(y0, kernel, mode="full")[:len(y0)]
+            den = np.convolve(valid, kernel, mode="full")[:len(y0)]
+        else:
+            num = np.convolve(y0, kernel, mode="same")
+            den = np.convolve(valid, kernel, mode="same")
+
+        out = np.full_like(y0, np.nan, dtype=float)
+        m = den > 0
+        out[m] = num[m] / den[m]
+        return out
+
+    pre_mask = x < split_at
+    post_mask = ~pre_mask
+
+    def smooth_pre_post(y):
+        """Smooth y separately on pre and post segments and stitch back together."""
+        y = np.asarray(y, dtype=float)
+        out = np.full_like(y, np.nan, dtype=float)
+
+        if pre_mask.any():
+            out[pre_mask] = nan_moving_average(y[pre_mask], moving_avg_window, mode=mode)
+        if post_mask.any():
+            out[post_mask] = nan_moving_average(y[post_mask], moving_avg_window, mode=mode)
+
+        return out
+
+    per_subject_moving_avg = {}
+    for subj, d in per_subject.items():
+        d2 = dict(d)
+
+        if any(k not in d2 for k in use_keys):
+            continue
+
+        for src, dst in zip(use_keys, out_keys):
+            d2[dst] = smooth_pre_post(d2[src])
+
+        per_subject_moving_avg[subj] = d2
+
+    subj_list = list(per_subject_moving_avg.keys())
+    n_subjects = len(subj_list)
+    T = len(x)
+
+    if n_subjects == 0:
+        across_moving_avg = {
+            "mean": {"prev_best": None, "next_best": None, "third": None},
+            "se":   {"prev_best": None, "next_best": None, "third": None},
+            "num_subjects": 0,
+            "num_reversals": 0,
+            "moving_avg_window": moving_avg_window,
+            "mode": mode,
+            "split_at": split_at,
+        }
+        return x, per_subject_moving_avg, across_moving_avg
+
+    stack_prev  = np.vstack([per_subject_moving_avg[s][out_keys[0]] for s in subj_list])
+    stack_next  = np.vstack([per_subject_moving_avg[s][out_keys[1]] for s in subj_list])
+    stack_third = np.vstack([per_subject_moving_avg[s][out_keys[2]] for s in subj_list])
+
+    mean_prev  = np.nanmean(stack_prev, axis=0)
+    mean_next  = np.nanmean(stack_next, axis=0)
+    mean_third = np.nanmean(stack_third, axis=0)
+
+    if n_subjects > 1:
+        se_prev  = np.nanstd(stack_prev, axis=0, ddof=1) / np.sqrt(n_subjects)
+        se_next  = np.nanstd(stack_next, axis=0, ddof=1) / np.sqrt(n_subjects)
+        se_third = np.nanstd(stack_third, axis=0, ddof=1) / np.sqrt(n_subjects)
+    else:
+        se_prev = se_next = se_third = np.zeros(T)
+
+    across_moving_avg = {
+        "mean": {"prev_best": mean_prev, "next_best": mean_next, "third": mean_third},
+        "se":   {"prev_best": se_prev,   "next_best": se_next,   "third": se_third},
+        "num_subjects": n_subjects,
+        "num_reversals": sum(per_subject_moving_avg[s].get("num_reversals", 0) for s in subj_list),
+        "moving_avg_window": moving_avg_window,
+        "mode": mode,
+        "split_at": split_at,
+    }
+
+    s = (across_moving_avg["mean"]["prev_best"] + across_moving_avg["mean"]["next_best"] + across_moving_avg["mean"]["third"])
+    finite = np.isfinite(s)
+    if finite.any():
+        assert np.isclose(s[finite], 1.0, atol=1e-6).all(), \
+            "Smoothed probabilities do not sum to 1 (finite bins)."
+
+    return x, per_subject_moving_avg, across_moving_avg
+
 def classify_towers_at_good_reversals(reversal):
     before = reversal["reward_magnitudes_by_tower_before"]
     after  = reversal["reward_magnitudes_by_tower_after"]
