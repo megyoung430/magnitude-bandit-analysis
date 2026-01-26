@@ -12,6 +12,21 @@ mpl.rcParams["ytick.labelsize"] = 12
 mpl.rcParams["axes.labelsize"] = 12
 mpl.rcParams["axes.titlesize"] = 14
 
+MOUSE_COLORS = [
+    "#4C72B0","#55A868","#C44E52","#8172B2",
+    "#CCB974","#64B5CD","#8C8C8C","#DD8452",
+    "#937860","#DA8BC3","#8C6D31","#1F77B4",
+]
+
+BLOCK_COLORS = [
+    "#1B9E77", "#D95F02", "#7570B3", "#E7298A",
+    "#66A61E", "#E6AB02", "#A6761D", "#666666",
+    "#1F78B4", "#33A02C",
+    "#FB9A99", "#E31A1C", "#FDBF6F", "#CAB2D6",
+    "#6A3D9A", "#FFFF99", "#B15928", "#A6CEE3",
+    "#B2DF8A", "#FF7F00",
+]
+
 def plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None, by_mouse=True, by_block=True, average=True):
     if by_mouse:
         mouse_save_path = save_path + " by Mouse" if save_path else None
@@ -32,31 +47,6 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
     rank_counts_by_good_reversal[subj] should be a list of dicts with keys:
       best_prop, second_prop, third_prop, total, ...
     """
-
-    # Mouse colors
-    mouse_colors = [
-        "#4C72B0",  # blue
-        "#55A868",  # green
-        "#C44E52",  # red
-        "#8172B2",  # purple
-        "#CCB974",  # yellow-brown
-        "#64B5CD",  # cyan
-        "#8C8C8C",  # gray
-    ]
-
-    # Block colors
-    block_colors = [
-        "#1B9E77",  # teal
-        "#D95F02",  # orange
-        "#7570B3",  # blue-purple
-        "#E7298A",  # magenta
-        "#66A61E",  # olive
-        "#E6AB02",  # mustard
-        "#A6761D",  # brown
-        "#666666",  # dark gray
-        "#1F78B4",  # steel blue
-        "#33A02C",  # green
-    ]
 
     subjects = list(rank_counts_by_good_reversal.keys())
     labels = ["Best", "Second", "Third"]
@@ -116,7 +106,7 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
     
     legend_handles = []
     for i, (subj, v) in enumerate(per_mouse.items()):
-        c = mouse_colors[i % len(mouse_colors)]
+        c = MOUSE_COLORS[i % len(MOUSE_COLORS)]
         y = [v["best"], v["second"], v["third"]]
         ax.plot(x + np.random.uniform(-jitter, jitter, size=len(x)), y, color=c, linewidth=2.5, marker="o", alpha=0.9, markersize=6,)
         legend_handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", label=subj))
@@ -172,7 +162,7 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
     block_legend = []
     for bi, b in enumerate(per_block):
         y = [b["best"], b["second"], b["third"]]
-        c = block_colors[bi % len(block_colors)]
+        c = BLOCK_COLORS[bi % len(BLOCK_COLORS)]
         ax.plot(x + np.random.uniform(-jitter, jitter, size=len(x)), y, color=c, linewidth=2.2, marker="o", alpha=0.85)
         block_legend.append(Line2D([0], [0], color=c, lw=2.2, marker="o", label=f"Block {bi + 1}"))
 
@@ -182,7 +172,7 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
     ax.set_ylim(0.0, 1.07)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(handles=block_legend, fontsize=10, loc="upper right")
+    ax.legend(handles=block_legend, fontsize=10, ncols=2, loc="upper right")
     plt.tight_layout()
 
     if save_path:
@@ -205,20 +195,6 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
     labels = ["Best", "Second", "Third"]
     x = np.arange(len(labels))
 
-    # Block colors
-    block_colors = [
-        "#1B9E77",  # teal
-        "#D95F02",  # orange
-        "#7570B3",  # blue-purple
-        "#E7298A",  # magenta
-        "#66A61E",  # olive
-        "#E6AB02",  # mustard
-        "#A6761D",  # brown
-        "#666666",  # dark gray
-        "#1F78B4",  # steel blue
-        "#33A02C",  # green
-    ]
-
     for ax_idx, ax in enumerate(axes):
         if ax_idx >= n_subj:
             ax.axis("off")
@@ -232,7 +208,7 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
 
         for rev_idx, r in enumerate(rows):
             y = [r["best_prop"], r["second_prop"], r["third_prop"]]
-            c = block_colors[rev_idx % len(block_colors)]
+            c = BLOCK_COLORS[rev_idx % len(BLOCK_COLORS)]
             ax.plot(x + np.random.uniform(-jitter, jitter, size=len(x)), y, color=c, linewidth=2.2, alpha=0.85, marker="o", markersize=5)
             legend_handles.append(Line2D([0], [0], color=c, lw=2.2, marker="o", label=f"Block {rev_idx + 1}"))
         mean_y = [np.nanmean([r["best_prop"] for r in rows]), 
@@ -256,7 +232,7 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
         if ax_idx % ncols == 0:
             ax.set_ylabel("Proportion of Choices")
 
-        ax.legend(handles=legend_handles[:8], fontsize=10, loc="upper right")
+        ax.legend(handles=legend_handles, ncols=2, fontsize=10, loc="upper right")
 
     plt.tight_layout()
 
@@ -270,17 +246,6 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
     plt.close(fig)
 
 def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None):
-    # Mouse colors
-    mouse_colors = [
-        "#4C72B0",  # blue
-        "#55A868",  # green
-        "#C44E52",  # red
-        "#8172B2",  # purple
-        "#CCB974",  # yellow-brown
-        "#64B5CD",  # cyan
-        "#8C8C8C",  # gray
-    ]
-
     subjects = list(rank_counts_by_good_reversal.keys())
 
     max_blocks = 0
@@ -314,7 +279,7 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
                 continue
             r = rows[block_idx]
             y = [r.get("best_prop", np.nan), r.get("second_prop", np.nan), r.get("third_prop", np.nan)]
-            c = mouse_colors[si % len(mouse_colors)]
+            c = MOUSE_COLORS[si % len(MOUSE_COLORS)]
             ax.plot(x + np.random.uniform(-jitter, jitter, size=len(x)), y, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=5.5)
             n_trials = r.get("total", None)
             lbl = f"{subj}" if n_trials is None else f"{subj} (n={n_trials} trials)"
