@@ -1,3 +1,4 @@
+from copy import deepcopy
 import numpy as np
 
 def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, skip_n_trials_after_reversal=0):
@@ -216,6 +217,83 @@ def apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=5, mo
             "Smoothed probabilities do not sum to 1 (finite bins)."
 
     return x, per_subject_moving_avg, across_moving_avg
+
+def remove_trials_after_bad_rev(good_windows, all_good_idx, all_bad_idx, include_bad_trial=True):
+    """
+    Stops each good reversal's post window at the first bad reversal between it and the next good reversal.
+    include_bad_trial: if True, keep trial b in post; if False, cut just before b
+    """
+
+    out = {}
+
+    for subj, good_revs in good_windows.items():
+        revs_sorted = sorted(good_revs, key=lambda r: r.get("reversal_idx", 0))
+        goods = sorted(all_good_idx.get(subj, []))
+        bads  = sorted(all_bad_idx.get(subj, []))
+
+        if not revs_sorted:
+            out[subj] = []
+            continue
+
+        subj_out = []
+        for r in revs_sorted:
+            r2 = deepcopy(r)
+            g = r2.get("reversal_idx", None)
+            if g is None:
+                r2["removed_bad_idx"] = None
+                r2["post_len_after_removal"] = None
+                subj_out.append(r2)
+                continue
+
+            next_g = None
+            for gg in goods:
+                if gg > g:
+                    next_g = gg
+                    break
+            if next_g is None:
+                next_g = float("inf")
+
+            cutoff = None
+            for b in bads:
+                if not (g < b < next_g):
+                    continue
+                cutoff = b
+                break
+
+            if cutoff is None:
+                r2["removed_bad_idx"] = None
+                r2["post_len_after_removal"] = None
+                subj_out.append(r2)
+                continue
+
+            cut_len = (cutoff - g) + (1 if include_bad_trial else 0)
+
+            r2["removed_bad_idx"] = cutoff
+            r2["post_len_after_removal"] = cut_len
+
+            if cut_len < 1:
+                subj_out.append(r2)
+                continue
+
+            for t, dct in r2.get("choices_by_tower", {}).items():
+                if isinstance(dct, dict) and "post" in dct:
+                    dct["post"] = dct["post"][:cut_len]
+
+            for rk, dct in r2.get("choices_by_rank", {}).items():
+                if isinstance(dct, dict) and "post" in dct:
+                    dct["post"] = dct["post"][:cut_len]
+
+            tw = r2.get("trial_window_idx", {})
+            if isinstance(tw, dict) and isinstance(tw.get("post", None), list):
+                tw["post"] = tw["post"][:cut_len]
+
+            blk_str = ""
+            print(f"[REMOVE] {subj} good@{g}{blk_str}: cut post at bad@{cutoff} (kept {cut_len} post trials)")
+
+            subj_out.append(r2)
+
+        out[subj] = subj_out
+    return out
 
 def classify_towers_at_good_reversals(reversal):
     before = reversal["reward_magnitudes_by_tower_before"]
