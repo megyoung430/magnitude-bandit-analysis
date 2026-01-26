@@ -17,7 +17,7 @@ root = f"../data/{cohort}/rawdata/"
 
 if all:
     # With all trials after reversal
-    pre = 25
+    pre = 15
     post = 50
 
     subjects_data = import_data(root)
@@ -38,7 +38,7 @@ if all:
 
 if skip:
     # Skipping trials after a reversal
-    pre = 10
+    pre = 15
     post = 50
     skip_n_trials_after_reversal = 15
 
@@ -60,7 +60,7 @@ if skip:
 
 if moving_avg:
     # With moving average
-    pre = 25
+    pre = 15
     post = 50
     moving_avg_window = 4
 

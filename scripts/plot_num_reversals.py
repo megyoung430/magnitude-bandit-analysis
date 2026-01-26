@@ -11,3 +11,6 @@ subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
 curr_save_path = Path(f"../results/figures/{cohort}/reversal-stats/Total Reversals")
 plot_num_reversals(subjects_trials, save_path=curr_save_path)
+
+curr_save_path = Path(f"../results/figures/{cohort}/reversal-stats/Cumulative Reversals Over Time")
+plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=curr_save_path)
