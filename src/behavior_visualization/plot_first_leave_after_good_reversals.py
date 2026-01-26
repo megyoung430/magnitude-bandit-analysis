@@ -11,6 +11,12 @@ mpl.rcParams["ytick.labelsize"] = 12
 mpl.rcParams["axes.labelsize"] = 12
 mpl.rcParams["axes.titlesize"] = 14
 
+MOUSE_COLORS = [
+    "#4C72B0","#55A868","#C44E52","#8172B2",
+    "#CCB974","#64B5CD","#8C8C8C","#DD8452",
+    "#937860","#DA8BC3","#8C6D31","#1F77B4",
+]
+
 def plot_first_leave_after_good_reversals(mean, se, per_subject_counts, p_value=None, save_path=None):
     labels = ["New Best", "Third Arm"]
     means = [mean["new_best"], mean["third"]]
@@ -24,15 +30,6 @@ def plot_first_leave_after_good_reversals(mean, se, per_subject_counts, p_value=
         ax.text(xi,1.05,f"{m:.2f}",ha="center",va="bottom",fontsize=12)
 
     subjects = list(per_subject_counts.keys())
-    colors = [
-        "#4C72B0",  # blue
-        "#55A868",  # green
-        "#C44E52",  # red
-        "#8172B2",  # purple
-        "#CCB974",  # yellow-brown
-        "#64B5CD",  # cyan
-        "#8C8C8C",  # gray
-    ]
     legend_handles = []
 
     for subj in subjects:
