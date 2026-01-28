@@ -1,4 +1,4 @@
-def get_rank_counts_by_good_reversal(good_reversal_info):
+def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=True):
     rank_counts_by_good_reversal = {}
     for subj in good_reversal_info.keys():
         rank_counts_by_good_reversal[(subj)] = []
