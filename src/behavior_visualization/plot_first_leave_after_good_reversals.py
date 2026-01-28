@@ -40,7 +40,7 @@ def plot_first_leave_after_good_reversals(mean, se, per_subject_counts, p_value=
         nv = counts["new_best"] / counts["total"]
         tv = counts["third"] / counts["total"]
 
-        c = colors[subjects.index(subj)]
+        c = MOUSE_COLORS[subjects.index(subj)]
 
         jitter = 0.03
         ax.plot([0 + np.random.uniform(-jitter, jitter), 1 + np.random.uniform(-jitter, jitter)],[nv, tv],color=c,linewidth=2.5,alpha=0.9,marker="o",markersize=6)
