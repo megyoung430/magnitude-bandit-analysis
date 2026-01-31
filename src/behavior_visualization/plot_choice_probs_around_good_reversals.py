@@ -111,7 +111,7 @@ def plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True,
 
         handles, labels = axL.get_legend_handles_labels()
         if handles:
-            axR.legend(handles, labels, loc="upper right", fontsize=10, frameon=False)
+            axR.legend(handles, labels, loc="upper right", fontsize=10)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
@@ -127,7 +127,7 @@ def plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True,
 
     plt.close(fig)
 
-def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_good_idx=None, all_bad_idx=None, save_path=None):
+def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_good_idx=None, all_bad_idx=None, save_path=None, plot_fraction_removed=True):
     mean = across.get("mean", {})
     se = across.get("se", {})
 
@@ -138,7 +138,7 @@ def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_goo
     cumulative_good = cumulative_bad = None
     if windows_for_cumulative_axis is None or all_good_idx is None or all_bad_idx is None:
         raise ValueError("To show_reversal_cum_axis, provide windows_for_cumulative_axis, all_good_idx, all_bad_idx.")
-    _, cumulative_good, cumulative_bad = cumulative_reversal_events_over_post(windows_for_cumulative_axis, all_good_idx, all_bad_idx, x, exclude_anchor_good=True)
+    _, cumulative_good, cumulative_bad, fraction_removed_good, fraction_removed_bad = cumulative_reversal_events_over_post(windows_for_cumulative_axis, all_good_idx, all_bad_idx, x, across, exclude_anchor_good=True)
 
     def _plot_all(ax, xlim):
         ax.set_xlim(*xlim)
@@ -169,22 +169,37 @@ def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_goo
 
     def _add_cumulative_axis_single(ax):
         ax2 = ax.twinx()
-        m = np.isfinite(x_disp) & np.isfinite(cumulative_good) & np.isfinite(cumulative_bad)
 
-        ax2.set_zorder(0)
-        ax.set_zorder(1)
-        ax.patch.set_visible(False)
+        if plot_fraction_removed:
+            m = np.isfinite(x_disp) & np.isfinite(fraction_removed_good) & np.isfinite(fraction_removed_bad)
 
-        ax2.step(x_disp[m], cumulative_good[m], where="post", linewidth=2.0, color="#3A982E", alpha=0.7, label="Good Rev")
-        ax2.step(x_disp[m], cumulative_bad[m],  where="post", linewidth=2.0, color="#F97979", alpha=0.7, label="Bad Rev")
+            ax2.set_zorder(0)
+            ax.set_zorder(1)
+            ax.patch.set_visible(False)
 
-        ax2.set_ylabel("Cumulative Reversals", rotation=-90, labelpad=15)
+            ax2.step(x_disp[m], fraction_removed_good[m], where="post", linewidth=2.0, color="#FF9100", alpha=0.7, label="Good Rev")
+            ax2.step(x_disp[m], fraction_removed_bad[m],  where="post", linewidth=2.0, color="#CD0000", alpha=0.7, label="Bad Rev")
 
-        ymax = 0.0
-        if np.any(m):
-            ymax = max(float(np.nanmax(cumulative_good[m])), float(np.nanmax(cumulative_bad[m])))
-        ax2.set_ylim(0, ymax * 1.05 + 1)
-        ax2.spines["top"].set_visible(False)
+            ax2.set_ylabel("Fraction of Data Removed", rotation=-90, labelpad=15)
+            ax2.set_ylim(0, 1.05)
+            ax2.spines["top"].set_visible(False)
+        else:
+            m = np.isfinite(x_disp) & np.isfinite(cumulative_good) & np.isfinite(cumulative_bad)
+
+            ax2.set_zorder(0)
+            ax.set_zorder(1)
+            ax.patch.set_visible(False)
+
+            ax2.step(x_disp[m], cumulative_good[m], where="post", linewidth=2.0, color="#FF9100", alpha=0.7, label="Good Rev")
+            ax2.step(x_disp[m], cumulative_bad[m],  where="post", linewidth=2.0, color="#CD0000", alpha=0.7, label="Bad Rev")
+
+            ax2.set_ylabel("Cumulative Reversals", rotation=-90, labelpad=15)
+
+            ymax = 0.0
+            if np.any(m):
+                ymax = max(float(np.nanmax(cumulative_good[m])), float(np.nanmax(cumulative_bad[m])))
+            ax2.set_ylim(0, ymax * 1.05 + 1)
+            ax2.spines["top"].set_visible(False)
 
         return ax2
 
@@ -223,7 +238,7 @@ def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_goo
 
     plt.close(fig)
 
-def cumulative_reversal_events_over_post(good_windows, all_good_idx, all_bad_idx, x, exclude_anchor_good=True):
+def cumulative_reversal_events_over_post(good_windows, all_good_idx, all_bad_idx, x, across, exclude_anchor_good=True):
     """
     For each aligned good reversal at raw index g, count whether raw reversals occur at g+t
     for each post offset t (t>=0), summed across all aligned good reversals/subjects.
@@ -281,4 +296,7 @@ def cumulative_reversal_events_over_post(good_windows, all_good_idx, all_bad_idx
     cumulative_good_full[post_mask] = cumulative_good
     cumulative_bad_full[post_mask]  = cumulative_bad
 
-    return x_disp, cumulative_good_full, cumulative_bad_full
+    fraction_removed_good = cumulative_good_full/across.get("num_reversals", 1)
+    fraction_removed_bad = cumulative_bad_full/across.get("num_reversals", 1)
+
+    return x_disp, cumulative_good_full, cumulative_bad_full, fraction_removed_good, fraction_removed_bad
