@@ -10,7 +10,7 @@ from src.behavior_analysis.get_diagnostic_p_value import *
 from src.behavior_visualization.plot_first_leave_after_good_reversals import *
 
 cohort = "cohort-02"
-problem_number = 2
+problem_number = 4
 problem = f"problem-{problem_number:02d}"
 root = f"../data/{cohort}/{problem}/rawdata/"
 

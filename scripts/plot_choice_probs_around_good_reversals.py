@@ -17,7 +17,7 @@ remove_bad = True
 split_by_best_change = True
 
 cohort = "cohort-02"
-problem_number = 2
+problem_number = 4
 problem = f"problem-{problem_number:02d}"
 root = f"../data/{cohort}/{problem}/rawdata/"
 

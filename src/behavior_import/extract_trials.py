@@ -83,7 +83,17 @@ def extract_trials(data):
             trial_vars_list = []
             for df in df_list:
                 trials_df = df[(df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))].sort_values("time")
-                trial_info = trials_df["content"].map(safe_json_load).tolist()
+                raw_trial_info = trials_df["content"].map(safe_json_load).tolist()
+
+                # Drop any trials where mice are finding ports, i.e., ones that contain "num_t_found"
+                trial_info = [
+                    d for d in raw_trial_info
+                    if not (isinstance(d, dict) and "num_t_found" in d)
+                ]
+
+                trial_info_list.append(trial_info)
+                trial_vars = transpose_trials(trial_info, ALIASES)
+
                 trial_info_list.append(trial_info)
                 trial_vars = transpose_trials(trial_info, ALIASES)
                 trial_vars_list.append(trial_vars)
