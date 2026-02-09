@@ -5,10 +5,13 @@ from src.behavior_import.import_data import *
 from src.behavior_import.extract_trials import *
 from src.behavior_visualization.plot_single_session import *
 
-cohort = "cohort-02"
-problem_number = 4
+# cohort = "cohort-02"
+cohort = "cohort-01"
+problem_number = 1
 problem = f"problem-{problem_number:02d}"
-root = f"../data/{cohort}/{problem}/rawdata/"
+# task = "grid-maze"
+task = "open-field"
+root = f"../data/{task}/{cohort}/{problem}/rawdata/"
 subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
 
@@ -21,5 +24,5 @@ for current_subject in all_subjects:
             print(f"Skipping {current_subject} | {current_session}. There are no trials.")
             continue
         print(f"Plotting {current_subject} | {current_session}")
-        curr_save_path = Path(f"../results/figures/{cohort}/{problem}/single-sessions/{current_subject}/{current_session}/Session Plot")
+        curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/single-sessions/{current_subject}/{current_session}/Session Plot")
         plot_single_session(subject_sessions[current_session], title=f"{current_subject} | {current_session}", save_path=curr_save_path)
