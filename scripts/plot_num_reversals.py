@@ -19,3 +19,6 @@ plot_num_reversals(subjects_trials, save_path=curr_save_path)
 
 curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Cumulative Reversals Over Time")
 plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=curr_save_path)
+
+curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Moving Average Reversals Over Time")
+plot_moving_avg_reversals_over_time(subjects_trials, save_path=curr_save_path)

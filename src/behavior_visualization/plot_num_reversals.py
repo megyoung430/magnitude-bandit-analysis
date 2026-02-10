@@ -238,3 +238,182 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
         plt.close(fig2)
     else:
         plt.show()
+
+def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, save_path=None):
+    """
+    Inputs:
+      subjects_trials[subj][session_key] -> trials (whatever get_total_reversals expects)
+
+    Saves / shows:
+      1) Across Mice (individual faint + mean bold; NaN-padded)
+      2) By Mouse (grid of per-subject plots)
+
+    Notes:
+      - Moving average is centered-ish (shrinks near edges).
+      - Across-mice mean is NaN-aware, aligned by RELATIVE session index.
+      - Per-mouse plots use the subject's actual session order and ses-XX tick labels.
+    """
+
+    all_subjects = sorted(subjects_trials.keys())
+    if not all_subjects:
+        raise ValueError("subjects_trials is empty")
+
+    # ---- helper: parse session number from session key ----
+    ses_re = re.compile(r"ses-(\d+)")
+
+    def session_int(session_key: str) -> int:
+        m = ses_re.search(session_key)
+        if m is None:
+            raise ValueError(f"Session key missing 'ses-<n>': {session_key}")
+        return int(m.group(1))
+
+    # ---- helper: centered moving average (NaN-aware) ----
+    def moving_average_1d(x: np.ndarray, window: int) -> np.ndarray:
+        x = np.asarray(x, dtype=float)
+        n = len(x)
+        if window <= 1:
+            return x.copy()
+
+        out = np.full(n, np.nan)
+        half = window // 2
+        for i in range(n):
+            lo = max(0, i - half)
+            hi = min(n, i + half + 1)
+            w = x[lo:hi]
+            if np.any(np.isfinite(w)):
+                out[i] = np.nanmean(w)
+        return out
+
+    # ---- extract per-session reversal counts + labels ----
+    rows_by_subj = defaultdict(list)
+
+    for subj in all_subjects:
+        for sess_key, trials in subjects_trials[subj].items():
+            stats = get_total_reversals({sess_key: trials})
+
+            s_int = session_int(sess_key)
+            s_label = f"ses-{s_int:02d}"
+
+            rows_by_subj[subj].append({
+                "ses_int": s_int,
+                "ses_label": s_label,
+                "good": stats.get("good_reversals", 0),
+                "bad": stats.get("bad_reversals", 0),
+            })
+
+    subjects = sorted([s for s in rows_by_subj.keys() if len(rows_by_subj[s]) > 0])
+    if not subjects:
+        raise ValueError("No valid subjects after parsing sessions")
+
+    # ---- per-subject arrays ----
+    good_by_subj, bad_by_subj = {}, {}
+    for subj in subjects:
+        rows = sorted(rows_by_subj[subj], key=lambda d: d["ses_int"])
+        good_by_subj[subj] = np.array([r["good"] for r in rows], dtype=float)
+        bad_by_subj[subj]  = np.array([r["bad"]  for r in rows], dtype=float)
+
+    # ---- moving average per mouse ----
+    ma_good = {s: moving_average_1d(good_by_subj[s], window) for s in subjects}
+    ma_bad  = {s: moving_average_1d(bad_by_subj[s],  window) for s in subjects}
+
+    # ---- align by relative session index using NaNs ----
+    max_len = max(len(v) for v in ma_good.values())
+    min_len = min(len(v) for v in ma_good.values())
+
+    def pad_nan(arr, n):
+        out = np.full(n, np.nan)
+        out[:len(arr)] = arr
+        return out
+
+    good_mat = np.vstack([pad_nan(ma_good[s], max_len) for s in subjects])
+    bad_mat  = np.vstack([pad_nan(ma_bad[s],  max_len) for s in subjects])
+
+    mean_good = np.nanmean(good_mat, axis=0)
+    mean_bad  = np.nanmean(bad_mat,  axis=0)
+
+    # =========================
+    # Figure 1: Across mice
+    # =========================
+    fig1, ax1 = plt.subplots(figsize=(10, 6))
+    x = np.arange(1, max_len + 1)
+
+    for s in subjects:
+        ax1.plot(x[:len(ma_good[s])], ma_good[s],
+                 color=GOOD_COLOR, alpha=0.25, linewidth=1.5)
+        ax1.plot(x[:len(ma_bad[s])],  ma_bad[s],
+                 color=BAD_COLOR,  alpha=0.25, linewidth=1.5)
+
+    ax1.plot(x, mean_good, color=GOOD_COLOR, linewidth=3, label="Good Rev")
+    ax1.plot(x, mean_bad,  color=BAD_COLOR,  linewidth=3, label="Bad Rev")
+
+    ax1.set_xlabel("Session Number")
+    ax1.set_ylabel("Moving-Average Reversals per Session")
+    ax1.spines["top"].set_visible(False)
+    ax1.spines["right"].set_visible(False)
+
+    title = ("Moving-Average Good and Bad Reversals Over Time\n" f"(n={len(subjects)} subjects; sessions per subject={min_len}–{max_len}; window={window})")
+    ax1.set_title(title)
+    ax1.legend(fontsize=10)
+    fig1.tight_layout()
+
+    # =========================
+    # Figure 2: By mouse (grid)
+    # =========================
+    n_subj = len(subjects)
+    ncols = 2
+    nrows = math.ceil(n_subj / ncols)
+
+    fig2, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(12, 3.5 * nrows), sharey=False)
+    axes = np.array(axes).reshape(-1)
+
+    for i, subj in enumerate(subjects):
+        ax = axes[i]
+        rows = sorted(rows_by_subj[subj], key=lambda d: d["ses_int"])
+
+        x_labels = [d["ses_label"] for d in rows]
+        good = np.array([d["good"] for d in rows], dtype=float)
+        bad  = np.array([d["bad"]  for d in rows], dtype=float)
+
+        ma_g = moving_average_1d(good, window)
+        ma_b = moving_average_1d(bad,  window)
+
+        ax.plot(ma_g, color=GOOD_COLOR, label="Good Rev" if i == 0 else None)
+        ax.plot(ma_b, color=BAD_COLOR,  label="Bad Rev"  if i == 0 else None)
+
+        ax.set_title(f"{subj}\n(n={len(rows)} sessions; window={window})", fontsize=12)
+        ax.set_xlabel("Session")
+        ax.set_ylabel("Moving-Average Reversals per Session")
+
+        step = max(1, len(x_labels) // 10)
+        tick_idx = list(range(0, len(x_labels), step))
+        ax.set_xticks(tick_idx)
+        ax.set_xticklabels([x_labels[j] for j in tick_idx], rotation=45, ha="right")
+
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    for j in range(n_subj, len(axes)):
+        axes[j].axis("off")
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig2.legend(handles, labels, loc="upper right")
+    fig2.suptitle("Moving-Average Good and Bad Reversals by Subject", y=1.02, fontsize=14)
+    fig2.tight_layout()
+
+    # =========================
+    # Save or show
+    # =========================
+    if save_path:
+        base = Path(save_path)
+        base.parent.mkdir(parents=True, exist_ok=True)
+
+        fig1.savefig(str(base) + " Across Mice.pdf", bbox_inches="tight")
+        fig1.savefig(str(base) + " Across Mice.png", dpi=300, bbox_inches="tight")
+
+        fig2.savefig(str(base) + " By Mouse.pdf", bbox_inches="tight")
+        fig2.savefig(str(base) + " By Mouse.png", dpi=300, bbox_inches="tight")
+
+        plt.close(fig1)
+        plt.close(fig2)
+    else:
+        plt.show()
