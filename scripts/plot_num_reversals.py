@@ -5,12 +5,12 @@ from src.behavior_import.import_data import *
 from src.behavior_import.extract_trials import *
 from src.behavior_visualization.plot_num_reversals import *
 
-# cohort = "cohort-02"
-cohort = "cohort-01"
-problem_number = 1
+cohort = "cohort-02"
+task = "grid-maze"
+# cohort = "cohort-01"
+# task = "open-field"
+problem_number = 6
 problem = f"problem-{problem_number:02d}"
-# task = "grid-maze"
-task = "open-field"
 root = f"../data/{task}/{cohort}/{problem}/rawdata/"
 subjects_data = import_data(root)
 subjects_trials = extract_trials(subjects_data)
