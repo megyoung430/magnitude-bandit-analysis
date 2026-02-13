@@ -16,12 +16,12 @@ moving_avg = True
 remove_bad = True
 split_by_best_change = False
 
-# cohort = "cohort-02"
-cohort = "cohort-01"
-problem_number = 1
+cohort = "cohort-02"
+task = "grid-maze"
+# cohort = "cohort-01"
+# task = "open-field"
+problem_number = 6
 problem = f"problem-{problem_number:02d}"
-# task = "grid-maze"
-task = "open-field"
 root = f"../data/{task}/{cohort}/{problem}/rawdata/"
 
 if all:

@@ -1,7 +1,7 @@
 from collections import Counter
-from src.behavior_analysis.get_variables_across_sessions import *
+from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 
-def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_pattern=(4, 1, 0)):
+def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_patterns=((4, 1, 0), (3, 1, 0))):
     """
     For each subject:
       - Find GOOD reversal indices (where cumulative good_reversals increments).
@@ -9,24 +9,14 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
           pre  = trials [idx-pre, ..., idx-1]
           post = trials [idx, ..., idx+post-1]  (includes the reversal trial, or goes until the next good reversal if post is None)
       - Keep only those reversals where the reward magnitudes on trial idx-1
-        across towers match required_reward_pattern in ANY order (multiset match).
+        across towers match ANY of required_reward_patterns in ANY order (multiset match).
       - Infer towers from reward_magnitudes_by_tower keys (preferred), else choices_by_tower keys.
       - Include both reward_magnitudes_by_tower_before (idx-1) and
         reward_magnitudes_by_tower_after (idx).
 
-    Returns:
-      dict[subj] -> list of dicts, one per kept reversal:
-        {
-          "reversal_idx": int,
-          "good_reversal_number": int,
-          "block_id": int,
-          "towers": list[str],
-          "trial_window_idx": {"pre": [...], "post": [...]},
-          "reward_magnitudes_by_tower_before": {tower: value, ...},
-          "reward_magnitudes_by_tower_after":  {tower: value, ...},
-          "choices_by_tower": {tower: {"pre":[...], "post":[...]}, ...},
-          "choices_by_rank":  {rank:  {"pre":[...], "post":[...]}, ...},
-        }
+    required_reward_patterns can be:
+      - a single tuple like (4,1,0)
+      - or an iterable of tuples like ((4,1,0), (3,1,0))
     """
 
     def find_increment_indices(cumulative_list):
@@ -37,8 +27,17 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
                 inc.append(i)
         return inc
 
+    # ---- normalize required_reward_patterns ----
+    # Allow passing a single tuple like (4,1,0)
+    if isinstance(required_reward_patterns, tuple) and all(
+        isinstance(x, (int, float)) for x in required_reward_patterns
+    ):
+        required_reward_patterns = (required_reward_patterns,)
+
+    required_counters = [Counter(pat) for pat in required_reward_patterns]
+
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
-    
+
     out = {}
     for subj, d in merged_subject_data_across_all_sessions.items():
         good = d.get("good_reversals", [])
@@ -85,12 +84,13 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
                 print(f"[SKIP] {subj} reversal@{idx}: reward_magnitudes_by_tower too short for idx-1")
                 continue
 
-            if Counter(before_vals) != Counter(required_reward_pattern):
+            before_counter = Counter(before_vals)
+            if not any(before_counter == rc for rc in required_counters):
                 block_id = blocks[idx] if idx < len(blocks) else None
                 print(
                     f"[SKIP] {subj} reversal@{idx} (block {block_id}): "
                     f"reward magnitudes before reversal were {before_vals} across towers {towers} "
-                    f"(expected a permutation of {list(required_reward_pattern)})"
+                    f"(expected a permutation of one of {list(required_reward_patterns)})"
                 )
                 continue
 
@@ -119,7 +119,7 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
                     "pre":  [arr[i] for i in pre_idx if i < n],
                     "post": [arr[i] for i in post_idx if i < n],
                 }
-            
+
             rank_slices = {}
             for rk, arr in choices_by_rank.items():
                 n = len(arr)
@@ -127,9 +127,9 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
                     "pre":  [arr[i] for i in pre_idx if i < n],
                     "post": [arr[i] for i in post_idx if i < n],
                 }
-            
+
             block_id = blocks[idx] if idx < len(blocks) else None
-            
+
             subj_results.append({
                 "reversal_idx": idx,
                 "good_reversal_number": good[idx],
@@ -141,6 +141,7 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
                 "choices_by_tower": tower_slices,
                 "choices_by_rank": rank_slices,
             })
-        
+
         out[subj] = subj_results
+
     return out

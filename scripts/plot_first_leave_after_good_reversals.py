@@ -9,12 +9,12 @@ from src.behavior_analysis.split_early_late_good_reversals import *
 from src.behavior_analysis.get_diagnostic_p_value import *
 from src.behavior_visualization.plot_first_leave_after_good_reversals import *
 
-# cohort = "cohort-02"
-cohort = "cohort-01"
-problem_number = 1
+cohort = "cohort-02"
+task = "grid-maze"
+# cohort = "cohort-01"
+# task = "open-field"
+problem_number = 6
 problem = f"problem-{problem_number:02d}"
-# task = "grid-maze"
-task = "open-field"
 root = f"../data/{task}/{cohort}/{problem}/rawdata/"
 
 subjects_data = import_data(root)

@@ -245,13 +245,13 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
       subjects_trials[subj][session_key] -> trials (whatever get_total_reversals expects)
 
     Saves / shows:
-      1) Across Mice (individual faint + mean bold; NaN-padded)
+      1) Across Mice (individual faint + mean bold; carry-forward padded)
       2) By Mouse (grid of per-subject plots)
 
     Notes:
       - Moving average is centered-ish (shrinks near edges).
-      - Across-mice mean is NaN-aware, aligned by RELATIVE session index.
-      - Per-mouse plots use the subject's actual session order and ses-XX tick labels.
+      - Across-mice mean is aligned by RELATIVE session index across mice.
+      - Carry-forward padding makes later sessions for shorter mice equal to their last observed moving-avg value.
     """
 
     all_subjects = sorted(subjects_trials.keys())
@@ -316,17 +316,38 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
     ma_good = {s: moving_average_1d(good_by_subj[s], window) for s in subjects}
     ma_bad  = {s: moving_average_1d(bad_by_subj[s],  window) for s in subjects}
 
-    # ---- align by relative session index using NaNs ----
     max_len = max(len(v) for v in ma_good.values())
     min_len = min(len(v) for v in ma_good.values())
 
-    def pad_nan(arr, n):
-        out = np.full(n, np.nan)
+    # ---- carry-forward padding (like cumulative) ----
+    def pad_carry_forward_finite(arr: np.ndarray, n: int) -> np.ndarray:
+        """
+        Pads to length n by repeating the last FINITE value.
+        If arr has no finite values, pads with NaNs.
+        """
+        arr = np.asarray(arr, dtype=float)
+        out = np.empty(n, dtype=float)
+
+        finite = np.isfinite(arr)
+        if not np.any(finite):
+            out[:] = np.nan
+            return out
+
+        last = arr[np.where(finite)[0][-1]]
+        out[:] = last
         out[:len(arr)] = arr
+
+        # If there are NaNs inside arr (unlikely here), forward-fill them too.
+        for i in range(1, n):
+            if not np.isfinite(out[i]):
+                out[i] = out[i - 1]
+        if not np.isfinite(out[0]):
+            out[0] = last
+
         return out
 
-    good_mat = np.vstack([pad_nan(ma_good[s], max_len) for s in subjects])
-    bad_mat  = np.vstack([pad_nan(ma_bad[s],  max_len) for s in subjects])
+    good_mat = np.vstack([pad_carry_forward_finite(ma_good[s], max_len) for s in subjects])
+    bad_mat  = np.vstack([pad_carry_forward_finite(ma_bad[s],  max_len) for s in subjects])
 
     mean_good = np.nanmean(good_mat, axis=0)
     mean_bad  = np.nanmean(bad_mat,  axis=0)
@@ -338,20 +359,21 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
     x = np.arange(1, max_len + 1)
 
     for s in subjects:
-        ax1.plot(x[:len(ma_good[s])], ma_good[s],
-                 color=GOOD_COLOR, alpha=0.25, linewidth=1.5)
-        ax1.plot(x[:len(ma_bad[s])],  ma_bad[s],
-                 color=BAD_COLOR,  alpha=0.25, linewidth=1.5)
+        ax1.plot(x[:len(ma_good[s])], ma_good[s], color=GOOD_COLOR, alpha=0.25, linewidth=1.5)
+        ax1.plot(x[:len(ma_bad[s])],  ma_bad[s],  color=BAD_COLOR,  alpha=0.25, linewidth=1.5)
 
     ax1.plot(x, mean_good, color=GOOD_COLOR, linewidth=3, label="Good Rev")
     ax1.plot(x, mean_bad,  color=BAD_COLOR,  linewidth=3, label="Bad Rev")
 
     ax1.set_xlabel("Session Number")
-    ax1.set_ylabel("Moving-Average Reversals per Session")
+    ax1.set_ylabel("Moving-Average Reversals / Session")
     ax1.spines["top"].set_visible(False)
     ax1.spines["right"].set_visible(False)
 
-    title = ("Moving-Average Good and Bad Reversals Over Time\n" f"(n={len(subjects)} subjects; sessions per subject={min_len}–{max_len}; window={window})")
+    title = (
+        "Moving-Average Good and Bad Reversals Over Time\n"
+        f"(n={len(subjects)} subjects; sessions per subject={min_len}–{max_len}; window={window})"
+    )
     ax1.set_title(title)
     ax1.legend(fontsize=10)
     fig1.tight_layout()
@@ -382,7 +404,7 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
 
         ax.set_title(f"{subj}\n(n={len(rows)} sessions; window={window})", fontsize=12)
         ax.set_xlabel("Session")
-        ax.set_ylabel("Moving-Average Reversals per Session")
+        ax.set_ylabel("Moving-Avg Reversals / Session")
 
         step = max(1, len(x_labels) // 10)
         tick_idx = list(range(0, len(x_labels), step))
