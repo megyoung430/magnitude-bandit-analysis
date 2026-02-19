@@ -1,4 +1,35 @@
+import re
+from datetime import datetime
+
 def get_vars_across_all_sessions(data):
+
+    def sort_ses_date(session_id: str):
+        """
+        Sort by session number (ses-XX) then date (date-YYYYMMDD).
+        Falls back to session_id string if parsing fails.
+        """
+        m_ses = re.search(r"ses-(\d+)", session_id)
+        m_date = re.search(r"date-(\d{8})", session_id)
+
+        ses_num = int(m_ses.group(1)) if m_ses else float("inf")
+        dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
+
+        return (ses_num, dt, session_id)
+    
+    def clean_reversal_list(lst):
+        """Return list of ints with None removed. If lst is None, return None."""
+        if lst is None:
+            return None
+        out = []
+        for x in lst:
+            if x is None:
+                continue
+            try:
+                out.append(int(x))
+            except Exception:
+                continue
+        return out
+
     subject_data_across_all_sessions = {}
     merged_subject_data_across_sessions = {}
 
@@ -6,7 +37,7 @@ def get_vars_across_all_sessions(data):
     for current_subject in all_subjects:
         data_across_sessions = {}
         subject_sessions = data[current_subject]  
-        all_sessions = list(subject_sessions.keys())
+        all_sessions = sorted(subject_sessions.keys(), key=sort_ses_date)
         trials_across_sessions = []
         good_reversals_across_sessions = []
         bad_reversals_across_sessions = []
@@ -19,8 +50,12 @@ def get_vars_across_all_sessions(data):
             current_data = data[current_subject][current_session]
             if current_data["trial_info"]:
                 trials_across_sessions.append(current_data['trial'])
-                good_reversals_across_sessions.append(current_data['good_reversals'])
-                bad_reversals_across_sessions.append(current_data['bad_reversals'])
+                gr = clean_reversal_list(current_data.get("good_reversals", None))
+                br = clean_reversal_list(current_data.get("bad_reversals", None))
+                if gr and len(gr) > 0:
+                    good_reversals_across_sessions.append(gr)
+                if br and len(br) > 0:
+                    bad_reversals_across_sessions.append(br)
                 blocks_across_sessions.append(current_data['blocks'])
                 trials_in_block_across_sessions.append(current_data['trials_in_block'])
                 reward_magnitudes_by_tower_across_sessions.append(current_data['reward_magnitudes_by_tower'])
@@ -29,26 +64,46 @@ def get_vars_across_all_sessions(data):
             else:
                 print(f"[WARNING] No trial information found for subject {current_subject}, session {current_session}")
                 continue
-        data_across_sessions = {
-            'trial': trials_across_sessions,
-            'good_reversals': good_reversals_across_sessions,
-            'bad_reversals': bad_reversals_across_sessions,
-            'blocks': blocks_across_sessions,
-            'trials_in_block': trials_in_block_across_sessions,
-            'reward_magnitudes_by_tower': reward_magnitudes_by_tower_across_sessions,
-            'choices_by_tower': choices_by_tower_across_sessions,
-            'choices_by_rank': choices_by_rank_across_sessions
-        }
-        merged_data_across_sessions = {
-            'trial': merge_trials_across_sessions(data_across_sessions['trial']),
-            'good_reversals': merge_reversals_across_sessions(data_across_sessions['good_reversals']),
-            'bad_reversals': merge_reversals_across_sessions(data_across_sessions['bad_reversals']),
-            'blocks': merge_blocks_across_sessions(data_across_sessions['blocks']),
-            'trials_in_block': compute_merged_num_trials_in_block(merge_blocks_across_sessions(data_across_sessions['blocks'])),
-            'reward_magnitudes_by_tower': merge_list_of_dicts_of_lists(data_across_sessions['reward_magnitudes_by_tower']),
-            'choices_by_tower': merge_list_of_dicts_of_lists(data_across_sessions['choices_by_tower']),
-            'choices_by_rank': merge_list_of_dicts_of_lists(data_across_sessions['choices_by_rank'])
-        }
+        have_good = len(good_reversals_across_sessions) > 0
+        have_bad  = len(bad_reversals_across_sessions) > 0
+        if have_good and have_bad:
+            data_across_sessions = {
+                'trial': trials_across_sessions,
+                'good_reversals': good_reversals_across_sessions,
+                'bad_reversals': bad_reversals_across_sessions,
+                'blocks': blocks_across_sessions,
+                'trials_in_block': trials_in_block_across_sessions,
+                'reward_magnitudes_by_tower': reward_magnitudes_by_tower_across_sessions,
+                'choices_by_tower': choices_by_tower_across_sessions,
+                'choices_by_rank': choices_by_rank_across_sessions
+            }
+            merged_data_across_sessions = {
+                'trial': merge_trials_across_sessions(data_across_sessions['trial']),
+                'good_reversals': merge_reversals_across_sessions(data_across_sessions['good_reversals']),
+                'bad_reversals': merge_reversals_across_sessions(data_across_sessions['bad_reversals']),
+                'blocks': merge_blocks_across_sessions(data_across_sessions['blocks']),
+                'trials_in_block': compute_merged_num_trials_in_block(merge_blocks_across_sessions(data_across_sessions['blocks'])),
+                'reward_magnitudes_by_tower': merge_list_of_dicts_of_lists(data_across_sessions['reward_magnitudes_by_tower']),
+                'choices_by_tower': merge_list_of_dicts_of_lists(data_across_sessions['choices_by_tower']),
+                'choices_by_rank': merge_list_of_dicts_of_lists(data_across_sessions['choices_by_rank'])
+            }
+        else:
+            data_across_sessions = {
+                'trial': trials_across_sessions,
+                'blocks': blocks_across_sessions,
+                'trials_in_block': trials_in_block_across_sessions,
+                'reward_magnitudes_by_tower': reward_magnitudes_by_tower_across_sessions,
+                'choices_by_tower': choices_by_tower_across_sessions,
+                'choices_by_rank': choices_by_rank_across_sessions
+            }
+            merged_data_across_sessions = {
+                'trial': merge_trials_across_sessions(data_across_sessions['trial']),
+                'blocks': merge_blocks_across_sessions(data_across_sessions['blocks']),
+                'trials_in_block': compute_merged_num_trials_in_block(merge_blocks_across_sessions(data_across_sessions['blocks'])),
+                'reward_magnitudes_by_tower': merge_list_of_dicts_of_lists(data_across_sessions['reward_magnitudes_by_tower']),
+                'choices_by_tower': merge_list_of_dicts_of_lists(data_across_sessions['choices_by_tower']),
+                'choices_by_rank': merge_list_of_dicts_of_lists(data_across_sessions['choices_by_rank'])
+            }
         subject_data_across_all_sessions[current_subject] = data_across_sessions
         merged_subject_data_across_sessions[current_subject] = merged_data_across_sessions
     return merged_subject_data_across_sessions, subject_data_across_all_sessions
@@ -91,10 +146,20 @@ def merge_reversals_across_sessions(list_of_lists, start_offset=0):
     """
     merged = []
     offset = start_offset
-    for i, lst in enumerate(list_of_lists):
+
+    for lst in list_of_lists:
         if not lst:
             continue
-        shifted = [int(x) + offset for x in lst]
+
+        shifted = []
+        for x in lst:
+            if x is None:
+                continue
+            shifted.append(int(x) + offset)
+
+        if not shifted:
+            continue
+
         merged.extend(shifted)
         offset = merged[-1]
     return merged

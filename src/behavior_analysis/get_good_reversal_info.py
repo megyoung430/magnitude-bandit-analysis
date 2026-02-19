@@ -2,106 +2,120 @@ from collections import Counter
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 
 def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_patterns=((4, 1, 0), (3, 1, 0))):
-    """
-    For each subject:
-      - Find GOOD reversal indices (where cumulative good_reversals increments).
-      - Collect window indices:
-          pre  = trials [idx-pre, ..., idx-1]
-          post = trials [idx, ..., idx+post-1]  (includes the reversal trial, or goes until the next good reversal if post is None)
-      - Keep only those reversals where the reward magnitudes on trial idx-1
-        across towers match ANY of required_reward_patterns in ANY order (multiset match).
-      - Infer towers from reward_magnitudes_by_tower keys (preferred), else choices_by_tower keys.
-      - Include both reward_magnitudes_by_tower_before (idx-1) and
-        reward_magnitudes_by_tower_after (idx).
-
-    required_reward_patterns can be:
-      - a single tuple like (4,1,0)
-      - or an iterable of tuples like ((4,1,0), (3,1,0))
-    """
-
     def find_increment_indices(cumulative_list):
-        """Return indices i where cumulative_list[i] > cumulative_list[i-1]."""
         inc = []
         for i in range(1, len(cumulative_list)):
             if cumulative_list[i] > cumulative_list[i - 1]:
                 inc.append(i)
         return inc
 
-    # ---- normalize required_reward_patterns ----
-    # Allow passing a single tuple like (4,1,0)
+    def find_change_indices(seq):
+        chg = []
+        for i in range(1, len(seq)):
+            if seq[i] != seq[i - 1]:
+                chg.append(i)
+        return chg
+
+    # normalize required_reward_patterns
     if isinstance(required_reward_patterns, tuple) and all(
         isinstance(x, (int, float)) for x in required_reward_patterns
     ):
         required_reward_patterns = (required_reward_patterns,)
-
     required_counters = [Counter(pat) for pat in required_reward_patterns]
 
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
 
     out = {}
     for subj, d in merged_subject_data_across_all_sessions.items():
-        good = d.get("good_reversals", [])
-        blocks = d.get("blocks", [])
+        good = d.get("good_reversals")          # may be None / missing
+        num_blocks = d.get("num_blocks") or [] # cumulative block counter per trial (preferred)
+        blocks = d.get("blocks") or []         # block id per trial (backup)
+
         reward_by_tower = d.get("reward_magnitudes_by_tower", {}) or {}
         choices_by_tower = d.get("choices_by_tower", {}) or {}
         choices_by_rank = d.get("choices_by_rank", {}) or {}
 
-        n_trials = len(good)
+        # decide n_trials from something that exists (prefer blocks/num_blocks, else reward arrays)
+        if len(num_blocks) > 0:
+            n_trials = len(num_blocks)
+        elif len(blocks) > 0:
+            n_trials = len(blocks)
+        elif reward_by_tower:
+            n_trials = max((len(v) for v in reward_by_tower.values()), default=0)
+        elif choices_by_tower:
+            n_trials = max((len(v) for v in choices_by_tower.values()), default=0)
+        else:
+            n_trials = 0
+
         if n_trials == 0:
             out[subj] = []
             continue
 
-        if len(blocks) != n_trials:
-            print(f"[WARN] {subj}: blocks length {len(blocks)} != good_reversals length {n_trials}")
-
-        if reward_by_tower:
-            towers = list(reward_by_tower.keys())
-        else:
-            towers = list(choices_by_tower.keys())
-
+        # towers
+        towers = list(reward_by_tower.keys()) if reward_by_tower else list(choices_by_tower.keys())
         if not towers:
             print(f"[WARN] {subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower")
             out[subj] = []
             continue
 
-        good_rev_indices = find_increment_indices(good)
-        if include_first_block and n_trials > 0 and good[0] == 0:
-            good_rev_indices = [0] + good_rev_indices
+        # --- pick boundary indices ---
+        subj_sessions = data.get(subj, {})
+        any_good = any(sess.get("has_good", False) for sess in subj_sessions.values())
+        if any_good and good is not None and len(good) >= 2:
+            boundary_indices = find_increment_indices(good)
+            boundary_source = "good_reversals"
+        elif len(num_blocks) >= 2:
+            boundary_indices = find_increment_indices(num_blocks)
+            boundary_source = "num_blocks"
+        elif len(blocks) >= 2:
+            boundary_indices = find_change_indices(blocks)
+            boundary_source = "blocks"
+        else:
+            boundary_indices = []
+            boundary_source = None
+
+        if include_first_block and n_trials > 0:
+            boundary_indices = [0] + boundary_indices
+
+        if not boundary_indices:
+            out[subj] = []
+            continue
 
         subj_results = []
 
-        for k, idx in enumerate(good_rev_indices):
+        for k, idx in enumerate(boundary_indices):
             before_trial = idx - 1 if idx > 0 else 0
 
             missing = [t for t in towers if t not in reward_by_tower]
             if missing:
-                print(f"[SKIP] {subj} reversal@{idx}: missing towers in reward_magnitudes_by_tower: {missing}")
+                print(f"[SKIP] {subj} boundary@{idx}: missing towers in reward_magnitudes_by_tower: {missing}")
                 continue
 
             try:
                 before_vals = [reward_by_tower[t][before_trial] for t in towers]
             except IndexError:
-                print(f"[SKIP] {subj} reversal@{idx}: reward_magnitudes_by_tower too short for idx-1")
+                print(f"[SKIP] {subj} boundary@{idx}: reward_magnitudes_by_tower too short for idx-1")
                 continue
 
             before_counter = Counter(before_vals)
             if not any(before_counter == rc for rc in required_counters):
                 block_id = blocks[idx] if idx < len(blocks) else None
                 print(
-                    f"[SKIP] {subj} reversal@{idx} (block {block_id}): "
-                    f"reward magnitudes before reversal were {before_vals} across towers {towers} "
+                    f"[SKIP] {subj} boundary@{idx} ({boundary_source}, block {block_id}): "
+                    f"reward magnitudes before were {before_vals} across towers {towers} "
                     f"(expected a permutation of one of {list(required_reward_patterns)})"
                 )
                 continue
 
             pre_start = max(0, idx - pre)
             pre_end = idx
-
+            next_boundary = boundary_indices[k + 1] if (k + 1) < len(boundary_indices) else n_trials
             post_start = idx
             if post is None:
-                post_end = good_rev_indices[k + 1] if (k + 1) < len(good_rev_indices) else n_trials
+                post_end = next_boundary
             else:
                 post_end = min(n_trials, idx + post)
+                post_end = min(post_end, next_boundary)
 
             pre_idx = list(range(pre_start, pre_end))
             post_idx = list(range(post_start, post_end))
@@ -132,7 +146,8 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
 
             subj_results.append({
                 "reversal_idx": idx,
-                "good_reversal_number": good[idx],
+                "boundary_source": boundary_source,
+                "good_reversal_number": (good[idx] if good is not None and idx < len(good) else block_id - 1),
                 "block_id": block_id,
                 "towers": towers,
                 "trial_window_idx": {"pre": pre_idx, "post": post_idx},

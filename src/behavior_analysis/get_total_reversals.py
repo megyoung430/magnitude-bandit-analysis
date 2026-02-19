@@ -1,17 +1,40 @@
 from src.behavior_analysis.get_variables_across_sessions import *
 
 def get_total_reversals(subject_sessions):
-    """Get the number of good, bad, and total reversals for a subject across all sessions."""
-    all_sessions = list(subject_sessions.keys())
-    total_reversals = 0
-    good_reversals = 0
-    bad_reversals = 0
-    for current_session in all_sessions:
-        if "good_reversals" in subject_sessions[current_session] and "bad_reversals" in subject_sessions[current_session]:
-            good_reversals += subject_sessions[current_session]["good_reversals"][-1]
-            bad_reversals += subject_sessions[current_session]["bad_reversals"][-1]
-    total_reversals = good_reversals + bad_reversals
-    return {"total_reversals": total_reversals, "good_reversals": good_reversals, "bad_reversals": bad_reversals}
+    """
+    If any session has has_good/has_bad True, use existing good/bad logic.
+    If no session has either, fall back to (#blocks - 1), using the last block id
+    from the last session (or max across sessions) as the number of blocks.
+    """
+
+    total_good = 0
+    total_bad = 0
+
+    any_good = any(bool(sess.get("has_good", False)) for sess in subject_sessions.values())
+    any_bad  = any(bool(sess.get("has_bad",  False)) for sess in subject_sessions.values())
+
+    if any_good or any_bad:
+        for sess in subject_sessions.values():
+            if sess.get("has_good", False) and "good_reversals" in sess and sess["good_reversals"]:
+                total_good += (sess["good_reversals"][-1] or 0)
+            if sess.get("has_bad", False) and "bad_reversals" in sess and sess["bad_reversals"]:
+                total_bad += (sess["bad_reversals"][-1] or 0)
+
+        total = total_good + total_bad
+        return {"total_reversals": total, "good_reversals": total_good, "bad_reversals": total_bad}
+
+    total = 0
+    for sess in subject_sessions.values():
+        blocks = sess.get("blocks", [])
+        if blocks:
+            try:
+                total += int(max(b for b in blocks if b is not None)) - 1
+            except ValueError:
+                pass
+            except TypeError:
+                pass
+
+    return {"total_reversals": total}
 
 def get_all_reversal_indices(subjects_trials):
     """
