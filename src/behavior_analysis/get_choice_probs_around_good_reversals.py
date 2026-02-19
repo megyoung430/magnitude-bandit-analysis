@@ -103,6 +103,7 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, sk
 
     s = across["mean"]["prev_best"] + across["mean"]["next_best"] + across["mean"]["third"]
     finite = np.isfinite(s)
+
     assert finite.any(), "No finite bins to validate (all-NaN after padding/filtering)."
     assert np.isclose(s[finite], 1.0, atol=1e-6).all(), "Choice probabilities do not sum to 1 (finite bins)."
 

@@ -1,7 +1,9 @@
+import re
 import json
 import pandas as pd
 from copy import deepcopy
 from collections import defaultdict
+from datetime import datetime
 
 # Across some pyControl files, different variable names are used for the same trial information.
 # The following dictionary maps standardized variable names to their possible aliases.
@@ -52,6 +54,11 @@ CUMULATIVE_NUMERIC_VARS = {"good_reversals", "bad_reversals", "blocks"}
 CUMULATIVE_DICTLIST_VARS = {"rank_counts", "choice_counts"}
 SPECIAL_VARS = {"trials_in_block"}
 
+def extract_trials_grouped_by_problem(data):
+    data = extract_trials(data) 
+    problems = group_sessions_by_problem(data)
+    return problems
+
 def extract_trials(data):
     def safe_json_load(x):
         """Parse JSON safely, returning empty dict on failure."""
@@ -93,15 +100,22 @@ def extract_trials(data):
 
                 trial_info_list.append(trial_info)
                 trial_vars = transpose_trials(trial_info, ALIASES)
-
-                trial_info_list.append(trial_info)
-                trial_vars = transpose_trials(trial_info, ALIASES)
                 trial_vars_list.append(trial_vars)
             if len(trial_info_list[0]) == 0:
                 print(f"[WARNING] No trial information found for subject {current_subject}, session {current_session}")
                 data[current_subject][current_session]["trial_variables"] = {}
                 data[current_subject][current_session]["trial_info"] = []
                 continue
+
+            # Check if the session had good or bad reversals (i.e., was performance dependent)
+            flat_trial_info = []
+            for ti in trial_info_list:
+                flat_trial_info.extend(ti)
+            has_good = session_has_any_key(flat_trial_info, ALIASES["good_reversals"])
+            has_bad  = session_has_any_key(flat_trial_info, ALIASES["bad_reversals"])
+            data[current_subject][current_session]["has_good"] = has_good
+            data[current_subject][current_session]["has_bad"] = has_bad
+
             data[current_subject][current_session]["trial_variables"] = trial_vars_list
             data[current_subject][current_session]["trial_info"] = trial_info_list
             if len(trial_vars_list) == 1:
@@ -133,6 +147,15 @@ def extract_trials(data):
             data[current_subject][current_session] = unpack_choices(data[current_subject][current_session])
             data[current_subject][current_session] = fill_missing_chosen_rank_from_rank_counts(data[current_subject][current_session])
             data[current_subject][current_session] = unpack_chosen_rank(data[current_subject][current_session])
+            
+            # If a session never printed good/bad reversal vars, remove them entirely
+            # so downstream code doesn't try to merge int(None).
+            sess = data[current_subject][current_session]
+            if not sess.get("has_good", False):
+                sess.pop("good_reversals", None)
+
+            if not sess.get("has_bad", False):
+                sess.pop("bad_reversals", None)
     return data
 
 def standardize_variables(dictionary, aliases):
@@ -268,10 +291,7 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
         curr = standardized_rank_counts[i]
         prev = standardized_rank_counts[i - 1] if i > 0 else {}
 
-        deltas = {
-            rk: (curr.get(rk, 0) or 0) - (prev.get(rk, 0) or 0)
-            for rk in ("best", "second", "third")
-        }
+        deltas = {rk: (curr.get(rk, 0) or 0) - (prev.get(rk, 0) or 0) for rk in ("best", "second", "third")}
 
         inc = [rk for rk, dv in deltas.items() if dv > 0]
         if len(inc) == 1:
@@ -286,7 +306,7 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
     session_data["chosen_rank"] = filled
     return session_data
 
-# ========== Merging Rules for Multiple Files within a Session ==========
+# --- Merging Rules for Multiple Files within a Session ---
 def concat_serial_numeric(segments):
     """1..N serial renumbering across segments (23 then 1 -> 24...)."""
     out = []
@@ -395,3 +415,97 @@ def concat_trials_in_block(segments):
         out.extend(adjusted)
         last_val = out[-1]
     return out
+
+# --- Grouping Sessions into Problems Based on Choice Towers ---
+def choice_towers_signature(session_data):
+    """
+    Returns a hashable signature for the session's current choice towers.
+    Uses the first non-None entry in session_data['choice_towers'].
+    """
+    towers_seq = session_data.get("choice_towers", None)
+    if not towers_seq:
+        return None
+
+    first = None
+    for x in towers_seq:
+        if x is not None:
+            first = x
+            break
+    if first is None:
+        return None
+
+    # Make it hashable + stable
+    if isinstance(first, (list, tuple)):
+        return tuple(first)
+    if isinstance(first, dict):
+        # if stored as dict, treat the keys as the set/order-defining items
+        return tuple(sorted(first.keys()))
+    if isinstance(first, str):
+        return (first,)
+    return (repr(first),)
+
+def group_sessions_by_problem(data, copy_sessions=True):
+    """
+    Returns dict-of-dicts:
+      problems[problem_id][subject_id][session_id] = session_data
+
+    Problem increments *within each subject* when choice towers change from one session to the next.
+    """
+
+    def sort_ses_date(session_id: str):
+        """
+        Sort by session number (ses-XX) then date (date-YYYYMMDD).
+        Falls back to session_id string if parsing fails.
+        """
+        m_ses = re.search(r"ses-(\d+)", session_id)
+        m_date = re.search(r"date-(\d{8})", session_id)
+
+        ses_num = int(m_ses.group(1)) if m_ses else float("inf")
+        dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
+
+        return (ses_num, dt, session_id)
+
+    problems = defaultdict(lambda: defaultdict(dict))
+
+    for subject_id, subject_sessions in data.items():
+        sessions = list(subject_sessions.keys())
+
+        sessions_sorted = sorted(sessions, key=sort_ses_date)
+
+        num_problem = 1
+        prev_sig = None
+
+        for session_id in sessions_sorted:
+            sess = subject_sessions[session_id]
+            
+            # Skip sessions that have no trial information
+            if not sess.get("trial_info"):
+                print(f"[WARNING] Skipping session {session_id} for subject {subject_id} due to missing trial information.")
+                continue
+            
+            sig = choice_towers_signature(sess)
+
+            # Only increment when we have two comparable signatures and they differ
+            if prev_sig is not None and sig is not None and sig != prev_sig:
+                num_problem += 1
+
+            if sig is not None:
+                prev_sig = sig
+
+            problems[num_problem][subject_id][session_id] = deepcopy(sess) if copy_sessions else sess
+
+    return {p: {s: dict(ss) for s, ss in subj.items()} for p, subj in problems.items()}
+
+def session_has_any_key(trial_info, keys):
+    """
+    trial_info: list[dict]
+    keys: tuple[str]
+    Returns True if any trial dict contains any of the keys. This is mainly used to identify problems that are performance
+    independent v. performance dependent.
+    """
+    if not trial_info:
+        return False
+    for d in trial_info:
+        if isinstance(d, dict) and any(k in d for k in keys):
+            return True
+    return False

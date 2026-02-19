@@ -41,15 +41,23 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
     # --- Find Reversals ---
     good_idx = event_indices_from_cumulative(session_data.get("good_reversals"), N=N)
     bad_idx  = event_indices_from_cumulative(session_data.get("bad_reversals"), N=N)
+    block_idx = event_indices_from_cumulative(session_data.get("blocks"), N=N)
+    
     def add_reversal_lines(ax):
-        first_good = True
-        for i in good_idx:
-            ax.axvline(i - 0.5, linestyle="--", color="#3A982E", linewidth=2.5, label="Good Rev" if first_good else None)
-            first_good = False
-        first_bad = True
-        for i in bad_idx:
-            ax.axvline(i - 0.5, linestyle="--", color="#F97979", linewidth=2.5, label="Bad Rev" if first_bad else None)
-            first_bad = False
+        if good_idx or bad_idx:
+            first_good = True
+            for i in good_idx:
+                ax.axvline(i - 0.5, linestyle="--", color="#3A982E", linewidth=2.5, label="Good Rev" if first_good else None)
+                first_good = False
+            first_bad = True
+            for i in bad_idx:
+                ax.axvline(i - 0.5, linestyle="--", color="#F97979", linewidth=2.5, label="Bad Rev" if first_bad else None)
+                first_bad = False
+        elif block_idx:
+            first_block = True
+            for i in block_idx:
+                ax.axvline(i - 0.5, linestyle="--", color="#3A982E", linewidth=2.5, label="Rev" if first_block else None)
+                first_block = False
 
     # --- Session Summary ---
     for tower, color in zip(towers, TOWER_COLORS):
