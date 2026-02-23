@@ -9,8 +9,8 @@ from src.behavior_analysis.get_diagnostic_p_value import *
 from src.behavior_visualization.plot_rank_proportions import *
 from fix_grid_maze_cohort_02_problems import *
 
-# task = "grid-maze"
-task = "open-field"
+task = "grid-maze"
+# task = "open-field"
 
 folder_name = None
 cohort = None

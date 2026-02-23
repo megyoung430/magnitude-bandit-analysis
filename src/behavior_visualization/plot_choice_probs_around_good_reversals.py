@@ -260,73 +260,95 @@ def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_goo
 
 def cumulative_reversal_events_over_post(good_windows, all_good_idx, all_bad_idx, x, across, exclude_anchor_good=True):
     """
-    For each aligned good reversal at raw index g, count whether raw reversals occur at g+t
-    for each post offset t (t>=0), summed across all aligned good reversals/subjects.
+    For each aligned good reversal at index g, find the FIRST subsequent reversal after g
+    (good or bad). Then mark that anchor as "removed" for all offsets t >= (next_rev - g).
 
-    Returns:
-      x_disp, cum_good_full, cum_bad_full (NaN for pre indices)
+    This makes fraction_removed_good + fraction_removed_bad <= 1 by construction.
     """
     x = np.asarray(x, dtype=float)
-
     x_disp = x.copy()
 
     post_mask = np.isfinite(x) & (x >= 0)
     x_post = x[post_mask]
     if x_post.size == 0:
-        return x_disp, np.full_like(x, np.nan), np.full_like(x, np.nan)
+        nan = np.full_like(x, np.nan, dtype=float)
+        return x_disp, nan, nan, nan, nan
 
     t_int = np.rint(x_post).astype(int)
+    t_sorted = np.sort(np.unique(t_int))
 
-    good_events = np.zeros_like(t_int, dtype=float)
-    bad_events  = np.zeros_like(t_int, dtype=float)
+    removed_good_sorted = np.zeros_like(t_sorted, dtype=float)
+    removed_bad_sorted  = np.zeros_like(t_sorted, dtype=float)
+
+    num_anchors = 0
 
     for subj, revs in good_windows.items():
-        goods = set(all_good_idx.get(subj, []))
-        bads  = set(all_bad_idx.get(subj, []))
+        goods = sorted(set(all_good_idx.get(subj, [])))
+        bads  = sorted(set(all_bad_idx.get(subj, [])))
+        all_revs = sorted(set(goods) | set(bads))
+
+        goods_set = set(goods)
+        bads_set = set(bads)
 
         for r in revs:
             g = r.get("reversal_idx", None)
             if g is None:
                 continue
 
-            idxs = g + t_int
+            num_anchors += 1
 
             if exclude_anchor_good:
-                good_hits = [(ii in goods) and (ii != g) for ii in idxs]
+                candidates = [ii for ii in all_revs if ii > g]
             else:
-                good_hits = [ii in goods for ii in idxs]
+                candidates = [ii for ii in all_revs if ii >= g]
 
-            bad_hits = [ii in bads for ii in idxs]
+            if not candidates:
+                continue
 
-            good_events += np.asarray(good_hits, dtype=float)
-            bad_events  += np.asarray(bad_hits, dtype=float)
+            next_rev = candidates[0]
+            delta = next_rev - g 
 
-    order = np.argsort(t_int)
-    inv = np.empty_like(order)
-    inv[order] = np.arange(order.size)
+            is_good_next = next_rev in goods_set
+            is_bad_next  = next_rev in bads_set
 
-    cumulative_good_sorted = np.cumsum(good_events[order])
-    cumulative_bad_sorted  = np.cumsum(bad_events[order])
+            start_idx = np.searchsorted(t_sorted, delta, side="left")
+            if start_idx >= t_sorted.size:
+                continue
 
-    cumulative_good = cumulative_good_sorted[inv]
-    cumulative_bad  = cumulative_bad_sorted[inv]
+            if is_good_next:
+                removed_good_sorted[start_idx:] += 1.0
+            elif is_bad_next:
+                removed_bad_sorted[start_idx:] += 1.0
+            else:
+                removed_bad_sorted[start_idx:] += 1.0
+
+    step_idx = np.searchsorted(t_sorted, t_int, side="right") - 1
+    step_idx = np.clip(step_idx, 0, t_sorted.size - 1)
+
+    cumulative_good = removed_good_sorted[step_idx]
+    cumulative_bad  = removed_bad_sorted[step_idx]
 
     cumulative_good_full = np.full_like(x, np.nan, dtype=float)
     cumulative_bad_full  = np.full_like(x, np.nan, dtype=float)
     cumulative_good_full[post_mask] = cumulative_good
     cumulative_bad_full[post_mask]  = cumulative_bad
 
-    fraction_removed_good = cumulative_good_full/across.get("num_reversals", 1)
-    fraction_removed_bad = cumulative_bad_full/across.get("num_reversals", 1)
+    denom = max(int(num_anchors), 1)  
+    fraction_removed_good = cumulative_good_full / denom
+    fraction_removed_bad  = cumulative_bad_full  / denom
 
+    assert np.nanmax(fraction_removed_good + fraction_removed_bad) <= 1.0 + 1e-6, \
+        "Fraction removed exceeds 1.0"
     return x_disp, cumulative_good_full, cumulative_bad_full, fraction_removed_good, fraction_removed_bad
 
 def cumulative_total_events_over_post(windows, x, across, exclude_anchor=True):
     """
-    Counts ANY reversal boundary (block change) at g+t for each aligned reversal at index g.
-    windows: dict[subj] -> list of reversal dicts (each has 'reversal_idx')
+    Fraction removed interpretation:
+    For each aligned anchor reversal at index g, find the FIRST subsequent reversal after g.
+    That anchor's aligned window is considered "removed" for all offsets t >= (next_rev - g).
+
     Returns:
-      x_disp, cum_total_full, fraction_removed_total
+      x_disp, cum_total_full (# anchors removed by each offset), frac_total_full (in [0,1])
     """
     x = np.asarray(x, dtype=float)
     x_disp = x.copy()
@@ -334,41 +356,54 @@ def cumulative_total_events_over_post(windows, x, across, exclude_anchor=True):
     post_mask = np.isfinite(x) & (x >= 0)
     x_post = x[post_mask]
     if x_post.size == 0:
-        return x_disp, np.full_like(x, np.nan), np.full_like(x, np.nan)
+        nan = np.full_like(x, np.nan, dtype=float)
+        return x_disp, nan, nan
 
     t_int = np.rint(x_post).astype(int)
-    total_events = np.zeros_like(t_int, dtype=float)
+    t_sorted = np.sort(np.unique(t_int))
+
+    removed_total_sorted = np.zeros_like(t_sorted, dtype=float)
+    num_anchors = 0
 
     for subj, revs in windows.items():
-        rev_set = set(
-            r.get("reversal_idx") for r in revs
-            if r.get("reversal_idx") is not None
+        rev_idxs = sorted(
+            set(r.get("reversal_idx") for r in revs if r.get("reversal_idx") is not None)
         )
+        if not rev_idxs:
+            continue
 
         for r in revs:
             g = r.get("reversal_idx", None)
             if g is None:
                 continue
 
-            idxs = g + t_int
+            num_anchors += 1
+
             if exclude_anchor:
-                hits = [(ii in rev_set) and (ii != g) for ii in idxs]
+                candidates = [ii for ii in rev_idxs if ii > g]
             else:
-                hits = [ii in rev_set for ii in idxs]
+                candidates = [ii for ii in rev_idxs if ii >= g]
 
-            total_events += np.asarray(hits, dtype=float)
+            if not candidates:
+                continue
 
-    order = np.argsort(t_int)
-    inv = np.empty_like(order)
-    inv[order] = np.arange(order.size)
+            next_rev = candidates[0]
+            delta = next_rev - g
 
-    cum_total_sorted = np.cumsum(total_events[order])
-    cum_total = cum_total_sorted[inv]
+            start_idx = np.searchsorted(t_sorted, delta, side="left")
+            if start_idx < t_sorted.size:
+                removed_total_sorted[start_idx:] += 1.0
+
+    step_idx = np.searchsorted(t_sorted, t_int, side="right") - 1
+    step_idx = np.clip(step_idx, 0, t_sorted.size - 1)
+
+    cum_total = removed_total_sorted[step_idx]
 
     cum_total_full = np.full_like(x, np.nan, dtype=float)
     cum_total_full[post_mask] = cum_total
 
-    denom = max(int(across.get("num_reversals", 1) or 1), 1)
+    denom = max(int(num_anchors), 1) 
     frac_total = cum_total_full / denom
 
+    assert np.nanmax(frac_total[post_mask]) <= 1.0 + 1e-6, "Fraction removed exceeds 1.0"
     return x_disp, cum_total_full, frac_total
