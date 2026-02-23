@@ -18,7 +18,7 @@ all = True
 skip = True
 moving_avg = True
 remove_bad = True
-split_by_best_change = True
+split_by_best_change = False
 split_by_best_change_and_half = False
 split_by_first_two = True
 split_by_half = True
@@ -49,7 +49,7 @@ for problem_number in subjects_trials_by_problem.keys():
 
     subjects_trials = subjects_trials_by_problem[problem_number]
     any_good = any(bool(sess.get("has_good", False)) for sess in subjects_trials.values())
-    if any_good:
+    if problem_number < 7:
         use_total = False
     else:
         use_total = True

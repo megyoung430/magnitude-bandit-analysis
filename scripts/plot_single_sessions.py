@@ -6,8 +6,8 @@ from src.behavior_import.extract_trials import *
 from src.behavior_visualization.plot_single_session import *
 from fix_grid_maze_cohort_02_problems import *
 
-# task = "grid-maze"
-task = "open-field"
+task = "grid-maze"
+# task = "open-field"
 
 folder_name = None
 cohort = None
