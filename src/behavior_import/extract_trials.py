@@ -54,6 +54,8 @@ CUMULATIVE_NUMERIC_VARS = {"good_reversals", "bad_reversals", "blocks"}
 CUMULATIVE_DICTLIST_VARS = {"rank_counts", "choice_counts"}
 SPECIAL_VARS = {"trials_in_block"}
 
+TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
+
 def extract_trials_grouped_by_problem(data):
     data = extract_trials(data) 
     problems = group_sessions_by_problem(data)
@@ -306,6 +308,20 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
     session_data["chosen_rank"] = filled
     return session_data
 
+def session_has_any_key(trial_info, keys):
+    """
+    trial_info: list[dict]
+    keys: tuple[str]
+    Returns True if any trial dict contains any of the keys. This is mainly used to identify problems that are performance
+    independent v. performance dependent.
+    """
+    if not trial_info:
+        return False
+    for d in trial_info:
+        if isinstance(d, dict) and any(k in d for k in keys):
+            return True
+    return False
+
 # --- Merging Rules for Multiple Files within a Session ---
 def concat_serial_numeric(segments):
     """1..N serial renumbering across segments (23 then 1 -> 24...)."""
@@ -444,12 +460,73 @@ def choice_towers_signature(session_data):
         return (first,)
     return (repr(first),)
 
+def normalize_tower_token(x):
+    """
+    Normalize a single tower token into a sortable, comparable tuple.
+
+    Examples:
+      "A1"  -> ("A", 1)
+      " b02 " -> ("B", 2)
+      "C1"  -> ("C", 1)
+      other strings -> ("RAW", "<stripped>")
+    """
+    if isinstance(x, str):
+        s = x.strip()
+        m = TOWER_TOKEN_RE.match(s)
+        if m:
+            return (m.group(1).upper(), int(m.group(2)))
+        return ("RAW", s)
+
+    # If your signature can include richer token types, extend this section.
+    # For now, keep numbers comparable as-is.
+    if isinstance(x, (int, float)):
+        return ("NUM", x)
+
+    # If you already produce normalized tuples in choice_towers_signature,
+    # keep them comparable by normalizing elements recursively.
+    if isinstance(x, tuple):
+        return tuple(normalize_tower_token(e) for e in x)
+
+    # Fail fast for unsupported objects so you don't silently create bad grouping.
+    raise TypeError(f"Unsupported tower token type: {type(x)!r} (value={x!r})")
+
+def permutation_invariant_signature(raw_sig):
+    """
+    Make the signature permutation-invariant.
+
+    Rule of thumb:
+      - If it's sequence-like (list/tuple/set/frozenset): treat as an unordered multiset,
+        canonicalize by normalizing each token and sorting.
+      - If it's a dict: canonicalize order by sorting normalized (key, value) pairs.
+      - If it's a single string token: normalize it.
+      - If None: keep None.
+      - Otherwise: return as-is (or raise, depending on your preference).
+    """
+    if raw_sig is None:
+        return None
+
+    if isinstance(raw_sig, (list, tuple, set, frozenset)):
+        normalized = [normalize_tower_token(x) for x in raw_sig]
+        return tuple(sorted(normalized))
+
+    if isinstance(raw_sig, dict):
+        # dict equality is order-independent, but we canonicalize anyway for determinism
+        items = [(normalize_tower_token(k), normalize_tower_token(v)) for k, v in raw_sig.items()]
+        return tuple(sorted(items))
+
+    if isinstance(raw_sig, str):
+        return normalize_tower_token(raw_sig)
+
+    return raw_sig
+
 def group_sessions_by_problem(data, copy_sessions=True):
     """
     Returns dict-of-dicts:
       problems[problem_id][subject_id][session_id] = session_data
 
     Problem increments *within each subject* when choice towers change from one session to the next.
+
+    Now permutation-invariant with respect to the tower signature returned by choice_towers_signature().
     """
 
     def sort_ses_date(session_id: str):
@@ -468,22 +545,21 @@ def group_sessions_by_problem(data, copy_sessions=True):
     problems = defaultdict(lambda: defaultdict(dict))
 
     for subject_id, subject_sessions in data.items():
-        sessions = list(subject_sessions.keys())
-
-        sessions_sorted = sorted(sessions, key=sort_ses_date)
+        sessions_sorted = sorted(subject_sessions.keys(), key=sort_ses_date)
 
         num_problem = 1
         prev_sig = None
 
         for session_id in sessions_sorted:
             sess = subject_sessions[session_id]
-            
+
             # Skip sessions that have no trial information
             if not sess.get("trial_info"):
                 print(f"[WARNING] Skipping session {session_id} for subject {subject_id} due to missing trial information.")
                 continue
-            
-            sig = choice_towers_signature(sess)
+
+            raw_sig = choice_towers_signature(sess)
+            sig = permutation_invariant_signature(raw_sig)
 
             # Only increment when we have two comparable signatures and they differ
             if prev_sig is not None and sig is not None and sig != prev_sig:
@@ -495,17 +571,3 @@ def group_sessions_by_problem(data, copy_sessions=True):
             problems[num_problem][subject_id][session_id] = deepcopy(sess) if copy_sessions else sess
 
     return {p: {s: dict(ss) for s, ss in subj.items()} for p, subj in problems.items()}
-
-def session_has_any_key(trial_info, keys):
-    """
-    trial_info: list[dict]
-    keys: tuple[str]
-    Returns True if any trial dict contains any of the keys. This is mainly used to identify problems that are performance
-    independent v. performance dependent.
-    """
-    if not trial_info:
-        return False
-    for d in trial_info:
-        if isinstance(d, dict) and any(k in d for k in keys):
-            return True
-    return False

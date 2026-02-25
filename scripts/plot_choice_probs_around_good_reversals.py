@@ -40,6 +40,7 @@ root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
 
 subjects_data = import_data(root)
 subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
+
 if task == "grid-maze" and cohort == "cohort-02":
     subjects_trials_by_problem = fix_grid_maze_cohort_02_problems(subjects_trials_by_problem)
 
