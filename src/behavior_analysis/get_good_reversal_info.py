@@ -1,7 +1,7 @@
 from collections import Counter
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 
-def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_patterns=((4, 1, 0), (3, 1, 0))):
+def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_patterns=((4, 1, 0), (3, 1, 0), (2, 1, 0))):
     def find_increment_indices(cumulative_list):
         inc = []
         for i in range(1, len(cumulative_list)):
