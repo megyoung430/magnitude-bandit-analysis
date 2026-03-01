@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd().parent))
+from collections import defaultdict
 from src.behavior_import.import_data import *
 from src.behavior_import.extract_trials import *
 from src.behavior_analysis.get_total_reversals import *
@@ -24,7 +25,7 @@ split_by_first_two = True
 split_by_half = True
 
 pre = 10
-post = 60
+post = 30
 skip_n_trials_after_reversal = 15
 moving_avg_window = 4
 

@@ -98,11 +98,11 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
             xi_s.append(xi)
     
     if p_bs is not None:
-        ax.text(xi_s[0], 0.6, f"p(Best vs Second):\n{p_bs:.3f}", ha="center", va="bottom", fontsize=12)
+        ax.text(xi_s[0], 0.75, f"p(Best vs Second):\n{p_bs:.3f}", ha="center", va="bottom", fontsize=12)
     if p_bt is not None:
-        ax.text(xi_s[2], 0.6, f"p(Best vs Third):\n{p_bt:.3f}", ha="center", va="bottom", fontsize=12)
+        ax.text(xi_s[2], 0.25, f"p(Best vs Third):\n{p_bt:.3f}", ha="center", va="bottom", fontsize=12)
     if p_st is not None:
-        ax.text(xi_s[1], 0.6, f"p(Second vs Third):\n{p_st:.3f}", ha="center", va="bottom", fontsize=12)
+        ax.text(xi_s[1], 0.5, f"p(Second vs Third):\n{p_st:.3f}", ha="center", va="bottom", fontsize=12)
     
     legend_handles = []
     for i, (subj, v) in enumerate(per_mouse.items()):
@@ -125,14 +125,14 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
     # ============================================================
     ax = axes[1]
 
-    max_blocks = max(len(v) for v in rank_counts_by_good_reversal.values()) if rank_counts_by_good_reversal else 0
+    max_blocks = max((len(v) - 1) for v in rank_counts_by_good_reversal.values() if len(v) > 0) if rank_counts_by_good_reversal else 0
 
     per_block = []
     for b in range(max_blocks):
         block_rows = []
         for subj in subjects:
             rows = rank_counts_by_good_reversal.get(subj, [])
-            if b < len(rows):
+            if b < len(rows) - 1:
                 block_rows.append(rows[b])
 
         if not block_rows:
@@ -201,7 +201,10 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
             continue
 
         subj = subjects[ax_idx]
-        rows = rank_counts_by_good_reversal[subj]
+        rows = rank_counts_by_good_reversal[subj][:-1]
+        if not rows:
+            ax.axis("off")  # or just continue
+            continue
 
         legend_handles = []
         jitter = 0.04
@@ -251,7 +254,7 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
     max_blocks = 0
     for subj in subjects:
         rows = rank_counts_by_good_reversal.get(subj, [])
-        max_blocks = max(max_blocks, len(rows))
+        max_blocks = max(max_blocks, max(0, len(rows) - 1))
 
     if max_blocks == 0:
         print("[WARN] No blocks found to plot.")
@@ -291,7 +294,7 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
 
         for subj in subjects:
             rows = rank_counts_by_good_reversal.get(subj, [])
-            if block_idx >= len(rows):
+            if block_idx >= len(rows) - 1:
                 continue
             rr = rows[block_idx]
             block_best.append(rr.get("best_prop", np.nan))
