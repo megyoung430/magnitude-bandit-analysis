@@ -3,11 +3,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path.cwd().parent))
 from src.behavior_import.import_data import *
 from src.behavior_import.extract_trials import *
-from src.behavior_visualization.plot_num_reversals import *
+from src.behavior_analysis.get_good_reversal_info import *
+from src.behavior_analysis.get_rank_counts_by_good_reversal import *
+from src.behavior_analysis.get_diagnostic_p_value import *
+from src.behavior_visualization.plot_rank_proportions import *
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from fix_grid_maze_cohort_02_problems import *
 
 task = "grid-maze"
-task = "open-field"
+# task = "open-field"
 
 folder_name = None
 cohort = None
@@ -27,14 +31,12 @@ if task == "grid-maze" and cohort == "cohort-02":
 for problem_number in subjects_trials_by_problem.keys():
     print(problem_number)
     problem = f"problem-{problem_number:02d}"
-
+    
     subjects_trials = subjects_trials_by_problem[problem_number]
 
-    curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Total Reversals")
-    plot_num_reversals(subjects_trials, save_path=curr_save_path)
+    reversal_windows = get_good_reversal_info(subjects_trials, include_first_block=True)
+    rank_counts_by_good_reversal = get_rank_counts_by_good_reversal(reversal_windows)
+    p_values = pvalue_paired_t_best_vs_second_vs_third(rank_counts_by_good_reversal)
 
-    curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Cumulative Reversals Over Time")
-    plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=curr_save_path)
-
-    curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Moving Average Reversals Over Time")
-    plot_moving_avg_reversals_over_time(subjects_trials, save_path=curr_save_path)
+    save_path = f"../results/figures/{task}/{cohort}/{problem}/choice-stats/Rank Proportions"
+    plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=p_values, save_path=save_path)

@@ -1,3 +1,4 @@
+"""Visualise a single behavioural session: reward magnitudes, EMA, and choice distributions."""
 import warnings
 import numpy as np
 from pathlib import Path
@@ -6,8 +7,30 @@ import src.behavior_visualization.plot_style  # noqa: F401  # applies rcParams
 from matplotlib.gridspec import GridSpec
 
 
-def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choice_key="choices_by_tower", 
+def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choice_key="choices_by_tower",
                         ema_keys=("ema_best_arm_choices", "ema_second_arm_choices"), title=None, save_path=None):
+    """Plot a four-panel summary of a single experimental session.
+
+    Panels include reward magnitude traces (with chosen-arm scatter),
+    exponential moving-average (EMA) choice curves, and bar charts of choices
+    by tower and by rank.  Reversal events are shown as vertical dashed lines
+    on the top two panels.
+
+    Args:
+        session_data: Session dict containing at minimum
+            ``"reward_magnitudes_by_tower"`` and ``"choices_by_tower"``, and
+            optionally ``"good_reversals"``, ``"bad_reversals"``, ``"blocks"``,
+            ``"rank_counts"``, and EMA keys.
+        mag_key: Key for the per-tower magnitude dict
+            (default: ``"reward_magnitudes_by_tower"``).
+        choice_key: Key for the per-tower one-hot choice dict
+            (default: ``"choices_by_tower"``).
+        ema_keys: Tuple of keys whose values are plotted as EMA traces
+            (default: ``("ema_best_arm_choices", "ema_second_arm_choices")``).
+        title: Custom figure title for the top panel (default: ``None``).
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
+    """
     TOWER_COLORS = ["#A6CEE3", "#FDBF6F", "#B2DF8A"]
     EMA_LABELS = {
         "ema_best_arm_choices": "Best",
@@ -38,6 +61,7 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
     block_idx = event_indices_from_cumulative(session_data.get("blocks"), N=N)
     
     def add_reversal_lines(ax):
+        """Draw dashed vertical lines on *ax* for each good and bad reversal."""
         if good_idx or bad_idx:
             first_good = True
             for i in good_idx:
@@ -138,9 +162,16 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
 
 # --- Reversal Identification Helper Function ---
 def event_indices_from_cumulative(counter, N=None):
-    """
-    counter: list of cumulative counts per trial.
-    Returns trial indices where the counter increments (event occurs at that trial index).
+    """Return trial indices where a cumulative counter increments.
+
+    Args:
+        counter: List of cumulative integer counts, one per trial.
+        N: Optional maximum trial count; the counter is truncated to *N*
+            elements before processing (default: ``None``).
+
+    Returns:
+        List of trial indices (1-based) where the counter value increases
+        relative to the previous trial.
     """
     if counter is None:
         return []

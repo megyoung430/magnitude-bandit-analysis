@@ -1,3 +1,14 @@
+"""Plotting functions for cumulative and session-by-session reversal counts.
+
+Two high-level plotting modes are provided:
+
+- :func:`plot_num_reversals` — a simple per-subject bar chart of total
+  good/bad reversals (or total reversals for non-perf-dependent paradigms).
+- :func:`plot_num_reversals_over_time` — cumulative line plots aligned by
+  session number, showing both an across-mice mean and per-mouse faint lines.
+- :func:`plot_moving_avg_reversals_over_time` — same layout but using a
+  centered moving average instead of cumulative counts.
+"""
 import re
 import math
 import numpy as np
@@ -7,7 +18,20 @@ import matplotlib.pyplot as plt
 from src.behavior_analysis.get_total_reversals import get_total_reversals
 from src.behavior_visualization.plot_style import GOOD_COLOR, BAD_COLOR, TOTAL_COLOR
 
+
 def plot_num_reversals(subjects_trials, save_path=None):
+    """Plot total good and bad reversal counts per subject as a grouped bar chart.
+
+    For performance-dependent paradigms (sessions with ``has_good`` /
+    ``has_bad``), draws side-by-side bars coloured by reversal type.  For
+    non-performance-dependent paradigms, draws a single total-reversal bar
+    per subject.
+
+    Args:
+        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
+    """
 
     all_subjects = sorted(subjects_trials.keys())
     per_subj_stats = {}
@@ -55,15 +79,34 @@ def plot_num_reversals(subjects_trials, save_path=None):
     plt.close(fig)
 
 def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
-    """
-    Inputs:
-      subjects_trials[subj][session_key] -> trials (whatever get_total_reversals expects)
-    Saves:
-      1) Across Mice (individual faint + mean bold; carry-forward padded)
-      2) By Mouse (grid of per-subject plots)
+    """Plot cumulative reversal counts over sessions for all subjects.
+
+    Produces two figures:
+
+    1. *Across Mice* — faint individual lines plus a bold mean line,
+       using carry-forward padding so all subjects span the same x-axis.
+    2. *By Mouse* — a grid of per-subject cumulative plots.
+
+    For perf-dependent paradigms, good and bad reversals are plotted as
+    separate lines.  For non-perf-dependent paradigms, total reversals are
+    used.
+
+    Args:
+        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+        threshold: Horizontal reference line drawn on the across-mice plot
+            (e.g. the criterion reversal count).  Pass ``None`` to suppress
+            (default: 10).
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` files.  Two suffixes are appended: ``" Across Mice"``
+            and ``" By Mouse"``.  If ``None``, figures are shown interactively.
+
+    Raises:
+        ValueError: If *subjects_trials* is empty or contains sessions with
+            unparseable keys.
     """
     # carry-forward padding so mean stays monotonic nondecreasing
     def pad_carry_forward(arr, n):
+        """Extend *arr* to length *n* by repeating the last value."""
         arr = np.asarray(arr, dtype=float)
         out = np.empty(n, dtype=float)
         out[:] = arr[-1]
@@ -77,6 +120,7 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
     ses_re = re.compile(r"ses-(\d+)")
 
     def session_int(session_key: str) -> int:
+        """Return the integer session number from a ``ses-N`` session key."""
         m = ses_re.search(session_key)
         if m is None:
             raise ValueError(f"Session key does not contain 'ses-<n>': {session_key}")
@@ -325,18 +369,27 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
         plt.show()
 
 def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, save_path=None):
-    """
-    Inputs:
-      subjects_trials[subj][session_key] -> trials (whatever get_total_reversals expects)
+    """Plot session-by-session moving-average reversal rates over time.
 
-    Saves / shows:
-      1) Across Mice (individual faint + mean bold; carry-forward padded)
-      2) By Mouse (grid of per-subject plots)
+    Produces two figures (same layout as :func:`plot_num_reversals_over_time`
+    but using a centered moving average instead of cumulative counts):
 
-    Notes:
-      - Moving average is centered-ish (shrinks near edges).
-      - Across-mice mean is aligned by RELATIVE session index across mice.
-      - Carry-forward padding makes later sessions for shorter mice equal to their last observed moving-avg value.
+    1. *Across Mice* — individual faint lines plus bold mean, aligned by
+       relative session index and padded with the last finite value.
+    2. *By Mouse* — a grid of per-subject moving-average plots.
+
+    Args:
+        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+        window: Kernel width for the centered moving average (default: 3).
+            Near the array edges the kernel shrinks to use only available
+            data points.
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` files.  Two suffixes are appended: ``" Across Mice"``
+            and ``" By Mouse"``.  If ``None``, figures are shown interactively.
+
+    Raises:
+        ValueError: If *subjects_trials* is empty or sessions have
+            unparseable keys.
     """
 
     all_subjects = sorted(subjects_trials.keys())
@@ -347,6 +400,7 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
     ses_re = re.compile(r"ses-(\d+)")
 
     def session_int(session_key: str) -> int:
+        """Return the integer session number from a ``ses-N`` session key."""
         m = ses_re.search(session_key)
         if m is None:
             raise ValueError(f"Session key missing 'ses-<n>': {session_key}")
@@ -354,6 +408,7 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
 
     # ---- helper: centered moving average (NaN-aware) ----
     def moving_average_1d(x: np.ndarray, window: int) -> np.ndarray:
+        """Apply a centered NaN-aware moving average of *window* width to *x*."""
         x = np.asarray(x, dtype=float)
         n = len(x)
         if window <= 1:

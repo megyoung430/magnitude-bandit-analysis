@@ -1,4 +1,5 @@
-import numpy as np 
+"""Compute mean non-choice long-poke counts per session across subjects."""
+import numpy as np
 
 def get_num_long_pokes(subjects_trials):
     """Compute mean number of non-choice long pokes per session for each subject.

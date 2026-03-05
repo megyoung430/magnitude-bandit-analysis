@@ -1,20 +1,32 @@
+"""Visualise non-choice long-poke counts across sessions and subjects.
+
+A "long poke" is an exploratory poke into a port that is not the animal's
+final choice for that trial.  This module provides a session-by-session bar
+chart with per-mouse overlaid lines.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from src.behavior_import.sort_by_session import sort_sessions_chronologically, get_short_session_label
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 
-def plot_num_pokes_across_mice(avg_num_pokes_across_subjects, y_text, save_path=None):
-    """
-    avg_num_pokes_across_subjects:
-        dict[mouse][session] = value (float)
-    - Sessions are sorted by ses-XX numeric index.
-    - X tick labels show only 'ses-XX' (no full date string).
-    - Bars show mean across mice for each session; error bars are SE across mice.
-    - Points/lines show per-mouse values.
 
-    Returns a dict with:
-        sessions, per_session_mean, per_session_se, per_mouse_series
+def plot_num_pokes_across_mice(avg_num_pokes_across_subjects, y_text, save_path=None):
+    """Plot mean non-choice long-poke counts per session with per-mouse overlays.
+
+    Draws a bar for each session (mean ± SE across mice) and overlays
+    individual mouse lines with jitter.  Sessions are sorted by numeric
+    ``ses-XX`` index; x-tick labels show the short ``ses-XX`` form.
+
+    Args:
+        avg_num_pokes_across_subjects: Nested dict
+            ``{mouse: {session_key: mean_pokes_float}}``, optionally including
+            an ``"average_across_subjects"`` key which is excluded from the
+            per-mouse overlay.
+        y_text: Y-coordinate for bar-value annotations and the upper y-limit
+            of the axis.
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
     """
 
     mice = sorted([m for m in avg_num_pokes_across_subjects.keys()

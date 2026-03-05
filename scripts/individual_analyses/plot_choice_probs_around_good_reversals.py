@@ -10,6 +10,7 @@ from src.behavior_analysis.get_choice_probs_around_good_reversals import *
 from src.behavior_analysis.split_good_reversals_by_best_change import *
 from src.behavior_analysis.split_early_late_good_reversals import *
 from src.behavior_visualization.plot_choice_probs_around_good_reversals import *
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from fix_grid_maze_cohort_02_problems import *
 
 task = "grid-maze"

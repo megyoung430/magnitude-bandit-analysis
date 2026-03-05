@@ -1,22 +1,39 @@
+"""Split good-reversal windows into early and late subsets per subject.
+
+This allows analyses to compare behaviour early in training (when the animal
+is still learning the task structure) versus late in training (when it is more
+experienced).
+"""
+
+
 def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=None):
-    """
-    Split good reversals into early vs late per subject.
+    """Split good-reversal windows into early and late subsets per subject.
 
-    Default (first_n=None and last_n=None):
-      - early = first half
-      - late  = second half
+    Reversals are sorted by ``"good_reversal_number"`` within each subject
+    before splitting.
 
-    If first_n and/or last_n are provided:
-      - early = first `first_n` reversals (if first_n is not None)
-      - late  = last  `last_n` reversals  (if last_n is not None)
+    Splitting modes:
 
-    Notes:
-      - You can set only first_n (early fixed, late = remaining)
-      - You can set only last_n (late fixed, early = remaining)
-      - You can set both first_n and last_n (could overlap if too few reversals)
+    - **Default** (both *first_n* and *last_n* are ``None``): splits at the
+      midpoint — early = first half, late = second half.
+    - **Fixed first_n**: early = first *first_n* reversals, late = remainder.
+    - **Fixed last_n**: late = last *last_n* reversals, early = remainder.
+    - **Both specified**: early = first *first_n*, late = last *last_n*
+      (may overlap if the subject has too few reversals).
+
+    Args:
+        good_reversal_info: ``{subject: list[reversal_dict]}`` as returned by
+            :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
+        first_n: Number of reversals to include in the early split, or
+            ``None`` to use the midpoint / complement of *last_n*
+            (default: ``None``).
+        last_n: Number of reversals to include in the late split, or
+            ``None`` to use the midpoint / complement of *first_n*
+            (default: ``None``).
 
     Returns:
-      early_info, late_info: dict[subj] -> list[reversal_dict]
+        A two-tuple ``(early_info, late_info)`` where each element is a
+        ``{subject: list[reversal_dict]}`` dict.
     """
     early, late = {}, {}
 

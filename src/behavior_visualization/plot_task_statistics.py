@@ -1,18 +1,33 @@
+"""Visualise block-length statistics across mice and sessions.
+
+Provides a bar chart of per-block median lengths with per-mouse overlaid
+lines, drawn from the summary dict returned by
+:func:`src.behavior_analysis.get_task_statistics.get_block_lengths`.
+"""
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from matplotlib.lines import Line2D
 
-
-    "#4C72B0","#55A868","#C44E52","#8172B2",
-    "#CCB974","#64B5CD","#8C8C8C","#DD8452",
-    "#937860","#DA8BC3","#8C6D31","#1F77B4",
-]
-
 def plot_block_lengths(block_lengths_summary, jitter=0.06, annotate_y=None, save_path=None):
-    """
-    Plots output from compute_block_length_summary(...).
+    """Plot per-block median lengths with per-mouse overlay lines.
+
+    Draws a bar (median ± SE across mice) for each block number and overlays
+    connected per-mouse data points with optional x-jitter.
+
+    Args:
+        block_lengths_summary: Dict as returned by
+            :func:`src.behavior_analysis.get_task_statistics.get_block_lengths`,
+            containing keys ``"blocks"``, ``"meds"``, ``"ses"``,
+            ``"per_mouse_blocklens"``, and ``"mice"``.
+        jitter: Maximum half-width of the uniform random x-jitter applied to
+            per-mouse data points (default: ``0.06``).  Set to ``0`` to disable.
+        annotate_y: Y-coordinate for bar-value text annotations.  If ``None``,
+            the value is derived automatically from the tallest bar (default:
+            ``None``).
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
     """
     blocks = block_lengths_summary["blocks"]
     meds = np.asarray(block_lengths_summary["meds"], dtype=float)

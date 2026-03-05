@@ -1,10 +1,19 @@
+"""Plotting functions for arm-rank choice proportions around good reversals.
+
+Three views are available, all accessible through the top-level
+:func:`plot_rank_proportions` dispatcher:
+
+- *By Mouse* — one panel per subject, blocks as coloured lines.
+- *By Block* — one panel per block number, subjects as coloured lines.
+- *Average* — a two-panel summary: left panel averages across mice (mouse
+  colours), right panel averages across blocks (block colours).
+"""
 import numpy as np
 from pathlib import Path
 import math
 import matplotlib.pyplot as plt
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from matplotlib.lines import Line2D
-
 
 
 BLOCK_COLORS = [
@@ -17,6 +26,29 @@ BLOCK_COLORS = [
 ]
 
 def plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None, by_mouse=True, by_block=True, average=True):
+    """Dispatcher that creates one or more rank-proportion figures.
+
+    Calls the appropriate sub-functions based on the boolean flags.
+    Each sub-function saves a separate file (or shows interactively).
+
+    Args:
+        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}`` as
+            returned by
+            :func:`src.behavior_analysis.get_rank_counts_by_good_reversal.get_rank_counts_by_good_reversal`.
+        average_across_mice_pvalues: Optional dict with keys
+            ``"best_vs_second"``, ``"best_vs_third"``, ``"second_vs_third"``
+            (floats) to annotate the average-across-mice panel.  If ``None``,
+            no p-value annotations are added (default: ``None``).
+        save_path: Base path (without extension) shared by all sub-functions.
+            Each sub-function appends its own suffix before the file extension.
+            If ``None``, figures are shown interactively.
+        by_mouse: If ``True``, produce the by-mouse panel grid (default:
+            ``True``).
+        by_block: If ``True``, produce the by-block panel grid (default:
+            ``True``).
+        average: If ``True``, produce the two-panel average summary (default:
+            ``True``).
+    """
     if by_mouse:
         mouse_save_path = save_path + " by Mouse" if save_path else None
         plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=mouse_save_path)
@@ -28,13 +60,23 @@ def plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pval
         plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=average_across_mice_pvalues, save_path=average_save_path)
 
 def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None):
-    """
-    Two-panel summary:
-      (Left)  Average across mice: bars = mean across mice, lines = individual mice (mouse colors).
-      (Right) Average across blocks: bars = mean across blocks, lines = individual blocks (block colors).
+    """Two-panel summary of rank-proportion averages across mice and blocks.
 
-    rank_counts_by_good_reversal[subj] should be a list of dicts with keys:
-      best_prop, second_prop, third_prop, total, ...
+    The left panel shows bars (mean ± SE across mice) with individual mouse
+    lines overlaid in ``MOUSE_COLORS``.  The right panel shows bars (mean ± SE
+    across blocks) with individual block lines overlaid in ``BLOCK_COLORS``.
+
+    Args:
+        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
+            where each dict contains at least ``"best_prop"``, ``"second_prop"``,
+            and ``"third_prop"`` keys (floats).  The last element of each list
+            is treated as a summary entry and is excluded from the by-block view.
+        average_across_mice_pvalues: Optional dict with keys
+            ``"best_vs_second"``, ``"best_vs_third"``, ``"second_vs_third"``
+            (floats) to annotate the left panel with p-values.  If ``None``,
+            no p-value annotations are added (default: ``None``).
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
     """
 
     subjects = list(rank_counts_by_good_reversal.keys())
@@ -172,6 +214,20 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
     plt.close(fig)
 
 def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None):
+    """Plot rank proportions in a per-subject grid, with blocks as coloured lines.
+
+    Draws one subplot per subject arranged in a 2-row grid.  Within each
+    subplot, bars (mean ± SE across blocks) are shown with individual block
+    lines overlaid using ``BLOCK_COLORS``.
+
+    Args:
+        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
+            where each dict contains ``"best_prop"``, ``"second_prop"``, and
+            ``"third_prop"`` keys.  The last element of each subject's list is
+            treated as a summary entry and is excluded from the per-block lines.
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
+    """
     subjects = list(rank_counts_by_good_reversal.keys())
     n_subj = len(subjects)
 
@@ -238,6 +294,20 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
     plt.close(fig)
 
 def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None):
+    """Plot rank proportions in a per-block grid, with subjects as coloured lines.
+
+    Draws one subplot per block number arranged in a 2-row grid.  Within each
+    subplot, bars (mean ± SE across subjects) are shown with individual subject
+    lines overlaid using ``MOUSE_COLORS``.
+
+    Args:
+        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
+            where each dict contains ``"best_prop"``, ``"second_prop"``,
+            ``"third_prop"``, and optionally ``"total"`` keys.  Subjects that
+            do not have data for a given block are silently skipped.
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
+    """
     subjects = list(rank_counts_by_good_reversal.keys())
 
     max_blocks = 0

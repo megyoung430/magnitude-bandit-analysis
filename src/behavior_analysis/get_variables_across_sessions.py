@@ -129,9 +129,17 @@ def get_vars_across_all_sessions(data):
 
 # ========== Merging Rules for Variables of Interest ==========
 def merge_trials_across_sessions(trials_by_session):
-    """
-    trials_by_session: list of lists like [[1..n1], [1..n2], ...]
-    returns one list with continuous numbering: [1..n1, n1+1..n1+n2, ...]
+    """Concatenate per-session trial index lists into a single continuous sequence.
+
+    Each session's trial indices are offset so the final merged list is
+    monotonically increasing (1 … n1, n1+1 … n1+n2, …).
+
+    Args:
+        trials_by_session: List of lists, e.g.
+            ``[[1, 2, …, n1], [1, 2, …, n2], …]``.
+
+    Returns:
+        A single flat list of re-indexed trial numbers spanning all sessions.
     """
     merged = []
     offset = 0
@@ -141,9 +149,18 @@ def merge_trials_across_sessions(trials_by_session):
     return merged
 
 def merge_list_of_dicts_of_lists(dict_list):
-    """
-    dict_list: [ {k: [..], ...}, {k: [..], ...}, ... ]
-    returns:   {k: [..merged..], ...}
+    """Concatenate a list of ``{key: list}`` dicts into a single merged dict.
+
+    Each per-session dict maps variable names to per-trial value lists.  The
+    merged dict concatenates the lists in order so the result covers all
+    sessions for each key.
+
+    Args:
+        dict_list: List of dicts, each of the form ``{key: [values, …]}``.
+            ``None`` dicts and ``None`` value lists are silently skipped.
+
+    Returns:
+        A single dict ``{key: [merged_values, …]}`` covering all sessions.
     """
     merged = {}
     for d in dict_list:
@@ -156,12 +173,25 @@ def merge_list_of_dicts_of_lists(dict_list):
     return merged
 
 def merge_reversals_across_sessions(list_of_lists, start_offset=0):
-    """
-    list_of_lists: e.g. [[0,0,1,1], [0,0,0,1,1,2,2], ...]
-    Returns one list where each subsequent list is offset so the cumulative
-    count carries over across sessions.
+    """Merge per-session cumulative reversal count lists across sessions.
 
-    The offset rule is: offset = last value of merged so far (not last+1).
+    Each session list contains cumulative reversal counts that reset to zero
+    at the start of the session.  This function offsets each session by the
+    last value of the previously merged output so that the final list is
+    monotonically non-decreasing across all sessions.
+
+    The offset rule is: ``offset = last value of merged so far`` (not last+1),
+    so the carry-over is seamless.
+
+    Args:
+        list_of_lists: List of lists, e.g.
+            ``[[0, 0, 1, 1], [0, 0, 0, 1, 2], …]``.
+            ``None`` values within sublists are skipped.
+        start_offset: Initial offset to add to the first session's values
+            (default: ``0``).
+
+    Returns:
+        A single flat list of monotonically non-decreasing reversal counts.
     """
     merged = []
     offset = start_offset
@@ -184,11 +214,19 @@ def merge_reversals_across_sessions(list_of_lists, start_offset=0):
     return merged
 
 def merge_blocks_across_sessions(blocks_by_session):
-    """
-    blocks_by_session: list of lists like
-      [[1,1,1,2,2], [1,1,2,2,3,3,3], ...]
+    """Merge per-session block-ID lists so IDs are continuous across sessions.
 
-    Returns one list where block IDs continue across sessions.
+    Each session's block IDs start at 1.  The merged list offsets each session
+    by the last block ID of the previous session, so block numbering is
+    continuous across all sessions.
+
+    Args:
+        blocks_by_session: List of lists, e.g.
+            ``[[1, 1, 2, 2], [1, 1, 2, 2, 3], …]``.
+            Empty sublists are skipped.
+
+    Returns:
+        A single flat list of block IDs with continuous numbering.
     """
     merged = []
     offset = 0
@@ -201,9 +239,17 @@ def merge_blocks_across_sessions(blocks_by_session):
     return merged
 
 def compute_merged_num_trials_in_block(merged_num_blocks):
-    """
-    merged_num_blocks: list like [1,1,1,2,2,2,3,3,...]
-    returns:           [1,2,3,1,2,3,1,2,...]
+    """Compute per-trial within-block trial index from a merged block-ID list.
+
+    For each position in *merged_num_blocks*, returns the 1-based trial index
+    within the current block (i.e. resets to 1 at every block transition).
+
+    Args:
+        merged_num_blocks: List of block IDs, e.g. ``[1, 1, 1, 2, 2, 3, …]``,
+            as returned by :func:`merge_blocks_across_sessions`.
+
+    Returns:
+        List of within-block trial counts, e.g. ``[1, 2, 3, 1, 2, 1, …]``.
     """
     out = []
     prev_block = None
