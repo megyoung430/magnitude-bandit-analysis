@@ -1,27 +1,12 @@
-from collections import Counter
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
-
-def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_patterns=((4, 1, 0), (3, 1, 0), (2, 1, 0))):
-    def find_increment_indices(cumulative_list):
-        inc = []
-        for i in range(1, len(cumulative_list)):
-            if cumulative_list[i] > cumulative_list[i - 1]:
-                inc.append(i)
-        return inc
-
+from src.behavior_analysis.get_total_reversals import find_increment_indices
+def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, max_zero_count=1):
     def find_change_indices(seq):
         chg = []
         for i in range(1, len(seq)):
             if seq[i] != seq[i - 1]:
                 chg.append(i)
         return chg
-
-    # normalize required_reward_patterns
-    if isinstance(required_reward_patterns, tuple) and all(
-        isinstance(x, (int, float)) for x in required_reward_patterns
-    ):
-        required_reward_patterns = (required_reward_patterns,)
-    required_counters = [Counter(pat) for pat in required_reward_patterns]
 
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
 
@@ -96,14 +81,13 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
             except IndexError:
                 print(f"[SKIP] {subj} boundary@{idx}: reward_magnitudes_by_tower too short for idx-1")
                 continue
-
-            before_counter = Counter(before_vals)
-            if not any(before_counter == rc for rc in required_counters):
+            
+            num_zeros = sum(v == 0 for v in before_vals)
+            if num_zeros > max_zero_count:
                 block_id = blocks[idx] if idx < len(blocks) else None
                 print(
                     f"[SKIP] {subj} boundary@{idx} ({boundary_source}, block {block_id}): "
-                    f"reward magnitudes before were {before_vals} across towers {towers} "
-                    f"(expected a permutation of one of {list(required_reward_patterns)})"
+                    f"more than {max_zero_count} zero rewards in {before_vals}"
                 )
                 continue
 
@@ -160,3 +144,21 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, re
         out[subj] = subj_results
 
     return out
+
+def classify_towers_at_good_reversals(reversal):
+    """
+    Classify towers before and after a reversal based on reward magnitudes.
+
+    Returns:
+      prev_best, next_best, third
+    """
+    before = reversal["reward_magnitudes_by_tower_before"]
+    after  = reversal["reward_magnitudes_by_tower_after"]
+
+    prev_best = max(before, key=before.get)
+    next_best = max(after, key=after.get)
+
+    towers = set(before.keys())
+    third = list(towers - {prev_best, next_best})[0]
+
+    return prev_best, next_best, third

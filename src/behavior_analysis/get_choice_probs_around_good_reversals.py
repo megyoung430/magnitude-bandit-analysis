@@ -1,4 +1,5 @@
 from copy import deepcopy
+from src.behavior_analysis.get_good_reversal_info import classify_towers_at_good_reversals
 import numpy as np
 
 def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, skip_n_trials_after_reversal=0):
@@ -295,15 +296,3 @@ def remove_trials_after_bad_rev(good_windows, all_good_idx, all_bad_idx, include
 
         out[subj] = subj_out
     return out
-
-def classify_towers_at_good_reversals(reversal):
-    before = reversal["reward_magnitudes_by_tower_before"]
-    after  = reversal["reward_magnitudes_by_tower_after"]
-
-    prev_best = max(before, key=before.get)
-    next_best = max(after, key=after.get)
-
-    towers = set(before.keys())
-    third = list(towers - {prev_best, next_best})[0]
-
-    return prev_best, next_best, third

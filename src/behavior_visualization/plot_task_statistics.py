@@ -1,17 +1,10 @@
 import numpy as np
 from pathlib import Path
-import matplotlib as mpl
 import matplotlib.pyplot as plt
+from src.behavior_visualization.plot_style import MOUSE_COLORS
 from matplotlib.lines import Line2D
 
-mpl.rcParams["font.family"] = "sans-serif"
-mpl.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial"]
-mpl.rcParams["xtick.labelsize"] = 12
-mpl.rcParams["ytick.labelsize"] = 12
-mpl.rcParams["axes.labelsize"] = 12
-mpl.rcParams["axes.titlesize"] = 14
 
-MOUSE_COLORS = [
     "#4C72B0","#55A868","#C44E52","#8172B2",
     "#CCB974","#64B5CD","#8C8C8C","#DD8452",
     "#937860","#DA8BC3","#8C6D31","#1F77B4",
