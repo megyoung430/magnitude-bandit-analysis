@@ -1,10 +1,53 @@
+"""Compute and smooth reversal-aligned choice-probability curves.
+
+Functions here take the windowed reversal data produced by
+:mod:`src.behavior_analysis.get_good_reversal_info` and compute mean
+choice-probability curves aligned to each good reversal.  Optional NaN-aware
+moving-average smoothing can be applied separately to the pre- and post-
+reversal segments so there is no smoothing bleed-through across the boundary.
+"""
 from copy import deepcopy
 from src.behavior_analysis.get_good_reversal_info import classify_towers_at_good_reversals
 import numpy as np
 
+
 def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, skip_n_trials_after_reversal=0):
+    """Compute reversal-aligned choice-probability curves from reversal windows.
+
+    For each subject, stacks one-hot choice arrays across all reversals to form
+    per-reversal choice matrices, then averages within and across subjects.
+
+    Args:
+        reversal_windows: ``{subject: [reversal_dict]}`` as returned by
+            :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
+        pre: Number of trials before the reversal to include (default: 10).
+        post: Number of trials after the reversal to include (default: 40).
+        skip_n_trials_after_reversal: Number of trials immediately after the
+            reversal index to skip (index 0 of the post window is always kept
+            as the reversal trial itself; default: 0).
+
+    Returns:
+        A three-tuple ``(x, per_subject, across)`` where:
+
+        - ``x`` – 1-D int array of trial offsets, length
+          ``pre + (post - skip_n_trials_after_reversal)``.
+        - ``per_subject[subj]`` – dict with keys ``"prev_best"``,
+          ``"next_best"``, ``"third"`` (raw matrices), ``"prev_best_mean"``,
+          ``"next_best_mean"``, ``"third_mean"`` (per-subject means), and
+          ``"num_reversals"``.
+        - ``across`` – dict with keys ``"mean"``, ``"se"``, ``"num_subjects"``,
+          and ``"num_reversals"``, where ``"mean"`` and ``"se"`` are themselves
+          dicts keyed by ``"prev_best"``, ``"next_best"``, ``"third"``.
+
+    Raises:
+        ValueError: If ``skip_n_trials_after_reversal < 0`` or
+            ``>= post``.
+        AssertionError: If the mean choice probabilities do not sum to 1.0 at
+            all finite time-bins.
+    """
 
     def keep_zero_then_skip(post_list, skip):
+        """Return post_list with index 0 kept and then *skip* elements removed."""
         if skip <= 0:
             return post_list
         return post_list[:1] + post_list[skip:]
@@ -47,6 +90,7 @@ def get_choice_probs_around_good_reversals(reversal_windows, pre=10, post=40, sk
             third_raw = third_pre + third_post
 
             def pad(arr):
+                """Pad or truncate *arr* to length *T*, filling missing entries with NaN."""
                 out = np.full(T, np.nan, dtype=float)
                 n = min(len(arr), T)
                 out[:n] = arr[:n]
@@ -114,12 +158,39 @@ def apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=5, mo
     use_keys=("prev_best_mean", "next_best_mean", "third_mean"),
     out_keys=("prev_best_mean_sm", "next_best_mean_sm", "third_mean_sm"),
     split_at=0):
-    """
-    Applies NaN-aware moving average separately to pre (x < split_at) and post (x >= split_at)
-    so there is no smoothing bleedthrough across the reversal boundary.
+    """Apply a NaN-aware moving average to per-subject choice-probability curves.
+
+    Smoothing is applied separately to the pre- (``x < split_at``) and
+    post-reversal (``x >= split_at``) segments to prevent bleed-through across
+    the boundary.  The smoothed means are stored under new keys in each
+    subject's dict, and a new ``across`` dict with the smoothed averages is
+    also returned.
+
+    Args:
+        x: 1-D float array of trial offsets (same *x* returned by
+            :func:`get_choice_probs_around_good_reversals`).
+        per_subject: Per-subject dict as returned by
+            :func:`get_choice_probs_around_good_reversals`.
+        moving_avg_window: Kernel width for the moving average (default: 5).
+        mode: ``"centered"`` (default) or ``"trailing"``.  Controls whether
+            the convolution kernel is centred or trailing.
+        use_keys: Source keys in each subject dict to smooth (default:
+            ``("prev_best_mean", "next_best_mean", "third_mean")``).
+        out_keys: Destination keys to write smoothed values to (default:
+            ``("prev_best_mean_sm", "next_best_mean_sm",
+            "third_mean_sm")``).
+        split_at: Trial-offset value that separates pre and post segments
+            (default: 0, i.e. the reversal trial itself begins the post
+            segment).
+
+    Returns:
+        A three-tuple ``(x, per_subject_moving_avg, across_moving_avg)``
+        with the same structure as :func:`get_choice_probs_around_good_reversals`
+        but with smoothed means.
     """
 
     def nan_moving_average(y, window, mode="centered"):
+        """Apply a NaN-aware moving average of *window* width to array *y*."""
         if window is None or window <= 1:
             return np.asarray(y, dtype=float)
 
@@ -221,9 +292,28 @@ def apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=5, mo
     return x, per_subject_moving_avg, across_moving_avg
 
 def remove_trials_after_bad_rev(good_windows, all_good_idx, all_bad_idx, include_bad_trial=True):
-    """
-    Stops each good reversal's post window at the first bad reversal between it and the next good reversal.
-    include_bad_trial: if True, keep trial b in post; if False, cut just before b
+    """Truncate each good reversal's post window at the first intervening bad reversal.
+
+    For each good reversal at index *g*, finds the first bad reversal that
+    falls strictly between *g* and the next good reversal.  The post window is
+    then clipped to end at (or just before) that bad reversal.
+
+    Args:
+        good_windows: ``{subject: [reversal_dict]}`` as returned by
+            :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
+        all_good_idx: ``{subject: [int]}`` sorted good-reversal indices.
+        all_bad_idx: ``{subject: [int]}`` sorted bad-reversal indices.
+        include_bad_trial: If ``True``, the bad-reversal trial itself is
+            included in the truncated post window; if ``False``, the window
+            is cut just before it (default: ``True``).
+
+    Returns:
+        A new dict with the same structure as *good_windows* but with the
+        ``"post"`` lists in ``"choices_by_tower"``, ``"choices_by_rank"``, and
+        ``"trial_window_idx"`` truncated where a bad reversal intervenes.
+        Each modified reversal dict gains two extra keys:
+        ``"removed_bad_idx"`` (int | None) and
+        ``"post_len_after_removal"`` (int | None).
     """
 
     out = {}

@@ -1,23 +1,44 @@
+"""Compute summary statistics about block structure and lengths.
+
+Block lengths are derived from the trial indices at which reversals occur.
+Good, bad, or all reversals can be used as block boundaries.
+"""
 import numpy as np
 from collections import defaultdict
 from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
 
+
 def get_block_lengths(subjects_trials, boundary="all"):
-    """
-    Computes block lengths from reversal boundaries.
+    """Compute per-block trial counts from reversal boundaries across subjects.
 
-    Block definition:
-      boundaries = [0, rev_1, rev_2, ..., rev_N]
-      block 1 length = rev_1 - 0
-      block k length = rev_k - rev_(k-1)
+    Defines blocks as the intervals between consecutive reversal events.
+    Block 1 spans trials 0 to the first reversal, block 2 spans the first
+    to the second reversal, and so on.
 
-    boundary:
-      "good" -> use good reversal indices only
-      "bad"  -> use bad reversal indices only
-      "all"  -> use union of good and bad indices
+    Args:
+        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+        boundary: Which reversal type to use as block boundaries.  One of:
+
+            - ``"all"`` (default) — union of good and bad reversal indices.
+            - ``"good"`` — good reversal indices only.
+            - ``"bad"`` — bad reversal indices only.
 
     Returns:
-      dict with per_mouse_blocklens, block_to_vals, blocks, meds, ses, mice
+        Dict with keys:
+
+        - ``"boundary"`` (str): The *boundary* argument used.
+        - ``"per_mouse_blocklens"`` (dict): ``{subject: {block_num: length}}``
+          mapping from 1-based block number to trial count (float).
+        - ``"block_to_vals"`` (dict): ``{block_num: [lengths]}`` pooled across
+          all subjects.
+        - ``"blocks"`` (list[int]): Sorted list of 1-based block numbers.
+        - ``"meds"`` (np.ndarray): Median block length per block across mice.
+        - ``"ses"`` (np.ndarray): Standard error of block length per block.
+        - ``"mice"`` (list[str]): Sorted list of subject keys.
+
+    Raises:
+        ValueError: If *boundary* is not one of ``"all"``, ``"good"``,
+            ``"bad"``, or if no subject has at least one reversal boundary.
     """
     all_good_idx, all_bad_idx, _ = get_all_reversal_indices(subjects_trials)
 

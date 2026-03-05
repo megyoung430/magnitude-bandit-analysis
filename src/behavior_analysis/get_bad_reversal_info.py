@@ -1,33 +1,56 @@
+"""Extract per-subject windowed trial data centred on bad reversal events.
+
+The function here mirrors :mod:`src.behavior_analysis.get_good_reversal_info`
+but targets bad-reversal boundaries, and applies a stricter reward-pattern
+filter (multiset match against ``required_reward_pattern``) instead of the
+zero-count gate used for good reversals.
+"""
 from collections import Counter
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 
+
 def get_bad_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_pattern=(4, 1, 0)):
-    """
-    For each subject:
-      - Find BAD reversal indices (where cumulative bad_reversals increments).
-      - Collect window indices:
-          pre  = trials [idx-pre, ..., idx-1]
-          post = trials [idx, ..., idx+post-1]  (includes the reversal trial, or goes until the next bad reversal if post is None)
-      - Keep only those reversals where the reward magnitudes on trial idx-1
-        across towers match required_reward_pattern in ANY order (multiset match).
-      - Infer towers from reward_magnitudes_by_tower keys (preferred), else choices_by_tower keys.
-      - Include both reward_magnitudes_by_tower_before (idx-1) and
-        reward_magnitudes_by_tower_after (idx).
+    """Extract windowed trial data around each bad reversal for all subjects.
+
+    Identifies bad-reversal boundaries from the merged session data for each
+    subject and returns sliced pre/post windows.  Only reversals where the
+    reward magnitudes immediately before the reversal form a permutation of
+    *required_reward_pattern* are kept.
+
+    Args:
+        data: Nested dict ``{subject: {session_key: session_dict}}``.
+        pre: Number of trials before the reversal index to include in the
+            pre-window (default: 5).
+        post: Number of trials after the reversal index to include in the
+            post-window.  If ``None``, extends to the next bad reversal
+            (default: ``None``).
+        include_first_block: If ``True``, prepend index ``0`` to the boundary
+            list (default: ``False``).
+        required_reward_pattern: Multiset of reward values that must be
+            present (in any order) across towers on the trial immediately
+            before the reversal.  Reversals that do not match are skipped
+            (default: ``(4, 1, 0)``).
 
     Returns:
-      dict[subj] -> list of dicts, one per kept reversal:
-        {
-          "reversal_idx": int,
-          "bad_reversal_number": int,
-          "block_id": int,
-          "towers": list[str],
-          "trial_window_idx": {"pre": [...], "post": [...]},
-          "reward_magnitudes_by_tower_before": {tower: value, ...},
-          "reward_magnitudes_by_tower_after":  {tower: value, ...},
-          "choices_by_tower": {tower: {"pre":[...], "post":[...]}, ...},
-          "choices_by_rank":  {rank:  {"pre":[...], "post":[...]}, ...},
-        }
+        Dict ``{subject: list[reversal_dict]}`` where each *reversal_dict*
+        contains:
+
+        - ``"reversal_idx"`` (int): Trial index of the reversal.
+        - ``"bad_reversal_number"`` (int): Cumulative bad-reversal count at
+          this reversal.
+        - ``"block_id"`` (int | None): Block identifier at the reversal trial.
+        - ``"towers"`` (list[str]): Tower keys present in the reward data.
+        - ``"trial_window_idx"`` (dict): ``{"pre": [...], "post": [...]}``
+          lists of absolute trial indices.
+        - ``"reward_magnitudes_by_tower_before"`` (dict): Tower → magnitude
+          on the trial immediately before the reversal.
+        - ``"reward_magnitudes_by_tower_after"`` (dict): Tower → magnitude on
+          the reversal trial itself (``None`` if out of range).
+        - ``"choices_by_tower"`` (dict): Tower → ``{"pre": [...], "post":
+          [...]}`` one-hot choice slices.
+        - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
+          [...]}`` one-hot choice slices.
     """
 
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)

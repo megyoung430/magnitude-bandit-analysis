@@ -1,3 +1,17 @@
+"""Plotting functions for choice-probability curves around good reversals.
+
+Functions here render reversal-aligned choice-probability curves for individual
+sessions/subjects.  They also support optional twin axes showing the cumulative
+fraction of data removed as subsequent reversals occur within the post window.
+
+Two cumulative-axis modes are available:
+
+- *total* mode (``use_total=True``): a single orange step-line showing the
+  fraction of anchor windows that have been "cut short" by *any* subsequent
+  reversal.
+- *good/bad* mode (default): separate orange (good) and red (bad) step-lines
+  that together sum to ≤ 1.
+"""
 import warnings
 import numpy as np
 from pathlib import Path
@@ -6,9 +20,44 @@ from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR
 from matplotlib.ticker import MaxNLocator
 
 
-
-def plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True, only_good=False, use_total=False, windows_for_cumulative_axis=None, 
+def plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True, only_good=False, use_total=False, windows_for_cumulative_axis=None,
                                             all_good_idx=None, all_bad_idx=None, skip_n_trials_after_reversal=0, save_path=None):
+    """Plot reversal-aligned choice-probability curves for a single dataset.
+
+    Renders mean ± SE choice-probability curves for the Previous Best, New
+    Best, and Third Arm around good reversals.  Optionally adds a second y-axis
+    showing the cumulative fraction of data removed by subsequent reversals.
+
+    When ``skip_n_trials_after_reversal > 0`` the figure uses a broken-axis
+    layout (two subplots sharing the y axis) to visually omit the skipped
+    trials from the post-reversal segment.
+
+    Args:
+        x: 1-D array of trial offsets relative to the reversal (negative =
+            pre, non-negative = post).
+        across: Aggregated statistics dict with keys ``"mean"``, ``"se"``,
+            ``"num_subjects"``, and ``"num_reversals"`` as returned by
+            :func:`src.behavior_analysis.get_choice_probs_around_good_reversals.get_choice_probs_around_good_reversals`.
+        add_cumulative_axis: If ``True``, pass control to
+            :func:`add_cumulative_rev_axis` after plotting the main figure
+            (default: ``True``).
+        only_good: When using good/bad cumulative mode, suppress the bad-
+            reversal line so only the good-reversal fraction is shown
+            (default: ``False``).
+        use_total: If ``True``, use *total* cumulative mode (one line) instead
+            of good/bad mode (default: ``False``).
+        windows_for_cumulative_axis: The ``{subject: [reversal_dict]}`` windows
+            dict passed to the cumulative-axis helpers.  Required when
+            ``add_cumulative_axis=True``.
+        all_good_idx: ``{subject: [int]}`` good-reversal index lists, required
+            for good/bad cumulative mode.
+        all_bad_idx: ``{subject: [int]}`` bad-reversal index lists, required
+            for good/bad cumulative mode.
+        skip_n_trials_after_reversal: Number of trials immediately after the
+            reversal to omit from the axis (default: 0).
+        save_path: Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output.  If ``None``, the figure is shown interactively.
+    """
     mean = across.get("mean", {})
     se = across.get("se", {})
 
@@ -19,6 +68,7 @@ def plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True,
         x_disp[x_disp >= 1] += skip_n_trials_after_reversal
 
     def _plot_all(ax, xlim):
+        """Plot mean ± SE choice-probability curves on *ax* within *xlim*."""
         ax.set_xlim(*xlim)
 
         for key, label in [("prev_best", "Previous Best"),("next_best", "New Best"),("third", "Third Arm")]:
@@ -117,6 +167,32 @@ def plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True,
     plt.close(fig)
 
 def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_good_idx=None, all_bad_idx=None, save_path=None, plot_fraction_removed=True, only_good=False, use_total=None):
+    """Plot choice-probability curves with a cumulative fraction-removed twin axis.
+
+    Creates a new figure with the reversal-aligned mean ± SE curves on the
+    primary axis and a step-function showing how many anchor windows have been
+    "cut short" by subsequent reversals on the secondary (right) axis.
+
+    Args:
+        x: 1-D array of trial offsets relative to the reversal.
+        across: Aggregated statistics dict (same structure as in
+            :func:`plot_choice_probs_around_good_reversals`).
+        windows_for_cumulative_axis: ``{subject: [reversal_dict]}`` windows
+            dict used to compute the cumulative axis.
+        all_good_idx: ``{subject: [int]}`` good-reversal index lists.  Required
+            when ``use_total`` is falsy.
+        all_bad_idx: ``{subject: [int]}`` bad-reversal index lists.  Required
+            when ``use_total`` is falsy.
+        save_path: Base path for saving ``.pdf`` / ``.png`` files.  If
+            ``None``, the figure is shown interactively.
+        plot_fraction_removed: If ``True``, plot the fraction of data removed
+            (range 0–1); if ``False``, plot raw cumulative reversal counts
+            (default: ``True``).
+        only_good: Suppress the bad-reversal line in good/bad mode (default:
+            ``False``).
+        use_total: If truthy, use total-mode cumulative axis (one line); if
+            falsy, use good/bad-mode (two lines, default: ``None`` → falsy).
+    """
     mean = across.get("mean", {})
     se = across.get("se", {})
 
@@ -132,6 +208,7 @@ def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_goo
         _, cumulative_good, cumulative_bad, fraction_removed_good, fraction_removed_bad = cumulative_reversal_events_over_post(windows_for_cumulative_axis, all_good_idx, all_bad_idx, x, across, exclude_anchor_good=True)
 
     def _plot_all(ax, xlim):
+        """Plot mean ± SE choice-probability curves on *ax* within *xlim*."""
         ax.set_xlim(*xlim)
 
         for key, label in [("prev_best", "Previous Best"), ("next_best", "New Best"), ("third", "Third Arm")]:
@@ -159,6 +236,7 @@ def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_goo
         ax.spines["right"].set_visible(False)
 
     def _add_cumulative_axis_single(ax):
+        """Add a secondary y-axis to *ax* showing cumulative reversal fractions."""
         ax2 = ax.twinx()
 
         ax2.set_zorder(0)
@@ -248,11 +326,28 @@ def add_cumulative_rev_axis(x, across, windows_for_cumulative_axis=None, all_goo
     plt.close(fig)
 
 def cumulative_reversal_events_over_post(good_windows, all_good_idx, all_bad_idx, x, across, exclude_anchor_good=True):
-    """
-    For each aligned good reversal at index g, find the FIRST subsequent reversal after g
-    (good or bad). Then mark that anchor as "removed" for all offsets t >= (next_rev - g).
+    """Compute cumulative good/bad reversal removal curves over the post window.
 
-    This makes fraction_removed_good + fraction_removed_bad <= 1 by construction.
+    For each aligned good-reversal anchor *g*, finds the first subsequent
+    reversal (good or bad) and marks that anchor as "removed" for all offsets
+    ``t >= (next_rev - g)``.  The returned ``fraction_removed_good`` and
+    ``fraction_removed_bad`` arrays therefore sum to ≤ 1 at every offset by
+    construction.
+
+    Args:
+        good_windows: ``{subject: [reversal_dict]}`` windows dict.
+        all_good_idx: ``{subject: [int]}`` good-reversal trial indices.
+        all_bad_idx: ``{subject: [int]}`` bad-reversal trial indices.
+        x: 1-D float array of trial offsets.
+        across: Aggregated statistics dict (used only for shape context).
+        exclude_anchor_good: If ``True``, only count reversals *after* anchor
+            *g*; if ``False``, reversals at *g* itself are also eligible
+            (default: ``True``).
+
+    Returns:
+        A five-tuple ``(x_disp, cumulative_good_full, cumulative_bad_full,
+        fraction_removed_good, fraction_removed_bad)`` where each is a 1-D
+        float array the same length as *x*.  Pre-window offsets are ``nan``.
     """
     x = np.asarray(x, dtype=float)
     x_disp = x.copy()
@@ -331,13 +426,28 @@ def cumulative_reversal_events_over_post(good_windows, all_good_idx, all_bad_idx
     return x_disp, cumulative_good_full, cumulative_bad_full, fraction_removed_good, fraction_removed_bad
 
 def cumulative_total_events_over_post(windows, x, across, exclude_anchor=True):
-    """
-    Fraction removed interpretation:
-    For each aligned anchor reversal at index g, find the FIRST subsequent reversal after g.
-    That anchor's aligned window is considered "removed" for all offsets t >= (next_rev - g).
+    """Compute a single cumulative fraction-removed curve over the post window.
+
+    For each aligned anchor reversal at index *g*, finds the first subsequent
+    reversal after *g* (any type) and marks that anchor as removed for all
+    offsets ``t >= (next_rev - g)``.
+
+    This produces a monotonically non-decreasing step function bounded in
+    ``[0, 1]``.
+
+    Args:
+        windows: ``{subject: [reversal_dict]}`` windows dict.
+        x: 1-D float array of trial offsets.
+        across: Aggregated statistics dict (unused, kept for API symmetry).
+        exclude_anchor: If ``True``, only count reversals strictly after anchor
+            *g*; if ``False``, reversals at *g* itself are also eligible
+            (default: ``True``).
 
     Returns:
-      x_disp, cum_total_full (# anchors removed by each offset), frac_total_full (in [0,1])
+        A three-tuple ``(x_disp, cum_total_full, frac_total_full)`` where each
+        is a 1-D float array the same length as *x*.  Pre-window offsets are
+        ``nan``.  ``frac_total_full`` is the fraction of anchor windows removed
+        at each offset (in ``[0, 1]``).
     """
     x = np.asarray(x, dtype=float)
     x_disp = x.copy()

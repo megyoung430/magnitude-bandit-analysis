@@ -1,7 +1,65 @@
+"""Extract per-subject windowed trial data centred on good reversal events.
+
+Functions here identify good-reversal boundaries from merged session data, apply
+quality filters (zero-reward gate), and slice choice/reward arrays into pre/post
+windows for downstream analyses.
+"""
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.get_total_reversals import find_increment_indices
+
+
 def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, max_zero_count=1):
+    """Extract windowed trial data around each good reversal for all subjects.
+
+    Identifies good-reversal boundaries from the merged session data for each
+    subject, filters out reversals where too many towers had zero reward before
+    the reversal, and returns sliced pre/post windows for choices and rewards.
+
+    Boundary detection priority (first match wins):
+      1. ``good_reversals`` increment — used when the subject has at least one
+         session with ``has_good == True`` and a valid ``good_reversals`` array.
+      2. ``num_blocks`` increment.
+      3. ``blocks`` value-change.
+
+    Args:
+        data: Nested dict ``{subject: {session_key: session_dict}}``.
+        pre: Number of trials before the reversal index to include in the
+            pre-window (default: 5).
+        post: Number of trials after the reversal index to include in the
+            post-window.  If ``None``, extends to the next reversal boundary
+            (default: ``None``).
+        include_first_block: If ``True``, prepend index ``0`` to the boundary
+            list so the very first block is also represented (default:
+            ``False``).
+        max_zero_count: Maximum number of towers allowed to have a zero reward
+            magnitude on the trial immediately before the reversal.  Reversals
+            exceeding this count are skipped (default: 1).
+
+    Returns:
+        Dict ``{subject: list[reversal_dict]}`` where each *reversal_dict*
+        contains:
+
+        - ``"reversal_idx"`` (int): Trial index of the reversal.
+        - ``"boundary_source"`` (str | None): Which field was used to detect
+          the boundary (``"good_reversals"``, ``"num_blocks"``, or
+          ``"blocks"``).
+        - ``"good_reversal_number"`` (int | None): Cumulative good-reversal
+          count at this reversal, or ``block_id - 1`` as a fallback.
+        - ``"block_id"`` (int | None): Block identifier at the reversal trial.
+        - ``"towers"`` (list[str]): Tower keys present in the reward data.
+        - ``"trial_window_idx"`` (dict): ``{"pre": [...], "post": [...]}``
+          lists of absolute trial indices.
+        - ``"reward_magnitudes_by_tower_before"`` (dict): Tower → magnitude on
+          the trial immediately before the reversal.
+        - ``"reward_magnitudes_by_tower_after"`` (dict): Tower → magnitude on
+          the reversal trial itself (value is ``None`` if out of range).
+        - ``"choices_by_tower"`` (dict): Tower → ``{"pre": [...], "post":
+          [...]}`` one-hot choice slices.
+        - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
+          [...]}`` one-hot choice slices.
+    """
     def find_change_indices(seq):
+        """Return indices where consecutive elements differ in *seq*."""
         chg = []
         for i in range(1, len(seq)):
             if seq[i] != seq[i - 1]:
@@ -146,11 +204,19 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     return out
 
 def classify_towers_at_good_reversals(reversal):
-    """
-    Classify towers before and after a reversal based on reward magnitudes.
+    """Classify towers as prev-best, next-best, and third around a good reversal.
+
+    Uses the reward magnitude dicts stored inside a reversal window dict to
+    determine which tower was the best-rewarding arm immediately before the
+    reversal, which became the best arm after, and which is neither.
+
+    Args:
+        reversal: A reversal dict as returned by :func:`get_good_reversal_info`,
+            containing ``"reward_magnitudes_by_tower_before"`` and
+            ``"reward_magnitudes_by_tower_after"`` keys.
 
     Returns:
-      prev_best, next_best, third
+        A three-tuple ``(prev_best, next_best, third)`` of tower key strings.
     """
     before = reversal["reward_magnitudes_by_tower_before"]
     after  = reversal["reward_magnitudes_by_tower_after"]

@@ -1,13 +1,30 @@
+"""Identify and aggregate the first arm chosen after leaving the previous best arm.
+
+After a good reversal the animal must eventually stop visiting the arm that was
+previously the best.  The functions here find the very first trial in the post
+window where a non-previous-best arm is chosen, classify it as new-best or
+third, and aggregate these classifications across reversals and subjects.
+"""
 import numpy as np
 
+
 def get_first_leave_after_good_reversals(reversal_windows):
-    """
-    Returns per_subject counts:
-      per_subject[subj] = {
-        "new_best": int,
-        "third": int,
-        "total": int
-      }
+    """Count first-leave directions (new-best vs third arm) across good reversals.
+
+    For each reversal in each subject's window data, iterates through the
+    post-reversal trials to find the first trial on which the animal chose an
+    arm other than the previous best, then records whether that arm was the
+    new-best or the third arm.
+
+    Args:
+        reversal_windows: ``{subject: list[reversal_dict]}`` as returned by
+            :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
+
+    Returns:
+        Dict ``{subject: {"new_best": int, "third": int, "total": int}}``
+        where ``"total"`` is the number of reversals examined, ``"new_best"``
+        is the count where the animal first left toward the new best arm, and
+        ``"third"`` is the count where it left toward the third arm.
     """
     per_subject = {}
 
@@ -38,11 +55,21 @@ def get_first_leave_after_good_reversals(reversal_windows):
     return per_subject
 
 def average_first_leave_across_subjects(per_subject_counts):
-    """
+    """Compute mean and SE of first-leave fractions across subjects.
+
+    Args:
+        per_subject_counts: ``{subject: {"new_best": int, "third": int,
+            "total": int}}`` as returned by
+            :func:`get_first_leave_after_good_reversals`.
+
     Returns:
-      mean: dict[label] -> float
-      se:  dict[label] -> float
-      n_subjects: int
+        A three-tuple ``(mean, se, n_subjects)`` where:
+
+        - ``mean`` – dict with keys ``"new_best"``, ``"third"``, and
+          ``"num_reversals"`` (total reversals pooled across all subjects).
+        - ``se`` – dict with keys ``"new_best"`` and ``"third"``, each a
+          float standard error across subjects.
+        - ``n_subjects`` – number of subjects with at least one reversal.
     """
     new_vals = []
     third_vals = []
@@ -67,9 +94,14 @@ def average_first_leave_across_subjects(per_subject_counts):
 
 # ========== Classifying Towers at Good Reversals ==========
 def classify_towers_at_good_reversals(reversal):
-    """
+    """Classify towers as prev-best, next-best, and third around a good reversal.
+
+    Args:
+        reversal: A reversal dict containing ``"reward_magnitudes_by_tower_before"``
+            and ``"reward_magnitudes_by_tower_after"`` keys (tower → magnitude).
+
     Returns:
-      prev_best, next_best, third
+        Three-tuple ``(prev_best, next_best, third)`` of tower key strings.
     """
     before = reversal["reward_magnitudes_by_tower_before"]
     after  = reversal["reward_magnitudes_by_tower_after"]
@@ -84,10 +116,20 @@ def classify_towers_at_good_reversals(reversal):
 
 # ========== Get Chosen Tower from Dictionary of One Hots ==========
 def chosen_tower_from_onehots(reversal, trial_idx, towers):
-    """
-    Given a trial index into the concatenated window and towers,
-    infer which tower was chosen using one-hot arrays in choices_by_tower.
-    Returns tower name or None if cannot infer.
+    """Infer the chosen tower at a given post-window trial from one-hot arrays.
+
+    Reads the one-hot value for each tower from ``reversal["choices_by_tower"]``
+    at position *trial_idx* in the post list and returns the tower with the
+    highest value.
+
+    Args:
+        reversal: A reversal dict containing a ``"choices_by_tower"`` key.
+        trial_idx: Integer index into the post-window lists.
+        towers: Ordered list of tower key strings to check.
+
+    Returns:
+        The tower key string with the highest one-hot value, or ``None`` if
+        all values are ``None`` (trial not recorded).
     """
     vals = []
     for t in towers:

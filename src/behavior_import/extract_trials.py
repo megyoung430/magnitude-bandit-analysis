@@ -59,11 +59,54 @@ SPECIAL_VARS = {"trials_in_block"}
 TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
 
 def extract_trials_grouped_by_problem(data):
-    data = extract_trials(data) 
+    """Extract trial variables and group sessions into problems by choice tower set.
+
+    A convenience wrapper that calls :func:`extract_trials` to parse all
+    trial-level variables, then :func:`group_sessions_by_problem` to split
+    sessions into contiguous problems whenever the set of available choice
+    towers changes.
+
+    Args:
+        data: Nested dict ``{subject: {session_key: session_dict}}`` as returned
+            by :func:`src.behavior_import.import_data.import_data`.
+
+    Returns:
+        Dict ``{problem_id: {subject: {session_key: session_dict}}}`` where
+        *problem_id* is a 1-based integer that increments each time the choice
+        tower signature changes within a subject.
+    """
+    data = extract_trials(data)
     problems = group_sessions_by_problem(data)
     return problems
 
 def extract_trials(data):
+    """Parse and attach trial-by-trial variables to every session in *data*.
+
+    For each subject and session, reads the raw ``"data"`` DataFrame(s),
+    filters to variable-print rows, applies alias normalisation, handles
+    multi-file sessions by concatenating segments with the appropriate merging
+    rules, and adds derived fields (reward magnitude features, choice one-hots,
+    rank one-hots).
+
+    Args:
+        data: Nested dict ``{subject: {session_key: session_dict}}`` where each
+            ``session_dict`` contains at least a ``"data"`` key holding a
+            ``pd.DataFrame`` or list of ``pd.DataFrame`` objects.
+
+    Returns:
+        The same *data* dict, mutated in-place, with each ``session_dict``
+        extended by the following keys (when trial information is available):
+
+        - ``"trial"``, ``"blocks"``, ``"good_reversals"``, ``"bad_reversals"``,
+          ``"trials_in_block"``, ``"choice"``, ``"chosen_rank"``, etc. —
+          standardised trial variables.
+        - ``"reward_magnitudes_by_tower"``, ``"choices_by_tower"``,
+          ``"choices_by_rank"`` — derived per-trial one-hot / magnitude arrays.
+        - ``"has_good"`` / ``"has_bad"`` (bool) — whether performance-dependent
+          reversal variables were logged.
+        - ``"trial_info"`` and ``"trial_variables"`` — raw parsed lists retained
+          for debugging.
+    """
     def safe_json_load(x):
         """Parse JSON safely, returning empty dict on failure."""
         if pd.isna(x):
@@ -164,8 +207,23 @@ def extract_trials(data):
     return data
 
 def standardize_variables(dictionary, aliases):
-    """Returns a dictionary with the trial names standardized according to the aliases, e.g., "num_good_reversals" and
-    "num_good_rev" will now both become "good_reversals" for pyControl files with different variable names."""
+    """Return a copy of *dictionary* with variable names normalised to canonical keys.
+
+    Looks up each canonical key (from *aliases*) against its possible alias
+    names and returns the first matching value found, or ``None`` if none of
+    the aliases appear in *dictionary*.  For example, both
+    ``"num_good_reversals"`` and ``"num_good_rev"`` are mapped to the
+    canonical name ``"good_reversals"``.
+
+    Args:
+        dictionary: A single-trial dict of raw variable names and values.
+        aliases: Dict mapping canonical name → tuple of alias strings, as
+            defined in :data:`ALIASES`.
+
+    Returns:
+        A new dict with exactly the canonical keys from *aliases*, each mapped
+        to the first matching value found in *dictionary* (or ``None``).
+    """
     out = {}
     for variable, names in aliases.items():
         if isinstance(names, str):
@@ -179,7 +237,23 @@ def standardize_variables(dictionary, aliases):
     return out
 
 def transpose_trials(trial_dicts, aliases, keep=None):
-    """Convert list[dict] (trials) -> dict[standardized_variable] = list[values] Keeps trial alignment; missing values become None."""
+    """Transpose a list of per-trial dicts into a dict of per-variable lists.
+
+    Applies alias normalisation to each trial dict and accumulates values into
+    parallel lists, one per canonical variable name.  Missing values (where no
+    alias key is present in a trial dict) become ``None``.
+
+    Args:
+        trial_dicts: List of per-trial raw dicts.
+        aliases: Dict mapping canonical name → tuple of alias strings, as
+            defined in :data:`ALIASES`.
+        keep: Optional iterable of canonical key names to retain.  If ``None``
+            (default), all keys in *aliases* are included.
+
+    Returns:
+        Dict ``{canonical_key: [per_trial_values]}`` with one entry per
+        retained key.
+    """
     standardized_keys = list(aliases.keys()) if keep is None else list(keep)
     out = {k: [] for k in standardized_keys}
 
@@ -191,6 +265,19 @@ def transpose_trials(trial_dicts, aliases, keep=None):
 
 # --- Data Unpacking Helper Functions ---
 def unpack_reward_magnitudes(session_data):
+    """Reformat per-trial reward magnitude dicts into per-tower value lists.
+
+    Reads ``session_data["reward_magnitudes"]`` (a list of ``{tower: magnitude}``
+    dicts, one per trial) and transposes it into a dict of per-tower lists stored
+    under ``session_data["reward_magnitudes_by_tower"]``.
+
+    Args:
+        session_data: Session dict containing a ``"reward_magnitudes"`` key whose
+            value is a non-empty list of dicts mapping tower names to magnitudes.
+
+    Returns:
+        The same *session_data* dict with ``"reward_magnitudes_by_tower"`` added.
+    """
     choice_towers = session_data['reward_magnitudes'][0].keys()
     magnitude_by_tower = {k: [] for k in choice_towers}
     for i in range(len(session_data['reward_magnitudes'])):
@@ -201,6 +288,19 @@ def unpack_reward_magnitudes(session_data):
     return session_data
 
 def unpack_choices(session_data):
+    """Build per-tower binary choice indicator lists from the raw choice sequence.
+
+    For each trial, sets the chosen tower's indicator to 1 and all others to 0.
+    Stores the result under ``session_data["choices_by_tower"]``.
+
+    Args:
+        session_data: Session dict containing ``"choice_towers"`` (a list whose
+            first element gives the available tower identifiers) and ``"choice"``
+            (a per-trial list of the tower chosen on each trial).
+
+    Returns:
+        The same *session_data* dict with ``"choices_by_tower"`` added.
+    """
     choice_towers = session_data['choice_towers'][0]
     choices_by_tower = {k: [] for k in choice_towers}
     for i in range(len(session_data['choice'])):
@@ -214,6 +314,21 @@ def unpack_choices(session_data):
     return session_data
 
 def unpack_chosen_rank(session_data):
+    """Standardise rank labels and build per-rank choice indicator lists.
+
+    Normalises ``session_data["chosen_rank"]`` values (e.g. ``"second_best"`` →
+    ``"second"``) and creates a ``"choices_by_rank"`` dict of one-hot lists for
+    each rank (``"best"``, ``"second"``, ``"third"``).
+
+    Args:
+        session_data: Session dict containing ``"chosen_rank"`` (list of raw rank
+            strings) and ``"rank_counts"`` (list of per-trial cumulative count
+            dicts used to derive the canonical rank keys).
+
+    Returns:
+        The same *session_data* dict with ``"chosen_rank"`` normalised in-place
+        and ``"choices_by_rank"`` added.
+    """
     # Map inconsistent labels to standardized labels
     rank_map = {
         "second_best": "second",
@@ -244,10 +359,21 @@ def unpack_chosen_rank(session_data):
     return session_data
 
 def fill_missing_chosen_rank_from_rank_counts(session_data):
-    """
-    If session_data['chosen_rank'][i] is None, infer it from rank_counts increments.
-    Assumes rank_counts is a list of dicts with cumulative counts per rank per trial.
-    Does NOT change existing non-None chosen_rank entries.
+    """Infer missing ``chosen_rank`` entries from ``rank_counts`` increments.
+
+    When ``session_data["chosen_rank"][i]`` is ``None``, computes the delta
+    between consecutive ``rank_counts`` dicts to determine which rank
+    incremented and fills in that rank label.  Existing non-``None`` entries
+    are never modified.
+
+    Args:
+        session_data: Session dict containing ``"chosen_rank"`` (list, may have
+            ``None`` entries) and ``"rank_counts"`` (list of cumulative count
+            dicts, same length as ``"chosen_rank"``).
+
+    Returns:
+        The same *session_data* dict with ``"chosen_rank"`` filled in where
+        possible.
     """
     if "chosen_rank" not in session_data or "rank_counts" not in session_data:
         return session_data
@@ -269,6 +395,7 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
     }
 
     def standardized_key(k):
+        """Normalise rank key *k* to ``"best"``, ``"second"``, or ``"third"``."""
         if k is None:
             return k
         if isinstance(k, str):
@@ -312,11 +439,19 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
     return session_data
 
 def session_has_any_key(trial_info, keys):
-    """
-    trial_info: list[dict]
-    keys: tuple[str]
-    Returns True if any trial dict contains any of the keys. This is mainly used to identify problems that are performance
-    independent v. performance dependent.
+    """Return ``True`` if any trial dict in *trial_info* contains at least one of *keys*.
+
+    Used to detect whether a session logged performance-dependent reversal
+    variables (e.g. ``"num_good_reversals"``), distinguishing performance-
+    independent from performance-dependent task variants.
+
+    Args:
+        trial_info: List of per-trial dicts.
+        keys: Tuple of key strings to search for.
+
+    Returns:
+        ``True`` if at least one dict in *trial_info* contains any key from
+        *keys*; ``False`` otherwise (including when *trial_info* is empty).
     """
     if not trial_info:
         return False
@@ -327,7 +462,20 @@ def session_has_any_key(trial_info, keys):
 
 # --- Merging Rules for Multiple Files within a Session ---
 def concat_serial_numeric(segments):
-    """1..N serial renumbering across segments (23 then 1 -> 24...)."""
+    """Renumber serial trial-index segments into a single continuous sequence.
+
+    When a session spans multiple recording files, trial indices restart from
+    the beginning of each file.  This function offsets each subsequent segment
+    so the merged list is monotonically increasing (e.g. ``23`` then ``1`` →
+    ``24``).
+
+    Args:
+        segments: List of lists of integers (or ``None`` values) representing
+            per-file trial index sequences.
+
+    Returns:
+        A single flat list with continuous trial numbering.
+    """
     out = []
     offset = 0
     for seg in segments:
@@ -341,7 +489,20 @@ def concat_serial_numeric(segments):
     return out
 
 def concat_cumulative_numeric(segments):
-    """Cumulative counters: offset each segment by previous segment's last value."""
+    """Merge cumulative counter segments across recording files.
+
+    Cumulative counters (e.g. reversal counts) may restart at the beginning
+    of a later file if the recording was interrupted.  This function offsets
+    each segment by the last value of the previous segment when a reset is
+    detected (i.e. the current segment starts below the running maximum).
+
+    Args:
+        segments: List of lists of numbers (or ``None`` values) representing
+            per-file cumulative counter sequences.
+
+    Returns:
+        A single flat list of monotonically non-decreasing cumulative counts.
+    """
     out = []
     prev_last = None
     for seg in segments:
@@ -363,7 +524,19 @@ def concat_cumulative_numeric(segments):
     return out
 
 def add_dicts(a, b):
-    """Elementwise add dict b into dict a (returns new dict). Missing keys treated as 0."""
+    """Return a new dict that is the elementwise sum of *a* and *b*.
+
+    Missing keys in either dict are treated as ``0``.  Non-integer-convertible
+    values in *b* are silently ignored and the existing value from *a* is kept.
+
+    Args:
+        a: Base dict (or ``None`` / empty dict).
+        b: Dict of increments to add (or ``None`` / empty dict).
+
+    Returns:
+        A new dict containing the union of keys from *a* and *b* with their
+        values summed.
+    """
     out = dict(a) if a else {}
     if b:
         for k, v in b.items():
@@ -374,7 +547,19 @@ def add_dicts(a, b):
     return out
 
 def offset_dict_list_cumulative(segments):
-    """segments: list of lists-of-dicts (per trial). Each later segment gets + last dict of previous cumulative output."""
+    """Merge cumulative dict-valued counter segments across recording files.
+
+    Each element of each segment is a per-trial dict of cumulative counts
+    (e.g. ``{"best": 3, "second": 1}``).  Later segments are offset by the
+    last dict of the current merged output so the merged sequence is
+    monotonically non-decreasing.
+
+    Args:
+        segments: List of lists-of-dicts, one inner list per recording file.
+
+    Returns:
+        A single flat list of cumulative-count dicts spanning all files.
+    """
     out = []
     offset = {}
     for seg in segments:
@@ -394,11 +579,21 @@ def offset_dict_list_cumulative(segments):
     return out
 
 def concat_trials_in_block(segments):
-    """Continuous numeric until it resets to 1 (new block).
-    For each segment after the first:
-      - find first index where value == 1
-      - offset values before that by previous segment's last value
-      - keep values from the first reset onward unchanged
+    """Merge per-file within-block trial index sequences across recording files.
+
+    The within-block counter resets to ``1`` at the start of each new block.
+    When a segment continues a block that was open at the end of the previous
+    segment, the leading values (before the first ``1``) are offset by the
+    previous segment's last value.  Values from the first reset to ``1``
+    onward are kept as-is.
+
+    Args:
+        segments: List of lists of integers (or ``None`` values) representing
+            per-file within-block trial index sequences.
+
+    Returns:
+        A single flat list of within-block trial indices that resets to ``1``
+        only at genuine block transitions.
     """
     out = []
     last_val = 0
@@ -437,9 +632,18 @@ def concat_trials_in_block(segments):
 
 # --- Grouping Sessions into Problems Based on Choice Towers ---
 def choice_towers_signature(session_data):
-    """
-    Returns a hashable signature for the session's current choice towers.
-    Uses the first non-None entry in session_data['choice_towers'].
+    """Return a hashable signature for the session's set of available choice towers.
+
+    Reads the first non-``None`` entry of ``session_data["choice_towers"]``
+    and converts it to a stable hashable form (tuple for lists/tuples/dicts,
+    or a one-element tuple for strings).
+
+    Args:
+        session_data: Session dict containing a ``"choice_towers"`` key.
+
+    Returns:
+        A hashable tuple representing the tower set, or ``None`` if
+        ``"choice_towers"`` is absent or all values are ``None``.
     """
     towers_seq = session_data.get("choice_towers", None)
     if not towers_seq:
@@ -464,14 +668,26 @@ def choice_towers_signature(session_data):
     return (repr(first),)
 
 def normalize_tower_token(x):
-    """
-    Normalize a single tower token into a sortable, comparable tuple.
+    """Normalise a single tower token into a sortable, comparable tuple.
 
-    Examples:
-      "A1"  -> ("A", 1)
-      " b02 " -> ("B", 2)
-      "C1"  -> ("C", 1)
-      other strings -> ("RAW", "<stripped>")
+    Converts letter+digit tokens (e.g. ``"A1"``, ``" b02 "``) to
+    ``(LETTER, int)`` tuples for robust comparison.  Falls back gracefully
+    for raw strings, numbers, and nested tuples.
+
+    Args:
+        x: A tower token — typically a string like ``"A1"`` or ``"C3"``, a
+            number, or a tuple of such values.
+
+    Returns:
+        A normalised ``(prefix, value)`` tuple:
+
+        - String matching ``[A-Za-z]+[0-9]+`` → ``(UPPER_LETTER, int)``.
+        - Other strings → ``("RAW", stripped_string)``.
+        - Integers/floats → ``("NUM", x)``.
+        - Tuples → recursively normalised tuple.
+
+    Raises:
+        TypeError: If *x* is an unsupported type.
     """
     if isinstance(x, str):
         s = x.strip()
@@ -494,16 +710,27 @@ def normalize_tower_token(x):
     raise TypeError(f"Unsupported tower token type: {type(x)!r} (value={x!r})")
 
 def permutation_invariant_signature(raw_sig):
-    """
-    Make the signature permutation-invariant.
+    """Canonicalise a tower-set signature to be permutation-invariant.
+
+    Normalises each token with :func:`normalize_tower_token` and sorts the
+    result so that two tower sets with the same members but different orderings
+    produce identical signatures.
 
     Rule of thumb:
-      - If it's sequence-like (list/tuple/set/frozenset): treat as an unordered multiset,
-        canonicalize by normalizing each token and sorting.
-      - If it's a dict: canonicalize order by sorting normalized (key, value) pairs.
-      - If it's a single string token: normalize it.
-      - If None: keep None.
-      - Otherwise: return as-is (or raise, depending on your preference).
+
+    - Sequence-like (list/tuple/set/frozenset) → unordered multiset,
+      canonicalised by normalising each token and sorting.
+    - Dict → sort normalised ``(key, value)`` pairs.
+    - Single string → normalise it.
+    - ``None`` → kept as ``None``.
+
+    Args:
+        raw_sig: A raw signature as returned by :func:`choice_towers_signature`:
+            a sequence, dict, string, or ``None``.
+
+    Returns:
+        A sorted, normalised tuple suitable for equality comparison, or
+        ``None`` if *raw_sig* is ``None``.
     """
     if raw_sig is None:
         return None
@@ -523,13 +750,24 @@ def permutation_invariant_signature(raw_sig):
     return raw_sig
 
 def group_sessions_by_problem(data, copy_sessions=True):
-    """
-    Returns dict-of-dicts:
-      problems[problem_id][subject_id][session_id] = session_data
+    """Group sessions into numbered problems based on changes in the choice tower set.
 
-    Problem increments *within each subject* when choice towers change from one session to the next.
+    Within each subject, sessions are sorted chronologically.  A new problem
+    is started whenever the permutation-invariant choice tower signature
+    differs from the previous session's signature.  The problem index is
+    global (shared naming across all subjects).
 
-    Now permutation-invariant with respect to the tower signature returned by choice_towers_signature().
+    Args:
+        data: Nested dict ``{subject: {session_key: session_dict}}`` after
+            :func:`extract_trials` has been applied.  Sessions without trial
+            information are skipped with a warning.
+        copy_sessions: If ``True`` (default), each session dict is deep-copied
+            into the output to avoid aliasing the input.
+
+    Returns:
+        Dict ``{problem_id: {subject: {session_key: session_dict}}}`` where
+        *problem_id* is a 1-based integer incremented each time the tower
+        signature changes.
     """
 
     def sort_ses_date(session_id: str):
@@ -577,17 +815,30 @@ def group_sessions_by_problem(data, copy_sessions=True):
 
 # --- Adding Variables to Analyze Value --- 
 def add_reward_magnitude_features(session_data):
-    """
-    Adds:
-      - chosen_magnitude: list[float|int|None]
-      - reward_magnitude_by_arm: dict[tower -> list[magnitude|None]]
-      - reward_magnitude_by_rank: dict['best'|'second'|'third' -> list[magnitude|None]]
+    """Compute and attach reward-magnitude derived features to a session dict.
 
-    Assumptions:
-      - session_data['reward_magnitudes'] is a list of dicts per trial: {tower: magnitude, ...}
-      - session_data['choice'] is a list of chosen tower tokens per trial (same length)
-      - session_data['choice_towers'] is a list per trial (optional but supported). If missing/None,
-        we fall back to reward_magnitudes[t].keys().
+    Adds three new keys:
+
+    - ``"chosen_magnitude"`` — per-trial magnitude of the chosen arm.
+    - ``"reward_magnitude_by_arm"`` — ``{tower: [magnitude_per_trial]}`` for
+      every arm seen across the session.
+    - ``"reward_magnitude_by_rank"`` — ``{"best": […], "second": […], "third": […]}``
+      where ranks are assigned by descending magnitude on each trial.
+
+    Also aliases ``"reward_magnitude_by_arm"`` under the legacy key
+    ``"reward_magnitudes_by_tower"``.
+
+    Args:
+        session_data: Session dict containing:
+
+        - ``"reward_magnitudes"`` — list of per-trial ``{tower: magnitude}``
+          dicts.
+        - ``"choice"`` — list of chosen tower tokens (same length).
+        - ``"choice_towers"`` (optional) — list of available tower sets per
+          trial; falls back to ``reward_magnitudes[t].keys()`` if absent.
+
+    Returns:
+        The same *session_data* dict with the three derived keys added.
     """
     mags_seq = session_data.get("reward_magnitudes", [])
     choice_seq = session_data.get("choice", [])
@@ -604,6 +855,7 @@ def add_reward_magnitude_features(session_data):
 
     # Build per-trial available tower list
     def towers_for_trial(t):
+        """Return the list of available tower identifiers for trial index *t*."""
         if towers_seq and isinstance(towers_seq, list) and t < len(towers_seq) and towers_seq[t] is not None:
             # could be list/tuple/dict/etc
             x = towers_seq[t]

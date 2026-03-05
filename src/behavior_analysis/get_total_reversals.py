@@ -1,10 +1,27 @@
+"""Functions for counting and locating reversal events in session data.
+
+Provides helpers to count total good/bad reversals across sessions per subject,
+retrieve all reversal indices, and identify trials where cumulative reversal
+counters increment.
+"""
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 
+
 def get_total_reversals(subject_sessions):
-    """
-    If any session has has_good/has_bad True, use existing good/bad logic.
-    If no session has either, fall back to (#blocks - 1), using the last block id
-    from the last session (or max across sessions) as the number of blocks.
+    """Count total good, bad, and overall reversals for a single subject.
+
+    If any session has ``has_good`` or ``has_bad`` set to ``True``, reads the
+    final value of the ``good_reversals`` / ``bad_reversals`` cumulative counter
+    from each session.  Otherwise falls back to summing
+    ``max(blocks) - 1`` across sessions.
+
+    Args:
+        subject_sessions: ``{session_key: session_dict}`` for a single subject.
+
+    Returns:
+        Dict with key ``"total_reversals"`` (int) and, when good/bad data are
+        available, also ``"good_reversals"`` (int) and ``"bad_reversals"``
+        (int).
     """
 
     total_good = 0
@@ -37,11 +54,22 @@ def get_total_reversals(subject_sessions):
     return {"total_reversals": total}
 
 def get_all_reversal_indices(subjects_trials):
-    """
+    """Return per-subject lists of good and bad reversal trial indices.
+
+    Merges sessions for each subject (via
+    :func:`src.behavior_analysis.get_variables_across_sessions.get_vars_across_all_sessions`)
+    and then identifies the trial indices where the cumulative ``good_reversals``
+    and ``bad_reversals`` counters increment.
+
+    Args:
+        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+
     Returns:
-      all_good[subj] -> sorted list of good reversal indices
-      all_bad[subj]  -> sorted list of bad reversal indices
-      blocks[subj]   -> merged blocks list (for optional block logic)
+        A three-tuple ``(all_good, all_bad, all_blocks)`` where:
+
+        - ``all_good[subj]`` – sorted list of good-reversal trial indices.
+        - ``all_bad[subj]`` – sorted list of bad-reversal trial indices.
+        - ``all_blocks[subj]`` – merged blocks list for optional block logic.
     """
     merged, _ = get_vars_across_all_sessions(subjects_trials)
 
@@ -61,7 +89,18 @@ def get_all_reversal_indices(subjects_trials):
     return all_good, all_bad, all_blocks
 
 def find_increment_indices(cumulative_list):
-    """Indices i where cumulative_list[i] > cumulative_list[i-1], ignoring None."""
+    """Return trial indices where a cumulative counter increments.
+
+    Iterates through *cumulative_list* and collects every index ``i`` where the
+    value is strictly greater than the previous non-``None`` value.
+
+    Args:
+        cumulative_list: Sequence of numeric values (or ``None``) representing a
+            cumulative counter, e.g. ``[0, 0, 1, 1, 2, None, 2, 3]``.
+
+    Returns:
+        List of integer indices where an increment occurred.
+    """
     inc = []
     prev = None
     for i, v in enumerate(cumulative_list):
