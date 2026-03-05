@@ -1,7 +1,26 @@
+"""Functions for merging and aligning behavioral variables across multiple recording sessions."""
+
 import re
 from datetime import datetime
 
 def get_vars_across_all_sessions(data):
+    """Merge per-session trial data across all sessions for each subject.
+
+    Args:
+        data: Nested dict of the form
+            ``data[subject][session_key] = session_dict``,
+            where each ``session_dict`` must contain at least a ``"trial_info"``
+            flag and the standard trial variables (``"trial"``, ``"blocks"``, etc.).
+
+    Returns:
+        A tuple ``(merged, unmerged)`` where:
+
+        - ``merged[subject]`` – a single dict of concatenated arrays, with
+          reversal counts shifted so they are monotonically increasing across
+          sessions.
+        - ``unmerged[subject]`` – the same data in per-session list form,
+          before merging.
+    """
 
     def sort_ses_date(session_id: str):
         """

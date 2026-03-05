@@ -1,3 +1,5 @@
+"""Extract and process trial-by-trial data from behavioral experiment recordings."""
+
 import re
 import json
 import pandas as pd
@@ -146,6 +148,7 @@ def extract_trials(data):
                 for var_name, values in combined.items():
                     data[current_subject][current_session][var_name] = values
             data[current_subject][current_session] = unpack_reward_magnitudes(data[current_subject][current_session])
+            data[current_subject][current_session] = add_reward_magnitude_features(data[current_subject][current_session])
             data[current_subject][current_session] = unpack_choices(data[current_subject][current_session])
             data[current_subject][current_session] = fill_missing_chosen_rank_from_rank_counts(data[current_subject][current_session])
             data[current_subject][current_session] = unpack_chosen_rank(data[current_subject][current_session])
@@ -571,3 +574,100 @@ def group_sessions_by_problem(data, copy_sessions=True):
             problems[num_problem][subject_id][session_id] = deepcopy(sess) if copy_sessions else sess
 
     return {p: {s: dict(ss) for s, ss in subj.items()} for p, subj in problems.items()}
+
+# --- Adding Variables to Analyze Value --- 
+def add_reward_magnitude_features(session_data):
+    """
+    Adds:
+      - chosen_magnitude: list[float|int|None]
+      - reward_magnitude_by_arm: dict[tower -> list[magnitude|None]]
+      - reward_magnitude_by_rank: dict['best'|'second'|'third' -> list[magnitude|None]]
+
+    Assumptions:
+      - session_data['reward_magnitudes'] is a list of dicts per trial: {tower: magnitude, ...}
+      - session_data['choice'] is a list of chosen tower tokens per trial (same length)
+      - session_data['choice_towers'] is a list per trial (optional but supported). If missing/None,
+        we fall back to reward_magnitudes[t].keys().
+    """
+    mags_seq = session_data.get("reward_magnitudes", [])
+    choice_seq = session_data.get("choice", [])
+    towers_seq = session_data.get("choice_towers", None)
+
+    if not mags_seq or not isinstance(mags_seq, list):
+        return session_data
+
+    n = len(mags_seq)
+
+    # Make lengths consistent where possible
+    if not choice_seq or len(choice_seq) != n:
+        choice_seq = [None] * n
+
+    # Build per-trial available tower list
+    def towers_for_trial(t):
+        if towers_seq and isinstance(towers_seq, list) and t < len(towers_seq) and towers_seq[t] is not None:
+            # could be list/tuple/dict/etc
+            x = towers_seq[t]
+            if isinstance(x, dict):
+                return list(x.keys())
+            if isinstance(x, (list, tuple, set)):
+                return list(x)
+            if isinstance(x, str):
+                return [x]
+        d = mags_seq[t]
+        return list(d.keys()) if isinstance(d, dict) else []
+
+    # Union of all towers seen across trials (stable-ish order)
+    all_towers = []
+    seen = set()
+    for t in range(n):
+        for tw in towers_for_trial(t):
+            if tw not in seen:
+                seen.add(tw)
+                all_towers.append(tw)
+
+    # reward_magnitude_by_arm: tower -> per-trial magnitude (None if tower not present)
+    mag_by_arm = {tw: [None] * n for tw in all_towers}
+    for t in range(n):
+        d = mags_seq[t] if isinstance(mags_seq[t], dict) else {}
+        for tw in all_towers:
+            if tw in d:
+                mag_by_arm[tw][t] = d[tw]
+
+    # chosen_magnitude
+    chosen_mag = [None] * n
+    for t in range(n):
+        ch = choice_seq[t]
+        d = mags_seq[t] if isinstance(mags_seq[t], dict) else {}
+        if ch in d:
+            chosen_mag[t] = d[ch]
+
+    # reward_magnitude_by_rank (computed per trial from available towers)
+    rank_keys = ("best", "second", "third")
+    mag_by_rank = {rk: [None] * n for rk in rank_keys}
+
+    for t in range(n):
+        d = mags_seq[t] if isinstance(mags_seq[t], dict) else {}
+        avail = towers_for_trial(t)
+        # Keep only towers that have a magnitude defined
+        pairs = [(tw, d.get(tw, None)) for tw in avail]
+        pairs = [(tw, m) for tw, m in pairs if m is not None]
+
+        if not pairs:
+            continue
+
+        # Sort by magnitude desc; tie-break deterministically by tower token string
+        pairs_sorted = sorted(pairs, key=lambda x: (-x[1], str(x[0])))
+
+        # Assign top-3 magnitudes
+        for i, rk in enumerate(rank_keys):
+            if i < len(pairs_sorted):
+                mag_by_rank[rk][t] = pairs_sorted[i][1]
+
+    session_data["chosen_magnitude"] = chosen_mag
+    session_data["reward_magnitude_by_arm"] = mag_by_arm
+    session_data["reward_magnitude_by_rank"] = mag_by_rank
+
+    # (Optional) keep/alias your older field name if downstream expects it:
+    session_data["reward_magnitudes_by_tower"] = mag_by_arm
+
+    return session_data

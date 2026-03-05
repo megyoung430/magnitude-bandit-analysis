@@ -1,5 +1,6 @@
 from collections import Counter
-from src.behavior_analysis.get_variables_across_sessions import *
+from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.get_total_reversals import find_increment_indices
 
 def get_bad_reversal_info(data, pre=5, post=None, include_first_block=False, required_reward_pattern=(4, 1, 0)):
     """
@@ -28,14 +29,6 @@ def get_bad_reversal_info(data, pre=5, post=None, include_first_block=False, req
           "choices_by_rank":  {rank:  {"pre":[...], "post":[...]}, ...},
         }
     """
-
-    def find_increment_indices(cumulative_list):
-        """Return indices i where cumulative_list[i] > cumulative_list[i-1]."""
-        inc = []
-        for i in range(1, len(cumulative_list)):
-            if cumulative_list[i] > cumulative_list[i - 1]:
-                inc.append(i)
-        return inc
 
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
     

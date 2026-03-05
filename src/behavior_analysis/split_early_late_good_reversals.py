@@ -37,28 +37,28 @@ def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=Non
             continue
 
         # Custom: first_n / last_n
-        e = revs_sorted[:]
-        l = revs_sorted[:]
+        early_revs = revs_sorted[:]
+        late_revs = revs_sorted[:]
 
         if first_n is not None:
             first_n = max(0, int(first_n))
-            e = revs_sorted[:min(first_n, n)]
+            early_revs = revs_sorted[:min(first_n, n)]
         else:
-            e = []  # if not specified, define it by remainder below
+            early_revs = []  # if not specified, define it by remainder below
 
         if last_n is not None:
             last_n = max(0, int(last_n))
-            l = revs_sorted[max(0, n - last_n):]
+            late_revs = revs_sorted[max(0, n - last_n):]
         else:
-            l = []  # if not specified, define it by remainder below
+            late_revs = []  # if not specified, define it by remainder below
 
         # If only one of first_n/last_n specified, define the other as "remainder"
         if first_n is not None and last_n is None:
-            l = revs_sorted[min(first_n, n):]
+            late_revs = revs_sorted[min(first_n, n):]
         if first_n is None and last_n is not None:
-            e = revs_sorted[:max(0, n - last_n)]
+            early_revs = revs_sorted[:max(0, n - last_n)]
 
-        early[subj] = e
-        late[subj] = l
+        early[subj] = early_revs
+        late[subj] = late_revs
 
     return early, late

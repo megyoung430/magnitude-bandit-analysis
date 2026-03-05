@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import re
 import json
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
-
 # ========== Content Key Aliases ==========
 CHOICE_TOWERS_KEYS = (
     "current_choice_towers",
@@ -23,7 +24,7 @@ SUBJECT_RE = re.compile(r"sub-\d+_id-([^/]+)")
 COHORT_RE = re.compile(r"cohort-(\d+)")
 
 # ========== Main Data Import Functions ==========
-def import_data(root):
+def import_data(root: str | Path) -> dict:
     """Import behavioral experiment data from TSV files.
 
     Args:
@@ -75,7 +76,7 @@ def import_data(root):
     return subjects
 
 # ========== File Parsing Helper Functions ==========
-def collect_tsv_files(root):
+def collect_tsv_files(root: Path) -> list:
     """Scan directory and reads all TSV files and returns list of (path, dataframe) tuples."""
     tsv_files = []
     for tsv_path in root.rglob("*.tsv"):
@@ -153,7 +154,7 @@ def parse_file_timestamp(tsv_path, df=None):
     except Exception:
         return datetime.min
 
-def group_by_subj_and_ses(tsv_files):
+def group_by_subj_and_ses(tsv_files: list) -> dict:
     """Group DataFrames by (subject_id, session_key), and sort within-session by time."""
     grouped = {}
     for tsv_path, df in tsv_files:
@@ -170,7 +171,7 @@ def group_by_subj_and_ses(tsv_files):
         grouped[k] = [df for _, _, df in items]
     return grouped
 
-def create_subject_id(tsv_path):
+def create_subject_id(tsv_path) -> tuple:
     """Create a standardized subject id from metadata"""
     tsv_path = Path(tsv_path)
     subject_id = None
@@ -186,7 +187,7 @@ def create_subject_id(tsv_path):
     subject_key = f"sub-{subject_number}_id-{subject_id}"
     return subject_id, subject_number, subject_key
 
-def create_session_key(tsv_path):
+def create_session_key(tsv_path) -> tuple:
     """Create a standardized session key from metadata"""
     tsv_path = Path(tsv_path)
     session_num = None
@@ -202,7 +203,7 @@ def create_session_key(tsv_path):
     session_key = f"ses-{session_num}_date-{session_date.strftime('%Y%m%d')}"
     return session_num, session_date, session_key
 
-def sort_session_key(session_key):
+def sort_session_key(session_key: str) -> tuple:
     match = re.search(r"ses-(\d+)_date-(\d{8})", session_key)
     ses_num = int(match.group(1))
     date = int(match.group(2))

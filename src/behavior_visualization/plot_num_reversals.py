@@ -3,20 +3,9 @@ import math
 import numpy as np
 from pathlib import Path
 from collections import defaultdict
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-from src.behavior_analysis.get_total_reversals import *
-
-mpl.rcParams["font.family"] = "sans-serif"
-mpl.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial"]
-mpl.rcParams["xtick.labelsize"] = 12
-mpl.rcParams["ytick.labelsize"] = 12
-mpl.rcParams["axes.labelsize"] = 12
-mpl.rcParams["axes.titlesize"] = 14
-
-GOOD_COLOR = "#3A982E"
-BAD_COLOR = "#F97979"
-TOTAL_COLOR = "#808080"
+from src.behavior_analysis.get_total_reversals import get_total_reversals
+from src.behavior_visualization.plot_style import GOOD_COLOR, BAD_COLOR, TOTAL_COLOR
 
 def plot_num_reversals(subjects_trials, save_path=None):
 

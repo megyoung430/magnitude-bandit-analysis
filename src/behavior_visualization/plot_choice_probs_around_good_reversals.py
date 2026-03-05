@@ -1,22 +1,11 @@
 import warnings
 import numpy as np
 from pathlib import Path
-import matplotlib as mpl
 import matplotlib.pyplot as plt
+from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR_MAP
 from matplotlib.ticker import MaxNLocator
 
-mpl.rcParams["font.family"] = "sans-serif"
-mpl.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial"]
-mpl.rcParams["xtick.labelsize"] = 12
-mpl.rcParams["ytick.labelsize"] = 12
-mpl.rcParams["axes.labelsize"] = 12
-mpl.rcParams["axes.titlesize"] = 14
 
-COLOR_MAP = {
-    "prev_best": "#5DA5DA",
-    "next_best": "#60BD68",
-    "third":     "#7f7f7f",
-}
 
 def plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True, only_good=False, use_total=False, windows_for_cumulative_axis=None, 
                                             all_good_idx=None, all_bad_idx=None, skip_n_trials_after_reversal=0, save_path=None):

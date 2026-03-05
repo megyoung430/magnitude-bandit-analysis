@@ -1,6 +1,6 @@
 import numpy as np
 from collections import defaultdict
-from src.behavior_analysis.get_total_reversals import *
+from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
 
 def get_block_lengths(subjects_trials, boundary="all"):
     """

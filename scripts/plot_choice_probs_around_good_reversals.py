@@ -15,7 +15,7 @@ from fix_grid_maze_cohort_02_problems import *
 task = "grid-maze"
 # task = "open-field"
 
-all = True
+run_all = True
 skip = True
 moving_avg = True
 remove_bad = True
@@ -51,12 +51,13 @@ for problem_number in subjects_trials_by_problem.keys():
 
     subjects_trials = subjects_trials_by_problem[problem_number]
     any_good = any(bool(sess.get("has_good", False)) for sess in subjects_trials.values())
-    if problem_number < 7:
+    if (task == "grid-maze" and problem_number < 7) or (task == "open-field" and problem_number < 5):
         use_total = False
     else:
+        print("Using total reversals for this problem since all reversals are good")
         use_total = True
 
-    if all:
+    if run_all:
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)

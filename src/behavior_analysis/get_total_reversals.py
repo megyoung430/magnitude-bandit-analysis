@@ -1,4 +1,4 @@
-from src.behavior_analysis.get_variables_across_sessions import *
+from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 
 def get_total_reversals(subject_sessions):
     """
