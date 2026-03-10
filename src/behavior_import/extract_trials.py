@@ -33,7 +33,7 @@ ALIASES = {
 
     # best arm + available choice towers
     "best_arm": ("best_arm",),
-    "choice_towers": ("current_choice_towers", "curr_choice_tows"),
+    "choice_towers": ("current_choice_towers", "curr_choice_tows", "c_tows"),
 
     # counts
     "choice_counts": ("choice_counts",),
@@ -657,15 +657,21 @@ def choice_towers_signature(session_data):
     if first is None:
         return None
 
-    # Make it hashable + stable
     if isinstance(first, (list, tuple)):
-        return tuple(first)
-    if isinstance(first, dict):
-        # if stored as dict, treat the keys as the set/order-defining items
-        return tuple(sorted(first.keys()))
-    if isinstance(first, str):
-        return (first,)
-    return (repr(first),)
+        towers_part = tuple(sorted(first, key=str))
+    elif isinstance(first, dict):
+        towers_part = tuple(sorted(first.keys()))
+    elif isinstance(first, str):
+        towers_part = (first,)
+    else:
+        towers_part = (repr(first),)
+
+    default_initiation_tower = "B2"
+    init_tower = session_data.get("initiation_tower", None)
+    if init_tower is None:
+        init_tower = default_initiation_tower
+
+    return (towers_part, init_tower)
 
 def normalize_tower_token(x):
     """Normalise a single tower token into a sortable, comparable tuple.
@@ -735,12 +741,18 @@ def permutation_invariant_signature(raw_sig):
     if raw_sig is None:
         return None
 
+    if (isinstance(raw_sig, tuple) and len(raw_sig) == 2
+            and isinstance(raw_sig[0], tuple)
+            and isinstance(raw_sig[1], str)):
+        towers_norm = tuple(sorted(normalize_tower_token(x) for x in raw_sig[0]))
+        init_norm = normalize_tower_token(raw_sig[1])
+        return (towers_norm, init_norm)
+
     if isinstance(raw_sig, (list, tuple, set, frozenset)):
         normalized = [normalize_tower_token(x) for x in raw_sig]
         return tuple(sorted(normalized))
 
     if isinstance(raw_sig, dict):
-        # dict equality is order-independent, but we canonicalize anyway for determinism
         items = [(normalize_tower_token(k), normalize_tower_token(v)) for k, v in raw_sig.items()]
         return tuple(sorted(items))
 
@@ -750,12 +762,17 @@ def permutation_invariant_signature(raw_sig):
     return raw_sig
 
 def group_sessions_by_problem(data, copy_sessions=True):
-    """Group sessions into numbered problems based on changes in the choice tower set.
+    """Group sessions into numbered problems based on per-subject problem ordinal.
 
-    Within each subject, sessions are sorted chronologically.  A new problem
-    is started whenever the permutation-invariant choice tower signature
-    differs from the previous session's signature.  The problem index is
-    global (shared naming across all subjects).
+    Within each subject, sessions are sorted chronologically. Each time a new
+    (previously unseen) tower signature appears for that subject, it is assigned
+    the next ordinal (1, 2, 3, ...). If a signature recurs later for the same
+    subject, it is folded back into its original ordinal (A -> B -> A yields
+    ordinals 1, 2, 1 -- not 1, 2, 3).
+
+    Problem numbers are then shared across subjects by ordinal position: every
+    subject's 3rd problem is grouped under problem ID 3, regardless of which
+    tower set it was.
 
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}`` after
@@ -766,21 +783,16 @@ def group_sessions_by_problem(data, copy_sessions=True):
 
     Returns:
         Dict ``{problem_id: {subject: {session_key: session_dict}}}`` where
-        *problem_id* is a 1-based integer incremented each time the tower
-        signature changes.
+        *problem_id* is a 1-based integer representing the Nth distinct tower
+        set each subject encountered, in chronological order.
     """
 
     def sort_ses_date(session_id: str):
-        """
-        Sort by session number (ses-XX) then date (date-YYYYMMDD).
-        Falls back to session_id string if parsing fails.
-        """
+        """Sort by session number (ses-XX) then date (date-YYYYMMDD)."""
         m_ses = re.search(r"ses-(\d+)", session_id)
         m_date = re.search(r"date-(\d{8})", session_id)
-
         ses_num = int(m_ses.group(1)) if m_ses else float("inf")
         dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
-
         return (ses_num, dt, session_id)
 
     problems = defaultdict(lambda: defaultdict(dict))
@@ -788,13 +800,15 @@ def group_sessions_by_problem(data, copy_sessions=True):
     for subject_id, subject_sessions in data.items():
         sessions_sorted = sorted(subject_sessions.keys(), key=sort_ses_date)
 
-        num_problem = 1
-        prev_sig = None
+        # Per-subject: maps signature -> 1-based ordinal in the order first seen.
+        # next_ordinal is a separate counter so that None-signature sessions don't
+        # collide with real problem ordinals.
+        sig_to_ordinal: dict = {}
+        next_ordinal = 1
 
         for session_id in sessions_sorted:
             sess = subject_sessions[session_id]
 
-            # Skip sessions that have no trial information
             if not sess.get("trial_info"):
                 print(f"[WARNING] Skipping session {session_id} for subject {subject_id} due to missing trial information.")
                 continue
@@ -802,12 +816,19 @@ def group_sessions_by_problem(data, copy_sessions=True):
             raw_sig = choice_towers_signature(sess)
             sig = permutation_invariant_signature(raw_sig)
 
-            # Only increment when we have two comparable signatures and they differ
-            if prev_sig is not None and sig is not None and sig != prev_sig:
-                num_problem += 1
+            # Include has_good in the signature to distinguish task variants
+            # with the same towers but different performance-dependence
+            has_good = sess.get("has_good", False)
+            full_sig = (sig, has_good) if sig is not None else None
 
-            if sig is not None:
-                prev_sig = sig
+            if full_sig is not None and full_sig in sig_to_ordinal:
+                num_problem = sig_to_ordinal[full_sig]
+            elif full_sig is not None:
+                num_problem = next_ordinal
+                sig_to_ordinal[full_sig] = num_problem
+                next_ordinal += 1
+            else:
+                num_problem = max(next_ordinal - 1, 1)
 
             problems[num_problem][subject_id][session_id] = deepcopy(sess) if copy_sessions else sess
 

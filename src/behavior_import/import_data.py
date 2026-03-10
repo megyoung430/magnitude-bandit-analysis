@@ -170,11 +170,27 @@ def extract_session_towers(df):
         if key in run_start:
             towers["choice_towers"] = set(run_start[key])
             break
+
     for key in INITIATION_TOWER_KEYS:
         if key in run_start and run_start[key] is not None:
             towers["initiation_tower"] = run_start[key]
             break
-    
+
+    if towers["initiation_tower"] is None and "problems" in run_start and "num_problem" in run_start:
+        num_problem = str(run_start["num_problem"])
+        problems_dict = run_start["problems"]
+        if num_problem in problems_dict:
+            tower_list = problems_dict[num_problem]
+            if isinstance(tower_list, list):
+                if len(tower_list) == 4:
+                    # First element is non-default initiation tower
+                    towers["initiation_tower"] = tower_list[0]
+                    towers["choice_towers"] = set(tower_list[1:])
+                elif len(tower_list) == 3:
+                    # No initiation tower listed, default is B2
+                    towers["initiation_tower"] = "B2"
+                    towers["choice_towers"] = set(tower_list)
+
     return towers
 
 def expand_content_columns(df, content_col="content"):
