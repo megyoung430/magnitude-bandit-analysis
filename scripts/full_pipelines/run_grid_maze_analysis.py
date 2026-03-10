@@ -24,6 +24,96 @@ from fix_grid_maze_cohort_02_problems import *
 task = "grid-maze"
 cohort = "cohort-02"
 folder_name = "3x3_maze_blocked_reward_bandit"
+root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
+subjects_data = import_data(root)
+subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
+subjects_trials_by_problem = fix_grid_maze_cohort_02_problems(subjects_trials_by_problem)
+
+print("Running first leave analysis")
+
+for problem_number in subjects_trials_by_problem.keys():
+    print(problem_number)
+    problem = f"problem-{problem_number:02d}"
+
+    subjects_trials = subjects_trials_by_problem[problem_number]
+    reversal_windows = get_good_reversal_info(subjects_trials, include_first_block=False)
+    
+    first_leave_per_subject = get_first_leave_after_good_reversals(reversal_windows)
+    mean, se, n_subjects = average_first_leave_across_subjects(first_leave_per_subject)
+    p_value = pvalue_paired_t_new_vs_third(first_leave_per_subject, alternative="greater")
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/First Leave After Good Reversals")
+    plot_first_leave_after_good_reversals(mean, se, first_leave_per_subject, p_value, save_path=curr_save_path)
+
+    early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
+    first_leave_per_subject_early = get_first_leave_after_good_reversals(early)
+    mean_early, se_early, n_subjects_early = average_first_leave_across_subjects(first_leave_per_subject_early)
+    p_value_early = pvalue_paired_t_new_vs_third(first_leave_per_subject_early, alternative="greater")
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/First Leave After Good Reversals (Early)")
+    plot_first_leave_after_good_reversals(mean_early, se_early, first_leave_per_subject_early, p_value_early, save_path=curr_save_path)
+
+    first_leave_per_subject_late = get_first_leave_after_good_reversals(late)
+    mean_late, se_late, n_subjects_late = average_first_leave_across_subjects(first_leave_per_subject_late)
+    p_value_late = pvalue_paired_t_new_vs_third(first_leave_per_subject_late, alternative="greater")
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/First Leave After Good Reversals (Late)")
+    plot_first_leave_after_good_reversals(mean_late, se_late, first_leave_per_subject_late, p_value_late, save_path=curr_save_path)
+
+# Number of Reversals Analysis
+
+print("Running number of reversals analysis")
+
+for problem_number in subjects_trials_by_problem.keys():
+    print(problem_number)
+    problem = f"problem-{problem_number:02d}"
+
+    subjects_trials = subjects_trials_by_problem[problem_number]
+
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Total Reversals")
+    plot_num_reversals(subjects_trials, save_path=curr_save_path)
+
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Cumulative Reversals Over Time")
+    plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=curr_save_path)
+
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Moving Average Reversals Over Time")
+    plot_moving_avg_reversals_over_time(subjects_trials, save_path=curr_save_path)
+
+# Rank Proportion Analysis
+
+print("Running rank proportion analysis")
+
+for problem_number in subjects_trials_by_problem.keys():
+    print(problem_number)
+    problem = f"problem-{problem_number:02d}"
+    
+    subjects_trials = subjects_trials_by_problem[problem_number]
+
+    reversal_windows = get_good_reversal_info(subjects_trials, include_first_block=True)
+    rank_counts_by_good_reversal = get_rank_counts_by_good_reversal(reversal_windows)
+    p_values = pvalue_paired_t_best_vs_second_vs_third(rank_counts_by_good_reversal)
+
+    save_path = f"../../results/figures/{task}/{cohort}/{problem}/choice-stats/Rank Proportions"
+    plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=p_values, save_path=save_path)
+
+# Single Session Analysis
+
+print("Running single session analysis")
+
+for problem_number in subjects_trials_by_problem.keys():
+    print(problem_number)
+    problem = f"problem-{problem_number:02d}"
+
+    subjects_trials = subjects_trials_by_problem[problem_number]
+
+    all_subjects = list(subjects_trials.keys())
+    for current_subject in all_subjects:
+        subject_sessions = subjects_trials[current_subject]
+        all_sessions = list(subject_sessions.keys())
+        for current_session in all_sessions:
+            if not subject_sessions[current_session]["trial_info"]:
+                print(f"Skipping {current_subject} | {current_session}. There are no trials.")
+                continue
+            print(f"Plotting {current_subject} | {current_session}")
+            curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/single-sessions/{current_subject}/{current_session}/Session Plot")
+            plot_single_session(subject_sessions[current_session], title=f"{current_subject} | {current_session}", save_path=curr_save_path)
 
 # Choice Probability Analysis
 
@@ -56,13 +146,8 @@ print(f"  Post: {post}")
 print(f"  Skip N Trials After Reversal: {skip_n_trials_after_reversal}")
 print(f"  Moving Avg Window: {moving_avg_window}")
 
-root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
-subjects_data = import_data(root)
-subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
-subjects_trials_by_problem = fix_grid_maze_cohort_02_problems(subjects_trials_by_problem)
-
 for problem_number in subjects_trials_by_problem.keys():
-    if problem_number == 13:
+    if problem_number == 14:
         continue
     print(problem_number)
     problem = f"problem-{problem_number:02d}"
@@ -300,91 +385,3 @@ for problem_number in subjects_trials_by_problem.keys():
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Third) (Remove Bad) (Late)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=best3_late,
                                                     all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
-
-# First Leave Analysis
-
-print("Running first leave analysis")
-
-for problem_number in subjects_trials_by_problem.keys():
-    print(problem_number)
-    problem = f"problem-{problem_number:02d}"
-
-    subjects_trials = subjects_trials_by_problem[problem_number]
-    reversal_windows = get_good_reversal_info(subjects_trials, include_first_block=False)
-    
-    first_leave_per_subject = get_first_leave_after_good_reversals(reversal_windows)
-    mean, se, n_subjects = average_first_leave_across_subjects(first_leave_per_subject)
-    p_value = pvalue_paired_t_new_vs_third(first_leave_per_subject, alternative="greater")
-    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/First Leave After Good Reversals")
-    plot_first_leave_after_good_reversals(mean, se, first_leave_per_subject, p_value, save_path=curr_save_path)
-
-    early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
-    first_leave_per_subject_early = get_first_leave_after_good_reversals(early)
-    mean_early, se_early, n_subjects_early = average_first_leave_across_subjects(first_leave_per_subject_early)
-    p_value_early = pvalue_paired_t_new_vs_third(first_leave_per_subject_early, alternative="greater")
-    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/First Leave After Good Reversals (Early)")
-    plot_first_leave_after_good_reversals(mean_early, se_early, first_leave_per_subject_early, p_value_early, save_path=curr_save_path)
-
-    first_leave_per_subject_late = get_first_leave_after_good_reversals(late)
-    mean_late, se_late, n_subjects_late = average_first_leave_across_subjects(first_leave_per_subject_late)
-    p_value_late = pvalue_paired_t_new_vs_third(first_leave_per_subject_late, alternative="greater")
-    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/First Leave After Good Reversals (Late)")
-    plot_first_leave_after_good_reversals(mean_late, se_late, first_leave_per_subject_late, p_value_late, save_path=curr_save_path)
-
-# Number of Reversals Analysis
-
-print("Running number of reversals analysis")
-
-for problem_number in subjects_trials_by_problem.keys():
-    print(problem_number)
-    problem = f"problem-{problem_number:02d}"
-
-    subjects_trials = subjects_trials_by_problem[problem_number]
-
-    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Total Reversals")
-    plot_num_reversals(subjects_trials, save_path=curr_save_path)
-
-    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Cumulative Reversals Over Time")
-    plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=curr_save_path)
-
-    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Moving Average Reversals Over Time")
-    plot_moving_avg_reversals_over_time(subjects_trials, save_path=curr_save_path)
-
-# Rank Proportion Analysis
-
-print("Running rank proportion analysis")
-
-for problem_number in subjects_trials_by_problem.keys():
-    print(problem_number)
-    problem = f"problem-{problem_number:02d}"
-    
-    subjects_trials = subjects_trials_by_problem[problem_number]
-
-    reversal_windows = get_good_reversal_info(subjects_trials, include_first_block=True)
-    rank_counts_by_good_reversal = get_rank_counts_by_good_reversal(reversal_windows)
-    p_values = pvalue_paired_t_best_vs_second_vs_third(rank_counts_by_good_reversal)
-
-    save_path = f"../../results/figures/{task}/{cohort}/{problem}/choice-stats/Rank Proportions"
-    plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=p_values, save_path=save_path)
-
-# Single Session Analysis
-
-print("Running single session analysis")
-
-for problem_number in subjects_trials_by_problem.keys():
-    print(problem_number)
-    problem = f"problem-{problem_number:02d}"
-
-    subjects_trials = subjects_trials_by_problem[problem_number]
-
-    all_subjects = list(subjects_trials.keys())
-    for current_subject in all_subjects:
-        subject_sessions = subjects_trials[current_subject]
-        all_sessions = list(subject_sessions.keys())
-        for current_session in all_sessions:
-            if not subject_sessions[current_session]["trial_info"]:
-                print(f"Skipping {current_subject} | {current_session}. There are no trials.")
-                continue
-            print(f"Plotting {current_subject} | {current_session}")
-            curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/single-sessions/{current_subject}/{current_session}/Session Plot")
-            plot_single_session(subject_sessions[current_session], title=f"{current_subject} | {current_session}", save_path=curr_save_path)

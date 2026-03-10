@@ -18,7 +18,6 @@ import matplotlib.pyplot as plt
 from src.behavior_analysis.get_total_reversals import get_total_reversals
 from src.behavior_visualization.plot_style import GOOD_COLOR, BAD_COLOR, TOTAL_COLOR
 
-
 def plot_num_reversals(subjects_trials, save_path=None):
     """Plot total good and bad reversal counts per subject as a grouped bar chart.
 
