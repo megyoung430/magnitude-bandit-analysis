@@ -161,6 +161,7 @@ for problem_number in subjects_trials_by_problem.keys():
         use_total = True
 
     if run_all:
+        print("Running full analysis without skipping or moving average")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
@@ -183,6 +184,7 @@ for problem_number in subjects_trials_by_problem.keys():
                                                 all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
 
     if skip:
+        print("Running analysis skipping initial trials after reversal and without moving average")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
@@ -204,6 +206,7 @@ for problem_number in subjects_trials_by_problem.keys():
                                                 skip_n_trials_after_reversal=skip_n_trials_after_reversal, save_path=curr_save_path)
 
     if moving_avg:
+        print("Running analysis with moving average and without skipping initial trials after reversal")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
@@ -217,6 +220,7 @@ for problem_number in subjects_trials_by_problem.keys():
                                                 all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
 
         if split_by_half:
+            print("Running analysis with moving average split by half")
             early, late = split_good_reversals_early_late(reversal_windows)
             
             x, per_subject, across = get_choice_probs_around_good_reversals(early, pre=pre, post=post)
@@ -231,6 +235,7 @@ for problem_number in subjects_trials_by_problem.keys():
             plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=late, 
                                                     all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
         if split_by_first_two:
+            print("Running analysis with moving average split by first two reversals")
             early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
             
             x, per_subject, across = get_choice_probs_around_good_reversals(early, pre=pre, post=post)
@@ -246,6 +251,7 @@ for problem_number in subjects_trials_by_problem.keys():
                                                     all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
 
     if remove_bad and not use_total:
+        print("Running analysis with bad reversals removed and without moving average")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
@@ -276,6 +282,7 @@ for problem_number in subjects_trials_by_problem.keys():
                                                 all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
 
     if split_by_best_change and moving_avg:
+        print("Running analysis with moving average split by best change and with bad reversals removed")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
@@ -301,6 +308,7 @@ for problem_number in subjects_trials_by_problem.keys():
         best2_late, best3_late = split_good_reversals_by_best_change(late)
 
         if split_by_best_change_and_half:
+            print("Running analysis with moving average split by best change and half and with bad reversals removed")
             # plot best->second early
             x, per_subject, across = get_choice_probs_around_good_reversals(best2_early, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
@@ -330,6 +338,7 @@ for problem_number in subjects_trials_by_problem.keys():
                                                     all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
 
     if split_by_best_change and remove_bad and moving_avg and not use_total:
+        print("Running analysis with moving average split by best change and with bad reversals removed")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
@@ -358,6 +367,7 @@ for problem_number in subjects_trials_by_problem.keys():
                                                 all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
         
         if split_by_best_change_and_half:
+            print("Running analysis with moving average split by best change and half and with bad reversals removed")
             # plot best->second early
             x, per_subject, across = get_choice_probs_around_good_reversals(best2_early, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")

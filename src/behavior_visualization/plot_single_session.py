@@ -40,7 +40,7 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
         "ema_best_arm_choices": "#000000",
         "ema_second_arm_choices": "#858585",
     }
-
+    has_ema = any(k in session_data and session_data[k] is not None  and any(v is not None for v in session_data[k]) for k in ema_keys)
     mags_by = session_data[mag_key]
     choices_by = session_data[choice_key]
     towers = list(mags_by.keys())
@@ -48,12 +48,20 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
     N = len(mags_by[towers[0]])
     x = np.arange(N)
 
-    fig = plt.figure(figsize=(14, 11))
-    gs = GridSpec(3, 2, height_ratios=[2.2, 1.8, 1.5], hspace=0.25, wspace=0.25)
-    ax1 = fig.add_subplot(gs[0, :])
-    ax2 = fig.add_subplot(gs[1, :], sharex=ax1)
-    ax3 = fig.add_subplot(gs[2, 0])
-    ax4 = fig.add_subplot(gs[2, 1])
+    if has_ema:
+        fig = plt.figure(figsize=(14, 11))
+        gs = GridSpec(3, 2, height_ratios=[2.2, 1.8, 1.5], hspace=0.25, wspace=0.25)
+        ax1 = fig.add_subplot(gs[0, :])
+        ax2 = fig.add_subplot(gs[1, :], sharex=ax1)
+        ax3 = fig.add_subplot(gs[2, 0])
+        ax4 = fig.add_subplot(gs[2, 1])
+    else:
+        fig = plt.figure(figsize=(14, 8))
+        gs = GridSpec(2, 2, height_ratios=[2.5, 1.5], hspace=0.25, wspace=0.25)
+        ax1 = fig.add_subplot(gs[0, :])
+        ax2 = None
+        ax3 = fig.add_subplot(gs[1, 0])
+        ax4 = fig.add_subplot(gs[1, 1])
 
     # --- Find Reversals ---
     good_idx = event_indices_from_cumulative(session_data.get("good_reversals"), N=N)
@@ -95,16 +103,20 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
     ax1.legend(loc="upper left", fontsize=10)
 
     # --- EMA ---
-    for k in ema_keys:
-        if k in session_data:
-            ax2.plot(x, np.asarray(session_data[k], dtype=float), linewidth=3, color=EMA_COLORS.get(k, None), label=EMA_LABELS.get(k, k),)
-    ax2.axhline(0.7, linestyle="--", linewidth=2, color="#DCDCDC", alpha=0.7, label="Threshold")
-    add_reversal_lines(ax2)
-    ax2.set_ylabel("EMA", fontsize=12)
-    ax2.set_xlabel("Trial", fontsize=12)
-    ax2.set_ylim(0, 1)
-    ax2.set_yticks(np.linspace(0, 1, 6))
-    ax2.legend(loc="upper left", fontsize=10)
+    if has_ema and ax2 is not None:
+        for k in ema_keys:
+            if k in session_data:
+                ax2.plot(x, np.asarray(session_data[k], dtype=float), linewidth=3,
+                         color=EMA_COLORS.get(k, None), label=EMA_LABELS.get(k, k))
+        ax2.axhline(0.7, linestyle="--", linewidth=2, color="#DCDCDC", alpha=0.7, label="Threshold")
+        add_reversal_lines(ax2)
+        ax2.set_ylabel("EMA", fontsize=12)
+        ax2.set_xlabel("Trial", fontsize=12)
+        ax2.set_ylim(0, 1)
+        ax2.set_yticks(np.linspace(0, 1, 6))
+        ax2.legend(loc="upper left", fontsize=10)
+    elif ax2 is None:
+        ax1.set_xlabel("Trial", fontsize=12)
 
     # --- Choices by Tower ---
     tower_counts = [int(np.nansum(np.asarray(choices_by[t][:N], dtype=float))) for t in towers]
@@ -143,6 +155,8 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
     ax4.set_ylabel("Count by Rank", fontsize=12)
 
     for ax in (ax1, ax2, ax3, ax4):
+        if ax is None:
+            continue
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         ax.spines["left"].set_linewidth(1.2)
