@@ -116,14 +116,14 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         else:
             boundary_indices = []
             boundary_source = None
-
+            
         if include_first_block and n_trials > 0:
             boundary_indices = [0] + boundary_indices
 
         if not boundary_indices:
             out[subj] = []
             continue
-
+        
         subj_results = []
 
         for k, idx in enumerate(boundary_indices):

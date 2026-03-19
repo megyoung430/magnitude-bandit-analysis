@@ -516,9 +516,16 @@ def concat_cumulative_numeric(segments):
             prev_last = out[-1]
             continue
         start = seg_vals[0]
-        # Only offset if the counter reset
         if start < prev_last:
-            seg_vals = [x + prev_last for x in seg_vals]
+            # The segment reset — but check if it's continuing the same block.
+            # If it resets to 1 and the previous segment ended mid-block (prev_last > 1),
+            # the first file ended mid-block and the second file resumes it,
+            # so offset by prev_last - 1 to keep the same block number continuous.
+            if start == 1:
+                offset = prev_last - 1
+            else:
+                offset = prev_last
+            seg_vals = [x + offset for x in seg_vals]
         out.extend(seg_vals)
         prev_last = out[-1]
     return out
