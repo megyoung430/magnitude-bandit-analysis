@@ -435,10 +435,7 @@ def collect_markov_run_stats(
         run_mean_acc = 0.0
         run_std_acc = 0.0
         for _ in range(n_sims):
-            _, _, run_mean, run_std = simulate_3armed_blockswaps_markov(
-                T=T, pud=pud, max_block_len=80, min_block_len=70,
-                val_list=val_list, rng=rng,
-            )
+            _, _, run_mean, run_std = simulate_3armed_blockswaps_markov(T=T, pud=pud, max_block_len=80, min_block_len=70, val_list=val_list, rng=rng)
             run_mean_acc += run_mean
             run_std_acc += run_std
         mean_runs.append(run_mean_acc / n_sims)

@@ -4,7 +4,6 @@ from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 def plot_run_mean_vs_std(
     gp_means: np.ndarray,
     gp_stds: np.ndarray,

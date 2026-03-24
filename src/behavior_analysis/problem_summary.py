@@ -5,12 +5,10 @@ compute per-mouse, per-problem summary metrics that can be plotted with
 functions in :mod:`src.behavior_visualization.plot_problem_summary`.
 """
 from __future__ import annotations
-
 import re
 from collections import defaultdict
-
 import numpy as np
-
+from src.behavior_analysis.get_total_reversals import get_total_reversals
 
 def compute_problem_length_summary(data: dict) -> dict:
     """Summarise the number of sessions to complete each problem per mouse.
@@ -58,11 +56,7 @@ def compute_problem_length_summary(data: dict) -> dict:
         "mice": mice,
     }
 
-
-def compute_problem_blocklen_summary(
-    problem_block_stats: dict,
-    drop_last_problem_per_mouse: bool = False,
-) -> dict:
+def compute_problem_blocklen_summary(problem_block_stats: dict, drop_last_problem_per_mouse: bool = False,) -> dict:
     """Summarise mean block length per problem averaged across mice.
 
     Args:
@@ -127,7 +121,6 @@ def compute_problem_blocklen_summary(
         "mice": mice_kept,
     }
 
-
 def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
     """Compute each subject's average number of good reversals per session.
 
@@ -137,7 +130,6 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
     Returns:
         ``{subject: avg_good_reversals_per_session}``
     """
-    from src.behavior_analysis.get_total_reversals import get_total_reversals
 
     _ses_re = re.compile(r"ses-(\d+)")
 
@@ -153,7 +145,7 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
     for subj in sorted(subjects_trials.keys()):
         for sess_key, trials in subjects_trials[subj].items():
             stats = get_total_reversals({sess_key: trials})
-            _ = _session_int(sess_key)  # validate format
+            _ = _session_int(sess_key)
             good_per_session_by_subj[subj].append(
                 float(stats.get("good_reversals", 0))
             )
@@ -164,7 +156,6 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
         per_mouse_avg[subj] = float(arr.mean()) if arr.size else float("nan")
 
     return per_mouse_avg
-
 
 def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
     """Summarise average good reversals per session across mice and problems.
@@ -211,7 +202,6 @@ def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
         "per_mouse_blocklens": per_mouse_blocklens,
         "mice": mice,
     }
-
 
 def drop_last_problem_per_mouse(problem_to_per_mouse_avg: dict) -> dict:
     """Remove each mouse's last completed problem from a per-problem dict.
