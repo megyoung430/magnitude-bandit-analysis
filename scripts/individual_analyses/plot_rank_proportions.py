@@ -11,7 +11,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from fix_grid_maze_cohort_02_problems import *
 
 task = "grid-maze"
-# task = "open-field"
+task = "open-field"
 
 folder_name = None
 cohort = None
@@ -38,5 +38,5 @@ for problem_number in subjects_trials_by_problem.keys():
     rank_counts_by_good_reversal = get_rank_counts_by_good_reversal(reversal_windows)
     p_values = pvalue_paired_t_best_vs_second_vs_third(rank_counts_by_good_reversal)
 
-    save_path = f"../results/figures/{task}/{cohort}/{problem}/choice-stats/Rank Proportions"
+    save_path = f"../../results/figures/{task}/{cohort}/{problem}/choice-stats/Rank Proportions"
     plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=p_values, save_path=save_path)
