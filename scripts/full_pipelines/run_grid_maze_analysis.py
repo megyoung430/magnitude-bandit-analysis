@@ -147,8 +147,6 @@ print(f"  Skip N Trials After Reversal: {skip_n_trials_after_reversal}")
 print(f"  Moving Avg Window: {moving_avg_window}")
 
 for problem_number in subjects_trials_by_problem.keys():
-    if problem_number == 14:
-        continue
     print(problem_number)
     problem = f"problem-{problem_number:02d}"
 

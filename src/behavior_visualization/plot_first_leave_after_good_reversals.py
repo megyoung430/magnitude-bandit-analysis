@@ -74,7 +74,7 @@ def plot_first_leave_after_good_reversals(mean, se, per_subject_counts, p_value=
     )
 
     if p_value is not None:
-        ax.text(0.5, 1.02, f"p-value: {p_value:.4f}", ha="center", va="bottom", fontsize=12)
+        ax.text(0.5, 1.02, f"p-value: {p_value:.3f}", ha="center", va="bottom", fontsize=12)
 
     plt.tight_layout()
 
