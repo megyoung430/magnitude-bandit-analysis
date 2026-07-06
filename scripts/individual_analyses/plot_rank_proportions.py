@@ -10,7 +10,7 @@ from src.behavior_visualization.plot_rank_proportions import *
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from fix_grid_maze_cohort_02_problems import *
 
-task = "grid-maze"
+# task = "grid-maze"
 task = "open-field"
 
 folder_name = None
@@ -19,7 +19,7 @@ if task == "grid-maze":
     cohort = "cohort-02"
     folder_name = "3x3_maze_blocked_reward_bandit"
 elif task == "open-field":
-    cohort = "cohort-01"
+    cohort = "cohort-02"
     folder_name = "3x3_field_blocked_reward_bandit"
 root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
 

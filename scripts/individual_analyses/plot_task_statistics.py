@@ -17,7 +17,7 @@ if task == "grid-maze":
     cohort = "cohort-02"
     folder_name = "3x3_maze_blocked_reward_bandit"
 elif task == "open-field":
-    cohort = "cohort-01"
+    cohort = "cohort-02"
     folder_name = "3x3_field_blocked_reward_bandit"
 root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
 
@@ -33,6 +33,6 @@ for problem_number in subjects_trials_by_problem.keys():
     subjects_trials = subjects_trials_by_problem[problem_number]
 
     annotate_y = 300
-    curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/task-stats/Median Block Lengths")
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/task-stats/Median Block Lengths")
     block_lengths_summary = get_block_lengths(subjects_trials, boundary="good")
     plot_block_lengths(block_lengths_summary, annotate_y=annotate_y, save_path=curr_save_path)

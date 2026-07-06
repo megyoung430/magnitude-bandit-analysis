@@ -7,7 +7,7 @@ from src.behavior_visualization.plot_num_reversals import *
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from fix_grid_maze_cohort_02_problems import *
 
-task = "grid-maze"
+# task = "grid-maze"
 task = "open-field"
 
 folder_name = None
@@ -16,7 +16,7 @@ if task == "grid-maze":
     cohort = "cohort-02"
     folder_name = "3x3_maze_blocked_reward_bandit"
 elif task == "open-field":
-    cohort = "cohort-01"
+    cohort = "cohort-02"
     folder_name = "3x3_field_blocked_reward_bandit"
 root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
 
@@ -31,11 +31,11 @@ for problem_number in subjects_trials_by_problem.keys():
 
     subjects_trials = subjects_trials_by_problem[problem_number]
 
-    curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Total Reversals")
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Total Reversals")
     plot_num_reversals(subjects_trials, save_path=curr_save_path)
 
-    curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Cumulative Reversals Over Time")
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Cumulative Reversals Over Time")
     plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=curr_save_path)
 
-    curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/reversal-stats/Moving Average Reversals Over Time")
+    curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Moving Average Reversals Over Time")
     plot_moving_avg_reversals_over_time(subjects_trials, save_path=curr_save_path)
