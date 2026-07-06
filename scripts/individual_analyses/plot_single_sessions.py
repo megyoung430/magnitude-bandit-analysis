@@ -7,8 +7,8 @@ from src.behavior_visualization.plot_single_session import *
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from fix_grid_maze_cohort_02_problems import *
 
-task = "grid-maze"
-# task = "open-field"
+# task = "grid-maze"
+task = "open-field"
 
 folder_name = None
 cohort = None
@@ -16,7 +16,7 @@ if task == "grid-maze":
     cohort = "cohort-02"
     folder_name = "3x3_maze_blocked_reward_bandit"
 elif task == "open-field":
-    cohort = "cohort-01"
+    cohort = "cohort-02"
     folder_name = "3x3_field_blocked_reward_bandit"
 root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
 
@@ -40,5 +40,5 @@ for problem_number in subjects_trials_by_problem.keys():
                 print(f"Skipping {current_subject} | {current_session}. There are no trials.")
                 continue
             print(f"Plotting {current_subject} | {current_session}")
-            curr_save_path = Path(f"../results/figures/{task}/{cohort}/{problem}/single-sessions/{current_subject}/{current_session}/Session Plot")
+            curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/single-sessions/{current_subject}/{current_session}/Session Plot")
             plot_single_session(subject_sessions[current_session], title=f"{current_subject} | {current_session}", save_path=curr_save_path)
