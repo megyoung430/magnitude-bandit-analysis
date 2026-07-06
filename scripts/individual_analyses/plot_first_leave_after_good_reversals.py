@@ -9,7 +9,7 @@ from src.behavior_analysis.split_early_late_good_reversals import *
 from src.behavior_analysis.get_diagnostic_p_value import *
 from src.behavior_visualization.plot_first_leave_after_good_reversals import *
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from fix_grid_maze_cohort_02_problems import *
+from scripts.fix_grid_maze_cohort_02_problems import *
 
 # task = "grid-maze"
 task = "open-field"

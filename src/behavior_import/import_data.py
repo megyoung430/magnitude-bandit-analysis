@@ -57,8 +57,8 @@ def import_data(root: str | Path) -> dict:
             {
               subject_id: {
                 session_key: {
-                  "data": DataFrame | list[DataFrame],
-                  "df": DataFrame | list[DataFrame],
+                  "data": DataFrame | list[DataFrame],  # JSON-expanded
+                  "df": DataFrame | list[DataFrame],    # original 4-column TSV
                   "problem": int,
                   "choice_towers": set,
                   "initiation_tower": str | None,
@@ -96,8 +96,11 @@ def import_data(root: str | Path) -> dict:
                 num_problem += 1
                 prev_towers = towers
             
-            original_dfs = df_list[0] if len(df_list) == 1 else df_list
-            expanded_dfs = [expand_content_columns(df) for df in df_list]
+            # Keep independent raw and expanded representations.  Both are
+            # copied so expanding ``data`` cannot mutate the four-column
+            # DataFrames retained under ``df``.
+            original_dfs = [df.copy() for df in df_list]
+            expanded_dfs = [expand_content_columns(df.copy()) for df in df_list]
             subjects[subject_id][key[1]] = {
                 "data": expanded_dfs[0] if len(expanded_dfs) == 1 else expanded_dfs,
                 "df": original_dfs[0] if len(original_dfs) == 1 else original_dfs,

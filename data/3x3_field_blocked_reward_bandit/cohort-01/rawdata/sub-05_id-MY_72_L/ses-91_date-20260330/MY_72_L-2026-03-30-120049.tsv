@@ -1,0 +1,1609 @@
+time	type	subtype	content
+0.000	info	experiment_name	Meg\3x3_field_drifting_value_bandit
+0.000	info	task_name	Meg\3x3_field_drifting_value_bandit
+0.000	info	task_file_hash	2651649461
+0.000	info	setup_id	Bottom_small_maze_1
+0.000	info	framework_version	2.0.1
+0.000	info	micropython_version	1.222
+0.000	info	subject_id	MY_72_L
+0.000	info	start_time	2026-03-30T11:00:49.363
+0.000	variable	run_start	{"num_t_found": 0, "no_rew_cue_dur": 500.0, "p_ud": 0.125, "min_hold": 2, "ses_length": 60, "curr_poke": null, "t_ses_start": 8, "arm_to_stream": {"C1": 0, "A1": 1}, "long_pokes": [], "poke_hold_dur": 200.0, "found_ports": true, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "num_blocks": 1, "num_problem": 10, "tot_num_blocks": 12, "ITI_dur": 1000.0, "rank_counts": {"best": 0, "second": 0, "third": 0}, "min_block_len": 30, "rew_mags": [1, 2, 3, 4], "init_cue_dur": 500.0, "hw_solenoid_calibration": {"B1": {"i": 47.95, "s": 1.22}, "A1": {"i": 47.61, "s": 1.26}, "A2": {"i": 47.52, "s": 1.27}, "A3": {"i": 49.11, "s": 1.1}, "C1": {"i": 46.6, "s": 1.37}, "C2": {"i": 39.05, "s": 2.15}, "C3": {"i": 40.2, "s": 2.04}, "B3": {"i": 38.45, "s": 2.22}, "B2": {"i": 2.33, "s": 8.12}}, "stream_state": [3, 0], "pulse_isi": 300.0, "base_choice_vol": 2, "found_t_thresh": 4, "problems": {"6": ["C2", "A1", "A3"], "7": ["C3", "A3", "B3"], "8": ["B3", "A2", "C1"], "9": ["B3", "C2", "B1"], "10": ["A1", "B1", "C1"], "5": ["A1", "C1", "C3"]}, "inactive_arm": "B1", "num_t": 0, "max_block_len": 35, "num_t_in_block": 9, "num_long_pokes": 0, "pulses_deliv": 0, "curr_block_len": 31, "found_port_counts": null, "stream_hold": [1, 1], "change_chosen": true, "p_bi": 0.9, "num_rew_pulses": null, "tot_rew_amt": 0}
+0.001	state		wait_init
+0.006	event	sync	rsync
+5.830	event	input	B2_in
+5.838	state		wait_choice
+5.942	event	input	B2_out
+6.140	event	input	B2_in
+6.143	state		hold_poke
+6.338	event	timer	init_cue_timer
+6.343	event	timer	poke_hold_timer
+6.343	state		poked_in
+6.348	state		wait_choice
+6.375	event	input	B2_out
+7.099	event	input	B1_in
+7.102	state		hold_poke
+7.213	event	input	B1_out
+7.216	state		wait_choice
+7.226	event	input	B1_in
+7.229	state		hold_poke
+7.269	event	input	B1_out
+7.272	state		wait_choice
+7.342	event	input	B1_in
+7.345	state		hold_poke
+7.545	event	timer	poke_hold_timer
+7.545	state		poked_in
+7.546	variable	print	{"num_t": 1, "num_t_in_block": 10, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "B1", "chosen_rank": "third", "num_long_pokes": 1, "long_pokes": ["B2"], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 1, "A1": 0, "C1": 0}, "rank_counts": {"best": 0, "second": 0, "third": 1}, "tot_rew_amt": 0}
+7.555	state		ITI
+7.598	event	input	B1_out
+7.629	event	input	B1_in
+7.657	event	input	B1_out
+8.050	event	timer	no_rew_cue_timer
+8.105	event	sync	rsync
+8.305	event	input	A1_in
+8.555	state		wait_init
+8.611	event	input	A1_out
+8.945	event	sync	rsync
+9.442	event	input	B2_in
+9.451	state		wait_choice
+9.492	event	input	B2_out
+9.950	event	timer	init_cue_timer
+11.240	event	input	B1_in
+11.243	state		hold_poke
+11.366	event	input	B1_out
+11.369	state		wait_choice
+11.396	event	input	B1_in
+11.399	state		hold_poke
+11.599	event	timer	poke_hold_timer
+11.599	state		poked_in
+11.600	variable	print	{"num_t": 2, "num_t_in_block": 11, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "B1", "chosen_rank": "third", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 0}, "rank_counts": {"best": 0, "second": 0, "third": 2}, "tot_rew_amt": 0}
+11.609	state		ITI
+11.713	event	input	B1_out
+12.104	event	timer	no_rew_cue_timer
+12.609	state		wait_init
+12.815	event	input	A1_in
+13.234	event	input	A1_out
+13.289	event	input	A1_in
+13.296	event	input	A1_out
+14.213	event	input	B2_in
+14.221	state		wait_choice
+14.254	event	sync	rsync
+14.277	event	input	B2_out
+14.721	event	timer	init_cue_timer
+15.368	event	input	C1_in
+15.371	state		hold_poke
+15.548	event	input	C1_out
+15.551	state		wait_choice
+15.588	event	input	C1_in
+15.592	state		hold_poke
+15.791	event	timer	poke_hold_timer
+15.791	state		poked_in
+15.792	variable	print	{"num_t": 3, "num_t_in_block": 12, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 1}, "rank_counts": {"best": 1, "second": 0, "third": 2}, "tot_rew_amt": 8}
+15.798	state		choice
+16.100	event	timer	pulse_off_timer
+16.153	event	timer	pulse_on_timer
+16.457	event	timer	pulse_off_timer
+16.510	event	timer	pulse_on_timer
+16.528	event	sync	rsync
+16.814	event	timer	pulse_off_timer
+16.867	event	timer	pulse_on_timer
+17.171	event	timer	pulse_off_timer
+17.224	event	timer	pulse_on_timer
+17.228	state		ITI
+18.229	state		wait_init
+19.098	event	input	C1_out
+20.600	event	input	B2_in
+20.608	state		wait_choice
+20.629	event	input	B2_out
+21.108	event	timer	init_cue_timer
+21.547	event	sync	rsync
+22.198	event	input	C1_in
+22.201	state		hold_poke
+22.401	event	timer	poke_hold_timer
+22.401	state		poked_in
+22.402	variable	print	{"num_t": 4, "num_t_in_block": 13, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 2}, "rank_counts": {"best": 2, "second": 0, "third": 2}, "tot_rew_amt": 16}
+22.408	state		choice
+22.710	event	timer	pulse_off_timer
+22.763	event	timer	pulse_on_timer
+22.801	event	sync	rsync
+23.067	event	timer	pulse_off_timer
+23.120	event	timer	pulse_on_timer
+23.424	event	timer	pulse_off_timer
+23.477	event	timer	pulse_on_timer
+23.781	event	timer	pulse_off_timer
+23.834	event	timer	pulse_on_timer
+23.838	state		ITI
+24.839	state		wait_init
+26.769	event	input	C1_out
+28.518	event	input	B2_in
+28.526	state		wait_choice
+28.555	event	input	B2_out
+29.026	event	timer	init_cue_timer
+29.176	event	sync	rsync
+29.702	event	input	C1_in
+29.706	state		hold_poke
+29.905	event	timer	poke_hold_timer
+29.905	state		poked_in
+29.906	variable	print	{"num_t": 5, "num_t_in_block": 14, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 3}, "rank_counts": {"best": 3, "second": 0, "third": 2}, "tot_rew_amt": 24}
+29.912	state		choice
+30.214	event	timer	pulse_off_timer
+30.267	event	timer	pulse_on_timer
+30.571	event	timer	pulse_off_timer
+30.624	event	timer	pulse_on_timer
+30.928	event	timer	pulse_off_timer
+30.981	event	timer	pulse_on_timer
+31.285	event	timer	pulse_off_timer
+31.338	event	timer	pulse_on_timer
+31.342	state		ITI
+32.343	state		wait_init
+33.755	event	sync	rsync
+34.945	event	input	C1_out
+36.960	event	input	B2_in
+36.974	state		wait_choice
+37.030	event	input	B2_out
+37.473	event	timer	init_cue_timer
+37.866	event	sync	rsync
+38.044	event	input	C1_in
+38.048	state		hold_poke
+38.247	event	timer	poke_hold_timer
+38.247	state		poked_in
+38.248	variable	print	{"num_t": 6, "num_t_in_block": 15, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 4}, "rank_counts": {"best": 4, "second": 0, "third": 2}, "tot_rew_amt": 32}
+38.254	state		choice
+38.556	event	timer	pulse_off_timer
+38.609	event	timer	pulse_on_timer
+38.913	event	timer	pulse_off_timer
+38.966	event	timer	pulse_on_timer
+39.270	event	timer	pulse_off_timer
+39.323	event	timer	pulse_on_timer
+39.627	event	timer	pulse_off_timer
+39.680	event	timer	pulse_on_timer
+39.685	state		ITI
+40.685	state		wait_init
+42.258	event	input	C1_out
+43.681	event	input	B2_in
+43.690	state		wait_choice
+43.704	event	input	B2_out
+44.189	event	timer	init_cue_timer
+44.412	event	sync	rsync
+44.725	event	input	C1_in
+44.728	state		hold_poke
+44.928	event	timer	poke_hold_timer
+44.928	state		poked_in
+44.929	variable	print	{"num_t": 7, "num_t_in_block": 16, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 5}, "rank_counts": {"best": 5, "second": 0, "third": 2}, "tot_rew_amt": 40}
+44.935	state		choice
+45.154	event	sync	rsync
+45.237	event	timer	pulse_off_timer
+45.290	event	timer	pulse_on_timer
+45.594	event	timer	pulse_off_timer
+45.647	event	timer	pulse_on_timer
+45.951	event	timer	pulse_off_timer
+46.004	event	timer	pulse_on_timer
+46.308	event	timer	pulse_off_timer
+46.361	event	timer	pulse_on_timer
+46.366	state		ITI
+47.366	state		wait_init
+48.172	event	sync	rsync
+49.051	event	input	C1_out
+50.296	event	input	B2_in
+50.304	state		wait_choice
+50.324	event	input	B2_out
+50.804	event	timer	init_cue_timer
+51.298	event	input	C1_in
+51.301	state		hold_poke
+51.501	event	timer	poke_hold_timer
+51.501	state		poked_in
+51.502	variable	print	{"num_t": 8, "num_t_in_block": 17, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 6}, "rank_counts": {"best": 6, "second": 0, "third": 2}, "tot_rew_amt": 48}
+51.509	state		choice
+51.811	event	timer	pulse_off_timer
+51.864	event	timer	pulse_on_timer
+52.168	event	timer	pulse_off_timer
+52.221	event	timer	pulse_on_timer
+52.525	event	timer	pulse_off_timer
+52.578	event	timer	pulse_on_timer
+52.882	event	timer	pulse_off_timer
+52.935	event	timer	pulse_on_timer
+52.939	state		ITI
+53.940	state		wait_init
+54.965	event	sync	rsync
+55.833	event	input	C1_out
+57.142	event	input	B2_in
+57.156	state		wait_choice
+57.168	event	input	B2_out
+57.655	event	timer	init_cue_timer
+58.150	event	input	C1_in
+58.153	state		hold_poke
+58.353	event	timer	poke_hold_timer
+58.353	state		poked_in
+58.354	variable	print	{"num_t": 9, "num_t_in_block": 18, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [2, 2], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 7}, "rank_counts": {"best": 7, "second": 0, "third": 2}, "tot_rew_amt": 56}
+58.361	state		choice
+58.663	event	timer	pulse_off_timer
+58.716	event	timer	pulse_on_timer
+59.020	event	timer	pulse_off_timer
+59.073	event	timer	pulse_on_timer
+59.377	event	timer	pulse_off_timer
+59.430	event	timer	pulse_on_timer
+59.734	event	timer	pulse_off_timer
+59.787	event	timer	pulse_on_timer
+59.791	state		ITI
+60.792	state		wait_init
+61.166	event	sync	rsync
+62.396	event	input	C1_out
+63.854	event	input	B2_in
+63.862	state		wait_choice
+63.870	event	input	B2_out
+64.362	event	timer	init_cue_timer
+64.961	event	input	C1_in
+64.964	state		hold_poke
+65.164	event	timer	poke_hold_timer
+65.164	state		poked_in
+65.165	variable	print	{"num_t": 10, "num_t_in_block": 19, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [3, 3], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 8}, "rank_counts": {"best": 8, "second": 0, "third": 2}, "tot_rew_amt": 64}
+65.172	state		choice
+65.474	event	timer	pulse_off_timer
+65.527	event	timer	pulse_on_timer
+65.831	event	timer	pulse_off_timer
+65.884	event	timer	pulse_on_timer
+66.188	event	timer	pulse_off_timer
+66.241	event	timer	pulse_on_timer
+66.545	event	timer	pulse_off_timer
+66.598	event	timer	pulse_on_timer
+66.603	state		ITI
+66.764	event	sync	rsync
+67.603	state		wait_init
+69.138	event	input	C1_out
+70.301	event	input	B2_in
+70.310	state		wait_choice
+70.322	event	input	B2_out
+70.809	event	timer	init_cue_timer
+71.256	event	input	C1_in
+71.259	state		hold_poke
+71.459	event	timer	poke_hold_timer
+71.459	state		poked_in
+71.460	variable	print	{"num_t": 11, "num_t_in_block": 20, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [4, 4], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 9}, "rank_counts": {"best": 9, "second": 0, "third": 2}, "tot_rew_amt": 72}
+71.467	state		choice
+71.769	event	timer	pulse_off_timer
+71.822	event	timer	pulse_on_timer
+72.126	event	timer	pulse_off_timer
+72.179	event	timer	pulse_on_timer
+72.483	event	timer	pulse_off_timer
+72.536	event	timer	pulse_on_timer
+72.840	event	timer	pulse_off_timer
+72.893	event	timer	pulse_on_timer
+72.898	state		ITI
+73.898	state		wait_init
+75.161	event	sync	rsync
+76.028	event	input	C1_out
+76.498	event	sync	rsync
+77.183	event	input	B2_in
+77.197	state		wait_choice
+77.218	event	input	B2_out
+77.696	event	timer	init_cue_timer
+78.157	event	input	C1_in
+78.160	state		hold_poke
+78.360	event	timer	poke_hold_timer
+78.360	state		poked_in
+78.361	variable	print	{"num_t": 12, "num_t_in_block": 21, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [5, 5], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 10}, "rank_counts": {"best": 10, "second": 0, "third": 2}, "tot_rew_amt": 80}
+78.368	state		choice
+78.670	event	timer	pulse_off_timer
+78.723	event	timer	pulse_on_timer
+79.027	event	timer	pulse_off_timer
+79.080	event	timer	pulse_on_timer
+79.384	event	timer	pulse_off_timer
+79.437	event	timer	pulse_on_timer
+79.741	event	timer	pulse_off_timer
+79.794	event	timer	pulse_on_timer
+79.798	state		ITI
+80.799	state		wait_init
+82.955	event	input	C1_out
+83.213	event	sync	rsync
+85.352	event	input	B2_in
+85.360	state		wait_choice
+85.377	event	input	B2_out
+85.426	event	sync	rsync
+85.860	event	timer	init_cue_timer
+89.085	event	input	C1_in
+89.088	state		hold_poke
+89.288	event	timer	poke_hold_timer
+89.288	state		poked_in
+89.289	variable	print	{"num_t": 13, "num_t_in_block": 22, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [6, 6], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 11}, "rank_counts": {"best": 11, "second": 0, "third": 2}, "tot_rew_amt": 88}
+89.296	state		choice
+89.598	event	timer	pulse_off_timer
+89.624	event	sync	rsync
+89.651	event	timer	pulse_on_timer
+89.955	event	timer	pulse_off_timer
+90.008	event	timer	pulse_on_timer
+90.312	event	timer	pulse_off_timer
+90.365	event	timer	pulse_on_timer
+90.669	event	timer	pulse_off_timer
+90.722	event	timer	pulse_on_timer
+90.726	state		ITI
+91.727	state		wait_init
+93.520	event	input	C1_out
+96.601	event	sync	rsync
+96.844	event	input	B2_in
+96.852	state		wait_choice
+96.871	event	input	B2_out
+96.901	event	input	B2_in
+96.904	state		hold_poke
+96.915	event	input	B2_out
+96.918	state		wait_choice
+97.352	event	timer	init_cue_timer
+98.011	event	input	C1_in
+98.015	state		hold_poke
+98.214	event	timer	poke_hold_timer
+98.214	state		poked_in
+98.215	variable	print	{"num_t": 14, "num_t_in_block": 23, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [7, 7], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 12}, "rank_counts": {"best": 12, "second": 0, "third": 2}, "tot_rew_amt": 96}
+98.222	state		choice
+98.524	event	timer	pulse_off_timer
+98.577	event	timer	pulse_on_timer
+98.881	event	timer	pulse_off_timer
+98.934	event	timer	pulse_on_timer
+99.238	event	timer	pulse_off_timer
+99.291	event	timer	pulse_on_timer
+99.595	event	timer	pulse_off_timer
+99.648	event	timer	pulse_on_timer
+99.652	state		ITI
+100.653	state		wait_init
+102.538	event	input	C1_out
+103.775	event	input	B2_in
+103.784	state		wait_choice
+103.804	event	input	B2_out
+104.283	event	timer	init_cue_timer
+105.148	event	input	C1_in
+105.151	state		hold_poke
+105.351	event	timer	poke_hold_timer
+105.351	state		poked_in
+105.352	variable	print	{"num_t": 15, "num_t_in_block": 24, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [8, 8], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 13}, "rank_counts": {"best": 13, "second": 0, "third": 2}, "tot_rew_amt": 104}
+105.359	state		choice
+105.661	event	timer	pulse_off_timer
+105.714	event	timer	pulse_on_timer
+106.018	event	timer	pulse_off_timer
+106.032	event	sync	rsync
+106.071	event	timer	pulse_on_timer
+106.375	event	timer	pulse_off_timer
+106.428	event	timer	pulse_on_timer
+106.732	event	timer	pulse_off_timer
+106.785	event	timer	pulse_on_timer
+106.789	state		ITI
+107.790	state		wait_init
+109.997	event	input	C1_out
+111.159	event	input	B2_in
+111.167	state		wait_choice
+111.193	event	input	B2_out
+111.667	event	timer	init_cue_timer
+112.096	event	sync	rsync
+112.199	event	input	C1_in
+112.203	state		hold_poke
+112.402	event	timer	poke_hold_timer
+112.402	state		poked_in
+112.403	variable	print	{"num_t": 16, "num_t_in_block": 25, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [9, 9], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 4}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 14}, "rank_counts": {"best": 14, "second": 0, "third": 2}, "tot_rew_amt": 112}
+112.410	state		choice
+112.712	event	timer	pulse_off_timer
+112.765	event	timer	pulse_on_timer
+113.069	event	timer	pulse_off_timer
+113.122	event	timer	pulse_on_timer
+113.426	event	timer	pulse_off_timer
+113.479	event	timer	pulse_on_timer
+113.783	event	timer	pulse_off_timer
+113.836	event	timer	pulse_on_timer
+113.840	state		ITI
+114.606	event	sync	rsync
+114.841	state		wait_init
+115.689	event	sync	rsync
+116.950	event	input	C1_out
+118.370	event	input	B2_in
+118.378	state		wait_choice
+118.399	event	input	B2_out
+118.878	event	timer	init_cue_timer
+119.260	event	input	C1_in
+119.263	state		hold_poke
+119.463	event	timer	poke_hold_timer
+119.463	state		poked_in
+119.464	variable	print	{"num_t": 17, "num_t_in_block": 26, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 0], "stream_hold": [1, 10], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 15}, "rank_counts": {"best": 15, "second": 0, "third": 2}, "tot_rew_amt": 118}
+119.471	state		choice
+119.773	event	timer	pulse_off_timer
+119.826	event	timer	pulse_on_timer
+120.130	event	timer	pulse_off_timer
+120.183	event	timer	pulse_on_timer
+120.487	event	timer	pulse_off_timer
+120.540	event	timer	pulse_on_timer
+120.544	state		ITI
+121.545	state		wait_init
+122.286	event	sync	rsync
+122.629	event	input	C1_out
+124.428	event	input	B2_in
+124.436	state		wait_choice
+124.494	event	input	B2_out
+124.936	event	timer	init_cue_timer
+125.424	event	input	C1_in
+125.428	state		hold_poke
+125.627	event	timer	poke_hold_timer
+125.627	state		poked_in
+125.628	variable	print	{"num_t": 18, "num_t_in_block": 27, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 0], "stream_hold": [2, 11], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 16}, "rank_counts": {"best": 16, "second": 0, "third": 2}, "tot_rew_amt": 124}
+125.635	state		choice
+125.937	event	timer	pulse_off_timer
+125.990	event	timer	pulse_on_timer
+126.294	event	timer	pulse_off_timer
+126.347	event	timer	pulse_on_timer
+126.651	event	timer	pulse_off_timer
+126.704	event	timer	pulse_on_timer
+126.709	state		ITI
+127.548	event	sync	rsync
+127.709	state		wait_init
+128.500	event	sync	rsync
+128.924	event	input	C1_out
+130.098	event	input	B2_in
+130.106	state		wait_choice
+130.135	event	input	B2_out
+130.606	event	timer	init_cue_timer
+131.057	event	input	C1_in
+131.060	state		hold_poke
+131.195	event	sync	rsync
+131.260	event	timer	poke_hold_timer
+131.260	state		poked_in
+131.261	variable	print	{"num_t": 19, "num_t_in_block": 28, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 0], "stream_hold": [3, 12], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 17}, "rank_counts": {"best": 17, "second": 0, "third": 2}, "tot_rew_amt": 130}
+131.268	state		choice
+131.570	event	timer	pulse_off_timer
+131.623	event	timer	pulse_on_timer
+131.927	event	timer	pulse_off_timer
+131.980	event	timer	pulse_on_timer
+132.284	event	timer	pulse_off_timer
+132.337	event	timer	pulse_on_timer
+132.341	state		ITI
+133.342	state		wait_init
+134.296	event	input	C1_out
+135.215	event	sync	rsync
+136.422	event	input	B2_in
+136.430	state		wait_choice
+136.468	event	input	B2_out
+136.930	event	timer	init_cue_timer
+137.337	event	input	C1_in
+137.340	state		hold_poke
+137.540	event	timer	poke_hold_timer
+137.540	state		poked_in
+137.541	variable	print	{"num_t": 20, "num_t_in_block": 29, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [4, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 0, "A1": 2, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 2, "A1": 0, "C1": 18}, "rank_counts": {"best": 18, "second": 0, "third": 2}, "tot_rew_amt": 136}
+137.548	state		choice
+137.850	event	timer	pulse_off_timer
+137.903	event	timer	pulse_on_timer
+138.207	event	timer	pulse_off_timer
+138.260	event	timer	pulse_on_timer
+138.564	event	timer	pulse_off_timer
+138.617	event	timer	pulse_on_timer
+138.622	state		ITI
+139.622	state		wait_init
+140.987	event	input	C1_out
+142.891	event	sync	rsync
+145.235	event	input	B2_in
+145.249	state		wait_choice
+145.271	event	input	B2_out
+145.749	event	timer	init_cue_timer
+146.330	event	input	B1_in
+146.333	state		hold_poke
+146.455	event	input	B1_out
+146.458	state		wait_choice
+146.490	event	input	B1_in
+146.493	state		hold_poke
+146.524	event	input	B1_out
+146.527	state		wait_choice
+146.582	event	input	B1_in
+146.585	state		hold_poke
+146.785	event	timer	poke_hold_timer
+146.785	state		poked_in
+146.786	variable	print	{"num_t": 21, "num_t_in_block": 30, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "B1", "chosen_rank": "third", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [5, 2], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 0, "A1": 2, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 3, "A1": 0, "C1": 18}, "rank_counts": {"best": 18, "second": 0, "third": 3}, "tot_rew_amt": 136}
+146.796	state		ITI
+146.843	event	input	B1_out
+146.894	event	input	B1_in
+146.918	event	input	B1_out
+147.290	event	timer	no_rew_cue_timer
+147.712	event	input	A1_in
+147.796	state		wait_init
+148.037	event	input	A1_out
+149.882	event	input	A1_in
+149.931	event	input	A1_out
+150.798	event	sync	rsync
+154.386	event	sync	rsync
+154.938	event	input	C1_in
+155.114	event	input	C1_out
+163.565	event	input	A1_in
+163.593	event	input	A1_out
+163.607	event	input	A1_in
+163.627	event	input	A1_out
+163.721	event	sync	rsync
+167.721	event	sync	rsync
+169.752	event	sync	rsync
+176.077	event	sync	rsync
+181.485	event	sync	rsync
+185.878	event	sync	rsync
+190.166	event	sync	rsync
+193.862	event	sync	rsync
+194.260	event	input	B2_in
+194.268	state		wait_choice
+194.330	event	input	B2_out
+194.768	event	timer	init_cue_timer
+195.326	event	input	A1_in
+195.327	state		hold_poke
+195.527	event	timer	poke_hold_timer
+195.527	state		poked_in
+195.528	variable	print	{"num_t": 22, "num_t_in_block": 31, "num_blocks": 1, "curr_block_len": 31, "chosen_tow": "A1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [6, 3], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 2, "curr_rew_mag": {"B1": 0, "A1": 2, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 3, "A1": 1, "C1": 18}, "rank_counts": {"best": 18, "second": 1, "third": 3}, "tot_rew_amt": 140}
+195.535	state		choice
+195.835	event	timer	pulse_off_timer
+195.885	event	timer	pulse_on_timer
+195.956	event	sync	rsync
+196.185	event	timer	pulse_off_timer
+196.235	event	timer	pulse_on_timer
+196.235	state		ITI
+197.235	state		wait_init
+197.991	event	input	A1_out
+200.155	event	sync	rsync
+201.830	event	input	B2_in
+201.838	state		wait_choice
+201.883	event	input	B2_out
+202.314	event	sync	rsync
+202.338	event	timer	init_cue_timer
+202.764	event	input	B1_in
+202.767	state		hold_poke
+202.859	event	input	B1_out
+202.863	state		wait_choice
+202.895	event	input	B1_in
+202.898	state		hold_poke
+202.998	event	sync	rsync
+203.055	event	input	B1_out
+203.058	state		wait_choice
+203.111	event	input	B1_in
+203.115	state		hold_poke
+203.314	event	timer	poke_hold_timer
+203.314	state		poked_in
+203.315	variable	print	{"num_t": 23, "num_t_in_block": 1, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [6, 3], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 4, "A1": 1, "C1": 18}, "rank_counts": {"best": 19, "second": 1, "third": 3}, "tot_rew_amt": 146}
+203.322	state		choice
+203.360	event	input	B1_out
+203.397	event	input	B1_in
+203.624	event	timer	pulse_off_timer
+203.678	event	timer	pulse_on_timer
+203.982	event	timer	pulse_off_timer
+204.036	event	timer	pulse_on_timer
+204.340	event	timer	pulse_off_timer
+204.394	event	timer	pulse_on_timer
+204.398	state		ITI
+205.399	state		wait_init
+205.933	event	input	B1_out
+207.502	event	input	B2_in
+207.510	state		wait_choice
+207.527	event	input	B2_out
+208.010	event	timer	init_cue_timer
+208.612	event	input	C1_in
+208.616	state		hold_poke
+208.815	event	timer	poke_hold_timer
+208.815	state		poked_in
+208.816	variable	print	{"num_t": 24, "num_t_in_block": 2, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "C1", "chosen_rank": "third", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [7, 4], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 4, "A1": 1, "C1": 19}, "rank_counts": {"best": 19, "second": 1, "third": 4}, "tot_rew_amt": 146}
+208.826	state		ITI
+208.829	event	input	C1_out
+208.884	event	input	C1_in
+209.187	event	input	C1_out
+209.228	event	input	C1_in
+209.320	event	timer	no_rew_cue_timer
+209.633	event	input	C1_out
+209.826	state		wait_init
+211.433	event	sync	rsync
+212.518	event	input	B2_in
+212.526	state		wait_choice
+212.582	event	input	B2_out
+213.026	event	timer	init_cue_timer
+213.568	event	input	B1_in
+213.571	state		hold_poke
+213.771	event	timer	poke_hold_timer
+213.771	state		poked_in
+213.772	variable	print	{"num_t": 25, "num_t_in_block": 3, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [1, 5], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 5, "A1": 1, "C1": 19}, "rank_counts": {"best": 19, "second": 2, "third": 4}, "tot_rew_amt": 148}
+213.779	state		choice
+214.081	event	timer	pulse_off_timer
+214.135	event	timer	pulse_on_timer
+214.140	state		ITI
+215.140	state		wait_init
+216.047	event	input	B1_out
+218.536	event	sync	rsync
+219.391	event	input	B2_in
+219.399	state		wait_choice
+219.435	event	input	B2_out
+219.505	event	input	B2_in
+219.508	state		hold_poke
+219.525	event	input	B2_out
+219.528	state		wait_choice
+219.899	event	timer	init_cue_timer
+220.086	event	input	B1_in
+220.089	state		hold_poke
+220.184	event	input	B1_out
+220.187	state		wait_choice
+220.216	event	input	B1_in
+220.220	state		hold_poke
+220.267	event	input	B1_out
+220.270	state		wait_choice
+220.304	event	input	B1_in
+220.308	state		hold_poke
+220.507	event	timer	poke_hold_timer
+220.507	state		poked_in
+220.508	variable	print	{"num_t": 26, "num_t_in_block": 4, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [2, 6], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 6, "A1": 1, "C1": 19}, "rank_counts": {"best": 19, "second": 3, "third": 4}, "tot_rew_amt": 150}
+220.515	state		choice
+220.817	event	timer	pulse_off_timer
+220.871	event	timer	pulse_on_timer
+220.875	state		ITI
+221.585	event	sync	rsync
+221.876	state		wait_init
+222.335	event	input	B1_out
+223.531	event	sync	rsync
+225.608	event	input	B2_in
+225.617	state		wait_choice
+225.624	event	input	B2_out
+226.116	event	timer	init_cue_timer
+226.383	event	input	B1_in
+226.386	state		hold_poke
+226.586	event	timer	poke_hold_timer
+226.586	state		poked_in
+226.587	variable	print	{"num_t": 27, "num_t_in_block": 5, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [3, 7], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 7, "A1": 1, "C1": 19}, "rank_counts": {"best": 19, "second": 4, "third": 4}, "tot_rew_amt": 152}
+226.594	state		choice
+226.896	event	timer	pulse_off_timer
+226.950	event	timer	pulse_on_timer
+226.955	state		ITI
+227.955	state		wait_init
+228.512	event	input	B1_out
+231.700	event	input	B2_in
+231.708	state		wait_choice
+231.720	event	input	B2_out
+232.208	event	timer	init_cue_timer
+232.586	event	input	B1_in
+232.589	state		hold_poke
+232.744	event	sync	rsync
+232.789	event	timer	poke_hold_timer
+232.789	state		poked_in
+232.790	variable	print	{"num_t": 28, "num_t_in_block": 6, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 2], "stream_hold": [4, 1], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 3, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 8, "A1": 1, "C1": 19}, "rank_counts": {"best": 19, "second": 5, "third": 4}, "tot_rew_amt": 154}
+232.797	state		choice
+233.099	event	timer	pulse_off_timer
+233.153	event	timer	pulse_on_timer
+233.157	state		ITI
+234.158	state		wait_init
+234.458	event	sync	rsync
+234.890	event	input	B1_out
+236.072	event	input	B2_in
+236.080	state		wait_choice
+236.122	event	input	B2_out
+236.580	event	timer	init_cue_timer
+237.095	event	input	C1_in
+237.098	state		hold_poke
+237.274	event	input	C1_out
+237.277	state		wait_choice
+237.322	event	input	C1_in
+237.325	state		hold_poke
+237.525	event	timer	poke_hold_timer
+237.525	state		poked_in
+237.526	variable	print	{"num_t": 29, "num_t_in_block": 7, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "C1", "chosen_rank": "third", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 2], "stream_hold": [5, 2], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 1, "A1": 3, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 8, "A1": 1, "C1": 20}, "rank_counts": {"best": 19, "second": 5, "third": 5}, "tot_rew_amt": 154}
+237.536	state		ITI
+237.618	event	input	C1_out
+237.681	event	input	C1_in
+237.891	event	input	C1_out
+238.030	event	timer	no_rew_cue_timer
+238.536	state		wait_init
+239.692	event	input	B2_in
+239.701	state		wait_choice
+239.714	event	input	B2_out
+239.921	event	sync	rsync
+240.200	event	timer	init_cue_timer
+240.401	event	input	B1_in
+240.404	state		hold_poke
+240.604	event	timer	poke_hold_timer
+240.604	state		poked_in
+240.605	variable	print	{"num_t": 30, "num_t_in_block": 8, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 2], "stream_hold": [6, 3], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 3, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 9, "A1": 1, "C1": 20}, "rank_counts": {"best": 19, "second": 6, "third": 5}, "tot_rew_amt": 156}
+240.612	state		choice
+240.616	event	input	B1_out
+240.663	event	input	B1_in
+240.914	event	timer	pulse_off_timer
+240.968	event	timer	pulse_on_timer
+240.972	state		ITI
+241.973	state		wait_init
+242.547	event	input	B1_out
+245.284	event	input	B2_in
+245.293	state		wait_choice
+245.339	event	input	B2_out
+245.792	event	timer	init_cue_timer
+246.869	event	input	C1_in
+246.872	state		hold_poke
+247.036	event	input	C1_out
+247.039	state		wait_choice
+247.067	event	input	C1_in
+247.070	state		hold_poke
+247.270	event	timer	poke_hold_timer
+247.270	state		poked_in
+247.271	variable	print	{"num_t": 31, "num_t_in_block": 9, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "C1", "chosen_rank": "third", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [7, 1], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 9, "A1": 1, "C1": 21}, "rank_counts": {"best": 19, "second": 6, "third": 6}, "tot_rew_amt": 156}
+247.280	state		ITI
+247.352	event	input	C1_out
+247.775	event	timer	no_rew_cue_timer
+247.921	event	sync	rsync
+248.280	state		wait_init
+254.389	event	input	B3_in
+254.439	event	input	B3_out
+255.510	event	sync	rsync
+257.407	event	input	B2_in
+257.415	state		wait_choice
+257.455	event	input	B2_out
+257.915	event	timer	init_cue_timer
+258.453	event	input	A1_in
+258.453	state		hold_poke
+258.653	event	timer	poke_hold_timer
+258.653	state		poked_in
+258.654	variable	print	{"num_t": 32, "num_t_in_block": 10, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "A1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [8, 2], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 2, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 9, "A1": 2, "C1": 21}, "rank_counts": {"best": 20, "second": 6, "third": 6}, "tot_rew_amt": 160}
+258.661	state		choice
+258.961	event	timer	pulse_off_timer
+259.011	event	timer	pulse_on_timer
+259.311	event	timer	pulse_off_timer
+259.361	event	timer	pulse_on_timer
+259.361	state		ITI
+260.361	state		wait_init
+261.469	event	input	A1_out
+262.663	event	sync	rsync
+264.900	event	sync	rsync
+270.355	event	sync	rsync
+270.687	event	input	B2_in
+270.696	state		wait_choice
+270.713	event	input	B2_out
+270.945	event	sync	rsync
+271.195	event	timer	init_cue_timer
+271.707	event	input	A1_in
+271.708	state		hold_poke
+271.908	event	timer	poke_hold_timer
+271.908	state		poked_in
+271.909	variable	print	{"num_t": 33, "num_t_in_block": 11, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "A1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [9, 3], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 2, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 9, "A1": 3, "C1": 21}, "rank_counts": {"best": 21, "second": 6, "third": 6}, "tot_rew_amt": 164}
+271.916	state		choice
+272.216	event	timer	pulse_off_timer
+272.266	event	timer	pulse_on_timer
+272.566	event	timer	pulse_off_timer
+272.616	event	timer	pulse_on_timer
+272.616	state		ITI
+273.381	event	sync	rsync
+273.616	state		wait_init
+276.173	event	input	A1_out
+280.250	event	sync	rsync
+281.898	event	sync	rsync
+290.574	event	sync	rsync
+294.188	event	sync	rsync
+296.366	event	sync	rsync
+298.193	event	input	B2_in
+298.202	state		wait_choice
+298.285	event	input	B2_out
+298.701	event	timer	init_cue_timer
+298.966	event	input	B1_in
+298.969	state		hold_poke
+299.068	event	input	B1_out
+299.072	state		wait_choice
+299.119	event	input	B1_in
+299.122	state		hold_poke
+299.322	event	timer	poke_hold_timer
+299.322	state		poked_in
+299.323	variable	print	{"num_t": 34, "num_t_in_block": 12, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [10, 4], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 10, "A1": 3, "C1": 21}, "rank_counts": {"best": 21, "second": 7, "third": 6}, "tot_rew_amt": 166}
+299.330	state		choice
+299.394	event	input	B1_out
+299.446	event	input	B1_in
+299.632	event	timer	pulse_off_timer
+299.686	event	timer	pulse_on_timer
+299.690	state		ITI
+300.691	state		wait_init
+300.719	event	input	B1_out
+303.644	event	sync	rsync
+305.401	event	sync	rsync
+306.422	event	input	B2_in
+306.430	state		wait_choice
+306.491	event	input	B2_out
+306.930	event	timer	init_cue_timer
+307.426	event	input	A1_in
+307.427	state		hold_poke
+307.627	event	timer	poke_hold_timer
+307.627	state		poked_in
+307.628	variable	print	{"num_t": 35, "num_t_in_block": 13, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "A1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [11, 5], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 2, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 10, "A1": 4, "C1": 21}, "rank_counts": {"best": 22, "second": 7, "third": 6}, "tot_rew_amt": 170}
+307.635	state		choice
+307.935	event	timer	pulse_off_timer
+307.985	event	timer	pulse_on_timer
+308.285	event	timer	pulse_off_timer
+308.335	event	timer	pulse_on_timer
+308.335	state		ITI
+308.480	event	sync	rsync
+309.335	state		wait_init
+310.167	event	sync	rsync
+310.888	event	input	A1_out
+310.915	event	input	A1_in
+310.949	event	input	A1_out
+314.100	event	sync	rsync
+315.083	event	input	B1_in
+315.197	event	input	B1_out
+315.222	event	input	B1_in
+315.475	event	input	B1_out
+315.619	event	sync	rsync
+317.755	event	input	B2_in
+317.764	state		wait_choice
+317.796	event	input	B2_out
+318.263	event	timer	init_cue_timer
+318.516	event	sync	rsync
+318.775	event	input	B1_in
+318.778	state		hold_poke
+318.889	event	input	B1_out
+318.892	state		wait_choice
+318.915	event	input	B1_in
+318.918	state		hold_poke
+318.971	event	input	B1_out
+318.974	state		wait_choice
+318.983	event	input	B1_in
+318.986	state		hold_poke
+319.186	event	timer	poke_hold_timer
+319.186	state		poked_in
+319.187	variable	print	{"num_t": 36, "num_t_in_block": 14, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [12, 6], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 11, "A1": 4, "C1": 21}, "rank_counts": {"best": 22, "second": 8, "third": 6}, "tot_rew_amt": 172}
+319.194	state		choice
+319.496	event	timer	pulse_off_timer
+319.550	event	timer	pulse_on_timer
+319.555	state		ITI
+320.088	event	sync	rsync
+320.555	state		wait_init
+320.645	event	input	B1_out
+322.295	event	sync	rsync
+329.854	event	sync	rsync
+339.178	event	sync	rsync
+346.519	event	sync	rsync
+351.212	event	sync	rsync
+355.925	event	sync	rsync
+358.803	event	sync	rsync
+367.700	event	sync	rsync
+374.152	event	sync	rsync
+377.255	event	input	B2_in
+377.263	state		wait_choice
+377.318	event	input	B2_out
+377.763	event	timer	init_cue_timer
+377.934	event	input	B1_in
+377.937	state		hold_poke
+378.137	event	timer	poke_hold_timer
+378.137	state		poked_in
+378.138	variable	print	{"num_t": 37, "num_t_in_block": 15, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [13, 7], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 12, "A1": 4, "C1": 21}, "rank_counts": {"best": 22, "second": 9, "third": 6}, "tot_rew_amt": 174}
+378.145	state		choice
+378.447	event	timer	pulse_off_timer
+378.501	event	timer	pulse_on_timer
+378.505	state		ITI
+378.778	event	sync	rsync
+379.506	state		wait_init
+379.801	event	input	B1_out
+386.106	event	sync	rsync
+387.158	event	sync	rsync
+390.135	event	input	B2_in
+390.143	state		wait_choice
+390.195	event	input	B2_out
+390.643	event	timer	init_cue_timer
+390.843	event	input	B1_in
+390.847	state		hold_poke
+391.046	event	timer	poke_hold_timer
+391.046	state		poked_in
+391.052	variable	print	{"num_t": 38, "num_t_in_block": 16, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [1, 8], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 13, "A1": 4, "C1": 21}, "rank_counts": {"best": 23, "second": 9, "third": 6}, "tot_rew_amt": 180}
+391.059	state		choice
+391.361	event	timer	pulse_off_timer
+391.379	event	sync	rsync
+391.415	event	timer	pulse_on_timer
+391.719	event	timer	pulse_off_timer
+391.773	event	timer	pulse_on_timer
+392.077	event	timer	pulse_off_timer
+392.131	event	timer	pulse_on_timer
+392.135	state		ITI
+393.136	state		wait_init
+394.139	event	input	B1_out
+397.763	event	input	B2_in
+397.771	state		wait_choice
+397.783	event	input	B2_out
+398.097	event	sync	rsync
+398.271	event	timer	init_cue_timer
+398.575	event	input	B1_in
+398.579	state		hold_poke
+398.778	event	timer	poke_hold_timer
+398.778	state		poked_in
+398.779	variable	print	{"num_t": 39, "num_t_in_block": 17, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [2, 9], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 14, "A1": 4, "C1": 21}, "rank_counts": {"best": 24, "second": 9, "third": 6}, "tot_rew_amt": 186}
+398.786	state		choice
+399.088	event	timer	pulse_off_timer
+399.142	event	timer	pulse_on_timer
+399.446	event	timer	pulse_off_timer
+399.500	event	timer	pulse_on_timer
+399.804	event	timer	pulse_off_timer
+399.858	event	timer	pulse_on_timer
+399.863	state		ITI
+400.863	state		wait_init
+402.979	event	input	B1_out
+404.806	event	input	B2_in
+404.814	state		wait_choice
+404.826	event	input	B2_out
+404.976	event	sync	rsync
+405.314	event	timer	init_cue_timer
+405.737	event	input	B1_in
+405.740	state		hold_poke
+405.940	event	timer	poke_hold_timer
+405.940	state		poked_in
+405.941	variable	print	{"num_t": 40, "num_t_in_block": 18, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [3, 10], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 15, "A1": 4, "C1": 21}, "rank_counts": {"best": 25, "second": 9, "third": 6}, "tot_rew_amt": 192}
+405.948	state		choice
+406.250	event	timer	pulse_off_timer
+406.304	event	timer	pulse_on_timer
+406.608	event	timer	pulse_off_timer
+406.662	event	timer	pulse_on_timer
+406.966	event	timer	pulse_off_timer
+407.020	event	timer	pulse_on_timer
+407.024	state		ITI
+408.025	state		wait_init
+408.384	event	sync	rsync
+409.827	event	sync	rsync
+410.497	event	input	B1_out
+412.238	event	input	B2_in
+412.247	state		wait_choice
+412.255	event	input	B2_out
+412.747	event	timer	init_cue_timer
+413.646	event	input	B1_in
+413.649	state		hold_poke
+413.849	event	timer	poke_hold_timer
+413.849	state		poked_in
+413.850	variable	print	{"num_t": 41, "num_t_in_block": 19, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [4, 11], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 16, "A1": 4, "C1": 21}, "rank_counts": {"best": 26, "second": 9, "third": 6}, "tot_rew_amt": 198}
+413.857	state		choice
+414.160	event	timer	pulse_off_timer
+414.215	event	timer	pulse_on_timer
+414.314	event	sync	rsync
+414.519	event	timer	pulse_off_timer
+414.573	event	timer	pulse_on_timer
+414.877	event	timer	pulse_off_timer
+414.931	event	timer	pulse_on_timer
+414.936	state		ITI
+415.936	state		wait_init
+416.983	event	sync	rsync
+418.373	event	input	B1_out
+418.422	event	input	B1_in
+418.446	event	sync	rsync
+418.484	event	input	B1_out
+418.504	event	input	B1_in
+418.719	event	input	B1_out
+422.578	event	input	B2_in
+422.586	state		wait_choice
+422.597	event	input	B2_out
+423.086	event	timer	init_cue_timer
+423.412	event	input	B1_in
+423.415	state		hold_poke
+423.615	event	timer	poke_hold_timer
+423.615	state		poked_in
+423.616	variable	print	{"num_t": 42, "num_t_in_block": 20, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [1, 12], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 17, "A1": 4, "C1": 21}, "rank_counts": {"best": 26, "second": 10, "third": 6}, "tot_rew_amt": 200}
+423.623	state		choice
+423.925	event	timer	pulse_off_timer
+423.979	event	timer	pulse_on_timer
+423.983	state		ITI
+424.984	state		wait_init
+425.210	event	sync	rsync
+426.266	event	input	B1_out
+429.169	event	input	B2_in
+429.178	state		wait_choice
+429.207	event	input	B2_out
+429.677	event	timer	init_cue_timer
+429.891	event	input	B1_in
+429.895	state		hold_poke
+430.094	event	timer	poke_hold_timer
+430.094	state		poked_in
+430.095	variable	print	{"num_t": 43, "num_t_in_block": 21, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [2, 13], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 18, "A1": 4, "C1": 21}, "rank_counts": {"best": 26, "second": 11, "third": 6}, "tot_rew_amt": 202}
+430.102	state		choice
+430.404	event	timer	pulse_off_timer
+430.458	event	timer	pulse_on_timer
+430.462	state		ITI
+431.463	state		wait_init
+431.526	event	sync	rsync
+432.523	event	input	B1_out
+435.739	event	input	B2_in
+435.747	state		wait_choice
+435.778	event	input	B2_out
+436.247	event	timer	init_cue_timer
+436.446	event	input	B1_in
+436.450	state		hold_poke
+436.649	event	timer	poke_hold_timer
+436.649	state		poked_in
+436.650	variable	print	{"num_t": 44, "num_t_in_block": 22, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [3, 14], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 19, "A1": 4, "C1": 21}, "rank_counts": {"best": 26, "second": 12, "third": 6}, "tot_rew_amt": 204}
+436.657	state		choice
+436.959	event	timer	pulse_off_timer
+437.013	event	timer	pulse_on_timer
+437.020	state		ITI
+438.020	state		wait_init
+439.297	event	input	B1_out
+440.046	event	sync	rsync
+448.142	event	sync	rsync
+451.202	event	sync	rsync
+457.904	event	sync	rsync
+462.950	event	sync	rsync
+466.423	event	sync	rsync
+474.302	event	sync	rsync
+483.476	event	sync	rsync
+485.397	event	sync	rsync
+493.111	event	sync	rsync
+493.881	event	sync	rsync
+496.767	event	sync	rsync
+500.858	event	input	A1_in
+501.043	event	input	A1_out
+504.079	event	sync	rsync
+505.577	event	input	B2_in
+505.586	state		wait_choice
+505.867	event	input	B2_out
+506.085	event	timer	init_cue_timer
+507.027	event	input	C1_in
+507.030	state		hold_poke
+507.162	event	input	C1_out
+507.165	state		wait_choice
+507.185	event	input	C1_in
+507.188	state		hold_poke
+507.388	event	timer	poke_hold_timer
+507.388	state		poked_in
+507.389	variable	print	{"num_t": 45, "num_t_in_block": 23, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "C1", "chosen_rank": "third", "num_long_pokes": 0, "long_pokes": [], "stream_state": [0, 1], "stream_hold": [4, 15], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 1, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 19, "A1": 4, "C1": 22}, "rank_counts": {"best": 26, "second": 12, "third": 7}, "tot_rew_amt": 204}
+507.399	state		ITI
+507.513	event	input	C1_out
+507.585	event	input	C1_in
+507.893	event	timer	no_rew_cue_timer
+507.921	event	input	C1_out
+508.177	event	input	C1_in
+508.381	event	input	C1_out
+508.399	state		wait_init
+508.411	event	sync	rsync
+510.256	event	sync	rsync
+518.785	event	sync	rsync
+527.902	event	sync	rsync
+536.153	event	sync	rsync
+538.102	event	sync	rsync
+546.257	event	sync	rsync
+548.526	event	sync	rsync
+548.594	event	input	A3_in
+548.712	event	input	A3_out
+550.427	event	input	B2_in
+550.436	state		wait_choice
+550.498	event	input	B2_out
+550.935	event	timer	init_cue_timer
+551.503	event	input	B1_in
+551.506	state		hold_poke
+551.706	event	timer	poke_hold_timer
+551.706	state		poked_in
+551.707	variable	print	{"num_t": 46, "num_t_in_block": 24, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 0], "stream_hold": [1, 1], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 20, "A1": 4, "C1": 22}, "rank_counts": {"best": 27, "second": 12, "third": 7}, "tot_rew_amt": 210}
+551.714	state		choice
+552.016	event	timer	pulse_off_timer
+552.070	event	timer	pulse_on_timer
+552.374	event	timer	pulse_off_timer
+552.428	event	timer	pulse_on_timer
+552.732	event	timer	pulse_off_timer
+552.786	event	timer	pulse_on_timer
+552.790	state		ITI
+553.791	state		wait_init
+554.338	event	sync	rsync
+554.339	event	input	B1_out
+557.329	event	input	B2_in
+557.338	state		wait_choice
+557.381	event	input	B2_out
+557.837	event	timer	init_cue_timer
+557.967	event	input	B1_in
+557.970	state		hold_poke
+558.170	event	timer	poke_hold_timer
+558.170	state		poked_in
+558.171	variable	print	{"num_t": 47, "num_t_in_block": 25, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 0], "stream_hold": [2, 2], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 21, "A1": 4, "C1": 22}, "rank_counts": {"best": 28, "second": 12, "third": 7}, "tot_rew_amt": 216}
+558.178	state		choice
+558.480	event	timer	pulse_off_timer
+558.534	event	timer	pulse_on_timer
+558.838	event	timer	pulse_off_timer
+558.892	event	timer	pulse_on_timer
+559.196	event	timer	pulse_off_timer
+559.250	event	timer	pulse_on_timer
+559.254	state		ITI
+560.255	state		wait_init
+562.500	event	input	B1_out
+562.955	event	sync	rsync
+564.489	event	input	B2_in
+564.497	state		wait_choice
+564.510	event	input	B2_out
+564.997	event	timer	init_cue_timer
+565.129	event	input	B1_in
+565.132	state		hold_poke
+565.332	event	timer	poke_hold_timer
+565.332	state		poked_in
+565.333	variable	print	{"num_t": 48, "num_t_in_block": 26, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [1, 3], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 4, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 22, "A1": 4, "C1": 22}, "rank_counts": {"best": 29, "second": 12, "third": 7}, "tot_rew_amt": 224}
+565.340	state		choice
+565.642	event	timer	pulse_off_timer
+565.696	event	timer	pulse_on_timer
+566.000	event	timer	pulse_off_timer
+566.054	event	timer	pulse_on_timer
+566.358	event	timer	pulse_off_timer
+566.412	event	timer	pulse_on_timer
+566.716	event	timer	pulse_off_timer
+566.770	event	timer	pulse_on_timer
+566.774	state		ITI
+567.672	event	sync	rsync
+567.775	state		wait_init
+569.957	event	input	B1_out
+570.025	event	input	B1_in
+570.072	event	input	B1_out
+570.107	event	input	B1_in
+570.484	event	input	B1_out
+570.754	event	sync	rsync
+572.508	event	input	B2_in
+572.516	state		wait_choice
+572.533	event	input	B2_out
+572.743	event	sync	rsync
+573.016	event	timer	init_cue_timer
+573.228	event	input	B1_in
+573.231	state		hold_poke
+573.431	event	timer	poke_hold_timer
+573.431	state		poked_in
+573.432	variable	print	{"num_t": 49, "num_t_in_block": 27, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [2, 4], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 4, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 23, "A1": 4, "C1": 22}, "rank_counts": {"best": 30, "second": 12, "third": 7}, "tot_rew_amt": 232}
+573.439	state		choice
+573.741	event	timer	pulse_off_timer
+573.795	event	timer	pulse_on_timer
+574.099	event	timer	pulse_off_timer
+574.153	event	timer	pulse_on_timer
+574.457	event	timer	pulse_off_timer
+574.511	event	timer	pulse_on_timer
+574.815	event	timer	pulse_off_timer
+574.869	event	timer	pulse_on_timer
+574.876	state		ITI
+575.876	state		wait_init
+577.174	event	sync	rsync
+578.563	event	input	B1_out
+580.972	event	input	B2_in
+580.980	state		wait_choice
+581.066	event	input	B2_out
+581.480	event	timer	init_cue_timer
+582.337	event	sync	rsync
+582.578	event	input	B1_in
+582.582	state		hold_poke
+582.782	event	timer	poke_hold_timer
+582.782	state		poked_in
+582.783	variable	print	{"num_t": 50, "num_t_in_block": 28, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [3, 5], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 4, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 24, "A1": 4, "C1": 22}, "rank_counts": {"best": 31, "second": 12, "third": 7}, "tot_rew_amt": 240}
+582.790	state		choice
+583.092	event	timer	pulse_off_timer
+583.146	event	timer	pulse_on_timer
+583.450	event	timer	pulse_off_timer
+583.504	event	timer	pulse_on_timer
+583.808	event	timer	pulse_off_timer
+583.862	event	timer	pulse_on_timer
+584.166	event	timer	pulse_off_timer
+584.220	event	timer	pulse_on_timer
+584.224	state		ITI
+585.225	state		wait_init
+587.481	event	input	B1_out
+589.328	event	input	B2_in
+589.336	state		wait_choice
+589.349	event	input	B2_out
+589.836	event	timer	init_cue_timer
+590.098	event	input	B1_in
+590.101	state		hold_poke
+590.301	event	timer	poke_hold_timer
+590.301	state		poked_in
+590.302	variable	print	{"num_t": 51, "num_t_in_block": 29, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [4, 6], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 4, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 25, "A1": 4, "C1": 22}, "rank_counts": {"best": 32, "second": 12, "third": 7}, "tot_rew_amt": 248}
+590.309	state		choice
+590.611	event	timer	pulse_off_timer
+590.665	event	timer	pulse_on_timer
+590.969	event	timer	pulse_off_timer
+591.023	event	timer	pulse_on_timer
+591.327	event	timer	pulse_off_timer
+591.381	event	timer	pulse_on_timer
+591.685	event	timer	pulse_off_timer
+591.726	event	sync	rsync
+591.739	event	timer	pulse_on_timer
+591.743	state		ITI
+592.744	state		wait_init
+595.207	event	input	B1_out
+597.250	event	input	B2_in
+597.258	state		wait_choice
+597.284	event	input	B2_out
+597.758	event	timer	init_cue_timer
+598.058	event	input	B1_in
+598.061	state		hold_poke
+598.261	event	timer	poke_hold_timer
+598.261	state		poked_in
+598.262	variable	print	{"num_t": 52, "num_t_in_block": 30, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [3, 0], "stream_hold": [5, 7], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 4, "curr_rew_mag": {"B1": 4, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 26, "A1": 4, "C1": 22}, "rank_counts": {"best": 33, "second": 12, "third": 7}, "tot_rew_amt": 256}
+598.269	state		choice
+598.571	event	timer	pulse_off_timer
+598.625	event	timer	pulse_on_timer
+598.929	event	timer	pulse_off_timer
+598.983	event	timer	pulse_on_timer
+599.287	event	timer	pulse_off_timer
+599.341	event	timer	pulse_on_timer
+599.645	event	timer	pulse_off_timer
+599.699	event	timer	pulse_on_timer
+599.703	state		ITI
+599.704	event	sync	rsync
+600.704	state		wait_init
+602.231	event	sync	rsync
+602.426	event	input	B1_out
+606.558	event	sync	rsync
+612.647	event	sync	rsync
+616.404	event	sync	rsync
+618.432	event	input	B2_in
+618.440	state		wait_choice
+618.511	event	input	B2_out
+618.940	event	timer	init_cue_timer
+619.182	event	input	B1_in
+619.185	state		hold_poke
+619.385	event	timer	poke_hold_timer
+619.385	state		poked_in
+619.386	variable	print	{"num_t": 53, "num_t_in_block": 31, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 0], "stream_hold": [1, 8], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 1, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 27, "A1": 4, "C1": 22}, "rank_counts": {"best": 34, "second": 12, "third": 7}, "tot_rew_amt": 262}
+619.393	state		choice
+619.695	event	timer	pulse_off_timer
+619.749	event	timer	pulse_on_timer
+620.053	event	timer	pulse_off_timer
+620.107	event	timer	pulse_on_timer
+620.411	event	timer	pulse_off_timer
+620.465	event	timer	pulse_on_timer
+620.469	state		ITI
+621.470	state		wait_init
+622.764	event	input	B1_out
+625.010	event	input	B2_in
+625.019	state		wait_choice
+625.046	event	input	B2_out
+625.518	event	timer	init_cue_timer
+625.580	event	sync	rsync
+625.978	event	input	B1_in
+625.981	state		hold_poke
+626.181	event	timer	poke_hold_timer
+626.181	state		poked_in
+626.182	variable	print	{"num_t": 54, "num_t_in_block": 32, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [2, 1], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 28, "A1": 4, "C1": 22}, "rank_counts": {"best": 35, "second": 12, "third": 7}, "tot_rew_amt": 268}
+626.189	state		choice
+626.491	event	timer	pulse_off_timer
+626.545	event	timer	pulse_on_timer
+626.849	event	timer	pulse_off_timer
+626.903	event	timer	pulse_on_timer
+627.148	event	sync	rsync
+627.207	event	timer	pulse_off_timer
+627.261	event	timer	pulse_on_timer
+627.265	state		ITI
+628.266	state		wait_init
+629.385	event	input	B1_out
+630.378	event	sync	rsync
+631.211	event	input	B2_in
+631.219	state		wait_choice
+631.232	event	input	B2_out
+631.719	event	timer	init_cue_timer
+632.248	event	input	B1_in
+632.251	state		hold_poke
+632.451	event	timer	poke_hold_timer
+632.451	state		poked_in
+632.452	variable	print	{"num_t": 55, "num_t_in_block": 33, "num_blocks": 2, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [3, 2], "inactive_arm": "C1", "arm_to_stream": {"B1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 3, "A1": 2, "C1": 0}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 29, "A1": 4, "C1": 22}, "rank_counts": {"best": 36, "second": 12, "third": 7}, "tot_rew_amt": 274}
+632.459	state		choice
+632.761	event	timer	pulse_off_timer
+632.815	event	timer	pulse_on_timer
+633.119	event	timer	pulse_off_timer
+633.173	event	timer	pulse_on_timer
+633.242	event	sync	rsync
+633.477	event	timer	pulse_off_timer
+633.531	event	timer	pulse_on_timer
+633.538	state		ITI
+634.538	state		wait_init
+635.943	event	input	B1_out
+637.079	event	sync	rsync
+642.653	event	sync	rsync
+648.681	event	input	B2_in
+648.690	state		wait_choice
+648.728	event	input	B2_out
+648.855	event	input	B2_in
+648.858	state		hold_poke
+648.895	event	input	B2_out
+648.898	state		wait_choice
+649.189	event	timer	init_cue_timer
+649.964	event	sync	rsync
+650.179	event	input	C1_in
+650.182	state		hold_poke
+650.321	event	input	C1_out
+650.324	state		wait_choice
+650.333	event	input	C1_in
+650.336	state		hold_poke
+650.433	event	input	C1_out
+650.436	state		wait_choice
+650.470	event	input	C1_in
+650.474	state		hold_poke
+650.489	event	input	C1_out
+650.492	state		wait_choice
+650.513	event	input	C1_in
+650.516	state		hold_poke
+650.716	event	timer	poke_hold_timer
+650.716	state		poked_in
+650.717	variable	print	{"num_t": 56, "num_t_in_block": 1, "num_blocks": 3, "curr_block_len": 33, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [3, 2], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 0, "A1": 2, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 29, "A1": 4, "C1": 23}, "rank_counts": {"best": 37, "second": 12, "third": 7}, "tot_rew_amt": 280}
+650.724	state		choice
+650.833	event	input	C1_out
+650.871	event	input	C1_in
+651.026	event	timer	pulse_off_timer
+651.079	event	timer	pulse_on_timer
+651.383	event	timer	pulse_off_timer
+651.436	event	timer	pulse_on_timer
+651.740	event	timer	pulse_off_timer
+651.793	event	timer	pulse_on_timer
+651.798	state		ITI
+652.775	event	input	C1_out
+652.798	state		wait_init
+657.423	event	sync	rsync
+662.267	event	sync	rsync
+671.342	event	sync	rsync
+678.543	event	sync	rsync
+687.784	event	sync	rsync
+695.598	event	sync	rsync
+704.713	event	sync	rsync
+710.118	event	sync	rsync
+710.980	event	sync	rsync
+712.476	event	input	B3_in
+712.629	event	input	B3_out
+714.114	event	sync	rsync
+716.923	event	sync	rsync
+723.002	event	input	B2_in
+723.010	state		wait_choice
+723.066	event	input	B2_out
+723.510	event	timer	init_cue_timer
+725.159	event	sync	rsync
+727.933	event	input	C1_in
+727.936	state		hold_poke
+728.057	event	input	C1_out
+728.060	state		wait_choice
+728.079	event	input	C1_in
+728.082	state		hold_poke
+728.142	event	input	C1_out
+728.145	state		wait_choice
+728.209	event	input	C1_in
+728.212	state		hold_poke
+728.412	event	timer	poke_hold_timer
+728.412	state		poked_in
+728.418	variable	print	{"num_t": 57, "num_t_in_block": 2, "num_blocks": 3, "curr_block_len": 33, "chosen_tow": "C1", "chosen_rank": "best", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [4, 3], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 3, "curr_rew_mag": {"B1": 0, "A1": 2, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 29, "A1": 4, "C1": 24}, "rank_counts": {"best": 38, "second": 12, "third": 7}, "tot_rew_amt": 286}
+728.425	state		choice
+728.727	event	timer	pulse_off_timer
+728.780	event	timer	pulse_on_timer
+729.084	event	timer	pulse_off_timer
+729.137	event	timer	pulse_on_timer
+729.441	event	timer	pulse_off_timer
+729.494	event	timer	pulse_on_timer
+729.499	state		ITI
+729.883	event	input	C1_out
+730.499	state		wait_init
+733.095	event	sync	rsync
+734.671	event	sync	rsync
+737.554	event	sync	rsync
+743.084	event	input	B2_in
+743.093	state		wait_choice
+743.110	event	input	B2_out
+743.592	event	timer	init_cue_timer
+743.954	event	input	A1_in
+743.955	state		hold_poke
+744.155	event	timer	poke_hold_timer
+744.155	state		poked_in
+744.156	variable	print	{"num_t": 58, "num_t_in_block": 3, "num_blocks": 3, "curr_block_len": 33, "chosen_tow": "A1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [5, 4], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 2, "curr_rew_mag": {"B1": 0, "A1": 2, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 29, "A1": 5, "C1": 24}, "rank_counts": {"best": 38, "second": 13, "third": 7}, "tot_rew_amt": 290}
+744.163	state		choice
+744.463	event	timer	pulse_off_timer
+744.513	event	timer	pulse_on_timer
+744.813	event	timer	pulse_off_timer
+744.863	event	timer	pulse_on_timer
+744.863	state		ITI
+745.454	event	input	A1_out
+745.863	state		wait_init
+745.961	event	input	A1_in
+746.705	event	sync	rsync
+748.826	event	input	A1_out
+749.920	event	sync	rsync
+757.587	event	sync	rsync
+758.082	event	input	C1_in
+758.123	event	input	C1_out
+758.237	event	input	C1_in
+758.410	event	input	C1_out
+761.622	event	sync	rsync
+764.180	event	sync	rsync
+770.074	event	sync	rsync
+773.645	event	sync	rsync
+783.184	event	sync	rsync
+791.957	event	sync	rsync
+792.744	event	sync	rsync
+798.615	event	sync	rsync
+805.926	event	sync	rsync
+813.881	event	sync	rsync
+823.275	event	sync	rsync
+823.879	event	sync	rsync
+832.127	event	sync	rsync
+838.657	event	sync	rsync
+845.315	event	input	A3_in
+845.351	event	input	A3_out
+845.929	event	input	A3_in
+846.174	event	input	A3_out
+847.884	event	sync	rsync
+849.468	event	sync	rsync
+857.188	event	sync	rsync
+858.022	event	sync	rsync
+866.935	event	sync	rsync
+867.842	event	sync	rsync
+870.065	event	sync	rsync
+870.659	event	sync	rsync
+874.630	event	sync	rsync
+876.871	event	sync	rsync
+878.384	event	sync	rsync
+881.031	event	sync	rsync
+886.855	event	sync	rsync
+890.049	event	input	B2_in
+890.058	state		wait_choice
+890.065	event	input	B2_out
+890.557	event	timer	init_cue_timer
+891.735	event	input	A1_in
+891.736	state		hold_poke
+891.935	event	timer	poke_hold_timer
+891.935	state		poked_in
+891.936	variable	print	{"num_t": 59, "num_t_in_block": 4, "num_blocks": 3, "curr_block_len": 33, "chosen_tow": "A1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 1], "stream_hold": [6, 5], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 2, "curr_rew_mag": {"B1": 0, "A1": 2, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 29, "A1": 6, "C1": 24}, "rank_counts": {"best": 38, "second": 14, "third": 7}, "tot_rew_amt": 294}
+891.943	state		choice
+892.139	event	input	A1_out
+892.172	event	input	A1_in
+892.243	event	timer	pulse_off_timer
+892.293	event	timer	pulse_on_timer
+892.593	event	timer	pulse_off_timer
+892.643	event	timer	pulse_on_timer
+892.643	state		ITI
+893.434	event	input	A1_out
+893.643	state		wait_init
+894.227	event	sync	rsync
+898.198	event	sync	rsync
+906.707	event	sync	rsync
+913.159	event	sync	rsync
+916.855	event	sync	rsync
+923.415	event	sync	rsync
+931.042	event	sync	rsync
+938.719	event	sync	rsync
+944.907	event	sync	rsync
+953.826	event	sync	rsync
+956.990	event	sync	rsync
+965.168	event	sync	rsync
+971.183	event	sync	rsync
+976.582	event	sync	rsync
+977.989	event	sync	rsync
+981.315	event	sync	rsync
+988.501	event	sync	rsync
+992.325	event	sync	rsync
+993.102	event	sync	rsync
+1001.586	event	sync	rsync
+1005.708	event	sync	rsync
+1010.400	event	sync	rsync
+1017.873	event	sync	rsync
+1022.969	event	sync	rsync
+1024.748	event	sync	rsync
+1025.890	event	sync	rsync
+1026.631	event	sync	rsync
+1034.107	event	sync	rsync
+1042.797	event	sync	rsync
+1047.387	event	sync	rsync
+1047.586	event	input	C1_in
+1047.800	event	input	C1_out
+1047.830	event	input	C1_in
+1047.846	event	input	C1_out
+1050.716	event	sync	rsync
+1057.435	event	sync	rsync
+1065.326	event	sync	rsync
+1068.302	event	sync	rsync
+1068.487	event	input	C1_in
+1068.630	event	input	C1_out
+1076.960	event	sync	rsync
+1085.884	event	sync	rsync
+1091.039	event	input	C1_in
+1091.302	event	input	C1_out
+1093.960	event	sync	rsync
+1097.746	event	sync	rsync
+1102.948	event	sync	rsync
+1105.071	event	sync	rsync
+1108.277	event	sync	rsync
+1115.395	event	sync	rsync
+1119.939	event	sync	rsync
+1121.581	event	sync	rsync
+1127.171	event	sync	rsync
+1132.274	event	sync	rsync
+1141.353	event	sync	rsync
+1143.122	event	sync	rsync
+1145.443	event	input	B2_in
+1145.451	state		wait_choice
+1145.475	event	input	B2_out
+1145.951	event	timer	init_cue_timer
+1146.674	event	input	A1_in
+1146.675	state		hold_poke
+1146.875	event	timer	poke_hold_timer
+1146.875	state		poked_in
+1146.876	variable	print	{"num_t": 60, "num_t_in_block": 5, "num_blocks": 3, "curr_block_len": 33, "chosen_tow": "A1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [2, 0], "stream_hold": [7, 1], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 3}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 29, "A1": 7, "C1": 24}, "rank_counts": {"best": 38, "second": 15, "third": 7}, "tot_rew_amt": 296}
+1146.883	state		choice
+1146.968	event	input	A1_out
+1147.004	event	input	A1_in
+1147.183	event	timer	pulse_off_timer
+1147.233	event	timer	pulse_on_timer
+1147.233	state		ITI
+1147.824	event	input	A1_out
+1148.233	state		wait_init
+1148.404	event	sync	rsync
+1154.889	event	sync	rsync
+1161.637	event	sync	rsync
+1168.017	event	sync	rsync
+1172.271	event	sync	rsync
+1176.883	event	sync	rsync
+1180.590	event	input	C2_in
+1180.813	event	input	C2_out
+1183.683	event	sync	rsync
+1184.938	event	sync	rsync
+1192.300	event	sync	rsync
+1199.352	event	sync	rsync
+1206.575	event	sync	rsync
+1215.828	event	sync	rsync
+1222.211	event	sync	rsync
+1229.011	event	sync	rsync
+1232.048	event	sync	rsync
+1235.780	event	sync	rsync
+1241.853	event	sync	rsync
+1247.160	event	sync	rsync
+1254.387	event	sync	rsync
+1255.759	event	sync	rsync
+1258.859	event	input	A1_in
+1259.109	event	input	A1_out
+1260.428	event	sync	rsync
+1269.816	event	sync	rsync
+1274.653	event	sync	rsync
+1278.872	event	sync	rsync
+1287.622	event	sync	rsync
+1291.434	event	sync	rsync
+1296.330	event	sync	rsync
+1296.343	event	input	A2_in
+1296.418	event	input	A2_out
+1301.465	event	sync	rsync
+1302.739	event	sync	rsync
+1311.399	event	sync	rsync
+1313.055	event	input	B2_in
+1313.063	state		wait_choice
+1313.087	event	input	B2_out
+1313.563	event	timer	init_cue_timer
+1313.948	event	input	B1_in
+1313.951	state		hold_poke
+1314.151	event	timer	poke_hold_timer
+1314.151	state		poked_in
+1314.152	variable	print	{"num_t": 61, "num_t_in_block": 6, "num_blocks": 3, "curr_block_len": 33, "chosen_tow": "B1", "chosen_rank": "third", "num_long_pokes": 0, "long_pokes": [], "stream_state": [1, 0], "stream_hold": [1, 2], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 0, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 2}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 30, "A1": 7, "C1": 24}, "rank_counts": {"best": 38, "second": 15, "third": 8}, "tot_rew_amt": 296}
+1314.161	state		ITI
+1314.368	event	input	B1_out
+1314.656	event	timer	no_rew_cue_timer
+1315.161	state		wait_init
+1320.065	event	sync	rsync
+1327.586	event	sync	rsync
+1328.626	event	sync	rsync
+1336.308	event	sync	rsync
+1343.478	event	sync	rsync
+1352.707	event	sync	rsync
+1353.673	event	sync	rsync
+1354.984	event	sync	rsync
+1362.941	event	sync	rsync
+1369.195	event	sync	rsync
+1370.782	event	sync	rsync
+1376.030	event	sync	rsync
+1377.547	event	sync	rsync
+1378.086	event	input	B2_in
+1378.094	state		wait_choice
+1378.140	event	input	B2_out
+1378.594	event	timer	init_cue_timer
+1379.897	event	input	A1_in
+1379.898	state		hold_poke
+1380.097	event	timer	poke_hold_timer
+1380.097	state		poked_in
+1380.098	variable	print	{"num_t": 62, "num_t_in_block": 7, "num_blocks": 3, "curr_block_len": 33, "chosen_tow": "A1", "chosen_rank": "second", "num_long_pokes": 0, "long_pokes": [], "stream_state": [1, 0], "stream_hold": [2, 3], "inactive_arm": "B1", "arm_to_stream": {"C1": 0, "A1": 1}, "num_rew_pulses": 1, "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 2}, "c_tows": ["A1", "B1", "C1"], "choice_counts": {"B1": 30, "A1": 8, "C1": 24}, "rank_counts": {"best": 38, "second": 16, "third": 8}, "tot_rew_amt": 298}
+1380.105	state		choice
+1380.157	event	input	A1_out
+1380.173	event	input	A1_in
+1380.193	event	input	A1_out
+1380.230	event	input	A1_in
+1380.405	event	timer	pulse_off_timer
+1380.438	event	input	A1_out
+1380.455	event	timer	pulse_on_timer
+1380.455	state		ITI
+1380.532	event	input	A1_in
+1380.879	event	input	A1_out
+1381.322	event	input	A1_in
+1381.365	event	input	A1_out
+1381.455	state		wait_init
+1384.152	event	sync	rsync
+1391.792	event	sync	rsync
+1393.344	event	sync	rsync
+1401.238	event	sync	rsync
+1406.119	event	sync	rsync
+1411.657	event	sync	rsync
+1412.654	event	sync	rsync
+1421.611	event	sync	rsync
+1429.697	event	sync	rsync
+1436.262	event	sync	rsync
+1437.448	event	sync	rsync
+1439.827	event	sync	rsync
+1442.915	event	sync	rsync
+1445.230	event	sync	rsync
+1449.915	event	sync	rsync
+1450.689	event	sync	rsync
+1454.718	event	sync	rsync
+1459.546	event	sync	rsync
+1467.637	event	sync	rsync
+1475.460	event	sync	rsync
+1482.918	event	sync	rsync
+1491.842	event	sync	rsync
+1494.895	variable	run_end	{"no_rew_cue_dur": 500.0, "chosen_tow": "A1", "curr_rew_mag": {"B1": 0, "A1": 1, "C1": 2}, "max_block_len": 35, "p_bi": 0.9, "c_tows": ["A1", "B1", "C1"], "second_arm": "A1", "num_t": 62, "arm_to_stream": {"C1": 0, "A1": 1}, "chosen_rank": "second", "rew_mags": [1, 2, 3, 4], "change_chosen": true, "pulse_isi": 300.0, "b_choice_counts": {"B1": 1, "A1": 4, "C1": 2}, "tot_num_blocks": 14, "rank_counts": {"best": 38, "second": 16, "third": 8}, "hw_solenoid_calibration": {"B1": {"i": 47.95, "s": 1.22}, "A1": {"i": 47.61, "s": 1.26}, "A2": {"i": 47.52, "s": 1.27}, "A3": {"i": 49.11, "s": 1.1}, "C1": {"i": 46.6, "s": 1.37}, "C2": {"i": 39.05, "s": 2.15}, "C3": {"i": 40.2, "s": 2.04}, "B3": {"i": 38.45, "s": 2.22}, "B2": {"i": 2.33, "s": 8.12}}, "inactive_arm": "B1", "curr_block_len": 33, "curr_poke": "A1", "ses_length": 60, "poke_hold_dur": 200.0, "choice_counts": {"B1": 30, "A1": 8, "C1": 24}, "stream_state": [1, 0], "min_hold": 2, "tot_rew_amt": 298, "found_ports": true, "found_port_counts": null, "ITI_dur": 1000.0, "min_block_len": 30, "base_choice_vol": 2, "problems": {"6": ["C2", "A1", "A3"], "7": ["C3", "A3", "B3"], "8": ["B3", "A2", "C1"], "9": ["B3", "C2", "B1"], "10": ["A1", "B1", "C1"], "5": ["A1", "C1", "C3"]}, "pulse_rew_dur": 50.13, "num_t_in_block": 7, "pulses_deliv": 1, "long_pokes": [], "p_ud": 0.125, "stream_hold": [3, 4], "num_blocks": 3, "found_t_thresh": 4, "third_arm": "B1", "num_rew_pulses": 1, "init_cue_dur": 500.0, "t_ses_start": 8, "num_t_found": 0, "curr_init_tow": "B2", "num_problem": 10, "best_arm": "C1", "num_long_pokes": 0}
+1494.899	info	end_time	2026-03-30T11:25:44.376

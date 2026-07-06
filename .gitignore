@@ -19,5 +19,5 @@ __pycache__/
 build/
 dist/
 
-# Data
-data/
+# Teacher Scripts
+scripts/bandit_behavior_tutorial_answers.ipynb

@@ -19,7 +19,7 @@ from src.behavior_analysis.get_rank_counts_by_good_reversal import *
 from src.behavior_visualization.plot_rank_proportions import *
 from src.behavior_visualization.plot_single_session import *
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from fix_grid_maze_cohort_02_problems import *
+from scripts.fix_grid_maze_cohort_02_problems import *
 
 task = "grid-maze"
 cohort = "cohort-02"
