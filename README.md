@@ -73,7 +73,7 @@ since animals are run in cohorts.
 The main dataset lives on the SWC's ceph storage, not in this repo. For
 instructions on accessing it locally (SMB mount) or on the HPC cluster
 (VS Code + SLURM), see the **Setting Up magnitude-bandit-analysis** page
-on the lab Notion.
+on the project Notion.
 
 ## Code organisation
 
