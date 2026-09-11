@@ -19,9 +19,22 @@ mpl.rcParams["axes.titlesize"] = 14
 
 # One color per subject/mouse, cycling when there are more subjects than colors.
 MOUSE_COLORS: list[str] = [
-    "#4C72B0", "#55A868", "#C44E52", "#8172B2",
-    "#CCB974", "#64B5CD", "#8C8C8C", "#DD8452",
-    "#937860", "#DA8BC3", "#8C6D31", "#1F77B4",
+    "#4C72B0",  # blue
+    "#55A868",  # green
+    "#C44E52",  # red
+    "#8172B2",  # purple
+    "#CCB974",  # muted yellow
+    "#64B5CD",  # cyan
+    "#8C8C8C",  # gray
+    "#DD8452",  # orange
+    "#937860",  # brown
+    "#DA8BC3",  # pink
+    "#8C6D31",  # dark brown
+    "#1F77B4",  # strong blue
+    "#2A9D8F",  # teal
+    "#E76F51",  # coral
+    "#6A994E",  # olive green
+    "#B565A7",  # magenta-purple
 ]
 
 # Colors for reversal-type lines/bars.
