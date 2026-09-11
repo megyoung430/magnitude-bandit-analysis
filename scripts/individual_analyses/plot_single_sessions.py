@@ -16,9 +16,9 @@ if task == "grid-maze":
     cohort = "cohort-02"
     folder_name = "3x3_maze_blocked_reward_bandit"
 elif task == "open-field":
-    cohort = "cohort-02"
-    folder_name = "3x3_field_blocked_reward_bandit"
-root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
+    cohort = "cohort-01"
+    folder_name = "3x3_field_reward_bandit"
+root = f"/Volumes/behrens/meg/{folder_name}/rawdata/{cohort}/"
 
 subjects_data = import_data(root)
 subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
