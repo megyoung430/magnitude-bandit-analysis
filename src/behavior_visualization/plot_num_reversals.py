@@ -78,7 +78,9 @@ def plot_num_reversals(subjects_trials, save_path=None):
     plt.close(fig)
 
 def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
-    """Plot cumulative reversal counts over sessions for all subjects.
+    """Plot cumulative reversal counts over sessions and completed trials.
+
+    Trial companions are saved with a ``(By Trial)`` filename suffix.
 
     Produces two figures:
 
@@ -367,8 +369,17 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
     else:
         plt.show()
 
-def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, save_path=None):
-    """Plot session-by-session moving-average reversal rates over time.
+    # Save trial-based companions alongside the session-based figures.
+    from src.behavior_visualization.plot_reversals_by_trial import plot_reversals_by_trial
+    plot_reversals_by_trial(subjects_trials, threshold=threshold,
+                           save_path=str(save_path) + " (By Trial)" if save_path else None)
+
+def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, trial_window: int = 100, save_path=None):
+    """Plot session and trial moving-average reversal rates over time.
+
+    Trial companions use a trailing ``trial_window`` and report reversals per
+    100 trials. They include terminal reversals and do not extend mice beyond
+    their observed trials. Early windows use their actual trial count.
 
     Produces two figures (same layout as :func:`plot_num_reversals_over_time`
     but using a centered moving average instead of cumulative counts):
@@ -379,7 +390,8 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
 
     Args:
         subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
-        window: Kernel width for the centered moving average (default: 3).
+        window: Kernel width for the centered session moving average (default: 3).
+        trial_window: Trailing trial window for companion rate plots (default: 100).
             Near the array edges the kernel shrinks to use only available
             data points.
         save_path: Base path (without extension) for saving ``.pdf`` and
@@ -666,3 +678,7 @@ def plot_moving_avg_reversals_over_time(subjects_trials, *, window: int = 3, sav
         plt.close(fig2)
     else:
         plt.show()
+
+    from src.behavior_visualization.plot_reversals_by_trial import plot_reversals_by_trial
+    plot_reversals_by_trial(subjects_trials, window=trial_window,
+                           save_path=str(save_path) + f" (By Trial, {trial_window}-Trial Window)" if save_path else None)

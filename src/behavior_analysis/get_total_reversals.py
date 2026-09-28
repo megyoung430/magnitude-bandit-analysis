@@ -11,8 +11,8 @@ def get_total_reversals(subject_sessions):
     """Count total good, bad, and overall reversals for a single subject.
 
     If any session has ``has_good`` or ``has_bad`` set to ``True``, reads the
-    final value of the ``good_reversals`` / ``bad_reversals`` cumulative counter
-    from each session.  Otherwise falls back to summing
+    reconciled session totals (including terminal and incoming boundary events),
+    falling back to the final trial counter for legacy extracted data.  Otherwise falls back to summing
     ``max(blocks) - 1`` across sessions.
 
     Args:
@@ -32,10 +32,14 @@ def get_total_reversals(subject_sessions):
 
     if any_good or any_bad:
         for sess in subject_sessions.values():
-            if sess.get("has_good", False) and "good_reversals" in sess and sess["good_reversals"]:
-                total_good += (sess["good_reversals"][-1] or 0)
-            if sess.get("has_bad", False) and "bad_reversals" in sess and sess["bad_reversals"]:
-                total_bad += (sess["bad_reversals"][-1] or 0)
+            for kind in ('good', 'bad'):
+                values = sess.get(kind + '_reversals', [])
+                fallback = next((v for v in reversed(values) if v is not None), 0)
+                count = sess.get('reversal_totals', {}).get(kind, fallback)
+                if kind == 'good':
+                    total_good += count
+                else:
+                    total_bad += count
 
         total = total_good + total_bad
         return {"total_reversals": total, "good_reversals": total_good, "bad_reversals": total_bad}
