@@ -1,0 +1,466 @@
+{
+  "counts": {
+    "MY_66_LL": [
+      {
+        "best": 72,
+        "second": 95,
+        "third": 31,
+        "total": 198,
+        "best_prop": 0.36363636363636365,
+        "second_prop": 0.4797979797979798,
+        "third_prop": 0.15656565656565657
+      },
+      {
+        "best": 36,
+        "second": 20,
+        "third": 23,
+        "total": 79,
+        "best_prop": 0.45569620253164556,
+        "second_prop": 0.25316455696202533,
+        "third_prop": 0.2911392405063291
+      },
+      {
+        "best": 48,
+        "second": 11,
+        "third": 31,
+        "total": 90,
+        "best_prop": 0.5333333333333333,
+        "second_prop": 0.12222222222222222,
+        "third_prop": 0.34444444444444444
+      },
+      {
+        "best": 13,
+        "second": 23,
+        "third": 21,
+        "total": 57,
+        "best_prop": 0.22807017543859648,
+        "second_prop": 0.40350877192982454,
+        "third_prop": 0.3684210526315789
+      },
+      {
+        "best": 42,
+        "second": 34,
+        "third": 10,
+        "total": 86,
+        "best_prop": 0.4883720930232558,
+        "second_prop": 0.3953488372093023,
+        "third_prop": 0.11627906976744186
+      }
+    ],
+    "MY_66_N": [
+      {
+        "best": 11,
+        "second": 15,
+        "third": 11,
+        "total": 37,
+        "best_prop": 0.2972972972972973,
+        "second_prop": 0.40540540540540543,
+        "third_prop": 0.2972972972972973
+      },
+      {
+        "best": 11,
+        "second": 0,
+        "third": 0,
+        "total": 11,
+        "best_prop": 1.0,
+        "second_prop": 0.0,
+        "third_prop": 0.0
+      },
+      {
+        "best": 12,
+        "second": 13,
+        "third": 28,
+        "total": 53,
+        "best_prop": 0.22641509433962265,
+        "second_prop": 0.24528301886792453,
+        "third_prop": 0.5283018867924528
+      },
+      {
+        "best": 82,
+        "second": 77,
+        "third": 35,
+        "total": 194,
+        "best_prop": 0.422680412371134,
+        "second_prop": 0.39690721649484534,
+        "third_prop": 0.18041237113402062
+      },
+      {
+        "best": 19,
+        "second": 1,
+        "third": 5,
+        "total": 25,
+        "best_prop": 0.76,
+        "second_prop": 0.04,
+        "third_prop": 0.2
+      },
+      {
+        "best": 23,
+        "second": 17,
+        "third": 15,
+        "total": 55,
+        "best_prop": 0.41818181818181815,
+        "second_prop": 0.3090909090909091,
+        "third_prop": 0.2727272727272727
+      },
+      {
+        "best": 18,
+        "second": 6,
+        "third": 8,
+        "total": 32,
+        "best_prop": 0.5625,
+        "second_prop": 0.1875,
+        "third_prop": 0.25
+      },
+      {
+        "best": 22,
+        "second": 6,
+        "third": 8,
+        "total": 36,
+        "best_prop": 0.6111111111111112,
+        "second_prop": 0.16666666666666666,
+        "third_prop": 0.2222222222222222
+      },
+      {
+        "best": 6,
+        "second": 5,
+        "third": 13,
+        "total": 24,
+        "best_prop": 0.25,
+        "second_prop": 0.20833333333333334,
+        "third_prop": 0.5416666666666666
+      }
+    ],
+    "MY_174_R": [
+      {
+        "best": 67,
+        "second": 45,
+        "third": 21,
+        "total": 133,
+        "best_prop": 0.5037593984962406,
+        "second_prop": 0.3383458646616541,
+        "third_prop": 0.15789473684210525
+      },
+      {
+        "best": 56,
+        "second": 41,
+        "third": 23,
+        "total": 120,
+        "best_prop": 0.4666666666666667,
+        "second_prop": 0.3416666666666667,
+        "third_prop": 0.19166666666666668
+      },
+      {
+        "best": 13,
+        "second": 0,
+        "third": 6,
+        "total": 19,
+        "best_prop": 0.6842105263157895,
+        "second_prop": 0.0,
+        "third_prop": 0.3157894736842105
+      },
+      {
+        "best": 51,
+        "second": 104,
+        "third": 77,
+        "total": 232,
+        "best_prop": 0.21982758620689655,
+        "second_prop": 0.4482758620689655,
+        "third_prop": 0.33189655172413796
+      }
+    ],
+    "MY_175_N": [
+      {
+        "best": 39,
+        "second": 35,
+        "third": 18,
+        "total": 92,
+        "best_prop": 0.42391304347826086,
+        "second_prop": 0.3804347826086957,
+        "third_prop": 0.1956521739130435
+      },
+      {
+        "best": 20,
+        "second": 5,
+        "third": 10,
+        "total": 35,
+        "best_prop": 0.5714285714285714,
+        "second_prop": 0.14285714285714285,
+        "third_prop": 0.2857142857142857
+      },
+      {
+        "best": 20,
+        "second": 9,
+        "third": 21,
+        "total": 50,
+        "best_prop": 0.4,
+        "second_prop": 0.18,
+        "third_prop": 0.42
+      },
+      {
+        "best": 53,
+        "second": 27,
+        "third": 31,
+        "total": 111,
+        "best_prop": 0.4774774774774775,
+        "second_prop": 0.24324324324324326,
+        "third_prop": 0.27927927927927926
+      },
+      {
+        "best": 10,
+        "second": 0,
+        "third": 33,
+        "total": 43,
+        "best_prop": 0.23255813953488372,
+        "second_prop": 0.0,
+        "third_prop": 0.7674418604651163
+      },
+      {
+        "best": 20,
+        "second": 10,
+        "third": 17,
+        "total": 47,
+        "best_prop": 0.425531914893617,
+        "second_prop": 0.2127659574468085,
+        "third_prop": 0.3617021276595745
+      },
+      {
+        "best": 7,
+        "second": 26,
+        "third": 36,
+        "total": 69,
+        "best_prop": 0.10144927536231885,
+        "second_prop": 0.37681159420289856,
+        "third_prop": 0.5217391304347826
+      }
+    ],
+    "MY_66_LR": [
+      {
+        "best": 27,
+        "second": 20,
+        "third": 18,
+        "total": 65,
+        "best_prop": 0.4153846153846154,
+        "second_prop": 0.3076923076923077,
+        "third_prop": 0.27692307692307694
+      },
+      {
+        "best": 100,
+        "second": 69,
+        "third": 17,
+        "total": 186,
+        "best_prop": 0.5376344086021505,
+        "second_prop": 0.3709677419354839,
+        "third_prop": 0.0913978494623656
+      },
+      {
+        "best": 22,
+        "second": 3,
+        "third": 15,
+        "total": 40,
+        "best_prop": 0.55,
+        "second_prop": 0.075,
+        "third_prop": 0.375
+      },
+      {
+        "best": 26,
+        "second": 49,
+        "third": 29,
+        "total": 104,
+        "best_prop": 0.25,
+        "second_prop": 0.47115384615384615,
+        "third_prop": 0.27884615384615385
+      },
+      {
+        "best": 16,
+        "second": 20,
+        "third": 12,
+        "total": 48,
+        "best_prop": 0.3333333333333333,
+        "second_prop": 0.4166666666666667,
+        "third_prop": 0.25
+      }
+    ],
+    "MY_174_LR": [
+      {
+        "best": 27,
+        "second": 65,
+        "third": 38,
+        "total": 130,
+        "best_prop": 0.2076923076923077,
+        "second_prop": 0.5,
+        "third_prop": 0.2923076923076923
+      },
+      {
+        "best": 14,
+        "second": 1,
+        "third": 8,
+        "total": 23,
+        "best_prop": 0.6086956521739131,
+        "second_prop": 0.043478260869565216,
+        "third_prop": 0.34782608695652173
+      },
+      {
+        "best": 34,
+        "second": 53,
+        "third": 39,
+        "total": 126,
+        "best_prop": 0.2698412698412698,
+        "second_prop": 0.42063492063492064,
+        "third_prop": 0.30952380952380953
+      },
+      {
+        "best": 24,
+        "second": 18,
+        "third": 32,
+        "total": 74,
+        "best_prop": 0.32432432432432434,
+        "second_prop": 0.24324324324324326,
+        "third_prop": 0.43243243243243246
+      }
+    ],
+    "MY_66_R": [
+      {
+        "best": 30,
+        "second": 46,
+        "third": 46,
+        "total": 122,
+        "best_prop": 0.2459016393442623,
+        "second_prop": 0.3770491803278688,
+        "third_prop": 0.3770491803278688
+      },
+      {
+        "best": 19,
+        "second": 8,
+        "third": 10,
+        "total": 37,
+        "best_prop": 0.5135135135135135,
+        "second_prop": 0.21621621621621623,
+        "third_prop": 0.2702702702702703
+      },
+      {
+        "best": 43,
+        "second": 31,
+        "third": 26,
+        "total": 100,
+        "best_prop": 0.43,
+        "second_prop": 0.31,
+        "third_prop": 0.26
+      },
+      {
+        "best": 15,
+        "second": 14,
+        "third": 23,
+        "total": 52,
+        "best_prop": 0.28846153846153844,
+        "second_prop": 0.2692307692307692,
+        "third_prop": 0.4423076923076923
+      },
+      {
+        "best": 35,
+        "second": 22,
+        "third": 15,
+        "total": 72,
+        "best_prop": 0.4861111111111111,
+        "second_prop": 0.3055555555555556,
+        "third_prop": 0.20833333333333334
+      },
+      {
+        "best": 24,
+        "second": 30,
+        "third": 26,
+        "total": 80,
+        "best_prop": 0.3,
+        "second_prop": 0.375,
+        "third_prop": 0.325
+      }
+    ],
+    "MY_175_L": [
+      {
+        "best": 34,
+        "second": 52,
+        "third": 29,
+        "total": 115,
+        "best_prop": 0.2956521739130435,
+        "second_prop": 0.45217391304347826,
+        "third_prop": 0.25217391304347825
+      },
+      {
+        "best": 27,
+        "second": 13,
+        "third": 19,
+        "total": 59,
+        "best_prop": 0.4576271186440678,
+        "second_prop": 0.22033898305084745,
+        "third_prop": 0.3220338983050847
+      },
+      {
+        "best": 13,
+        "second": 2,
+        "third": 7,
+        "total": 22,
+        "best_prop": 0.5909090909090909,
+        "second_prop": 0.09090909090909091,
+        "third_prop": 0.3181818181818182
+      },
+      {
+        "best": 15,
+        "second": 4,
+        "third": 14,
+        "total": 33,
+        "best_prop": 0.45454545454545453,
+        "second_prop": 0.12121212121212122,
+        "third_prop": 0.42424242424242425
+      },
+      {
+        "best": 19,
+        "second": 19,
+        "third": 8,
+        "total": 46,
+        "best_prop": 0.41304347826086957,
+        "second_prop": 0.41304347826086957,
+        "third_prop": 0.17391304347826086
+      },
+      {
+        "best": 18,
+        "second": 9,
+        "third": 3,
+        "total": 30,
+        "best_prop": 0.6,
+        "second_prop": 0.3,
+        "third_prop": 0.1
+      },
+      {
+        "best": 39,
+        "second": 22,
+        "third": 20,
+        "total": 81,
+        "best_prop": 0.48148148148148145,
+        "second_prop": 0.2716049382716049,
+        "third_prop": 0.24691358024691357
+      },
+      {
+        "best": 23,
+        "second": 18,
+        "third": 0,
+        "total": 41,
+        "best_prop": 0.5609756097560976,
+        "second_prop": 0.43902439024390244,
+        "third_prop": 0.0
+      },
+      {
+        "best": 11,
+        "second": 3,
+        "third": 0,
+        "total": 14,
+        "best_prop": 0.7857142857142857,
+        "second_prop": 0.21428571428571427,
+        "third_prop": 0.0
+      }
+    ]
+  },
+  "p_values": {
+    "best_vs_second": 0.10650965550962176,
+    "best_vs_third": 0.016746644364694332,
+    "second_vs_third": 0.09209954266681104
+  }
+}

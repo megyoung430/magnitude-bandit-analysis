@@ -1,0 +1,55 @@
+{
+  "reference_trial_counts": {},
+  "reference_mean": null,
+  "trial_budget": 510,
+  "mice": [
+    {
+      "mouse": "MY_72_N",
+      "subject_number": 4,
+      "available_trials": 398,
+      "retained_trials": 398,
+      "below_budget": true,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_71_R",
+      "subject_number": 3,
+      "available_trials": 467,
+      "retained_trials": 467,
+      "below_budget": true,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_71_L",
+      "subject_number": 2,
+      "available_trials": 403,
+      "retained_trials": 403,
+      "below_budget": true,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_72_L",
+      "subject_number": 5,
+      "available_trials": 477,
+      "retained_trials": 477,
+      "below_budget": true,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_72_R",
+      "subject_number": 6,
+      "available_trials": 480,
+      "retained_trials": 480,
+      "below_budget": true,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_71_N",
+      "subject_number": 1,
+      "available_trials": 521,
+      "retained_trials": 510,
+      "below_budget": false,
+      "reference_mouse": false
+    }
+  ]
+}

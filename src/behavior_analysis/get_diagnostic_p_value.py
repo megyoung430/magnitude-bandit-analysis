@@ -8,7 +8,9 @@ import numpy as np
 from scipy.stats import ttest_rel
 
 
-def pvalue_paired_t_best_vs_second_vs_third(rank_counts_by_good_reversal):
+def pvalue_paired_t_best_vs_second_vs_third(
+    rank_counts_by_good_reversal, pool_trials_within_subject=False
+):
     """Run paired t-tests comparing rank-choice proportions across all rank pairs.
 
     Averages each subject's ``best_prop``, ``second_prop``, and ``third_prop``
@@ -33,9 +35,17 @@ def pvalue_paired_t_best_vs_second_vs_third(rank_counts_by_good_reversal):
     for subj, rows in rank_counts_by_good_reversal.items():
         if not rows:
             continue
-        best.append(np.nanmean([r["best_prop"] for r in rows]))
-        second.append(np.nanmean([r["second_prop"] for r in rows]))
-        third.append(np.nanmean([r["third_prop"] for r in rows]))
+        if pool_trials_within_subject:
+            total = sum(r.get("total", 0) for r in rows)
+            if total <= 0:
+                continue
+            best.append(sum(r.get("best", 0) for r in rows) / total)
+            second.append(sum(r.get("second", 0) for r in rows) / total)
+            third.append(sum(r.get("third", 0) for r in rows) / total)
+        else:
+            best.append(np.nanmean([r["best_prop"] for r in rows]))
+            second.append(np.nanmean([r["second_prop"] for r in rows]))
+            third.append(np.nanmean([r["third_prop"] for r in rows]))
     best = np.array(best, float)
     second = np.array(second, float)
     third = np.array(third, float)

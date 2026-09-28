@@ -95,3 +95,29 @@ on the project Notion.
    plots.
 3. For a specific analysis, check `scripts/individual_analyses/` for a
    standalone example, or `scripts/full_pipelines/` for a full pipeline.
+
+### Reversals at session boundaries
+
+Trial extraction reconciles good/bad counters with raw `run_start` and `run_end`
+records, including both long and abbreviated variable names. A reversal after
+its session's final trial contributes to that session's `reversal_totals`; its
+post-reversal window starts at the next available trial. Positive total-counter
+changes between runs are included in the receiving session. Recording restarts
+subtract their starting counter baseline to avoid counting persisted events twice.
+Magnitude-only changes and counter decreases are retained in
+`reversal_diagnostics`, without assigning a good/bad reversal type.
+
+All reversal analyses use these corrected counters and totals. Re-extract raw
+sessions before rerunning analyses on previously loaded data; existing notebook
+outputs and saved figures are not automatically refreshed by a code change.
+Run regression checks with `python -m unittest discover -s tests -p 'test_*.py'`.
+
+Reversal-over-time plotting also saves trial-based companions. Cumulative
+curves use completed trials and include reversals after the final trial.
+Moving-rate curves use a trailing 100-trial window by default and report
+reversals per 100 trials; early windows use their actual observed exposure.
+Across-mouse means include only mice observed at each trial count. Set
+`reversal_trial_window` in the cohort-03 notebook, or pass `trial_window` to
+`plot_moving_avg_reversals_over_time`, to change the window. Files contain
+`(By Trial)` or `(By Trial, 100-Trial Window)` to distinguish them from
+session-based plots.

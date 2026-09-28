@@ -1,0 +1,15 @@
+cohort,mouse,subject_number,available_trials,retained_trials,below_budget,reference_mouse
+cohort-01,MY_72_N,4,398,398,True,False
+cohort-01,MY_71_R,3,467,467,True,False
+cohort-01,MY_71_L,2,403,403,True,False
+cohort-01,MY_72_L,5,477,477,True,False
+cohort-01,MY_72_R,6,480,480,True,False
+cohort-01,MY_71_N,1,521,510,False,False
+cohort-03,MY_66_N,5,467,467,True,False
+cohort-03,MY_174_R,1,901,510,False,False
+cohort-03,MY_174_LR,2,777,510,False,False
+cohort-03,MY_66_LR,7,443,443,True,False
+cohort-03,MY_175_N,3,712,510,False,False
+cohort-03,MY_66_R,6,559,510,False,False
+cohort-03,MY_175_L,4,519,510,False,False
+cohort-03,MY_66_LL,8,574,510,False,False

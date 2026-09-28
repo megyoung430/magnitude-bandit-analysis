@@ -66,6 +66,10 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
     # --- Find Reversals ---
     good_idx = event_indices_from_cumulative(session_data.get("good_reversals"), N=N)
     bad_idx  = event_indices_from_cumulative(session_data.get("bad_reversals"), N=N)
+    for event in session_data.get("reversal_boundary_events", []):
+        target = good_idx if event['kind'] == 'good' else bad_idx
+        if event['index'] not in target:
+            target.append(event['index'])
     block_idx = event_indices_from_cumulative(session_data.get("blocks"), N=N)
     
     def add_reversal_lines(ax):

@@ -25,7 +25,7 @@ BLOCK_COLORS = [
     "#B2DF8A", "#FF7F00",
 ]
 
-def plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None, by_mouse=True, by_block=True, average=True):
+def plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None, by_mouse=True, by_block=True, average=True, pool_trials_within_subject=False):
     """Dispatcher that creates one or more rank-proportion figures.
 
     Calls the appropriate sub-functions based on the boolean flags.
@@ -51,15 +51,31 @@ def plot_rank_proportions(rank_counts_by_good_reversal, average_across_mice_pval
     """
     if by_mouse:
         mouse_save_path = save_path + " by Mouse" if save_path else None
-        plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=mouse_save_path)
+        plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=mouse_save_path, pool_trials_within_subject=pool_trials_within_subject)
     if by_block:
         block_save_path = save_path + " by Block" if save_path else None
         plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=block_save_path)
     if average:
         average_save_path = save_path + " by Average" if save_path else None
-        plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=average_across_mice_pvalues, save_path=average_save_path)
+        plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=average_across_mice_pvalues, save_path=average_save_path, pool_trials_within_subject=pool_trials_within_subject)
 
-def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None):
+def _subject_rank_proportions(rows, pool_trials_within_subject=False):
+    """Return one proportion per rank while keeping the subject as the unit."""
+    if pool_trials_within_subject:
+        total = sum(r.get("total", 0) for r in rows)
+        if total <= 0:
+            return {rank: np.nan for rank in ("best", "second", "third")}
+        return {
+            rank: sum(r.get(rank, 0) for r in rows) / total
+            for rank in ("best", "second", "third")
+        }
+    return {
+        rank: np.nanmean([r.get(f"{rank}_prop", np.nan) for r in rows])
+        for rank in ("best", "second", "third")
+    }
+
+
+def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_mice_pvalues=None, save_path=None, pool_trials_within_subject=False):
     """Two-panel summary of rank-proportion averages across mice and blocks.
 
     The left panel shows bars (mean ± SE across mice) with individual mouse
@@ -97,11 +113,9 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
         if not rows:
             continue
 
-        per_mouse[subj] = {
-            "best": np.nanmean([r.get("best_prop", np.nan) for r in rows]),
-            "second": np.nanmean([r.get("second_prop", np.nan) for r in rows]),
-            "third": np.nanmean([r.get("third_prop", np.nan) for r in rows]),
-        }
+        per_mouse[subj] = _subject_rank_proportions(
+            rows, pool_trials_within_subject=pool_trials_within_subject
+        )
 
     mouse_means = [
         np.nanmean([v["best"] for v in per_mouse.values()]),
@@ -142,7 +156,8 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
         ax.plot(x + np.random.uniform(-jitter, jitter, size=len(x)), y, color=c, linewidth=2.5, marker="o", alpha=0.9, markersize=6,)
         legend_handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", label=subj))
 
-    ax.set_title("Average Across Mice", pad=14)
+    aggregation_label = "Pooled Trials Within Mouse" if pool_trials_within_subject else "Average Across Mice"
+    ax.set_title(aggregation_label, pad=14)
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_ylabel("Proportion of Choices")
@@ -213,7 +228,7 @@ def plot_rank_proportions_average(rank_counts_by_good_reversal, average_across_m
         plt.show()
     plt.close(fig)
 
-def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None):
+def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None, pool_trials_within_subject=False):
     """Plot rank proportions in a per-subject grid, with blocks as coloured lines.
 
     Draws one subplot per subject arranged in a 2-row grid.  Within each
@@ -246,7 +261,9 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
             continue
 
         subj = subjects[ax_idx]
-        rows = rank_counts_by_good_reversal[subj][:-1]
+        rows = rank_counts_by_good_reversal[subj]
+        if not pool_trials_within_subject:
+            rows = rows[:-1]
         if not rows:
             ax.axis("off")  # or just continue
             continue
@@ -259,9 +276,10 @@ def plot_rank_proportions_by_mouse(rank_counts_by_good_reversal, save_path=None)
             c = BLOCK_COLORS[rev_idx % len(BLOCK_COLORS)]
             ax.plot(x + np.random.uniform(-jitter, jitter, size=len(x)), y, color=c, linewidth=2.2, alpha=0.85, marker="o", markersize=5)
             legend_handles.append(Line2D([0], [0], color=c, lw=2.2, marker="o", label=f"Block {rev_idx + 1}"))
-        mean_y = [np.nanmean([r["best_prop"] for r in rows]), 
-                  np.nanmean([r["second_prop"] for r in rows]), 
-                  np.nanmean([r["third_prop"] for r in rows])]
+        subject_proportions = _subject_rank_proportions(
+            rows, pool_trials_within_subject=pool_trials_within_subject
+        )
+        mean_y = [subject_proportions[rank] for rank in ("best", "second", "third")]
         se_y = [np.nanstd([r["best_prop"] for r in rows], ddof=1) / np.sqrt(len(rows)) if len(rows) > 1 else np.nan,
                 np.nanstd([r["second_prop"] for r in rows], ddof=1) / np.sqrt(len(rows)) if len(rows) > 1 else np.nan,
                 np.nanstd([r["third_prop"] for r in rows], ddof=1) / np.sqrt(len(rows)) if len(rows) > 1 else np.nan]

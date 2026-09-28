@@ -55,3 +55,56 @@ def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=Tru
                 'third_prop': num_third / total if total > 0 else np.nan
             })
     return rank_counts_by_good_reversal
+
+
+def get_rank_counts_by_value(subjects_trials, reversal_windows, value_basis="true"):
+    """Count choices in the same reversal windows by true or believed rank.
+
+    Beliefs are the last reward observed at each arm, carried across sessions
+    within the supplied problem. Rank is evaluated BEFORE updating the chosen
+    arm. As in ``compute_believed_value``, only previously seen arms are ranked;
+    choices of unseen arms are excluded. Ties share weight equally among the
+    occupied rank positions. ``total`` counts eligible choices, so pooling uses
+    the appropriate denominator. True-value counts retain the existing logic.
+    """
+    if value_basis == "true":
+        return get_rank_counts_by_good_reversal(reversal_windows)
+    if value_basis != "believed":
+        raise ValueError("value_basis must be 'true' or 'believed'")
+
+    from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+
+    merged, _ = get_vars_across_all_sessions(subjects_trials)
+    ranks = ("best", "second", "third")
+    result = {}
+    for subject, windows in reversal_windows.items():
+        data = merged[subject]
+        rewards = data['reward_magnitudes_by_tower']
+        choices = data['choices_by_tower']
+        if len(rewards) > 3:
+            raise ValueError("Rank proportions support at most three arms per problem")
+        last_seen, weights = {}, []
+        for i in range(len(data['trial'])):
+            chosen = next((arm for arm, values in choices.items() if values[i]), None)
+            weight = dict.fromkeys(ranks, 0.0)
+            seen = {arm: last_seen[arm] for arm in rewards if arm in last_seen}
+            if chosen in seen:
+                value = seen[chosen]
+                above = sum(v > value for v in seen.values())
+                tied = sum(v == value for v in seen.values())
+                for position in range(above, above + tied):
+                    weight[ranks[position]] = 1.0 / tied
+            weights.append(weight)
+            if chosen in rewards and rewards[chosen][i] is not None:
+                last_seen[chosen] = rewards[chosen][i]
+
+        result[subject] = []
+        for window in windows:
+            indices = window['trial_window_idx']['post']
+            counts = {rank: sum(weights[i][rank] for i in indices) for rank in ranks}
+            total = sum(counts.values())
+            result[subject].append({
+                **counts, 'total': total,
+                **{rank + '_prop': counts[rank] / total if total else np.nan for rank in ranks},
+            })
+    return result

@@ -9,7 +9,6 @@ from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 def sample_two_markov_bandits(
     T: int,
     pud: float,

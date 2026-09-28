@@ -1,0 +1,76 @@
+{
+  "reference_trial_counts": {
+    "MY_66_LL": 574,
+    "MY_66_N": 467,
+    "MY_66_LR": 443,
+    "MY_66_R": 559
+  },
+  "reference_mean": 510.75,
+  "trial_budget": 510,
+  "mice": [
+    {
+      "mouse": "MY_66_LL",
+      "subject_number": 8,
+      "available_trials": 574,
+      "retained_trials": 510,
+      "below_budget": false,
+      "reference_mouse": true
+    },
+    {
+      "mouse": "MY_66_N",
+      "subject_number": 5,
+      "available_trials": 467,
+      "retained_trials": 467,
+      "below_budget": true,
+      "reference_mouse": true
+    },
+    {
+      "mouse": "MY_174_R",
+      "subject_number": 1,
+      "available_trials": 901,
+      "retained_trials": 510,
+      "below_budget": false,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_175_N",
+      "subject_number": 3,
+      "available_trials": 712,
+      "retained_trials": 510,
+      "below_budget": false,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_66_LR",
+      "subject_number": 7,
+      "available_trials": 443,
+      "retained_trials": 443,
+      "below_budget": true,
+      "reference_mouse": true
+    },
+    {
+      "mouse": "MY_174_LR",
+      "subject_number": 2,
+      "available_trials": 777,
+      "retained_trials": 510,
+      "below_budget": false,
+      "reference_mouse": false
+    },
+    {
+      "mouse": "MY_66_R",
+      "subject_number": 6,
+      "available_trials": 559,
+      "retained_trials": 510,
+      "below_budget": false,
+      "reference_mouse": true
+    },
+    {
+      "mouse": "MY_175_L",
+      "subject_number": 4,
+      "available_trials": 519,
+      "retained_trials": 510,
+      "below_budget": false,
+      "reference_mouse": false
+    }
+  ]
+}

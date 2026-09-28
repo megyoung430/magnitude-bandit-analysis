@@ -6,6 +6,8 @@ import pandas as pd
 from copy import deepcopy
 from collections import defaultdict
 from datetime import datetime
+from src.behavior_import.reconcile_reversals import reconcile_reversals
+from src.behavior_import.split_recording_configurations import split_recording_configurations
 
 # Across some pyControl files, different variable names are used for the same trial information.
 # The following dictionary maps standardized variable names to their possible aliases.
@@ -118,6 +120,8 @@ def extract_trials(data):
         except Exception:
             return {}
     
+    data = split_recording_configurations(data)
+
     # Extract trials across subjects
     all_subjects = list(data.keys())
     for current_subject in all_subjects:
@@ -148,7 +152,7 @@ def extract_trials(data):
                 trial_info_list.append(trial_info)
                 trial_vars = transpose_trials(trial_info, ALIASES)
                 trial_vars_list.append(trial_vars)
-            if len(trial_info_list[0]) == 0:
+            if not any(trial_info_list):
                 print(f"[WARNING] No trial information found for subject {current_subject}, session {current_session}")
                 data[current_subject][current_session]["trial_variables"] = {}
                 data[current_subject][current_session]["trial_info"] = []
@@ -204,7 +208,7 @@ def extract_trials(data):
 
             if not sess.get("has_bad", False):
                 sess.pop("bad_reversals", None)
-    return data
+    return reconcile_reversals(data)
 
 def standardize_variables(dictionary, aliases):
     """Return a copy of *dictionary* with variable names normalised to canonical keys.

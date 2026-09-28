@@ -1,0 +1,15 @@
+cohort,problem,mouse,total_reversals,good_reversals,bad_reversals
+cohort-01,2,MY_71_L,13,10,3
+cohort-01,2,MY_71_N,11,10,1
+cohort-01,2,MY_71_R,15,11,4
+cohort-01,2,MY_72_L,13,10,3
+cohort-01,2,MY_72_N,11,10,1
+cohort-01,2,MY_72_R,15,10,5
+cohort-03,2,MY_174_LR,9,5,4
+cohort-03,2,MY_174_R,10,4,6
+cohort-03,2,MY_175_L,11,9,2
+cohort-03,2,MY_175_N,12,7,5
+cohort-03,2,MY_66_LL,6,4,2
+cohort-03,2,MY_66_LR,7,4,3
+cohort-03,2,MY_66_N,10,8,2
+cohort-03,2,MY_66_R,13,7,6

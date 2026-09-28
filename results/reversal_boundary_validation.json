@@ -1,0 +1,106 @@
+{
+  "MY_175_L": {
+    "previous": {
+      "good": 10,
+      "bad": 6
+    },
+    "updated": {
+      "total_reversals": 16,
+      "good_reversals": 10,
+      "bad_reversals": 6
+    },
+    "good_windows": 9,
+    "bad_windows": 6
+  },
+  "MY_174_R": {
+    "previous": {
+      "good": 10,
+      "bad": 6
+    },
+    "updated": {
+      "total_reversals": 16,
+      "good_reversals": 10,
+      "bad_reversals": 6
+    },
+    "good_windows": 9,
+    "bad_windows": 6
+  },
+  "MY_66_LL": {
+    "previous": {
+      "good": 10,
+      "bad": 3
+    },
+    "updated": {
+      "total_reversals": 14,
+      "good_reversals": 10,
+      "bad_reversals": 4
+    },
+    "good_windows": 9,
+    "bad_windows": 4
+  },
+  "MY_66_N": {
+    "previous": {
+      "good": 10,
+      "bad": 4
+    },
+    "updated": {
+      "total_reversals": 14,
+      "good_reversals": 10,
+      "bad_reversals": 4
+    },
+    "good_windows": 10,
+    "bad_windows": 4
+  },
+  "MY_174_LR": {
+    "previous": {
+      "good": 11,
+      "bad": 2
+    },
+    "updated": {
+      "total_reversals": 13,
+      "good_reversals": 11,
+      "bad_reversals": 2
+    },
+    "good_windows": 10,
+    "bad_windows": 2
+  },
+  "MY_66_R": {
+    "previous": {
+      "good": 11,
+      "bad": 2
+    },
+    "updated": {
+      "total_reversals": 13,
+      "good_reversals": 11,
+      "bad_reversals": 2
+    },
+    "good_windows": 11,
+    "bad_windows": 2
+  },
+  "MY_66_LR": {
+    "previous": {
+      "good": 9,
+      "bad": 2
+    },
+    "updated": {
+      "total_reversals": 12,
+      "good_reversals": 10,
+      "bad_reversals": 2
+    },
+    "good_windows": 10,
+    "bad_windows": 2
+  },
+  "MY_175_N": {
+    "previous": {
+      "good": 10,
+      "bad": 4
+    },
+    "updated": {
+      "total_reversals": 14,
+      "good_reversals": 10,
+      "bad_reversals": 4
+    },
+    "good_windows": 9,
+    "bad_windows": 4
+  }
+}
