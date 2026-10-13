@@ -1,17 +1,28 @@
 """Unit tests for the small helpers behind ``src.behavior_import.extract_trials``."""
 
+import json
+
+import pandas as pd
 import pytest
 
 from src.behavior_import.extract_trials import (
     add_reward_magnitude_features,
     assign_problem_ordinals,
     available_towers,
+    bandit_trial_info,
+    drop_unlogged_reversal_vars,
+    extract_session_trials,
+    extract_trials,
     fill_missing_chosen_rank_from_rank_counts,
     group_sessions_by_problem,
     infer_rank_from_counts,
+    merge_segments,
+    merge_trial_variables,
     problem_signature,
+    recording_trial_info,
     reward_magnitude_features,
     session_sort_key,
+    session_trial_variables,
     signed_sessions,
     standardize_rank_counts,
     standardize_rank_key,
@@ -276,3 +287,117 @@ def test_fill_missing_chosen_rank_skips_unusable_sessions(session):
     before = {k: list(v) for k, v in session.items()}
     fill_missing_chosen_rank_from_rank_counts(session)
     assert session == before
+
+
+# --- extracting trials from recordings ---
+
+
+def recording(trials, *, other_rows=()):
+    """A recording frame with one variable-print row per trial dict."""
+    rows = [{"time": -1, "type": t, "subtype": st, "content": c} for t, st, c in other_rows]
+    rows += [
+        {"time": t.pop("time", i), "type": "variable", "subtype": "print", "content": json.dumps(t)}
+        for i, t in enumerate(dict(trial) for trial in trials)
+    ]
+    return pd.DataFrame(rows)
+
+
+def bandit_trial(n, choice, rank, counts_, **extra):
+    return {
+        "num_trials": n,
+        "chosen_tower": choice,
+        "current_reward_magnitudes": {"A1": 4, "B1": 2, "C1": 1},
+        "current_choice_towers": ["A1", "B1", "C1"],
+        "chosen_rank": rank,
+        "rank_counts": counts_,
+        **extra,
+    }
+
+
+def test_recording_trial_info_keeps_only_sorted_print_rows_without_port_finding():
+    df = recording(
+        [{"num_trials": 2, "time": 5}, {"num_t_found": 1}, {"num_trials": 1, "time": 2}],
+        other_rows=[("event", "poke", "poke_A"), ("variable", "run_start", "{}")],
+    )
+    assert recording_trial_info(df) == [{"num_trials": 1}, {"num_trials": 2}]
+
+
+def test_bandit_trial_info_skips_pretraining_recordings(capsys):
+    pretraining = recording([{"num_trials": 1, "chosen_tower": "B1"}])
+    assert bandit_trial_info(pretraining, "mouse", "ses-1") == []
+    assert "ses-1" in capsys.readouterr().out
+    bandit = recording([bandit_trial(1, "A1", "best", {"best": 1})])
+    assert len(bandit_trial_info(bandit, "mouse", "ses-1")) == 1
+
+
+def test_bandit_trial_info_of_an_empty_recording_is_empty():
+    empty = pd.DataFrame({"type": [], "subtype": [], "time": [], "content": []})
+    assert bandit_trial_info(empty, "m", "s") == []
+
+
+@pytest.mark.parametrize(
+    ("var_name", "segments", "expected"),
+    [
+        ("trial", [[1, 2, 3], [1, 2]], [1, 2, 3, 4, 5]),
+        ("blocks", [[1, 2], [1, 2]], [1, 2, 2, 3]),
+        ("rank_counts", [[{"best": 1}], [{"best": 1}]], [{"best": 1}, {"best": 2}]),
+        ("trials_in_block", [[1, 2], [3, 1]], [1, 2, 5, 1]),
+        ("choice", [["A1"], [], ["B1", "C1"]], ["A1", "B1", "C1"]),
+    ],
+)
+def test_merge_segments_uses_the_rule_for_each_variable(var_name, segments, expected):
+    assert merge_segments(var_name, segments) == expected
+
+
+def test_merge_trial_variables_treats_a_missing_variable_as_empty():
+    merged = merge_trial_variables([{"choice": ["A1"], "trial": [1]}, {"choice": ["B1"]}])
+    assert merged == {"choice": ["A1", "B1"], "trial": [1]}
+
+
+def test_session_trial_variables_merges_only_multi_file_sessions(capsys):
+    only = {"choice": ["A1"]}
+    assert session_trial_variables([only], "m", "s") is only
+    assert capsys.readouterr().out == ""
+    assert session_trial_variables([only, {"choice": ["B1"]}], "m", "s") == {"choice": ["A1", "B1"]}
+    assert "Merging multiple files" in capsys.readouterr().out
+
+
+def test_drop_unlogged_reversal_vars_only_when_not_logged():
+    session = {"has_good": False, "has_bad": True, "good_reversals": [None], "bad_reversals": [0]}
+    drop_unlogged_reversal_vars(session)
+    assert session == {"has_good": False, "has_bad": True, "bad_reversals": [0]}
+
+
+def test_extract_session_trials_without_bandit_trials_gets_empty_fields(capsys):
+    session = {"data": recording([{"num_trials": 1}])}
+    extract_session_trials(session, "m", "ses-1")
+    assert session["trial_info"] == []
+    assert session["trial_variables"] == {}
+    assert "No trial information" in capsys.readouterr().out
+
+
+def test_extract_session_trials_merges_restarted_recordings_and_derives_fields():
+    first = recording(
+        [
+            bandit_trial(1, "A1", "best", {"best": 1, "second": 0}, num_blocks=1),
+            bandit_trial(2, "B1", None, {"best": 1, "second": 1}, num_blocks=1),
+        ]
+    )
+    restarted = recording([bandit_trial(1, "A1", "best", {"best": 1, "second": 0}, num_blocks=1)])
+    session = {"data": [first, restarted]}
+    extract_session_trials(session, "m", "ses-1")
+    assert session["trial"] == [1, 2, 3]
+    assert session["blocks"] == [1, 1, 1]
+    assert session["chosen_rank"] == ["best", "second", "best"]
+    assert session["choices_by_tower"]["A1"] == [1, 0, 1]
+    assert session["chosen_magnitude"] == [4, 2, 4]
+    assert session["has_good"] is False
+    assert "good_reversals" not in session
+
+
+def test_extract_trials_updates_every_session_in_place():
+    bandit = recording([bandit_trial(1, "A1", "best", {"best": 1}, num_blocks=1)])
+    data = {"m": {"ses-1": {"data": bandit}, "ses-2": {"data": bandit.copy()}}}
+    out = extract_trials(data)
+    assert out is data
+    assert all(session["choice"] == ["A1"] for session in data["m"].values())

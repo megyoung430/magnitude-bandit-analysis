@@ -50,6 +50,9 @@ ALIASES = {
     "total_num_trials_until_switch": ("total_num_trials_until_switch", "tot_num_t_switch"),
 }
 
+# A recording that logs none of these has no bandit trials (e.g. port finding or pretraining).
+BANDIT_KEYS = ALIASES["reward_magnitudes"] + ALIASES["choice_towers"] + ALIASES["rank_counts"]
+
 # Sometimes, due to errors, we need to restart the pyControl recording midway through. These are 
 # variables that should be treated as continuous across such restarts.
 SERIAL_VARS = {"trial"}
@@ -83,6 +86,113 @@ def extract_trials_grouped_by_problem(data, merge_recurring_problems=False):
     problems = group_sessions_by_problem(data, merge_recurring_problems=merge_recurring_problems)
     return problems
 
+def recording_trial_info(df):
+    """Return the per-trial dicts printed by one recording, in time order.
+
+    Port-finding trials (those that contain ``"num_t_found"``) are dropped.
+    A recording lacking a ``type`` or ``subtype`` column fails here with an
+    ``AttributeError`` (the ``""`` default has no ``.isin``) rather than being skipped.
+    """
+    is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
+    printed = df[is_print].sort_values("time")
+    raw_trial_info = printed["content"].map(parse_content_json).tolist()
+    return [d for d in raw_trial_info if not (isinstance(d, dict) and "num_t_found" in d)]
+
+def bandit_trial_info(df, subject, session_key):
+    """Return a recording's trial dicts, or ``[]`` if it is not a bandit recording.
+
+    The cohort directory can also contain port-finding and initiation
+    pretraining. Those print trials but no bandit fields; keeping them would
+    create all-``None`` bandit variables.
+    """
+    trial_info = recording_trial_info(df)
+    if trial_info and not session_has_any_key(trial_info, BANDIT_KEYS):
+        print(f"[WARNING] Skipping recording with no bandit trial fields for subject {subject}, session {session_key}")
+        return []
+    return trial_info
+
+def merge_segments(var_name, segments):
+    """Merge one variable's per-recording lists using the rule for that variable."""
+    if var_name in SERIAL_VARS:
+        return concat_serial_numeric(segments)
+    if var_name in CUMULATIVE_NUMERIC_VARS:
+        return concat_cumulative_numeric(segments)
+    if var_name in CUMULATIVE_DICTLIST_VARS:
+        return offset_dict_list_cumulative(segments)
+    if var_name in SPECIAL_VARS:
+        return concat_trials_in_block(segments)
+    return [value for segment in segments if segment for value in segment]
+
+def merge_trial_variables(trial_vars_list):
+    """Combine the per-recording ``{variable: list}`` dicts of one session into one."""
+    # A set gives the variables in an arbitrary order; the order of the session's keys follows it.
+    all_var_names = set().union(*[tv.keys() for tv in trial_vars_list])
+    return {
+        var_name: merge_segments(var_name, [tv.get(var_name, []) for tv in trial_vars_list])
+        for var_name in all_var_names
+    }
+
+def session_trial_variables(trial_vars_list, subject, session_key):
+    """Return one ``{variable: list}`` dict for a session, merging its recordings if several."""
+    if len(trial_vars_list) == 1:
+        return trial_vars_list[0]
+    print(f"[INFO] Merging multiple files for subject {subject}, session {session_key}")
+    return merge_trial_variables(trial_vars_list)
+
+def add_derived_fields(session_data):
+    """Add the per-tower and per-rank fields derived from the standardised trial variables."""
+    for step in (
+        unpack_reward_magnitudes,
+        add_reward_magnitude_features,
+        unpack_choices,
+        fill_missing_chosen_rank_from_rank_counts,
+        unpack_chosen_rank,
+    ):
+        session_data = step(session_data)
+    return session_data
+
+def drop_unlogged_reversal_vars(session_data):
+    """Remove good/bad reversal counters from sessions that never logged them.
+
+    Downstream code would otherwise try to merge ``int(None)``.
+    """
+    if not session_data.get("has_good", False):
+        session_data.pop("good_reversals", None)
+    if not session_data.get("has_bad", False):
+        session_data.pop("bad_reversals", None)
+    return session_data
+
+def extract_session_trials(session_data, subject, session_key):
+    """Attach trial variables and derived fields to one session, in place.
+
+    A session without any bandit trial information gets empty
+    ``"trial_variables"`` and ``"trial_info"`` and a warning.
+    """
+    # A session is one dataframe, or a list of them when the recording was restarted
+    frames = session_data["data"]
+    if isinstance(frames, pd.DataFrame):
+        frames = [frames]
+
+    trial_info_list, trial_vars_list = [], []
+    for df in frames:
+        trial_info = bandit_trial_info(df, subject, session_key)
+        trial_info_list.append(trial_info)
+        trial_vars_list.append(transpose_trials(trial_info, ALIASES))
+    if not any(trial_info_list):
+        print(f"[WARNING] No trial information found for subject {subject}, session {session_key}")
+        session_data["trial_variables"] = {}
+        session_data["trial_info"] = []
+        return session_data
+
+    # Performance-dependent sessions log good/bad reversal counters
+    flat_trial_info = [d for trial_info in trial_info_list for d in trial_info]
+    session_data["has_good"] = session_has_any_key(flat_trial_info, ALIASES["good_reversals"])
+    session_data["has_bad"] = session_has_any_key(flat_trial_info, ALIASES["bad_reversals"])
+    session_data["trial_variables"] = trial_vars_list
+    session_data["trial_info"] = trial_info_list
+    session_data.update(session_trial_variables(trial_vars_list, subject, session_key))
+    return drop_unlogged_reversal_vars(add_derived_fields(session_data))
+
 def extract_trials(data):
     """Parse and attach trial-by-trial variables to every session in *data*.
 
@@ -112,104 +222,9 @@ def extract_trials(data):
           for debugging.
     """
     data = split_recording_configurations(data)
-
-    # Extract trials across subjects
-    all_subjects = list(data.keys())
-    for current_subject in all_subjects:
-        subject_sessions = data[current_subject]
-
-        # Extract trials across sessions
-        all_sessions = list(subject_sessions.keys())
-        for current_session in all_sessions:
-            df_list = subject_sessions[current_session]["data"]
-            
-            # Check if there are multiple dataframes within a particular session
-            # If not, turn the dataframe into a list of one dataframe for consistency
-            if isinstance(df_list, pd.DataFrame):
-                df_list = [df_list]
-            
-            trial_info_list = []
-            trial_vars_list = []
-            for df in df_list:
-                trials_df = df[(df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))].sort_values("time")
-                raw_trial_info = trials_df["content"].map(parse_content_json).tolist()
-
-                # Drop any trials where mice are finding ports, i.e., ones that contain "num_t_found"
-                trial_info = [
-                    d for d in raw_trial_info
-                    if not (isinstance(d, dict) and "num_t_found" in d)
-                ]
-
-                # The cohort directory can also contain port-finding and
-                # initiation pretraining. These print trials, but no bandit
-                # fields; including them creates all-None bandit variables.
-                bandit_keys = (
-                    ALIASES["reward_magnitudes"] + ALIASES["choice_towers"]
-                    + ALIASES["rank_counts"]
-                )
-                if trial_info and not session_has_any_key(trial_info, bandit_keys):
-                    print(f"[WARNING] Skipping recording with no bandit trial fields for subject {current_subject}, session {current_session}")
-                    trial_info = []
-
-                trial_info_list.append(trial_info)
-                trial_vars = transpose_trials(trial_info, ALIASES)
-                trial_vars_list.append(trial_vars)
-            if not any(trial_info_list):
-                print(f"[WARNING] No trial information found for subject {current_subject}, session {current_session}")
-                data[current_subject][current_session]["trial_variables"] = {}
-                data[current_subject][current_session]["trial_info"] = []
-                continue
-
-            # Check if the session had good or bad reversals (i.e., was performance dependent)
-            flat_trial_info = []
-            for ti in trial_info_list:
-                flat_trial_info.extend(ti)
-            has_good = session_has_any_key(flat_trial_info, ALIASES["good_reversals"])
-            has_bad  = session_has_any_key(flat_trial_info, ALIASES["bad_reversals"])
-            data[current_subject][current_session]["has_good"] = has_good
-            data[current_subject][current_session]["has_bad"] = has_bad
-
-            data[current_subject][current_session]["trial_variables"] = trial_vars_list
-            data[current_subject][current_session]["trial_info"] = trial_info_list
-            if len(trial_vars_list) == 1:
-                for var_name, values in trial_vars_list[0].items():
-                    data[current_subject][current_session][var_name] = values
-            else:
-                print(f"[INFO] Merging multiple files for subject {current_subject}, session {current_session}")
-                combined = {}
-                all_var_names = set().union(*[tv.keys() for tv in trial_vars_list])
-                for var_name in all_var_names:
-                    segments = [tv.get(var_name, []) for tv in trial_vars_list]
-                    if var_name in SERIAL_VARS:
-                        combined[var_name] = concat_serial_numeric(segments)
-                    elif var_name in CUMULATIVE_NUMERIC_VARS:
-                        combined[var_name] = concat_cumulative_numeric(segments)
-                    elif var_name in CUMULATIVE_DICTLIST_VARS:
-                        combined[var_name] = offset_dict_list_cumulative(segments)
-                    elif var_name in SPECIAL_VARS:
-                        combined[var_name] = concat_trials_in_block(segments)
-                    else:
-                        out = []
-                        for seg in segments:
-                            if seg:
-                                out.extend(seg)
-                        combined[var_name] = out
-                for var_name, values in combined.items():
-                    data[current_subject][current_session][var_name] = values
-            data[current_subject][current_session] = unpack_reward_magnitudes(data[current_subject][current_session])
-            data[current_subject][current_session] = add_reward_magnitude_features(data[current_subject][current_session])
-            data[current_subject][current_session] = unpack_choices(data[current_subject][current_session])
-            data[current_subject][current_session] = fill_missing_chosen_rank_from_rank_counts(data[current_subject][current_session])
-            data[current_subject][current_session] = unpack_chosen_rank(data[current_subject][current_session])
-            
-            # If a session never printed good/bad reversal vars, remove them entirely
-            # so downstream code doesn't try to merge int(None).
-            sess = data[current_subject][current_session]
-            if not sess.get("has_good", False):
-                sess.pop("good_reversals", None)
-
-            if not sess.get("has_bad", False):
-                sess.pop("bad_reversals", None)
+    for subject, subject_sessions in data.items():
+        for session_key, session_data in subject_sessions.items():
+            extract_session_trials(session_data, subject, session_key)
     return reconcile_reversals(data)
 
 def standardize_variables(dictionary, aliases):
