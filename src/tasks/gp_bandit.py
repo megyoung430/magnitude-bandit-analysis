@@ -4,10 +4,11 @@ Functions here generate synthetic 3-armed bandit task sessions where arm
 reward values are sampled from Gaussian Processes, with block-swap dynamics
 that mimic the experimental paradigm.
 """
+
 from __future__ import annotations
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def sample_two_gp_bandits(
@@ -42,7 +43,7 @@ def sample_two_gp_bandits(
     xs = rng.normal(0, 1, (T, 2))
     ts = np.arange(T)
 
-    K = np.exp(-(ts[:, None] - ts[None, :]) ** 2 / (2 * sig ** 2)) + np.eye(T) * jitter
+    K = np.exp(-((ts[:, None] - ts[None, :]) ** 2) / (2 * sig**2)) + np.eye(T) * jitter
     L = np.linalg.cholesky(K)
 
     gp_raw = scale * (L @ xs) + shift
@@ -97,8 +98,13 @@ def simulate_3armed_blockswaps_gp(
         min_block_len = max_block_len - 10
 
     gp_int, gp_raw = sample_two_gp_bandits(
-        T=T, sig=sig, scale=scale, shift=shift, clip=clip,
-        jitter=jitter, rng=rng,
+        T=T,
+        sig=sig,
+        scale=scale,
+        shift=shift,
+        clip=clip,
+        jitter=jitter,
+        rng=rng,
     )
     streams = gp_raw if use_raw else gp_int  # (T, 2)
 
@@ -153,8 +159,13 @@ def simulate_3armed_blockswaps_gp(
             "gp_int": gp_int,
             "gp_raw": gp_raw,
         }
-        return (mean_best_minus_second, frac_gap_ge2,
-                mean_best_run_length, std_best_run_length, session)
+        return (
+            mean_best_minus_second,
+            frac_gap_ge2,
+            mean_best_run_length,
+            std_best_run_length,
+            session,
+        )
 
     return mean_best_minus_second, frac_gap_ge2, mean_best_run_length, std_best_run_length
 
@@ -202,12 +213,22 @@ def sweep_gp_metrics(
             acc = [0.0, 0.0, 0.0, 0.0]
             for _ in range(n_sims):
                 gm, gg, rm, rs = simulate_3armed_blockswaps_gp(
-                    T=T, sig=float(sig), max_block_len=int(mbl),
-                    min_block_len=int(mbl) - 10, rng=rng,
-                    scale=scale, shift=shift, clip=clip, jitter=jitter,
-                    use_raw=use_raw, return_session=False,
+                    T=T,
+                    sig=float(sig),
+                    max_block_len=int(mbl),
+                    min_block_len=int(mbl) - 10,
+                    rng=rng,
+                    scale=scale,
+                    shift=shift,
+                    clip=clip,
+                    jitter=jitter,
+                    use_raw=use_raw,
+                    return_session=False,
                 )
-                acc[0] += gm; acc[1] += gg; acc[2] += rm; acc[3] += rs
+                acc[0] += gm
+                acc[1] += gg
+                acc[2] += rm
+                acc[3] += rs
 
             H_gap_mean[i, j] = acc[0] / n_sims
             H_gap_ge2[i, j] = acc[1] / n_sims
@@ -242,8 +263,7 @@ def plot_gp_heatmaps_pair_1(
     axes[0].set_ylabel("max_block_len")
     fig.colorbar(im0, ax=axes[0])
 
-    im1 = axes[1].imshow(H_gap_ge2, origin="lower", aspect="auto",
-                         extent=extent, vmin=0, vmax=1)
+    im1 = axes[1].imshow(H_gap_ge2, origin="lower", aspect="auto", extent=extent, vmin=0, vmax=1)
     axes[1].set_title("Frac trials (best − second ≥ 2)")
     axes[1].set_xlabel("sig")
     axes[1].set_ylabel("max_block_len")
@@ -317,10 +337,17 @@ def plot_example_session_gp(
     """
     rng = np.random.default_rng(seed)
     gap_mean, gap_ge2, run_mean, run_std, session = simulate_3armed_blockswaps_gp(
-        T=T, sig=float(sig), max_block_len=int(max_block_len),
-        min_block_len=int(max_block_len) - 10, rng=rng,
-        scale=scale, shift=shift, clip=clip, jitter=jitter,
-        use_raw=use_raw, return_session=True,
+        T=T,
+        sig=float(sig),
+        max_block_len=int(max_block_len),
+        min_block_len=int(max_block_len) - 10,
+        rng=rng,
+        scale=scale,
+        shift=shift,
+        clip=clip,
+        jitter=jitter,
+        use_raw=use_raw,
+        return_session=True,
     )
 
     vals3 = session["vals3"]
@@ -333,13 +360,13 @@ def plot_example_session_gp(
 
     if choices is not None:
         ch = np.asarray(choices, dtype=int)
-        ax.scatter(x, vals3[np.arange(T), ch], s=25, color="black",
-                   zorder=5, label="Choice")
+        ax.scatter(x, vals3[np.arange(T), ch], s=25, color="black", zorder=5, label="Choice")
 
     first = True
     for b in boundaries:
-        ax.axvline(b - 0.5, linestyle="--", color="k", linewidth=2.0,
-                   label="Block" if first else None)
+        ax.axvline(
+            b - 0.5, linestyle="--", color="k", linewidth=2.0, label="Block" if first else None
+        )
         first = False
 
     ax.set_xlim(0, T - 1)
@@ -349,7 +376,8 @@ def plot_example_session_gp(
     ax.set_xlabel("Trial")
     ax.set_ylabel("Reward Magnitude" if not use_raw else "Latent value")
     ax.set_title(
-        title or (
+        title
+        or (
             f"Example GP session | sig={sig:.2f}, max_block_len={max_block_len} "
             f"| gap_mean={gap_mean:.2f}, frac≥2={gap_ge2:.2f}, "
             f"run_mean={run_mean:.2f}, run_std={run_std:.2f}"
@@ -386,7 +414,11 @@ def collect_gp_run_stats(
         run_std_acc = 0.0
         for _ in range(n_sims):
             _, _, run_mean, run_std = simulate_3armed_blockswaps_gp(
-                T=T, sig=sig, max_block_len=80, min_block_len=70, rng=rng,
+                T=T,
+                sig=sig,
+                max_block_len=80,
+                min_block_len=70,
+                rng=rng,
             )
             run_mean_acc += run_mean
             run_std_acc += run_std
