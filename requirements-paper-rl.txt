@@ -1,4 +1,0 @@
-# Optional dependencies for the notebook's paper-style fitting section.
-# Install into the environment used by the Jupyter kernel.
-jax>=0.4.30
-optax>=0.2.4
