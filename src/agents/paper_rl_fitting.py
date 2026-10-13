@@ -7,6 +7,7 @@ Optax imports are delayed so the existing SciPy workflows need no new packages.
 import hashlib
 import itertools
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -300,6 +301,7 @@ def score_sequences(raw, sequences, model, statistics=None, evaluation_batch_siz
             np.asarray(nll),
             np.asarray(correct),
             np.asarray(release_nll),
+            strict=True,
         ):
             n = len(s["actions"]) - 1
             if n < 1:
@@ -341,6 +343,414 @@ def _save_checkpoint(path, raw, state, key, best_raw, metadata):
     tmp.replace(path)
 
 
+_MANIFEST_DESCRIPTIONS = dict(
+    upstream_repository=SOURCE_URL,
+    upstream_commit=SOURCE_COMMIT,
+    objective="mean_session_sum_t>=1(-log((1-1e-5)*p+5e-4))",
+    optimizer="optax.adamw; decoupled weight decay",
+    sampling=("without replacement per minibatch; cap batch size at number of training sessions"),
+    selection="lowest full-validation affine-adjusted score per trial, including step zero",
+    initialization=(
+        "CogMod alpha_raw=1, beta_raw=1, perseverance_raw=0, forgetting_raw=0, q_init~N(1,1); "
+        "paper bias_raw=0; sticky model retains N(0,.5)"
+    ),
+    precision="float64",
+    reset="each full extracted session",
+    reward="unaltered delivered pulses",
+)
+_NEURAL_INITIALIZATION = (
+    "Haiku Linear truncated normal / sqrt(fan_in); zero biases/hidden; "
+    "q_init,c_init~N(1,1), forgetting_raw~N(0,1)"
+)
+
+
+@dataclass(frozen=True)
+class _FitConfig:
+    """What every run in one sweep shares: data partitions and the training schedule."""
+
+    parts: dict
+    train_arrays: tuple
+    fit_seed: int
+    max_steps: int
+    validation_every: int
+
+
+def validate_models(models, supported):
+    """Require a nonempty list of distinct, supported model names."""
+    if not models or len(set(models)) != len(models) or any(m not in supported for m in models):
+        raise ValueError("Need unique supported model names.")
+
+
+def validate_sweep_sizes(grid, n_seeds, max_steps, validation_every, max_new_runs):
+    """Require a nonempty grid and positive counts; ``max_new_runs=None`` means no budget."""
+    if (
+        not grid
+        or n_seeds < 1
+        or max_steps < 1
+        or validation_every < 1
+        or (max_new_runs is not None and max_new_runs < 0)
+    ):
+        raise ValueError("Invalid sweep sizes.")
+
+
+def _hidden_units(setting):
+    return setting.get("hidden_units", 16)
+
+
+def validate_settings(grid):
+    """Require positive learning rate, batch size and width, and nonnegative decay."""
+    for setting in grid:
+        if (
+            setting["optimizer_learning_rate"] <= 0
+            or _weight_decay(setting) < 0
+            or setting["batch_size"] < 1
+            or _hidden_units(setting) < 1
+        ):
+            raise ValueError("Invalid optimizer setting.")
+
+
+def validate_sequence_lengths(sequences):
+    """Released scoring drops the first trial, so every session needs at least two."""
+    if any(len(s["actions"]) < 2 for s in sequences):
+        raise ValueError("Released scoring requires at least two observed trials per session.")
+
+
+def split_sequences(sequences, split_seed, test_problem=None, validation_problem=None):
+    """Partition sessions by mouse, or by whole problem when ``test_problem`` is given.
+
+    Returns ``(parts, identities, split_details)``; identities list the mice per partition
+    either way, and ``split_details`` is what the manifest and results record.
+    """
+    if test_problem is None:
+        if validation_problem is not None:
+            raise ValueError("validation_problem requires test_problem.")
+        parts, identities = split_by_mouse(sequences, split_seed)
+        return parts, identities, dict(split_strategy="mouse", split_problems=None)
+    parts, problem_ids = split_by_problem(sequences, test_problem, validation_problem)
+    identities = {part: sorted({s["mouse"] for s in data}) for part, data in parts.items()}
+    return (
+        parts,
+        identities,
+        dict(split_strategy="pooled_problem", split_problems=problem_ids),
+    )
+
+
+def fingerprint_sequences(sequences):
+    """SHA-256 over identities, towers, actions and rewards, in input order."""
+    fingerprint = hashlib.sha256()
+    for s in sequences:
+        header = [s["mouse"], int(s["problem"]), s["session"], s["towers"]]
+        fingerprint.update(json.dumps(header).encode())
+        fingerprint.update(np.asarray(s["actions"], dtype=np.int64).tobytes())
+        fingerprint.update(np.asarray(s["rewards"], dtype=np.float64).tobytes())
+    return fingerprint.hexdigest()
+
+
+def read_source_snapshots(models):
+    """Source text of the code that produced a sweep, so a code change changes the run id."""
+    from src.agents import best_rl, neural_bandit, released_rl
+
+    snapshots = dict(implementation=Path(__file__).read_text())
+    if any(model in neural_bandit.NEURAL_MODELS for model in models):
+        snapshots["neural_implementation"] = Path(neural_bandit.__file__).read_text()
+        snapshots["neural_initialization"] = _NEURAL_INITIALIZATION
+    modules = [("best_rl", best_rl), ("released_rl", released_rl)]
+    snapshots["rl_implementations"] = {m: Path(mod.__file__).read_text() for m, mod in modules}
+    return snapshots
+
+
+def build_manifest(settings, split_details, identities, data_sha256, versions, snapshots):
+    """Everything that determines a sweep's results; its hash names the output directory."""
+    return dict(
+        **settings,
+        **split_details,
+        split_mice=identities,
+        data_sha256=data_sha256,
+        **_MANIFEST_DESCRIPTIONS,
+        versions=versions,
+        **snapshots,
+    )
+
+
+def write_manifest(output_root, manifest):
+    """Create ``<output_root>/<manifest hash>/`` and write ``manifest.json`` into it."""
+    encoded = json.dumps(manifest, sort_keys=True, indent=2)
+    output = Path(output_root) / hashlib.sha256(encoded.encode()).hexdigest()[:12]
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "manifest.json").write_text(encoded)
+    return output
+
+
+def initial_raw_parameters(model, init_key, hidden_units=16):
+    """Draw the starting raw parameters of one run from its initialization key."""
+    jax, jnp, _ = dependencies()
+    if model == "sticky_rl":
+        return 0.5 * jax.random.normal(init_key, (3,), dtype=jnp.float64)
+    if model in ("best_rl", "released_rl"):
+        q_init = 1 + jax.random.normal(init_key, (), dtype=jnp.float64)
+        return jnp.array(
+            [1.0, 1.0, 0.0, 0.0, 0.0, q_init]
+            if model == "best_rl"
+            else [1.0, 1.0, 0.0, 0.0, q_init]
+        )
+    from src.agents import neural_bandit
+
+    return neural_bandit.initialize_parameters(init_key, model, hidden_units)
+
+
+def release_score_per_trial(rows):
+    """Released-loss score per scored trial, pooled over the sessions in ``rows``."""
+    return sum(r["release_nll"] for r in rows) / sum(r["n_trials"] for r in rows)
+
+
+def initial_metadata(validation_ce, validation):
+    """Run history at step zero, before any optimization."""
+    return dict(
+        step=0,
+        best_step=0,
+        best_validation=validation,
+        history=[
+            dict(
+                step=0,
+                validation_cross_entropy=validation_ce,
+                validation_release_score=validation,
+            )
+        ],
+    )
+
+
+def advance_metadata(metadata, steps, validation_ce, validation, train_loss):
+    """Metadata after ``steps`` more optimizer steps, and whether validation improved.
+
+    Only a strictly lower validation score replaces the best iterate, so ties keep
+    the earlier step.
+    """
+    step = metadata["step"] + steps
+    entry = dict(
+        step=step,
+        validation_cross_entropy=validation_ce,
+        validation_release_score=validation,
+        last_batch_objective=train_loss,
+    )
+    updated = dict(metadata, step=step, history=[*metadata["history"], entry])
+    improved = validation < metadata["best_validation"]
+    if improved:
+        updated.update(best_step=step, best_validation=validation)
+    return updated, improved
+
+
+def _load_checkpoint(checkpoint, raw, state):
+    """Restore (raw, best_raw, sampling key, optimizer state, metadata) from a checkpoint.
+
+    ``raw`` and ``state`` supply the pytree structures the saved leaves are poured into.
+    """
+    jax, jnp, _ = dependencies()
+
+    def restore(prefix, template):
+        leaves, tree = jax.tree_util.tree_flatten(template)
+        return jax.tree_util.tree_unflatten(
+            tree, [jnp.asarray(saved[f"{prefix}_{i}"]) for i in range(len(leaves))]
+        )
+
+    with np.load(checkpoint, allow_pickle=False) as saved:
+        metadata = json.loads(str(saved["metadata"]))
+        return (
+            restore("raw", raw),
+            restore("best", raw),
+            jnp.asarray(saved["key"]),
+            restore("opt", state),
+            metadata,
+        )
+
+
+def _score_validation(raw, model, stats, config):
+    """Validation cross-entropy per trial and released-loss score per trial."""
+    validation_ce, rows = score_sequences(raw, config.parts["validation"], model, stats)
+    return validation_ce, release_score_per_trial(rows)
+
+
+def _fit_run(run_id, model, setting, repeat, backend, config, checkpoint):
+    """Train one (model, setting, seed) run, resuming from ``checkpoint`` when present.
+
+    Returns the best-validation raw parameters and the run metadata.
+    """
+    jax, _, _ = dependencies()
+    stats, optimizer, chunk = backend
+    # Matched initialization seeds across models: the stream depends only on ``repeat``.
+    init_key, sample_key = jax.random.split(jax.random.PRNGKey(config.fit_seed + repeat))
+    raw = initial_raw_parameters(model, init_key, _hidden_units(setting))
+    state = optimizer.init(raw)
+    if checkpoint.exists():
+        raw, best_raw, sample_key, state, metadata = _load_checkpoint(checkpoint, raw, state)
+    else:
+        best_raw, metadata = raw, initial_metadata(*_score_validation(raw, model, stats, config))
+    while metadata["step"] < config.max_steps:
+        steps = min(config.validation_every, config.max_steps - metadata["step"])
+        (raw, state, sample_key), train_loss = chunk(
+            raw, state, sample_key, *config.train_arrays, steps
+        )
+        validation_ce, validation = _score_validation(raw, model, stats, config)
+        if not np.isfinite(validation) or not np.isfinite(float(train_loss)):
+            raise FloatingPointError(
+                f"{run_id}: nonfinite objective; last finite checkpoint retained."
+            )
+        metadata, improved = advance_metadata(
+            metadata, steps, validation_ce, validation, float(train_loss)
+        )
+        if improved:
+            best_raw = raw
+        _save_checkpoint(checkpoint, raw, state, sample_key, best_raw, metadata)
+        print(
+            f"{run_id}: {metadata['step']:,}/{config.max_steps:,} steps; "
+            f"validation release score {validation:.5f}",
+            flush=True,
+        )
+    return best_raw, metadata
+
+
+def serialize_raw(raw):
+    """JSON-ready (nested lists) form of raw parameters, which may be a dict of arrays."""
+    if isinstance(raw, dict):
+        return {k: np.asarray(v).tolist() for k, v in raw.items()}
+    return np.asarray(raw).tolist()
+
+
+def restore_raw(serialized):
+    """Inverse of :func:`serialize_raw`, as JAX arrays."""
+    _, jnp, _ = dependencies()
+    if isinstance(serialized, dict):
+        return {k: jnp.asarray(v) for k, v in serialized.items()}
+    return jnp.asarray(serialized)
+
+
+def summarize_parameters(best_raw, model):
+    """Named, human-scale parameters of a fitted model."""
+    if model in MODEL_NAMES:
+        values = np.asarray(transform_parameters(best_raw, model)).tolist()
+        return dict(zip(PARAMETER_NAMES[model], values, strict=True))
+    from src.agents import neural_bandit
+
+    return neural_bandit.parameter_summary(best_raw, model)
+
+
+def _run_record(model, setting_index, setting, repeat, effective_batch_size, best_raw, metadata):
+    return dict(
+        model=model,
+        setting_index=setting_index,
+        repeat=repeat,
+        setting=setting,
+        effective_batch_size=effective_batch_size,
+        best_raw=serialize_raw(best_raw),
+        parameters=summarize_parameters(best_raw, model),
+        **metadata,
+    )
+
+
+def _sweep_fits(models, grid, n_seeds, config, output, max_new_runs):
+    """Load finished runs and fit missing ones, at most ``max_new_runs`` new fits."""
+    records, completed_now = [], 0
+    for model in models:
+        for setting_index, setting in enumerate(grid):
+            stats, _, make_trainer = make_backend(model, hidden_units=_hidden_units(setting))
+            # The batch cannot exceed the number of training sessions.
+            batch_size = min(setting["batch_size"], len(config.parts["train"]))
+            optimizer, chunk = make_trainer(dict(setting, batch_size=batch_size))
+            for repeat in range(n_seeds):
+                run_id = f"{model}_setting-{setting_index:02d}_seed-{repeat:02d}"
+                done_file, checkpoint = output / f"{run_id}.json", output / f"{run_id}.npz"
+                if done_file.exists():
+                    records.append(json.loads(done_file.read_text()))
+                    continue
+                if max_new_runs is not None and completed_now >= max_new_runs:
+                    continue
+                best_raw, metadata = _fit_run(
+                    run_id, model, setting, repeat, (stats, optimizer, chunk), config, checkpoint
+                )
+                record = _run_record(
+                    model, setting_index, setting, repeat, batch_size, best_raw, metadata
+                )
+                done_file.write_text(json.dumps(record, indent=2, allow_nan=False))
+                records.append(record)
+                completed_now += 1
+    return records
+
+
+def select_winner(records, model):
+    """Record of ``model`` with the lowest validation score; ties go to the first."""
+    return min((r for r in records if r["model"] == model), key=lambda r: r["best_validation"])
+
+
+def save_selected_parameters(path, best_raw):
+    """Save a winner's raw parameters; neural models are saved one array per key."""
+    with path.open("wb") as file:
+        if isinstance(best_raw, dict):
+            np.savez(file, **best_raw)
+        else:
+            np.savez(file, parameters=np.asarray(best_raw))
+
+
+def _score_winner(model, winner, parts, output):
+    """Score a validation-selected winner on held-out data; returns its summary and test rows."""
+    best_raw = restore_raw(winner["best_raw"])
+    validation_ce, _ = score_sequences(best_raw, parts["validation"], model)
+    test_ce, rows = score_sequences(best_raw, parts["test"], model)
+    winner_file = output / f"{model}_selected_parameters.npz"
+    save_selected_parameters(winner_file, best_raw)
+    selected = dict(
+        model=model,
+        setting=winner["setting"],
+        repeat=winner["repeat"],
+        selected_step=winner["best_step"],
+        parameters=winner["parameters"],
+        parameters_file=winner_file.name,
+        validation_cross_entropy=validation_ce,
+        validation_release_score=winner["best_validation"],
+        test_cross_entropy=test_ce,
+        test_release_score=release_score_per_trial(rows),
+        effective_batch_size=winner["effective_batch_size"],
+        geometric_mean_choice_probability=float(np.exp(-test_ce)),
+    )
+    return selected, [dict(model=model, **r) for r in rows]
+
+
+def _select_and_score(models, records, parts, output):
+    """Pick each model's winner on validation alone, then score it on the test partition."""
+    scored = [_score_winner(m, select_winner(records, m), parts, output) for m in models]
+    selected = [summary for summary, _ in scored]
+    test_sessions = [row for _, rows in scored for row in rows]
+    return selected, test_sessions
+
+
+def _sweep_result(records, expected, output, identities, split_details, selected, test_sessions):
+    return dict(
+        complete=len(records) == expected,
+        completed_runs=len(records),
+        expected_runs=expected,
+        output_dir=str(output),
+        split_mice=identities,
+        **split_details,
+        selected=selected,
+        test_sessions=test_sessions,
+    )
+
+
+def library_versions():
+    """Versions of the numerical libraries a run depends on, recorded in the manifest."""
+    jax, _, optax = dependencies()
+    return dict(jax=jax.__version__, optax=optax.__version__, numpy=np.__version__)
+
+
+def _finish_sweep(models, records, parts, output, identities, split_details):
+    """Select winners, score them on test data and write ``results.json``."""
+    selected, test_sessions = _select_and_score(models, records, parts, output)
+    expected_runs = len(records)
+    result = _sweep_result(
+        records, expected_runs, output, identities, split_details, selected, test_sessions
+    )
+    (output / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
+    return result
+
+
 def run_paper_sweep(
     sequences,
     output_root,
@@ -363,54 +773,21 @@ def run_paper_sweep(
     Runs use matched initialization seeds/minibatch streams across candidate models.
     Test scores are never computed during optimization or hyperparameter selection.
     """
-    jax, jnp, optax = dependencies()
+    _, jnp, _ = dependencies()
     from src.agents import neural_bandit
 
-    if (
-        not models
-        or len(set(models)) != len(models)
-        or any(model not in (*MODEL_NAMES, *neural_bandit.NEURAL_MODELS) for model in models)
-    ):
-        raise ValueError("Need unique supported model names.")
+    validate_models(models, (*MODEL_NAMES, *neural_bandit.NEURAL_MODELS))
     if grid is None:
         grid = FULL_GRID
-    if (
-        not grid
-        or n_seeds < 1
-        or max_steps < 1
-        or validation_every < 1
-        or (max_new_runs is not None and max_new_runs < 0)
-    ):
-        raise ValueError("Invalid sweep sizes.")
-    for setting in grid:
-        if (
-            setting["optimizer_learning_rate"] <= 0
-            or setting.get("weight_decay", setting.get("l2_weight", 0.0)) < 0
-            or setting["batch_size"] < 1
-            or setting.get("hidden_units", 16) < 1
-        ):
-            raise ValueError("Invalid optimizer setting.")
-    if any(len(s["actions"]) < 2 for s in sequences):
-        raise ValueError("Released scoring requires at least two observed trials per session.")
-    if test_problem is None:
-        if validation_problem is not None:
-            raise ValueError("validation_problem requires test_problem.")
-        parts, identities = split_by_mouse(sequences, split_seed)
-        split_details = dict(split_strategy="mouse", split_problems=None)
-    else:
-        parts, problem_ids = split_by_problem(sequences, test_problem, validation_problem)
-        identities = {part: sorted({s["mouse"] for s in data}) for part, data in parts.items()}
-        split_details = dict(split_strategy="pooled_problem", split_problems=problem_ids)
+    validate_sweep_sizes(grid, n_seeds, max_steps, validation_every, max_new_runs)
+    validate_settings(grid)
+    validate_sequence_lengths(sequences)
+    parts, identities, split_details = split_sequences(
+        sequences, split_seed, test_problem, validation_problem
+    )
     # Only training and validation histories enter training/selection functions.
     train_arrays = tuple(jnp.asarray(x) for x in pack_sequences(parts["train"]))
-    fingerprint = hashlib.sha256()
-    for s in sequences:
-        fingerprint.update(
-            json.dumps([s["mouse"], int(s["problem"]), s["session"], s["towers"]]).encode()
-        )
-        fingerprint.update(np.asarray(s["actions"], dtype=np.int64).tobytes())
-        fingerprint.update(np.asarray(s["rewards"], dtype=np.float64).tobytes())
-    manifest = dict(
+    settings = dict(
         profile=profile,
         models=list(models),
         grid=grid,
@@ -419,228 +796,22 @@ def run_paper_sweep(
         validation_every=validation_every,
         split_seed=split_seed,
         fit_seed=fit_seed,
-        **split_details,
-        split_mice=identities,
-        data_sha256=fingerprint.hexdigest(),
-        upstream_repository=SOURCE_URL,
-        upstream_commit=SOURCE_COMMIT,
-        objective="mean_session_sum_t>=1(-log((1-1e-5)*p+5e-4))",
-        optimizer="optax.adamw; decoupled weight decay",
-        sampling="without replacement per minibatch; cap batch size at number of training sessions",
-        selection="lowest full-validation affine-adjusted score per trial, including step zero",
-        initialization="CogMod alpha_raw=1, beta_raw=1, perseverance_raw=0, forgetting_raw=0, q_init~N(1,1); paper bias_raw=0; sticky model retains N(0,.5)",
-        precision="float64",
-        reset="each full extracted session",
-        reward="unaltered delivered pulses",
-        versions=dict(jax=jax.__version__, optax=optax.__version__, numpy=np.__version__),
-        implementation=Path(__file__).read_text(),
     )
-    if any(model in neural_bandit.NEURAL_MODELS for model in models):
-        manifest["neural_implementation"] = Path(neural_bandit.__file__).read_text()
-        manifest["neural_initialization"] = (
-            "Haiku Linear truncated normal / sqrt(fan_in); zero biases/hidden; q_init,c_init~N(1,1), forgetting_raw~N(0,1)"
-        )
-    from src.agents import best_rl, released_rl
-
-    manifest["rl_implementations"] = {
-        m: Path(module.__file__).read_text()
-        for m, module in [("best_rl", best_rl), ("released_rl", released_rl)]
-    }
-    encoded = json.dumps(manifest, sort_keys=True, indent=2)
-    output = Path(output_root) / hashlib.sha256(encoded.encode()).hexdigest()[:12]
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "manifest.json").write_text(encoded)
-    records, completed_now = [], 0
-    for model in models:
-        for setting_index, setting in enumerate(grid):
-            stats, _, make_trainer = make_backend(
-                model, hidden_units=setting.get("hidden_units", 16)
-            )
-            training_setting = dict(
-                setting, batch_size=min(setting["batch_size"], len(parts["train"]))
-            )
-            optimizer, chunk = make_trainer(training_setting)
-            for repeat in range(n_seeds):
-                run_id = f"{model}_setting-{setting_index:02d}_seed-{repeat:02d}"
-                done_file, checkpoint = output / f"{run_id}.json", output / f"{run_id}.npz"
-                if done_file.exists():
-                    records.append(json.loads(done_file.read_text()))
-                    continue
-                if max_new_runs is not None and completed_now >= max_new_runs:
-                    continue
-                init_key, sample_key = jax.random.split(jax.random.PRNGKey(fit_seed + repeat))
-                if model == "sticky_rl":
-                    raw = 0.5 * jax.random.normal(init_key, (3,), dtype=jnp.float64)
-                elif model in ("best_rl", "released_rl"):
-                    q_init = 1 + jax.random.normal(init_key, (), dtype=jnp.float64)
-                    raw = jnp.array(
-                        [1.0, 1.0, 0.0, 0.0, 0.0, q_init]
-                        if model == "best_rl"
-                        else [1.0, 1.0, 0.0, 0.0, q_init]
-                    )
-                else:
-                    raw = neural_bandit.initialize_parameters(
-                        init_key, model, setting.get("hidden_units", 16)
-                    )
-                state = optimizer.init(raw)
-                if checkpoint.exists():
-                    with np.load(checkpoint, allow_pickle=False) as saved:
-                        metadata = json.loads(str(saved["metadata"]))
-                        raw_leaves, raw_tree = jax.tree_util.tree_flatten(raw)
-                        raw = jax.tree_util.tree_unflatten(
-                            raw_tree,
-                            [jnp.asarray(saved[f"raw_{i}"]) for i in range(len(raw_leaves))],
-                        )
-                        best_raw = jax.tree_util.tree_unflatten(
-                            raw_tree,
-                            [jnp.asarray(saved[f"best_{i}"]) for i in range(len(raw_leaves))],
-                        )
-                        sample_key = jnp.asarray(saved["key"])
-                        leaves, tree = jax.tree_util.tree_flatten(state)
-                        state = jax.tree_util.tree_unflatten(
-                            tree, [jnp.asarray(saved[f"opt_{i}"]) for i in range(len(leaves))]
-                        )
-                else:
-                    validation_ce, validation_rows = score_sequences(
-                        raw, parts["validation"], model, stats
-                    )
-                    validation = sum(r["release_nll"] for r in validation_rows) / sum(
-                        r["n_trials"] for r in validation_rows
-                    )
-                    best_raw = raw
-                    metadata = dict(
-                        step=0,
-                        best_step=0,
-                        best_validation=validation,
-                        history=[
-                            dict(
-                                step=0,
-                                validation_cross_entropy=validation_ce,
-                                validation_release_score=validation,
-                            )
-                        ],
-                    )
-                while metadata["step"] < max_steps:
-                    steps = min(validation_every, max_steps - metadata["step"])
-                    (raw, state, sample_key), train_loss = chunk(
-                        raw, state, sample_key, *train_arrays, steps
-                    )
-                    validation_ce, validation_rows = score_sequences(
-                        raw, parts["validation"], model, stats
-                    )
-                    validation = sum(r["release_nll"] for r in validation_rows) / sum(
-                        r["n_trials"] for r in validation_rows
-                    )
-                    if not np.isfinite(validation) or not np.isfinite(float(train_loss)):
-                        raise FloatingPointError(
-                            f"{run_id}: nonfinite objective; last finite checkpoint retained."
-                        )
-                    metadata["step"] += steps
-                    metadata["history"].append(
-                        dict(
-                            step=metadata["step"],
-                            validation_cross_entropy=validation_ce,
-                            validation_release_score=validation,
-                            last_batch_objective=float(train_loss),
-                        )
-                    )
-                    if validation < metadata["best_validation"]:
-                        metadata.update(best_step=metadata["step"], best_validation=validation)
-                        best_raw = raw
-                    _save_checkpoint(checkpoint, raw, state, sample_key, best_raw, metadata)
-                    print(
-                        f"{run_id}: {metadata['step']:,}/{max_steps:,} steps; "
-                        f"validation release score {validation:.5f}",
-                        flush=True,
-                    )
-                serialized = (
-                    {k: np.asarray(v).tolist() for k, v in best_raw.items()}
-                    if isinstance(best_raw, dict)
-                    else np.asarray(best_raw).tolist()
-                )
-                summary = (
-                    dict(
-                        zip(
-                            PARAMETER_NAMES[model],
-                            np.asarray(transform_parameters(best_raw, model)).tolist(),
-                        )
-                    )
-                    if model in MODEL_NAMES
-                    else neural_bandit.parameter_summary(best_raw, model)
-                )
-                record = dict(
-                    model=model,
-                    setting_index=setting_index,
-                    repeat=repeat,
-                    setting=setting,
-                    effective_batch_size=training_setting["batch_size"],
-                    best_raw=serialized,
-                    parameters=summary,
-                    **metadata,
-                )
-                done_file.write_text(json.dumps(record, indent=2, allow_nan=False))
-                records.append(record)
-                completed_now += 1
+    manifest = build_manifest(
+        settings,
+        split_details,
+        identities,
+        fingerprint_sequences(sequences),
+        library_versions(),
+        read_source_snapshots(models),
+    )
+    output = write_manifest(output_root, manifest)
+    config = _FitConfig(parts, train_arrays, fit_seed, max_steps, validation_every)
+    records = _sweep_fits(models, grid, n_seeds, config, output, max_new_runs)
     expected = len(models) * len(grid) * n_seeds
     if len(records) != expected:
-        return dict(
-            complete=False,
-            completed_runs=len(records),
-            expected_runs=expected,
-            output_dir=str(output),
-            split_mice=identities,
-            **split_details,
-            selected=[],
-            test_sessions=[],
-        )
-    selected, test_sessions = [], []
-    for model in models:
-        winner = min(
-            (r for r in records if r["model"] == model), key=lambda r: r["best_validation"]
-        )
-        # The winner is fixed before the test data reach the scoring function.
-        best_raw = (
-            {k: jnp.asarray(v) for k, v in winner["best_raw"].items()}
-            if isinstance(winner["best_raw"], dict)
-            else jnp.asarray(winner["best_raw"])
-        )
-        validation_ce, _ = score_sequences(best_raw, parts["validation"], model)
-        test_ce, rows = score_sequences(best_raw, parts["test"], model)
-        winner_file = output / f"{model}_selected_parameters.npz"
-        with winner_file.open("wb") as file:
-            np.savez(file, **best_raw) if isinstance(best_raw, dict) else np.savez(
-                file, parameters=np.asarray(best_raw)
-            )
-        selected.append(
-            dict(
-                model=model,
-                setting=winner["setting"],
-                repeat=winner["repeat"],
-                selected_step=winner["best_step"],
-                parameters=winner["parameters"],
-                parameters_file=winner_file.name,
-                validation_cross_entropy=validation_ce,
-                validation_release_score=winner["best_validation"],
-                test_cross_entropy=test_ce,
-                test_release_score=sum(r["release_nll"] for r in rows)
-                / sum(r["n_trials"] for r in rows),
-                effective_batch_size=winner["effective_batch_size"],
-                geometric_mean_choice_probability=float(np.exp(-test_ce)),
-            )
-        )
-        test_sessions.extend(dict(model=model, **r) for r in rows)
-    result = dict(
-        complete=True,
-        completed_runs=len(records),
-        expected_runs=expected,
-        output_dir=str(output),
-        split_mice=identities,
-        **split_details,
-        selected=selected,
-        test_sessions=test_sessions,
-    )
-    (output / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
-    return result
+        return _sweep_result(records, expected, output, identities, split_details, [], [])
+    return _finish_sweep(models, records, parts, output, identities, split_details)
 
 
 def run_problem_sweep(sequences, output_root, test_problems=None, max_new_runs=None, **kwargs):
