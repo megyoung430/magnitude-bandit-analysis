@@ -74,7 +74,7 @@ def _block_id_at(blocks, idx):
     return blocks[idx] if idx < len(blocks) else None
 
 
-def _window_indices(boundaries, k, n_trials, pre, post):
+def _window_indices(boundaries, k, n_trials, *, pre, post):
     """Absolute ``(pre_idx, post_idx)`` trial indices around boundary number *k*.
 
     The post-window never extends past the next boundary (or the last trial).
@@ -97,7 +97,11 @@ def _slice_choices(choices, pre_idx, post_idx):
 
 
 def _before_trial(idx):
-    """Trial whose reward magnitudes describe the state just before boundary *idx*."""
+    """Trial whose reward magnitudes describe the state just before boundary *idx*.
+
+    Boundary 0 has no preceding trial, so it returns 0: with ``include_first_block``
+    the first record's "before" and "after" values both come from trial 0.
+    """
     return idx - 1 if idx > 0 else 0
 
 
@@ -108,7 +112,7 @@ def _rewards_at(reward_by_tower, towers, trial):
     return {t: reward_by_tower[t][trial] for t in towers}
 
 
-def _skip_message(subj, idx, boundary_source, series, towers, max_zero_count):
+def _skip_message(subj, idx, boundary_source, series, towers, *, max_zero_count):
     """Why boundary *idx* must be skipped, or ``None`` if it is usable."""
     missing = [t for t in towers if t not in series.reward_by_tower]
     if missing:
@@ -132,16 +136,19 @@ def _good_reversal_number(series, idx, block_id):
     """Cumulative good-reversal count at *idx*, falling back to ``block_id - 1``."""
     if series.good is not None and idx < len(series.good):
         return series.good[idx]
-    # Latent bug: block_id is None when blocks is shorter than idx, so this raises
-    # TypeError instead of yielding None. Behaviour is preserved deliberately.
+    # Known bug: block_id is None when blocks is shorter than idx, so this raises
+    # TypeError instead of yielding None.
     return block_id - 1
 
 
-def _build_reversal(series, towers, boundaries, boundary_source, k, n_trials, pre, post):
-    """Assemble the reversal dict for boundary number *k* (documented in the public function)."""
-    idx = boundaries[k]
-    pre_idx, post_idx = _window_indices(boundaries, k, n_trials, pre, post)
+def _build_reversal(series, towers, boundary_source, idx, pre_idx, post_idx):
+    """Assemble the reversal dict for the boundary at trial *idx* (see the public docstring).
+
+    Only called for boundaries that passed :func:`_skip_message`, so every tower's
+    reward array reaches the trial before *idx*.
+    """
     block_id = _block_id_at(series.blocks, idx)
+    before = _before_trial(idx)
     return {
         "reversal_idx": idx,
         "boundary_source": boundary_source,
@@ -149,16 +156,14 @@ def _build_reversal(series, towers, boundaries, boundary_source, k, n_trials, pr
         "block_id": block_id,
         "towers": towers,
         "trial_window_idx": {"pre": pre_idx, "post": post_idx},
-        "reward_magnitudes_by_tower_before": _rewards_at(
-            series.reward_by_tower, towers, _before_trial(idx)
-        ),
+        "reward_magnitudes_by_tower_before": {t: series.reward_by_tower[t][before] for t in towers},
         "reward_magnitudes_by_tower_after": _rewards_at(series.reward_by_tower, towers, idx),
         "choices_by_tower": _slice_choices(series.choices_by_tower, pre_idx, post_idx),
         "choices_by_rank": _slice_choices(series.choices_by_rank, pre_idx, post_idx),
     }
 
 
-def _subject_reversals(subj, series, sessions, pre, post, include_first_block, max_zero_count):
+def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block, max_zero_count):
     """Reversal dicts for one subject; ``[]`` when there is nothing to window."""
     n_trials = _count_trials(series)
     if n_trials == 0:
@@ -175,13 +180,16 @@ def _subject_reversals(subj, series, sessions, pre, post, include_first_block, m
 
     reversals = []
     for k, idx in enumerate(boundaries):
-        message = _skip_message(subj, idx, boundary_source, series, towers, max_zero_count)
+        message = _skip_message(
+            subj, idx, boundary_source, series, towers, max_zero_count=max_zero_count
+        )
         if message is not None:
             print(message)
             continue
-        reversals.append(
-            _build_reversal(series, towers, boundaries, boundary_source, k, n_trials, pre, post)
-        )
+        # Windows are computed from the full boundary list, so a kept reversal's
+        # post-window still stops at a neighbouring boundary that was skipped.
+        pre_idx, post_idx = _window_indices(boundaries, k, n_trials, pre=pre, post=post)
+        reversals.append(_build_reversal(series, towers, boundary_source, idx, pre_idx, post_idx))
     return reversals
 
 
@@ -223,7 +231,9 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         - ``"good_reversal_number"`` (int | None): Cumulative good-reversal
           count at this reversal, or ``block_id - 1`` as a fallback.
         - ``"block_id"`` (int | None): Block identifier at the reversal trial.
-        - ``"towers"`` (list[str]): Tower keys present in the reward data.
+        - ``"towers"`` (list[str]): Tower keys from the reward data, or from the
+          choice data when there is no reward data (boundaries are then skipped
+          as missing towers).
         - ``"trial_window_idx"`` (dict): ``{"pre": [...], "post": [...]}``
           lists of absolute trial indices.
         - ``"reward_magnitudes_by_tower_before"`` (dict): Tower → magnitude on
@@ -241,10 +251,10 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
             subj,
             _SubjectSeries.from_merged(d),
             data.get(subj, {}),
-            pre,
-            post,
-            include_first_block,
-            max_zero_count,
+            pre=pre,
+            post=post,
+            include_first_block=include_first_block,
+            max_zero_count=max_zero_count,
         )
         for subj, d in merged_subject_data_across_all_sessions.items()
     }

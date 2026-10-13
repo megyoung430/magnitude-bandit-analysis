@@ -83,11 +83,11 @@ def test_rewards_at_is_all_none_when_any_array_is_too_short():
 def test_skip_message_reports_each_reason_in_order():
     rewards = {"A": [0, 0, 1], "B": [0, 1, 1], "C": [1, 1]}
     s = series(blocks=[1, 1, 2], reward_magnitudes_by_tower=rewards)
-    assert "missing towers" in mod._skip_message("s", 1, "blocks", s, ["A", "Z"], 1)
-    assert "too short" in mod._skip_message("s", 3, "blocks", s, ["A", "B", "C"], 1)
-    zero_msg = mod._skip_message("s", 1, "blocks", s, ["A", "B"], 0)
+    assert "missing towers" in mod._skip_message("s", 1, "blocks", s, ["A", "Z"], max_zero_count=1)
+    assert "too short" in mod._skip_message("s", 3, "blocks", s, ["A", "B", "C"], max_zero_count=1)
+    zero_msg = mod._skip_message("s", 1, "blocks", s, ["A", "B"], max_zero_count=0)
     assert "more than 0 zero rewards in [0, 0]" in zero_msg and "block 1" in zero_msg
-    assert mod._skip_message("s", 1, "blocks", s, ["A", "B"], 2) is None
+    assert mod._skip_message("s", 1, "blocks", s, ["A", "B"], max_zero_count=2) is None
 
 
 def test_good_reversal_number_prefers_good_array():
