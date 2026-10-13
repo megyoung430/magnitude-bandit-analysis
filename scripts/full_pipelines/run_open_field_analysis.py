@@ -7,8 +7,7 @@ Edit the settings below, then run:
 Figures are written under results/figures/<task>/<cohort>/problem-NN/.
 """
 
-from src.behavior_import.extract_trials import extract_trials_grouped_by_problem
-from src.behavior_import.import_data import import_data
+from src.behavior_import.load_trials import load_trials_by_problem
 from src.pipelines.open_field import ChoiceProbabilitySettings, run_open_field_analysis
 from src.settings import REPO_ROOT, get_settings
 
@@ -39,7 +38,7 @@ def main() -> None:
         print(f"  {name}: {value}")
 
     raw_data = get_settings().data_root / FOLDER_NAME / COHORT / "rawdata"
-    subjects_trials_by_problem = extract_trials_grouped_by_problem(import_data(raw_data))
+    subjects_trials_by_problem = load_trials_by_problem(raw_data)
     run_open_field_analysis(
         subjects_trials_by_problem,
         task=TASK,

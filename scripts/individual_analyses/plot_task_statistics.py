@@ -1,9 +1,8 @@
 from pathlib import Path
 
 from src.behavior_analysis.get_task_statistics import get_block_lengths
-from src.behavior_import.extract_trials import extract_trials_grouped_by_problem
 from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
-from src.behavior_import.import_data import import_data
+from src.behavior_import.load_trials import load_trials_by_problem
 from src.behavior_visualization.plot_task_statistics import plot_block_lengths
 from src.settings import get_settings
 
@@ -20,8 +19,7 @@ elif task == "open-field":
     folder_name = "3x3_field_blocked_reward_bandit"
 root = get_settings().data_root / folder_name / cohort / "rawdata"
 
-subjects_data = import_data(root)
-subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
+subjects_trials_by_problem = load_trials_by_problem(root)
 if task == "grid-maze" and cohort == "cohort-02":
     subjects_trials_by_problem = fix_grid_maze_cohort_02_problems(subjects_trials_by_problem)
 

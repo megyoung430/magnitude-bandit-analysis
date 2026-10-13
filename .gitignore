@@ -30,3 +30,6 @@ results/
 
 # Machine-specific settings (see .env.example)
 .env
+
+# Disposable on-disk cache (src/behavior_import/load_trials.py)
+.cache/
