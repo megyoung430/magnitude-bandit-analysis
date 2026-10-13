@@ -137,9 +137,8 @@ def test_twin_axis_label_and_limits(fraction, label, ylim):
         np.arange(3), {"good": np.array([0.0, 1.0, 5.0])}, fraction=fraction
     )
     assert ax2.get_ylabel() == label
-    assert (
-        ax2.yaxis.label.get_rotation() == 270
-    )  # matplotlib normalises -90 and ax2.yaxis.labelpad == 15
+    assert ax2.yaxis.label.get_rotation() == 270  # matplotlib normalises -90
+    assert ax2.yaxis.labelpad == 15
     assert ax2.get_ylim() == pytest.approx(ylim)
     assert not ax2.spines["top"].get_visible()
 
@@ -148,7 +147,9 @@ def test_removal_axis_sits_behind_a_transparent_host_axis():
     _, ax = plt.subplots()
     series = {"good": np.array([0.0, 1.0, 2.0])}
     ax2 = plot_cumulative_removed(np.arange(3), series, fraction=True, ax=ax)
-    assert not ax.patch.get_visible()  # otherwise the host's background hides the twin
+    # otherwise the host's background hides the twin (matplotlib already hides it once the
+    # host is raised, so this pins the outcome rather than the explicit call)
+    assert not ax.patch.get_visible()
     assert ax.get_zorder() > ax2.get_zorder()
 
 
@@ -216,6 +217,10 @@ def test_public_broken_axis_figure_layout(across, shown):
     assert fig._suptitle.get_text() == TITLE + "(Skipping first 4 trials post-reversal)"
     assert fig._suptitle.get_position()[1] == 1.03
     assert fig._supxlabel.get_text() == "Trials from Good Reversal"
+    left, right = fig.axes
+    # the skipped trials are applied to the raw offsets exactly once
+    assert left.lines[0].get_xdata().tolist() == [-3, -2, -1, 0]
+    assert right.lines[0].get_xdata().tolist() == list(range(1 + 4, 11 + 4 + 1))
 
 
 @pytest.mark.parametrize("use_total", [True, False])
