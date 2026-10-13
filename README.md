@@ -83,6 +83,17 @@ instructions on accessing it locally (SMB mount) or on the HPC cluster
 (VS Code + SLURM), see the **Setting Up magnitude-bandit-analysis** page
 on the project Notion.
 
+Scripts and notebooks find the data through `BANDIT_DATA_ROOT`, the directory
+that contains the experiment folders. Set it once per machine:
+
+```bash
+cp .env.example .env      # .env is git-ignored
+# then edit BANDIT_DATA_ROOT, e.g. /Volumes/behrens/meg on a Mac with ceph mounted
+```
+
+If the variable is unset or the directory isn't mounted, `get_settings()` raises
+immediately with a clear message instead of failing later inside `import_data`.
+
 ## Code organisation
 
 | Module | What it does |

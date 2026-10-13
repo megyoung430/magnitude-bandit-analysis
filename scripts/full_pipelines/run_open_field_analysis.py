@@ -18,6 +18,7 @@ from src.behavior_visualization.plot_num_reversals import *
 from src.behavior_analysis.get_rank_counts_by_good_reversal import *
 from src.behavior_visualization.plot_rank_proportions import *
 from src.behavior_visualization.plot_single_session import *
+from src.settings import get_settings
 
 task = "open-field"
 cohort = "cohort-01"
@@ -54,7 +55,7 @@ print(f"  Post: {post}")
 print(f"  Skip N Trials After Reversal: {skip_n_trials_after_reversal}")
 print(f"  Moving Avg Window: {moving_avg_window}")
 
-root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
+root = get_settings().data_root / folder_name / cohort / "rawdata"
 subjects_data = import_data(root)
 subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
 
