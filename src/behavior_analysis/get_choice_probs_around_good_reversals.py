@@ -239,10 +239,15 @@ def smooth_pre_post(y, pre_mask, window, mode="centered"):
 
 
 def add_smoothed_means(curves, use_keys, out_keys, smooth):
-    """Copy of one subject's dict with ``smooth(curves[src])`` stored under each ``dst``."""
+    """Copy of one subject's dict with ``smooth(<src>)`` stored under each ``dst``.
+
+    Sources are read from the copy being written, in order, so an output key
+    that is also a *later* input key feeds its smoothed value into that later
+    entry (chained smoothing).
+    """
     smoothed = dict(curves)
     for src, dst in zip(use_keys, out_keys, strict=False):  # extra keys on either side are ignored
-        smoothed[dst] = smooth(curves[src])
+        smoothed[dst] = smooth(smoothed[src])
     return smoothed
 
 

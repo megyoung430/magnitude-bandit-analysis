@@ -281,6 +281,28 @@ def test_apply_moving_average_without_usable_subjects():
     assert across["se"] == {"prev_best": None, "next_best": None, "third": None}
 
 
+def test_apply_moving_average_chained_keys_read_the_already_smoothed_value():
+    # out_keys[1] ("c") is also use_keys[2], so the third curve is smoothed from the
+    # value just written to "c": q = smooth(smooth(b)), not smooth(b).
+    x = np.array([-2, -1, 0, 1])
+    curves = {"a": [1, 0.4, 0.8, 0.4], "b": [0, 0.4, 0, 0.4], "c": [0, 0, 0, 0]}
+    per_subject = {"m1": {k: np.array(v, dtype=float) for k, v in curves.items()}}
+    _, smoothed, across = apply_moving_average_to_choice_probs(
+        x,
+        per_subject,
+        moving_avg_window=2,
+        mode="trailing",
+        use_keys=("a", "b", "c"),
+        out_keys=("p", "c", "q"),
+        split_at=-10,  # every bin is post-reversal: one segment
+    )
+    np.testing.assert_allclose(smoothed["m1"]["c"], [0, 0.2, 0.2, 0.2])
+    np.testing.assert_allclose(smoothed["m1"]["q"], [0, 0.1, 0.2, 0.2])
+    np.testing.assert_array_equal(per_subject["m1"]["c"], [0, 0, 0, 0])  # input untouched
+    total = sum(across["mean"][k] for k in ("prev_best", "next_best", "third"))
+    np.testing.assert_allclose(total, 1.0)
+
+
 def test_apply_moving_average_rejects_probabilities_off_one():
     x = np.array([-1, 0])
     per_subject = {"m1": per_subject_curves([0.9, 0.9], [0, 0], [0, 0])}
