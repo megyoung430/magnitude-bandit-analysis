@@ -6,11 +6,15 @@ from src.behavior_import.extract_trials import (
     add_reward_magnitude_features,
     assign_problem_ordinals,
     available_towers,
+    fill_missing_chosen_rank_from_rank_counts,
     group_sessions_by_problem,
+    infer_rank_from_counts,
     problem_signature,
     reward_magnitude_features,
     session_sort_key,
     signed_sessions,
+    standardize_rank_counts,
+    standardize_rank_key,
     top_magnitudes,
 )
 
@@ -192,3 +196,83 @@ def test_group_sessions_by_problem_numbers_each_subject_independently():
     out = group_sessions_by_problem(data)
     assert list(out[1]) == ["m1", "m2"]
     assert list(out[2]) == ["m1"]
+
+
+# --- filling chosen_rank from rank_counts ---
+
+
+def counts(best, second, third):
+    return {"best": best, "second": second, "third": third}
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("second_best", "second"),
+        (" Third Best ", "third"),
+        ("BEST", "best"),
+        ("Fourth", "fourth"),  # unknown labels are only stripped and lower-cased
+        (None, None),
+        (3, 3),
+    ],
+)
+def test_standardize_rank_key(key, expected):
+    assert standardize_rank_key(key) == expected
+
+
+def test_standardize_rank_counts_drops_unknown_keys_and_non_dicts():
+    assert standardize_rank_counts({"second best": 2, "best": 1, "fourth": 9}) == {
+        "second": 2,
+        "best": 1,
+    }
+    assert standardize_rank_counts(None) == {}
+
+
+@pytest.mark.parametrize(
+    ("current", "previous", "first", "expected"),
+    [
+        (counts(2, 1, 0), counts(1, 1, 0), False, "best"),
+        (counts(1, 1, 0), counts(1, 1, 0), False, None),  # nothing incremented
+        (counts(2, 2, 0), counts(1, 1, 0), False, None),  # ambiguous: two incremented
+        (counts(0, 0, 3), {}, True, "third"),  # first trial: biggest count wins
+        (counts(2, 2, 1), {}, True, "best"),  # ...earliest rank on ties
+        (counts(0, 0, 0), {}, True, None),  # ...but only if positive
+        ({"best": None, "second": 1}, {}, False, "second"),  # None counts as zero
+    ],
+)
+def test_infer_rank_from_counts(current, previous, first, expected):
+    assert infer_rank_from_counts(current, previous, first) == expected
+
+
+def test_fill_missing_chosen_rank_fills_only_the_none_entries():
+    session = {
+        "chosen_rank": ["second", None, None, None],
+        "rank_counts": [counts(0, 1, 0), counts(0, 1, 1), counts(1, 1, 1), counts(1, 1, 1)],
+    }
+    out = fill_missing_chosen_rank_from_rank_counts(session)
+    assert out is session
+    assert session["chosen_rank"] == ["second", "third", "best", None]
+
+
+def test_fill_missing_chosen_rank_reads_label_variants():
+    session = {
+        "chosen_rank": [None, None],
+        "rank_counts": [{"second_best": 1}, {"second_best": 1, "third best": 1}],
+    }
+    fill_missing_chosen_rank_from_rank_counts(session)
+    assert session["chosen_rank"] == ["second", "third"]
+
+
+@pytest.mark.parametrize(
+    "session",
+    [
+        {"rank_counts": [counts(1, 0, 0)]},
+        {"chosen_rank": [None]},
+        {"chosen_rank": [], "rank_counts": []},
+        {"chosen_rank": [None, None], "rank_counts": [counts(1, 0, 0)]},
+    ],
+)
+def test_fill_missing_chosen_rank_skips_unusable_sessions(session):
+    before = {k: list(v) for k, v in session.items()}
+    fill_missing_chosen_rank_from_rank_counts(session)
+    assert session == before

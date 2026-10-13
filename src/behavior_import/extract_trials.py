@@ -59,6 +59,9 @@ SPECIAL_VARS = {"trials_in_block"}
 
 TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
 
+# Standard rank labels, best first.
+RANK_KEYS = ("best", "second", "third")
+
 def extract_trials_grouped_by_problem(data, merge_recurring_problems=False):
     """Extract trial variables and group sessions into problems by choice tower set.
 
@@ -367,6 +370,62 @@ def unpack_chosen_rank(session_data):
     session_data["choices_by_rank"] = choices_by_rank
     return session_data
 
+RANK_LABEL_MAP = {
+    "second_best": "second",
+    "third_best": "third",
+    "second best": "second",
+    "third best": "third",
+    "best": "best",
+    "second": "second",
+    "third": "third",
+}
+
+def standardize_rank_key(k):
+    """Normalise rank key *k* to ``"best"``, ``"second"``, or ``"third"``.
+
+    Unrecognised strings come back stripped and lower-cased; ``None`` and
+    non-strings are returned unchanged.
+    """
+    if k is None:
+        return k
+    if isinstance(k, str):
+        return RANK_LABEL_MAP.get(k.strip().lower(), RANK_LABEL_MAP.get(k, k.strip().lower()))
+    return k
+
+def standardize_rank_counts(counts):
+    """Return *counts* keyed only by ``"best"``/``"second"``/``"third"``.
+
+    Other keys are dropped. A trial whose counts are not a dict yields ``{}``.
+    """
+    if not isinstance(counts, dict):
+        return {}
+    pairs = [(standardize_rank_key(k), v) for k, v in counts.items()]
+    return {k: v for k, v in pairs if k in RANK_KEYS}
+
+def infer_rank_from_counts(current, previous, is_first_trial):
+    """Infer the rank chosen on a trial from the change in cumulative rank counts.
+
+    Args:
+        current: Standardised cumulative counts after this trial.
+        previous: Standardised cumulative counts after the previous trial
+            (``{}`` for the first trial).
+        is_first_trial: Whether this is the session's first trial.
+
+    Returns:
+        The one rank whose count went up. On the first trial, if no single
+        rank went up, the rank with the largest count (earliest on ties) as
+        long as that count is positive. ``None`` if the rank is ambiguous.
+    """
+    deltas = {rk: (current.get(rk, 0) or 0) - (previous.get(rk, 0) or 0) for rk in RANK_KEYS}
+    increased = [rk for rk, delta in deltas.items() if delta > 0]
+    if len(increased) == 1:
+        return increased[0]
+    if is_first_trial:
+        top = max(RANK_KEYS, key=lambda rk: current.get(rk, 0) or 0)
+        if (current.get(top, 0) or 0) > 0:
+            return top
+    return None
+
 def fill_missing_chosen_rank_from_rank_counts(session_data):
     """Infer missing ``chosen_rank`` entries from ``rank_counts`` increments.
 
@@ -382,69 +441,23 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
 
     Returns:
         The same *session_data* dict with ``"chosen_rank"`` filled in where
-        possible.
+        possible. Left untouched if either key is missing or empty, or if
+        their lengths differ.
     """
     if "chosen_rank" not in session_data or "rank_counts" not in session_data:
         return session_data
 
     chosen = session_data.get("chosen_rank", [])
     rank_counts = session_data.get("rank_counts", [])
-
     if not chosen or not rank_counts or len(chosen) != len(rank_counts):
         return session_data
 
-    key_map = {
-        "second_best": "second",
-        "third_best": "third",
-        "second best": "second",
-        "third best": "third",
-        "best": "best",
-        "second": "second",
-        "third": "third",
-    }
-
-    def standardized_key(k):
-        """Normalise rank key *k* to ``"best"``, ``"second"``, or ``"third"``."""
-        if k is None:
-            return k
-        if isinstance(k, str):
-            return key_map.get(k.strip().lower(), key_map.get(k, k.strip().lower()))
-        return k
-
-    standardized_rank_counts = []
-    for d in rank_counts:
-        if not isinstance(d, dict):
-            standardized_rank_counts.append({})
-            continue
-        dd = {}
-        for k, v in d.items():
-            kk = standardized_key(k)
-            if kk in ("best", "second", "third"):
-                dd[kk] = v
-        standardized_rank_counts.append(dd)
-
-    filled = list(chosen)
-
-    for i in range(len(filled)):
-        if filled[i] is not None:
-            continue
-
-        curr = standardized_rank_counts[i]
-        prev = standardized_rank_counts[i - 1] if i > 0 else {}
-
-        deltas = {rk: (curr.get(rk, 0) or 0) - (prev.get(rk, 0) or 0) for rk in ("best", "second", "third")}
-
-        inc = [rk for rk, dv in deltas.items() if dv > 0]
-        if len(inc) == 1:
-            filled[i] = inc[0]
-        elif i == 0:
-            rk0 = max(("best", "second", "third"), key=lambda rk: curr.get(rk, 0) or 0)
-            if (curr.get(rk0, 0) or 0) > 0:
-                filled[i] = rk0
-        else:
-            pass
-
-    session_data["chosen_rank"] = filled
+    counts = [standardize_rank_counts(d) for d in rank_counts]
+    previous_counts = [{}, *counts[:-1]]
+    session_data["chosen_rank"] = [
+        rank if rank is not None else infer_rank_from_counts(current, previous, i == 0)
+        for i, (rank, current, previous) in enumerate(zip(chosen, counts, previous_counts, strict=True))
+    ]
     return session_data
 
 def session_has_any_key(trial_info, keys):
@@ -880,8 +893,6 @@ def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems
     return problems
 
 # --- Adding Variables to Analyze Value ---
-RANK_KEYS = ("best", "second", "third")
-
 def available_towers(towers_entry, magnitudes):
     """Return the tower identifiers on offer in one trial.
 
