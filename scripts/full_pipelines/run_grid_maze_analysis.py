@@ -18,13 +18,14 @@ from src.behavior_visualization.plot_num_reversals import *
 from src.behavior_analysis.get_rank_counts_by_good_reversal import *
 from src.behavior_visualization.plot_rank_proportions import *
 from src.behavior_visualization.plot_single_session import *
+from src.settings import get_settings
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from scripts.fix_grid_maze_cohort_02_problems import *
 
 task = "grid-maze"
 cohort = "cohort-02"
 folder_name = "3x3_maze_blocked_reward_bandit"
-root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
+root = get_settings().data_root / folder_name / cohort / "rawdata"
 subjects_data = import_data(root)
 subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
 subjects_trials_by_problem = fix_grid_maze_cohort_02_problems(subjects_trials_by_problem)
