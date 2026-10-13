@@ -30,6 +30,8 @@ def _snapshots(df):
         if row["subtype"] not in ("run_start", "run_end"):
             continue
         content = row["content"]
+        # Known issue: a run_start snapshot that fails to parse is skipped, so the
+        # baseline becomes 0 and events from earlier runs can be counted again.
         try:
             d = content if isinstance(content, dict) else json.loads(content)
         except (ValueError, TypeError):
@@ -68,11 +70,16 @@ def _session_order(key):
 
 
 def _session_frames(sess):
+    # A session without ``data`` has zero runs, so it contributes no trials.
     frames = sess.get("data", [])
     return frames if isinstance(frames, list) else [frames]
 
 
 def _run_variables(sess, run_index):
+    # ``extract_trials`` writes ``trial_variables = {}`` for sessions with no bandit
+    # trials, so the empty fallback occurs on real data: that run has zero trials.
+    # If the frames and trial variables differ in length, the surplus runs are
+    # treated the same way and their trials are dropped.
     variables = sess.get("trial_variables", [])
     if isinstance(variables, list) and run_index < len(variables):
         return variables[run_index]
@@ -141,7 +148,7 @@ def _run_total(last_count, start, end, kind, baseline):
     """Events in a run: the larger of what trials, end snapshot and total counters show."""
     final = end.get(kind)
     total = max(last_count, int(final) - baseline) if final is not None else last_count
-    # Total counters are an independent fallback for end snapshots.
+    # Total counters are independent evidence; take whichever source shows more events.
     a, b = start.get("total_" + kind), end.get("total_" + kind)
     if a is not None and b is not None and b >= a:
         total = max(total, int(b - a))
@@ -232,8 +239,8 @@ def _reconcile_run(df, tv, previous, carried, trial_offset, run_index):
 
 def _correct_blocks(original_blocks, events):
     """Add the boundary events at or before each trial to the block counter."""
-    # A session whose blocks are all None raises TypeError here (None + int); the
-    # extractor is expected to supply integer blocks, so this is left to fail.
+    # Any None block raises TypeError (None + int); the extractor is expected to
+    # supply integer blocks, so a missing one is not handled here.
     return [
         b + sum(e["count"] for e in events if e["index"] <= i)
         for i, b in enumerate(original_blocks)

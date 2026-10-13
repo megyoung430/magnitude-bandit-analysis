@@ -140,7 +140,7 @@ def test_correct_blocks_with_no_blocks():
     assert _correct_blocks([], [dict(index=0, count=1)]) == []
 
 
-def test_correct_blocks_with_missing_values_fails_loudly():
+def test_correct_blocks_raises_type_error_on_none_block():
     with pytest.raises(TypeError):
         _correct_blocks([None, None], [])
 
