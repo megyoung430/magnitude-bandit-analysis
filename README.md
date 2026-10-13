@@ -94,6 +94,16 @@ cp .env.example .env      # .env is git-ignored
 If the variable is unset or the directory isn't mounted, `get_settings()` raises
 immediately with a clear message instead of failing later inside `import_data`.
 
+### Cached imports
+
+Scripts load data with `load_trials_by_problem(root)`
+(`src/behavior_import/load_trials.py`), which caches the result of
+`extract_trials_grouped_by_problem(import_data(root))` in `.cache/`
+(git-ignored; override with `BANDIT_CACHE_DIR`). The cache key includes every
+raw `.tsv` file's path, size and modification time and a hash of
+`src/behavior_import/`, so new sessions or import-code changes trigger a fresh
+import automatically. Delete `.cache/` at any time; it only costs a re-import.
+
 ## Code organisation
 
 | Module | What it does |
