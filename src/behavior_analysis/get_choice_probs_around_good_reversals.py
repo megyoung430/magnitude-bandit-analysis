@@ -27,7 +27,13 @@ _MEAN_KEYS = {role: f"{role}_mean" for role in _TOWER_ROLES}
 
 
 def _keep_zero_then_skip(post_list: list, skip: int) -> list:
-    """Return *post_list* with index 0 kept and the next ``skip - 1`` elements dropped."""
+    """Return *post_list* with index 0 kept and indices ``1 .. skip - 1`` dropped.
+
+    That is ``skip - 1`` trials removed, not ``skip``.  Known issue: callers
+    that read "skip n trials" literally get one trial too few skipped, and the
+    result is one element longer than the shortened x axis, so the row's last
+    post trial is cut by :func:`_pad_to_length`.
+    """
     if skip <= 0:
         return post_list
     return post_list[:1] + post_list[skip:]
@@ -46,7 +52,9 @@ def _reversal_choice_rows(reversal: dict, *, skip: int, length: int) -> dict[str
 
     Args:
         reversal: A reversal dict from ``get_good_reversal_info``.
-        skip: Post-window trials to skip after the reversal trial itself.
+        skip: Post trial 0 (the reversal trial) is kept and post trials
+            ``1 .. skip - 1`` are dropped, i.e. ``skip - 1`` trials (see
+            :func:`_keep_zero_then_skip`).
         length: Row length; shorter windows are NaN-padded, longer truncated.
 
     Returns:
@@ -81,8 +89,11 @@ def _summarize_subject(matrices: dict[str, np.ndarray]) -> dict:
 def _mean_and_se(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """NaN-aware column mean and standard error of a ``(n_rows, n_bins)`` stack.
 
-    The standard error divides by ``sqrt(n_rows)`` (NaN bins still count as
-    rows) and is zero when there is a single row.
+    The standard error is zero when there is a single row.
+
+    Known issue: it divides by ``sqrt(n_rows)`` even where some rows are NaN in
+    a bin, so the SE is underestimated in bins where windows were truncated
+    (it should divide by the number of finite rows in that bin).
     """
     n_rows, n_bins = stack.shape
     mean = np.nanmean(stack, axis=0)
@@ -106,6 +117,7 @@ def _across_subject_curves(per_subject: dict[str, dict], keys_by_role: dict[str,
         stack = np.vstack([curves[key] for curves in per_subject.values()])
         across["mean"][role], across["se"][role] = _mean_and_se(stack)
     across["num_subjects"] = len(per_subject)
+    # Curves supplied without a count (e.g. hand-built dicts) contribute 0 reversals.
     across["num_reversals"] = sum(curves.get("num_reversals", 0) for curves in per_subject.values())
     return across
 
@@ -119,6 +131,10 @@ def _assert_probabilities_sum_to_one(
         mean_by_role: ``{role: array}`` as in ``across["mean"]``.
         label: Noun phrase for the failure message, e.g. ``"Choice probabilities"``.
         allow_no_finite_bins: If ``False``, a sum that is NaN everywhere also fails.
+
+    Raises:
+        AssertionError: If any finite bin does not sum to 1, or if no bin is
+            finite and *allow_no_finite_bins* is ``False``.
     """
     total = mean_by_role["prev_best"] + mean_by_role["next_best"] + mean_by_role["third"]
     finite_sums = total[np.isfinite(total)]
@@ -156,9 +172,11 @@ def get_choice_probs_around_good_reversals(
             :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
         pre: Number of trials before the reversal to include (default: 10).
         post: Number of trials after the reversal to include (default: 40).
-        skip_n_trials_after_reversal: Number of trials immediately after the
-            reversal index to skip (index 0 of the post window is always kept
-            as the reversal trial itself; default: 0).
+        skip_n_trials_after_reversal: ``n``; post trial 0 (the reversal trial)
+            is always kept.  Known issue: this drops only post trials
+            ``1 .. n - 1``, i.e. ``n - 1`` trials (``n = 15`` skips 14), and
+            ``x`` is shortened by ``n``, so each row's last post trial is cut
+            as well.  Default: 0 (nothing skipped).
 
     Returns:
         A three-tuple ``(x, per_subject, across)`` where:
@@ -213,6 +231,8 @@ def _nan_moving_average(
     Each output bin is the mean of the finite values inside its window; bins
     whose window holds no finite value are NaN.  ``mode="trailing"`` averages
     the current and previous ``window - 1`` bins, anything else is centred.
+    A centred window of even width ``w`` covers bins ``[i - w/2, i + w/2 - 1]``
+    (two before and one after for ``w = 4``).
     A *window* of ``None`` or ``<= 1`` returns *y* as a float array.
     """
     y = np.asarray(y, dtype=float)
@@ -227,9 +247,9 @@ def _nan_moving_average(
         num = np.convolve(y0, kernel, mode="full")[: len(y0)]
         den = np.convolve(valid, kernel, mode="full")[: len(y0)]
     else:
-        # Known issue: np.convolve(mode="same") returns
-        # max(len(y), len(kernel)) values, so a centred window longer than the
-        # segment makes the caller's masked assignment raise an IndexError.
+        # Known issue: np.convolve(mode="same") returns max(len(y), len(kernel))
+        # values, so a centred window longer than the segment makes the masked
+        # assignment in _smooth_pre_post raise an IndexError.
         num = np.convolve(y0, kernel, mode="same")
         den = np.convolve(valid, kernel, mode="same")
 
@@ -264,7 +284,11 @@ def _add_smoothed_means(
     entry (chained smoothing).
     """
     smoothed = dict(curves)
-    for src, dst in zip(use_keys, out_keys, strict=False):  # extra keys on either side are ignored
+    # Contract: use_keys and out_keys hold exactly three entries, in the order of
+    # _TOWER_ROLES (prev_best, next_best, third); the caller reads out_keys[i] for
+    # role i.  strict=False only avoids a ZipError here: a shorter use_keys makes
+    # the later out_keys lookup raise KeyError, a shorter out_keys an IndexError.
+    for src, dst in zip(use_keys, out_keys, strict=False):
         smoothed[dst] = smooth(smoothed[src])
     return smoothed
 
@@ -303,12 +327,19 @@ def apply_moving_average_to_choice_probs(
             :func:`get_choice_probs_around_good_reversals`.
         moving_avg_window: Kernel width for the moving average (default: 5).
         mode: ``"centered"`` (default) or ``"trailing"``.  Controls whether
-            the convolution kernel is centred or trailing.
-        use_keys: Source keys in each subject dict to smooth (default:
-            ``("prev_best_mean", "next_best_mean", "third_mean")``).
-        out_keys: Destination keys to write smoothed values to (default:
-            ``("prev_best_mean_sm", "next_best_mean_sm",
-            "third_mean_sm")``).
+            the convolution kernel is centred or trailing.  An even centred
+            window of width ``w`` covers bins ``[i - w/2, i + w/2 - 1]`` (for
+            ``w = 4``: two before, one after).  A centred window longer than
+            the pre or post segment raises ``IndexError``; use a shorter
+            window or ``"trailing"``.
+        use_keys: Exactly three source keys in each subject dict, one per
+            tower role in the order prev-best, next-best, third (default:
+            ``("prev_best_mean", "next_best_mean", "third_mean")``).  Subjects
+            lacking any of them are dropped from the result.
+        out_keys: Exactly three destination keys, in the same role order (default:
+            ``("prev_best_mean_sm", "next_best_mean_sm", "third_mean_sm")``).
+            Keys are processed in order, so an output key that is also a later
+            input key chains the smoothing.
         split_at: Trial-offset value that separates pre and post segments
             (default: 0, i.e. the reversal trial itself begins the post
             segment).
@@ -322,7 +353,7 @@ def apply_moving_average_to_choice_probs(
     per_subject_moving_avg = {
         subj: _add_smoothed_means(curves, use_keys, out_keys, smooth)
         for subj, curves in per_subject.items()
-        if all(k in curves for k in use_keys)
+        if all(k in curves for k in use_keys)  # subjects without the requested curves are dropped
     }
     smoothing_params = {"moving_avg_window": moving_avg_window, "mode": mode, "split_at": split_at}
 
@@ -375,6 +406,7 @@ def _truncate_reversal_at_bad(
     (both ``None`` when there is nothing to cut).
     """
     out = deepcopy(reversal)
+    # No reversal_idx means there is no interval to search: the window passes through uncut.
     reversal_idx = out.get("reversal_idx", None)
     bad_idx = (
         None
@@ -433,6 +465,9 @@ def remove_trials_after_bad_rev(good_windows, all_good_idx, all_bad_idx, include
     """
     out = {}
     for subj, good_revs in good_windows.items():
+        # A reversal without "reversal_idx" sorts first (as 0) and is passed through
+        # uncut; a subject absent from the index dicts has no known goods/bads, so
+        # none of its windows are cut.
         revs_sorted = sorted(good_revs, key=lambda rev: rev.get("reversal_idx", 0))
         goods = sorted(all_good_idx.get(subj, []))
         bads = sorted(all_bad_idx.get(subj, []))
