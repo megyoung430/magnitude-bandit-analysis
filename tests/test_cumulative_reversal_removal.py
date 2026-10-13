@@ -145,19 +145,40 @@ def test_removal_curves_match_brute_force_on_random_data():
 
 def test_cumulative_removal_series_total_and_good_bad_modes():
     wins = windows(A=[10, 20])
-    total = cumulative_removal_series(X, wins, None, None, use_total=True, fraction=True)
-    assert list(total) == ["Total Rev"]
+    total = cumulative_removal_series(wins, None, None, X, use_total=True, fraction=True)
+    assert list(total) == ["total"]
     good_bad = cumulative_removal_series(
-        X, wins, {"A": [10]}, {"A": [20]}, use_total=False, fraction=False
+        wins, {"A": [10]}, {"A": [20]}, X, use_total=False, fraction=False
     )
-    assert list(good_bad) == ["Good Rev", "Bad Rev"]
-    assert np.nanmax(good_bad["Good Rev"]) == 0  # the bad reversal at 20 follows the anchor at 10
-    assert np.nanmax(good_bad["Bad Rev"]) == 1
+    assert list(good_bad) == ["good", "bad"]
+    assert np.nanmax(good_bad["good"]) == 0  # the bad reversal at 20 follows the anchor at 10
+    assert np.nanmax(good_bad["bad"]) == 1
+
+
+def test_cumulative_removal_series_fraction_or_counts():
+    wins = windows(A=[10, 20])
+    counts = cumulative_removal_series(wins, None, None, X, use_total=True, fraction=False)
+    fractions = cumulative_removal_series(wins, None, None, X, use_total=True, fraction=True)
+    assert np.nanmax(counts["total"]) == 1 and np.nanmax(fractions["total"]) == 0.5
 
 
 def test_cumulative_removal_series_good_bad_mode_requires_both_index_dicts():
     wins = windows(A=[10])
-    with pytest.raises(ValueError, match="all_good_idx and all_bad_idx"):
-        cumulative_removal_series(X, wins, {"A": [10]}, None, use_total=False, fraction=True)
-    with pytest.raises(ValueError, match="all_good_idx and all_bad_idx"):
-        cumulative_removal_series(X, wins, None, {"A": [10]}, use_total=None, fraction=True)
+    with pytest.raises(ValueError, match="good_idx and bad_idx"):
+        cumulative_removal_series(wins, {"A": [10]}, None, X, use_total=False, fraction=True)
+    with pytest.raises(ValueError, match="good_idx and bad_idx"):
+        cumulative_removal_series(wins, None, {"A": [10]}, X, use_total=None, fraction=True)
+
+
+def test_no_anchors_reports_zero_removed_rather_than_no_data():
+    # documented fallback: the denominator is clamped to 1, so 0 anchors gives 0%, not nan
+    _, frac = total_removal_curves({"A": []}, X)
+    assert np.nanmax(frac) == 0.0 and not np.isnan(frac[X >= 0]).any()
+
+
+def test_total_removal_only_counts_reversals_that_are_anchors():
+    # Known issue pinned here: a bad reversal at 15 is not in the windows, so it cuts nothing
+    wins = windows(A=[10])
+    cum_total, _ = total_removal_curves(wins, X)
+    cum_good, cum_bad, _, _ = good_bad_removal_curves(wins, {"A": [10]}, {"A": [15]}, X)
+    assert np.nanmax(cum_total) == 0 and np.nanmax(cum_bad) == 1

@@ -7,19 +7,24 @@ reversal onwards. The functions here count removed anchors per offset:
 
 - :func:`good_bad_removal_curves` splits removals by whether the next reversal
   was good or bad (the two fractions sum to at most 1).
-- :func:`total_removal_curves` counts a removal by any later reversal in the windows.
+- :func:`total_removal_curves` counts a removal by any later reversal that is
+  itself an anchor in the windows.
+
+Known issue: callers build the windows from good reversals only, so the total
+curve never sees bad reversals and understates removal compared with the sum of
+the good and bad curves. Use :func:`good_bad_removal_curves` when bad reversals
+matter.
 
 All functions are pure; offsets before the reversal (``x < 0``) are ``nan``.
+Series are keyed by kind (``"good"``, ``"bad"``, ``"total"``); display labels
+belong to the plotting code.
 """
 
 import numpy as np
-
-TOTAL_LABEL = "Total Rev"
-GOOD_LABEL = "Good Rev"
-BAD_LABEL = "Bad Rev"
+from numpy.typing import ArrayLike
 
 
-def post_window_steps(x) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def post_window_steps(x: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Locate the post-reversal offsets of *x* on a grid of integer trial steps.
 
     Returns:
@@ -85,14 +90,37 @@ def _check_fraction(fraction: np.ndarray) -> None:
         raise AssertionError("Fraction removed exceeds 1.0")
 
 
+def _anchor_count(anchors: dict[str, np.ndarray]) -> int:
+    """Total anchors, at least 1 so fractions are 0 rather than nan when there are none."""
+    # Known issue: with 0 anchors the curves report 0% removed instead of "no data".
+    return max(sum(a.size for a in anchors.values()), 1)
+
+
+def _subject_removals(
+    anchors: np.ndarray, good: ArrayLike, bad: ArrayLike, steps: np.ndarray, exclude_anchor: bool
+) -> np.ndarray:
+    """``[good, bad]`` cumulative removal counts over *steps* for one subject's anchors."""
+    goods, bads = np.unique(good), np.unique(bad)
+    delays, next_reversals = next_reversal_delays(anchors, np.union1d(goods, bads), exclude_anchor)
+    # every reversal comes from one of the two lists, so "not good" means bad
+    next_is_good = np.isin(next_reversals, goods)
+    return np.stack(
+        [
+            cumulative_counts(delays[next_is_good], steps),
+            cumulative_counts(delays[~next_is_good], steps),
+        ]
+    )
+
+
 def good_bad_removal_curves(
-    windows: dict, good_idx: dict, bad_idx: dict, x, exclude_anchor: bool = True
+    windows: dict, good_idx: dict, bad_idx: dict, x: ArrayLike, exclude_anchor: bool = True
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Anchors removed by a later good / bad reversal, per offset of *x*.
 
     Each anchor in *windows* is removed once, by the first later reversal in
     ``good_idx`` or ``bad_idx`` of its subject, so the good and bad fractions
-    sum to at most 1.
+    sum to at most 1. A subject missing from either dict is treated as having
+    no reversals of that kind.
 
     Args:
         windows: ``{subject: [reversal_dict]}``; each dict's ``reversal_idx`` is an anchor.
@@ -109,32 +137,33 @@ def good_bad_removal_curves(
     if not post_mask.any():
         return tuple(np.full(post_mask.shape, np.nan) for _ in range(4))
 
-    removed_good = np.zeros(steps.size)
-    removed_bad = np.zeros(steps.size)
     anchors = _anchors_by_subject(windows)
-    for subject, subject_anchors in anchors.items():
-        goods = np.unique(good_idx.get(subject, []))
-        bads = np.unique(bad_idx.get(subject, []))
-        delays, next_reversals = next_reversal_delays(
-            subject_anchors, np.union1d(goods, bads), exclude_anchor
+    # Known issue: a subject absent from good_idx / bad_idx is treated as having no
+    # reversals of that kind instead of raising, so a mismatched dict hides removals.
+    per_subject = (
+        _subject_removals(
+            a, good_idx.get(subject, []), bad_idx.get(subject, []), steps, exclude_anchor
         )
-        # every reversal comes from one of the two lists, so "not good" means bad
-        next_is_good = np.isin(next_reversals, goods)
-        removed_good += cumulative_counts(delays[next_is_good], steps)
-        removed_bad += cumulative_counts(delays[~next_is_good], steps)
+        for subject, a in anchors.items()
+    )
+    removed_good, removed_bad = sum(per_subject, np.zeros((2, steps.size)))
 
     cumulative_good = _over_x(removed_good, post_mask, step_idx)
     cumulative_bad = _over_x(removed_bad, post_mask, step_idx)
-    n_anchors = max(sum(a.size for a in anchors.values()), 1)
+    n_anchors = _anchor_count(anchors)
     fraction_good, fraction_bad = cumulative_good / n_anchors, cumulative_bad / n_anchors
     _check_fraction(fraction_good + fraction_bad)
     return cumulative_good, cumulative_bad, fraction_good, fraction_bad
 
 
 def total_removal_curves(
-    windows: dict, x, exclude_anchor: bool = True
+    windows: dict, x: ArrayLike, exclude_anchor: bool = True
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Anchors removed by any later reversal in *windows*, per offset of *x*.
+    """Anchors removed by a later reversal that is itself an anchor, per offset of *x*.
+
+    Known issue: only reversals present as anchors in *windows* can cut a window.
+    Callers build windows from good reversals, so bad reversals never count here
+    and this understates removal relative to :func:`good_bad_removal_curves`.
 
     Returns:
         ``(cumulative, fraction)``, each the length of *x*.
@@ -143,38 +172,50 @@ def total_removal_curves(
     if not post_mask.any():
         return np.full(post_mask.shape, np.nan), np.full(post_mask.shape, np.nan)
 
-    removed = np.zeros(steps.size)
     anchors = _anchors_by_subject(windows)
-    for subject_anchors in anchors.values():
-        delays, _ = next_reversal_delays(subject_anchors, subject_anchors, exclude_anchor)
-        removed += cumulative_counts(delays, steps)
+    # Known issue: the reversals that can cut a window are the anchors themselves
+    # (see the docstring), not every reversal of the subject.
+    removed = sum(
+        (
+            cumulative_counts(next_reversal_delays(a, a, exclude_anchor)[0], steps)
+            for a in anchors.values()
+        ),
+        np.zeros(steps.size),
+    )
 
     cumulative = _over_x(removed, post_mask, step_idx)
-    fraction = cumulative / max(sum(a.size for a in anchors.values()), 1)
+    fraction = cumulative / _anchor_count(anchors)
     _check_fraction(fraction)
     return cumulative, fraction
 
 
 def cumulative_removal_series(
-    x, windows: dict, good_idx, bad_idx, *, use_total, fraction: bool
+    windows: dict,
+    good_idx: dict | None,
+    bad_idx: dict | None,
+    x: ArrayLike,
+    *,
+    use_total: bool | None,
+    fraction: bool,
 ) -> dict[str, np.ndarray]:
-    """The removal curves to draw, ``{label: values over x}``.
+    """The removal curves to draw, ``{kind: values over x}``.
 
-    Total mode (*use_total* truthy) has one entry; good/bad mode has ``Good Rev``
-    and ``Bad Rev`` and needs both index dicts. *fraction* picks fractions over counts.
-    Anchors are always the strictly-later-reversal kind (``exclude_anchor=True``).
+    Total mode (*use_total* truthy) has one entry, ``"total"``; good/bad mode has
+    ``"good"`` and ``"bad"`` and needs both index dicts. *fraction* picks
+    fractions over counts. Only reversals strictly after the anchor count
+    (``exclude_anchor=True``).
 
     Raises:
-        ValueError: In good/bad mode if *good_idx* or *bad_idx* is missing.
+        ValueError: In good/bad mode if *good_idx* or *bad_idx* is ``None``.
     """
     if use_total:
         cumulative, frac = total_removal_curves(windows, x, exclude_anchor=True)
-        return {TOTAL_LABEL: frac if fraction else cumulative}
+        return {"total": frac if fraction else cumulative}
     if good_idx is None or bad_idx is None:
-        raise ValueError("For mode='goodbad', provide all_good_idx and all_bad_idx.")
+        raise ValueError("Good/bad mode (use_total is falsy) needs both good_idx and bad_idx.")
     cum_good, cum_bad, frac_good, frac_bad = good_bad_removal_curves(
         windows, good_idx, bad_idx, x, exclude_anchor=True
     )
     if fraction:
-        return {GOOD_LABEL: frac_good, BAD_LABEL: frac_bad}
-    return {GOOD_LABEL: cum_good, BAD_LABEL: cum_bad}
+        return {"good": frac_good, "bad": frac_bad}
+    return {"good": cum_good, "bad": cum_bad}

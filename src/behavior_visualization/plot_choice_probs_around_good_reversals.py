@@ -7,8 +7,9 @@ fraction of data removed as subsequent reversals occur within the post window.
 Two cumulative-axis modes are available:
 
 - *total* mode (``use_total=True``): a single orange step-line showing the
-  fraction of anchor windows that have been "cut short" by *any* subsequent
-  reversal.
+  fraction of anchor windows that have been "cut short" by a subsequent
+  reversal that is itself an anchor in the windows. Known issue: windows are
+  built from good reversals, so bad reversals never cut a window in this mode.
 - *good/bad* mode (default): separate orange (good) and red (bad) step-lines
   that together sum to ≤ 1.
 
@@ -20,16 +21,15 @@ if you don't.  The removal curves themselves are computed in
 """
 
 import warnings
+from collections.abc import Collection
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
+from numpy.typing import ArrayLike
 
 from src.behavior_analysis.cumulative_reversal_removal import (
-    BAD_LABEL,
-    GOOD_LABEL,
-    TOTAL_LABEL,
     cumulative_removal_series,
     good_bad_removal_curves,
     total_removal_curves,
@@ -37,11 +37,9 @@ from src.behavior_analysis.cumulative_reversal_removal import (
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR_MAP
 
 CURVE_LABELS = [("prev_best", "Previous Best"), ("next_best", "New Best"), ("third", "Third Arm")]
-REMOVAL_STYLES = {
-    TOTAL_LABEL: "#FF9100",
-    GOOD_LABEL: "#FF9100",
-    BAD_LABEL: "#CD0000",
-}
+# Removal series are keyed by kind in the analysis; these map a kind to what is drawn.
+KIND_LABELS = {"total": "Total Rev", "good": "Good Rev", "bad": "Bad Rev"}
+KIND_COLORS = {"total": "#FF9100", "good": "#FF9100", "bad": "#CD0000"}
 PLAIN_YLIM = (-0.05, 1.05)
 REMOVAL_YLIM = (0, 1)
 X_LABEL = "Trials from Good Reversal"
@@ -97,7 +95,7 @@ def _full_xlim(x_disp) -> tuple[float, float]:
     return (np.nanmin(x_disp), np.nanmax(x_disp))
 
 
-def plot_choice_probs(x, across: dict, ax: plt.Axes | None = None) -> plt.Axes:
+def plot_choice_probs(x: ArrayLike, across: dict, ax: plt.Axes | None = None) -> plt.Axes:
     """Mean ± SE choice-probability curves around good reversals on one axis.
 
     Args:
@@ -114,6 +112,14 @@ def plot_choice_probs(x, across: dict, ax: plt.Axes | None = None) -> plt.Axes:
     ax.set_title(_title(across), pad=20)
     ax.legend(loc="upper right", fontsize=10)
     return ax
+
+
+def _skipped_offsets(x: ArrayLike, skip_n_trials_after_reversal: int) -> np.ndarray:
+    """Offsets with the post-reversal ones (``>= 1``) shifted right by the skipped trials."""
+    x_disp = np.asarray(x, dtype=float).copy()
+    if skip_n_trials_after_reversal > 0:
+        x_disp[x_disp >= 1] += skip_n_trials_after_reversal
+    return x_disp
 
 
 def _broken_xlims(x_disp, skip_n_trials_after_reversal: int):
@@ -150,13 +156,18 @@ def _style_broken_axes(ax_left: plt.Axes, ax_right: plt.Axes, right_start: float
 
 
 def plot_choice_probs_broken_axis(
-    x_disp, across: dict, skip_n_trials_after_reversal: int, axes=None
+    x: ArrayLike,
+    across: dict,
+    skip_n_trials_after_reversal: int,
+    axes: tuple[plt.Axes, plt.Axes] | None = None,
 ) -> tuple[plt.Axes, plt.Axes]:
     """Choice-probability curves on a broken x axis that omits the skipped trials.
 
+    The post-reversal offsets (``>= 1``) of *x* are shifted right by the skipped
+    trials here, so the right-hand segment starts just after the omitted gap.
+
     Args:
-        x_disp: Trial offsets with the post-reversal ones already shifted by
-            *skip_n_trials_after_reversal*.
+        x: Trial offsets relative to the reversal, unshifted.
         across: Aggregated statistics dict.
         skip_n_trials_after_reversal: Number of omitted trials (> 0).
         axes: ``(left, right)`` axes to draw into; a new figure if ``None``.
@@ -165,7 +176,7 @@ def plot_choice_probs_broken_axis(
     Returns:
         The ``(left, right)`` axes.
     """
-    x_disp = np.asarray(x_disp, dtype=float)
+    x_disp = _skipped_offsets(x, skip_n_trials_after_reversal)
     left_xlim, right_xlim = _broken_xlims(x_disp, skip_n_trials_after_reversal)
     ax_left, ax_right = _broken_axes(left_xlim, right_xlim) if axes is None else axes
 
@@ -195,21 +206,25 @@ def _count_ylim(series: dict[str, np.ndarray], mask: np.ndarray) -> tuple[float,
 
 
 def plot_cumulative_removed(
-    x,
+    x: ArrayLike,
     series: dict[str, np.ndarray],
     *,
     fraction: bool,
-    hidden=(),
+    hidden: Collection[str] = (),
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
     """Step curves of data removed by later reversals on a twin (right-hand) y axis.
 
+    Side effect on the host *ax*: it is raised above the twin (zorder 1 vs 0) and
+    its background patch is hidden, so the twin's curves show behind the host's.
+
     Args:
         x: Trial offsets.
-        series: ``{label: values over x}`` as from
+        series: ``{kind: values over x}`` (kinds ``"total"``, ``"good"``, ``"bad"``)
+            as from
             :func:`src.behavior_analysis.cumulative_reversal_removal.cumulative_removal_series`.
         fraction: Whether *series* holds fractions (axis 0-1) or raw counts.
-        hidden: Labels in *series* to leave undrawn; they still determine which
+        hidden: Kinds in *series* to leave undrawn; they still determine which
             bins are finite and the count axis limits.
         ax: Axis to attach the twin to; a new figure if ``None``.
 
@@ -225,16 +240,16 @@ def plot_cumulative_removed(
     ax.patch.set_visible(False)
 
     mask = _finite_everywhere(x, series)
-    for label, values in series.items():
-        if label not in hidden:
+    for kind, values in series.items():
+        if kind not in hidden:
             ax2.step(
                 x[mask],
                 values[mask],
                 where="post",
                 linewidth=2.0,
-                color=REMOVAL_STYLES[label],
+                color=KIND_COLORS[kind],
                 alpha=0.7,
-                label=label,
+                label=KIND_LABELS[kind],
             )
     ax2.set_ylabel(
         "Fraction of Data Removed" if fraction else "Cumulative Reversals",
@@ -247,15 +262,25 @@ def plot_cumulative_removed(
 
 
 def plot_choice_probs_with_removal(
-    x,
+    x: ArrayLike,
     across: dict,
     series: dict[str, np.ndarray],
     *,
     fraction: bool,
-    hidden=(),
+    hidden: Collection[str] = (),
     ax: plt.Axes | None = None,
 ) -> tuple[plt.Axes, plt.Axes]:
     """Choice-probability curves with the data-removed twin axis and a merged legend.
+
+    Args:
+        x: Trial offsets relative to the reversal.
+        across: Aggregated statistics dict.
+        series: ``{kind: values over x}`` removal curves; see
+            :func:`plot_cumulative_removed`.
+        fraction: Whether *series* holds fractions (twin axis 0-1) or raw counts.
+        hidden: Kinds in *series* to leave undrawn (still used for the axis limits).
+        ax: Axis to draw into; a new figure if ``None``. Its zorder and
+            background are changed by :func:`plot_cumulative_removed`.
 
     Returns:
         ``(ax, ax2)``: the main axis and its twin.
@@ -293,22 +318,16 @@ def _save_or_show(fig: plt.Figure, save_path) -> None:
     plt.close(fig)
 
 
-def _skipped_offsets(x, skip_n_trials_after_reversal: int) -> np.ndarray:
-    """Offsets with the post-reversal ones (``>= 1``) shifted right by the skipped trials."""
-    x_disp = np.asarray(x, dtype=float).copy()
-    if skip_n_trials_after_reversal > 0:
-        x_disp[x_disp >= 1] += skip_n_trials_after_reversal
-    return x_disp
-
-
-def _plain_figure(x, across: dict) -> plt.Figure:
+def _plain_figure(x: ArrayLike, across: dict) -> plt.Figure:
     ax = plot_choice_probs(x, across)
     ax.figure.tight_layout()
     return ax.figure
 
 
-def _broken_axis_figure(x_disp, across: dict, skip_n_trials_after_reversal: int) -> plt.Figure:
-    ax_left, _ = plot_choice_probs_broken_axis(x_disp, across, skip_n_trials_after_reversal)
+def _broken_axis_figure(
+    x: ArrayLike, across: dict, skip_n_trials_after_reversal: int
+) -> plt.Figure:
+    ax_left, _ = plot_choice_probs_broken_axis(x, across, skip_n_trials_after_reversal)
     fig = ax_left.figure
     fig.supxlabel(X_LABEL)
     fig.suptitle(
@@ -322,17 +341,17 @@ def _broken_axis_figure(x_disp, across: dict, skip_n_trials_after_reversal: int)
 
 
 def plot_choice_probs_around_good_reversals(
-    x,
-    across,
-    add_cumulative_axis=True,
-    only_good=False,
-    use_total=False,
-    windows_for_cumulative_axis=None,
-    all_good_idx=None,
-    all_bad_idx=None,
-    skip_n_trials_after_reversal=0,
-    save_path=None,
-):
+    x: ArrayLike,
+    across: dict,
+    add_cumulative_axis: bool = True,
+    only_good: bool = False,
+    use_total: bool = False,
+    windows_for_cumulative_axis: dict | None = None,
+    all_good_idx: dict | None = None,
+    all_bad_idx: dict | None = None,
+    skip_n_trials_after_reversal: int = 0,
+    save_path: str | Path | None = None,
+) -> None:
     """Plot reversal-aligned choice-probability curves for a single dataset.
 
     Mean ± SE curves for the Previous Best, New Best and Third Arm, optionally
@@ -361,39 +380,40 @@ def plot_choice_probs_around_good_reversals(
         save_path: Base path without extension for ``.pdf`` / ``.png`` output;
             if ``None``, the figure is shown.
     """
-    if skip_n_trials_after_reversal <= 0:
-        fig = _plain_figure(x, across)
-        if add_cumulative_axis:
-            # The plain figure above is neither saved nor closed: only the figure
-            # from add_cumulative_rev_axis is output, and the plain one stays open.
-            add_cumulative_rev_axis(
-                x,
-                across,
-                windows_for_cumulative_axis,
-                all_good_idx,
-                all_bad_idx,
-                save_path,
-                only_good=only_good,
-                use_total=use_total,
-            )
-            return
+    if skip_n_trials_after_reversal > 0:
+        fig = _broken_axis_figure(x, across, skip_n_trials_after_reversal)
+    elif add_cumulative_axis:
+        # Known issue: this plain figure is never saved or closed, so it is shown as a
+        # duplicate alongside the cumulative figure (or, when saving, leaks one open
+        # figure per call). Only the cumulative figure is output.
+        _plain_figure(x, across)
+        add_cumulative_rev_axis(
+            x,
+            across,
+            windows_for_cumulative_axis,
+            all_good_idx,
+            all_bad_idx,
+            save_path,
+            only_good=only_good,
+            use_total=use_total,
+        )
+        return
     else:
-        x_disp = _skipped_offsets(x, skip_n_trials_after_reversal)
-        fig = _broken_axis_figure(x_disp, across, skip_n_trials_after_reversal)
+        fig = _plain_figure(x, across)
     _save_or_show(fig, save_path)
 
 
 def add_cumulative_rev_axis(
-    x,
-    across,
-    windows_for_cumulative_axis=None,
-    all_good_idx=None,
-    all_bad_idx=None,
-    save_path=None,
-    plot_fraction_removed=True,
-    only_good=False,
-    use_total=None,
-):
+    x: ArrayLike,
+    across: dict,
+    windows_for_cumulative_axis: dict | None = None,
+    all_good_idx: dict | None = None,
+    all_bad_idx: dict | None = None,
+    save_path: str | Path | None = None,
+    plot_fraction_removed: bool = True,
+    only_good: bool = False,
+    use_total: bool | None = None,
+) -> None:
     """Plot choice-probability curves with a cumulative fraction-removed twin axis.
 
     Creates a new figure with the reversal-aligned mean ± SE curves on the
@@ -425,10 +445,10 @@ def add_cumulative_rev_axis(
     """
     x = np.asarray(x, dtype=float)
     series = cumulative_removal_series(
-        x,
         windows_for_cumulative_axis,
         all_good_idx,
         all_bad_idx,
+        x,
         use_total=use_total,
         fraction=plot_fraction_removed,
     )
@@ -438,7 +458,7 @@ def add_cumulative_rev_axis(
         across,
         series,
         fraction=plot_fraction_removed,
-        hidden=(BAD_LABEL,) if only_good else (),
+        hidden=("bad",) if only_good else (),
         ax=ax,
     )
     fig.tight_layout()
@@ -451,8 +471,13 @@ def add_cumulative_rev_axis(
 
 
 def cumulative_reversal_events_over_post(
-    good_windows, all_good_idx, all_bad_idx, x, across, exclude_anchor_good=True
-):
+    good_windows: dict,
+    all_good_idx: dict,
+    all_bad_idx: dict,
+    x: ArrayLike,
+    across: dict | None,
+    exclude_anchor_good: bool = True,
+) -> tuple[np.ndarray, ...]:
     """Compute cumulative good/bad reversal removal curves over the post window.
 
     For each aligned good-reversal anchor *g*, finds the first subsequent
@@ -484,12 +509,18 @@ def cumulative_reversal_events_over_post(
     return (x.copy(), *curves)
 
 
-def cumulative_total_events_over_post(windows, x, across, exclude_anchor=True):
+def cumulative_total_events_over_post(
+    windows: dict, x: ArrayLike, across: dict | None, exclude_anchor: bool = True
+) -> tuple[np.ndarray, ...]:
     """Compute a single cumulative fraction-removed curve over the post window.
 
     For each aligned anchor reversal at index *g*, finds the first subsequent
-    reversal after *g* (any type) and marks that anchor as removed for all
-    offsets ``t >= (next_rev - g)``.
+    reversal after *g* that is itself an anchor in *windows* and marks *g* as
+    removed for all offsets ``t >= (next_rev - g)``.
+
+    Known issue: windows are built from good reversals, so bad reversals never
+    cut a window here; use :func:`cumulative_reversal_events_over_post` to count
+    them.
 
     This produces a monotonically non-decreasing step function bounded in
     ``[0, 1]``.  The computation is
