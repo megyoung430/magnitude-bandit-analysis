@@ -7,8 +7,14 @@ that mimic the experimental paradigm.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import matplotlib.pyplot as plt
 import numpy as np
+
+# Default sweep grids, shared module-level arrays that are never mutated.
+DEFAULT_SIG_VALUES = np.arange(5, 30, 1)
+DEFAULT_MAX_BLOCK_LENS = np.arange(20, 81, 1)
 
 
 def sample_two_gp_bandits(
@@ -49,6 +55,123 @@ def sample_two_gp_bandits(
     gp_raw = scale * (L @ xs) + shift
     gp_int = np.clip(np.round(gp_raw), clip[0], clip[1]).astype(int)
     return gp_int, gp_raw
+
+
+class ArmState(NamedTuple):
+    """Which arm is inactive, which two are active, and which GP stream each follows."""
+
+    inactive_arm: int
+    active_arms: tuple[int, ...]
+    arm_to_gp: dict[int, int]
+
+
+def initial_arm_state() -> ArmState:
+    """Arms 0 and 1 follow GP streams 0 and 1; arm 2 starts inactive."""
+    return ArmState(inactive_arm=2, active_arms=(0, 1), arm_to_gp={0: 0, 1: 1})
+
+
+def draw_block_boundaries(
+    rng: np.random.Generator,
+    min_block_len: int,
+    max_block_len: int,
+    n_blocks_draw: int,
+    T: int,
+) -> np.ndarray:
+    """Cumulative block ends (in trials) that fall strictly inside a session of *T*.
+
+    Draws all *n_blocks_draw* block lengths in one ``rng.integers`` call, so the
+    RNG advances identically regardless of how many boundaries survive.
+    """
+    block_lengths = rng.integers(min_block_len, max_block_len + 1, size=n_blocks_draw)
+    boundaries = np.cumsum(block_lengths)
+    return boundaries[boundaries < T]
+
+
+def trial_arm_values(state: ArmState, stream_row: np.ndarray) -> np.ndarray:
+    """Reward value of each of the three arms on one trial.
+
+    The inactive arm is 0; each active arm takes the value of the GP stream it follows.
+    """
+    row = np.zeros(3, dtype=float)
+    for arm in state.active_arms:
+        row[arm] = stream_row[state.arm_to_gp[arm]]
+    return row
+
+
+def swap_arms(state: ArmState, vals_row: np.ndarray) -> ArmState:
+    """Block swap: the best arm goes inactive and the old inactive arm re-enters.
+
+    The re-entering arm inherits the GP stream of the arm that just left; the
+    other active arm keeps its stream.
+    """
+    best_arm = int(np.argmax(vals_row))
+    old_inactive = state.inactive_arm
+    inherited_gp = state.arm_to_gp.get(best_arm, 0)
+    remaining = [a for a in state.active_arms if a != best_arm]
+    if not remaining:
+        remaining = [a for a in [0, 1, 2] if a != best_arm and a != old_inactive][:1]
+    other_active = remaining[0]
+    other_gp = state.arm_to_gp[other_active]
+    return ArmState(
+        inactive_arm=best_arm,
+        active_arms=(old_inactive, other_active),
+        arm_to_gp={other_active: other_gp, old_inactive: inherited_gp},
+    )
+
+
+def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
+    """``(T, 3)`` arm values for a session, swapping arms after each boundary trial.
+
+    A boundary *b* means the swap takes effect after trial index ``b - 1``.
+    """
+    boundary_set = set(boundaries.tolist())
+    state = initial_arm_state()
+    vals3 = np.zeros((len(streams), 3), dtype=float)
+    for t, stream_row in enumerate(streams):
+        vals3[t] = trial_arm_values(state, stream_row)
+        if (t + 1) in boundary_set:
+            state = swap_arms(state, vals3[t])
+    return vals3
+
+
+def gap_best_minus_second(vals3: np.ndarray) -> np.ndarray:
+    """Per-trial difference between the best and second-best arm value."""
+    sorted_vals = np.sort(vals3, axis=1)
+    return sorted_vals[:, -1] - sorted_vals[:, -2]
+
+
+def best_run_lengths(best_arm_series: np.ndarray) -> np.ndarray:
+    """Lengths of consecutive stretches in which the same arm is best."""
+    changes = np.where(best_arm_series[1:] != best_arm_series[:-1])[0] + 1
+    return np.diff(np.r_[0, changes, len(best_arm_series)]).astype(float)
+
+
+def summarize_session(
+    vals3: np.ndarray, boundaries: np.ndarray, gp_int: np.ndarray, gp_raw: np.ndarray
+) -> tuple[tuple[float, float, float, float], dict]:
+    """Gap and run-length metrics plus the session dict for simulated arm values.
+
+    Returns:
+        ``((mean_gap, frac_gap_ge2, mean_run_length, std_run_length), session)``.
+    """
+    best_minus_second = gap_best_minus_second(vals3)
+    best_arm_series = np.argmax(vals3, axis=1)
+    run_lengths = best_run_lengths(best_arm_series)
+    metrics = (
+        float(best_minus_second.mean()),
+        float((best_minus_second >= 2).mean()),
+        float(run_lengths.mean()),
+        float(run_lengths.std(ddof=0)),
+    )
+    session = {
+        "vals3": vals3,
+        "boundaries": boundaries,
+        "best_arm_series": best_arm_series,
+        "best_minus_second": best_minus_second,
+        "gp_int": gp_int,
+        "gp_raw": gp_raw,
+    }
+    return metrics, session
 
 
 def simulate_3armed_blockswaps_gp(
@@ -97,82 +220,19 @@ def simulate_3armed_blockswaps_gp(
     if min_block_len is None:
         min_block_len = max_block_len - 10
 
-    gp_int, gp_raw = sample_two_gp_bandits(
-        T=T,
-        sig=sig,
-        scale=scale,
-        shift=shift,
-        clip=clip,
-        jitter=jitter,
-        rng=rng,
-    )
+    # RNG order matters for seeded reproducibility: GP noise first, then block lengths.
+    gp_int, gp_raw = sample_two_gp_bandits(T, sig, scale, shift, clip, jitter, rng)
     streams = gp_raw if use_raw else gp_int  # (T, 2)
+    boundaries = draw_block_boundaries(rng, min_block_len, max_block_len, n_blocks_draw, T)
+    vals3 = build_arm_values(streams, boundaries)
 
-    block_lengths = rng.integers(min_block_len, max_block_len + 1, size=n_blocks_draw)
-    boundaries = np.cumsum(block_lengths)
-    boundaries = boundaries[boundaries < T]
-    boundary_set = set(boundaries.tolist())
-
-    inactive_arm = 2
-    active_arms = [0, 1]
-    arm_to_gp = {0: 0, 1: 1}
-
-    vals3 = np.zeros((T, 3), dtype=float)
-
-    for t in range(T):
-        vals3[t, inactive_arm] = 0.0
-        for a in active_arms:
-            vals3[t, a] = streams[t, arm_to_gp[a]]
-
-        if (t + 1) in boundary_set:
-            best_arm = int(np.argmax(vals3[t]))
-            old_inactive = inactive_arm
-            inherited_gp = arm_to_gp.get(best_arm, 0)
-            other_active = [a for a in active_arms if a != best_arm]
-            if not other_active:
-                other_active = [a for a in [0, 1, 2] if a != best_arm and a != old_inactive][:1]
-            other_active = other_active[0]
-            inactive_arm = best_arm
-            active_arms = [old_inactive, other_active]
-            other_gp = arm_to_gp[other_active]
-            arm_to_gp = {other_active: other_gp, old_inactive: inherited_gp}
-
-    # Gap metrics
-    sorted_vals = np.sort(vals3, axis=1)
-    best_minus_second = sorted_vals[:, -1] - sorted_vals[:, -2]
-    mean_best_minus_second = float(best_minus_second.mean())
-    frac_gap_ge2 = float((best_minus_second >= 2).mean())
-
-    # Run-length metrics
-    best_arm_series = np.argmax(vals3, axis=1)
-    changes = np.where(best_arm_series[1:] != best_arm_series[:-1])[0] + 1
-    run_lengths = np.diff(np.r_[0, changes, T]).astype(float)
-    mean_best_run_length = float(run_lengths.mean())
-    std_best_run_length = float(run_lengths.std(ddof=0))
-
-    if return_session:
-        session = {
-            "vals3": vals3,
-            "boundaries": boundaries,
-            "best_arm_series": best_arm_series,
-            "best_minus_second": best_minus_second,
-            "gp_int": gp_int,
-            "gp_raw": gp_raw,
-        }
-        return (
-            mean_best_minus_second,
-            frac_gap_ge2,
-            mean_best_run_length,
-            std_best_run_length,
-            session,
-        )
-
-    return mean_best_minus_second, frac_gap_ge2, mean_best_run_length, std_best_run_length
+    metrics, session = summarize_session(vals3, boundaries, gp_int, gp_raw)
+    return (*metrics, session) if return_session else metrics
 
 
 def sweep_gp_metrics(
-    sig_values: np.ndarray = np.arange(5, 30, 1),
-    max_block_lens: np.ndarray = np.arange(20, 81, 1),
+    sig_values: np.ndarray = DEFAULT_SIG_VALUES,
+    max_block_lens: np.ndarray = DEFAULT_MAX_BLOCK_LENS,
     T: int = 150,
     n_sims: int = 1000,
     seed: int = 0,
@@ -304,6 +364,61 @@ def plot_gp_heatmaps_pair_2(
     plt.show()
 
 
+def format_session_title(
+    sig: float, max_block_len: int, metrics: tuple[float, float, float, float]
+) -> str:
+    """Default title: session parameters plus ``(gap_mean, frac_gap_ge2, run_mean, run_std)``."""
+    gap_mean, gap_ge2, run_mean, run_std = metrics
+    return (
+        f"Example GP session | sig={sig:.2f}, max_block_len={max_block_len} "
+        f"| gap_mean={gap_mean:.2f}, frac≥2={gap_ge2:.2f}, "
+        f"run_mean={run_mean:.2f}, run_std={run_std:.2f}"
+    )
+
+
+def plot_session_panel(
+    ax: plt.Axes,
+    vals3: np.ndarray,
+    boundaries: np.ndarray,
+    clip: tuple[int, int],
+    use_raw: bool,
+    choices: np.ndarray | None = None,
+) -> plt.Axes:
+    """Draw the three arm-value traces, block boundaries and optional choices on *ax*.
+
+    Args:
+        vals3: ``(T, 3)`` arm values.
+        boundaries: Block ends in trials; a dashed line is drawn between trial
+            ``b - 1`` and ``b``.
+        clip: Integer reward range, used for the y-limit unless *use_raw*.
+        use_raw: Label the y-axis as a latent value and fit the y-limit to the data.
+        choices: Optional ``(T,)`` chosen arm indices, drawn as black dots.
+    """
+    T = len(vals3)
+    x = np.arange(T)
+    for arm_idx in range(3):
+        ax.plot(x, vals3[:, arm_idx], linewidth=2.5, label=f"Arm {arm_idx}")
+
+    if choices is not None:
+        ch = np.asarray(choices, dtype=int)
+        ax.scatter(x, vals3[x, ch], s=25, color="black", zorder=5, label="Choice")
+
+    # Only the first boundary carries the "Block" legend label.
+    for i, b in enumerate(boundaries):
+        ax.axvline(
+            b - 0.5, linestyle="--", color="k", linewidth=2.0, label="Block" if i == 0 else None
+        )
+
+    ax.set_xlim(0, T - 1)
+    ax.set_ylim(-0.5, (max(clip) if not use_raw else np.nanmax(vals3)) + 0.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_xlabel("Trial")
+    ax.set_ylabel("Reward Magnitude" if not use_raw else "Latent value")
+    ax.legend(loc="upper left")
+    return ax
+
+
 def plot_example_session_gp(
     sig: float,
     max_block_len: int,
@@ -350,40 +465,12 @@ def plot_example_session_gp(
         return_session=True,
     )
 
-    vals3 = session["vals3"]
-    boundaries = session["boundaries"]
-    x = np.arange(T)
-
-    fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
-    for arm_idx in range(3):
-        ax.plot(x, vals3[:, arm_idx], linewidth=2.5, label=f"Arm {arm_idx}")
-
-    if choices is not None:
-        ch = np.asarray(choices, dtype=int)
-        ax.scatter(x, vals3[np.arange(T), ch], s=25, color="black", zorder=5, label="Choice")
-
-    first = True
-    for b in boundaries:
-        ax.axvline(
-            b - 0.5, linestyle="--", color="k", linewidth=2.0, label="Block" if first else None
-        )
-        first = False
-
-    ax.set_xlim(0, T - 1)
-    ax.set_ylim(-0.5, (max(clip) if not use_raw else np.nanmax(vals3)) + 0.5)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.set_xlabel("Trial")
-    ax.set_ylabel("Reward Magnitude" if not use_raw else "Latent value")
+    _, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
+    plot_session_panel(ax, session["vals3"], session["boundaries"], clip, use_raw, choices)
+    # `or`: an empty title falls back to the generated one.
     ax.set_title(
-        title
-        or (
-            f"Example GP session | sig={sig:.2f}, max_block_len={max_block_len} "
-            f"| gap_mean={gap_mean:.2f}, frac≥2={gap_ge2:.2f}, "
-            f"run_mean={run_mean:.2f}, run_std={run_std:.2f}"
-        )
+        title or format_session_title(sig, max_block_len, (gap_mean, gap_ge2, run_mean, run_std))
     )
-    ax.legend(loc="upper left")
     plt.show()
 
     return session
