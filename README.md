@@ -23,7 +23,7 @@ reward magnitude at each arm drifts over time and periodically reverses.
 ```
 magnitude-bandit-analysis/
 ├── data/              # local/sample data (main dataset lives on ceph — see below)
-├── environment.yml    # conda environment spec
+├── pyproject.toml     # dependencies (uv); uv.lock pins exact versions
 ├── results/
 │   └── figures/       # generated plots, organized by task/cohort/problem
 ├── scripts/            # entry points that use src/
@@ -31,7 +31,6 @@ magnitude-bandit-analysis/
 │   ├── individual_analyses/
 │   ├── full_pipelines/
 │   └── to_integrate/
-├── setup.py
 └── src/                 # the actual analysis library
     ├── behavior_import/
     ├── behavior_analysis/
@@ -44,10 +43,19 @@ magnitude-bandit-analysis/
 ```bash
 git clone https://github.com/megyoung430/magnitude-bandit-analysis.git
 cd magnitude-bandit-analysis
-conda env create -f environment.yml
-conda activate magnitude-bandit-analysis
-pip install -e .
+uv sync                              # core analysis environment
+uv sync --extra notebooks            # + Jupyter kernel and notebook-only libraries
+uv sync --extra paper-rl             # + JAX/optax for paper-style RL and RNN fitting
+uv sync --all-extras                 # everything, incl. the Haiku reference tests
 ```
+
+`uv sync` creates `.venv/` from `uv.lock`, so every machine gets the same
+versions. Run code with `uv run python ...` / `uv run jupyter lab`, or select
+`.venv` as the notebook kernel. Install uv with
+`curl -LsSf https://astral.sh/uv/install.sh | sh`.
+
+To add a dependency: `uv add <package>` (or `uv add --optional notebooks <package>`),
+then commit `pyproject.toml` and `uv.lock` together.
 
 The project follows the [Good Research Code Handbook](https://goodresearch.dev/).
 
@@ -110,7 +118,7 @@ Magnitude-only changes and counter decreases are retained in
 All reversal analyses use these corrected counters and totals. Re-extract raw
 sessions before rerunning analyses on previously loaded data; existing notebook
 outputs and saved figures are not automatically refreshed by a code change.
-Run regression checks with `python -m unittest discover -s tests -p 'test_*.py'`.
+Run regression checks with `uv run pytest`.
 
 Reversal-over-time plotting also saves trial-based companions. Cumulative
 curves use completed trials and include reversals after the final trial.

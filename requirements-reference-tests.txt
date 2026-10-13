@@ -1,4 +1,0 @@
-# Optional, only for numerical tests against the pinned upstream Haiku models.
--r requirements-paper-rl.txt
-dm-haiku>=0.0.13
-ml-collections>=0.1.1
