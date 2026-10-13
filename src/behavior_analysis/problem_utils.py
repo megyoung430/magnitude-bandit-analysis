@@ -196,10 +196,7 @@ def mean_block_length_from_indices(idxs: list[int], T: int) -> float:
 
     clean: list[int] = []
     for i in idxs:
-        try:
-            ii = int(i)
-        except Exception:
-            continue
+        ii = int(i)
         if 0 <= ii < T:
             clean.append(ii)
 
@@ -226,7 +223,7 @@ def reversals_from_blocks_counter(session_data: dict) -> float:
 
     Returns:
         Estimated reversal count, or ``nan`` if the blocks field is absent or
-        invalid.
+        holds no values. Non-numeric entries raise ``ValueError``.
     """
     blocks_seq = session_data.get("blocks")
     if blocks_seq is None:
@@ -236,10 +233,7 @@ def reversals_from_blocks_counter(session_data: dict) -> float:
     for x in blocks_seq:
         if x is None:
             continue
-        try:
-            vals.append(float(x))
-        except Exception:
-            pass
+        vals.append(float(x))
 
     if not vals:
         return float("nan")

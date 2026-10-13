@@ -8,10 +8,19 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 
 # ---------------------------------------------------------------------------
 # First-leave merge helpers
 # ---------------------------------------------------------------------------
+
+def _add_count(counts: dict, key: str, value: Any) -> None:
+    """Add *value* to ``counts[key]``; counts must be numeric so none are silently dropped."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise TypeError(f"count {key!r} has non-numeric value {value!r}")
+    counts[key] = (counts.get(key, 0) or 0) + value
+
 
 def sum_count_dicts(dicts: list[dict]) -> dict:
     """Sum a list of count dicts into one, ensuring required keys exist.
@@ -30,10 +39,7 @@ def sum_count_dicts(dicts: list[dict]) -> dict:
         for k, v in d.items():
             if v is None:
                 continue
-            try:
-                out[k] = (out.get(k, 0) or 0) + v
-            except Exception:
-                pass
+            _add_count(out, k, v)
     out.setdefault("new_best", 0)
     out.setdefault("third", 0)
     out.setdefault("total", 0)
@@ -50,7 +56,8 @@ def normalize_subject_value(c: Any) -> dict | None:
         c: Raw subject value from ``get_first_leave_after_good_reversals``.
 
     Returns:
-        A single count dict, or ``None`` if the input is unsupported.
+        A single count dict, or ``None`` if *c* is ``None`` or holds only empty
+        lists. Any other structure raises ``TypeError``.
     """
     if c is None:
         return None
@@ -67,9 +74,10 @@ def normalize_subject_value(c: Any) -> dict | None:
                 flat.append(x)
             elif isinstance(x, (list, tuple)) and all(isinstance(xx, dict) for xx in x):
                 flat.extend(list(x))
-        if flat:
-            return sum_count_dicts(flat)
-    return None
+            else:
+                raise TypeError(f"unsupported first-leave entry {x!r}")
+        return sum_count_dicts(flat) if flat else None
+    raise TypeError(f"unsupported first-leave value of type {type(c).__name__}")
 
 
 def merge_first_leave_dicts(counts_by_problem: dict[Any, dict]) -> dict:
@@ -80,7 +88,7 @@ def merge_first_leave_dicts(counts_by_problem: dict[Any, dict]) -> dict:
 
     Returns:
         ``{subject: summed_count_dict}`` with counts accumulated across all
-        problems.  Subjects that cannot be normalised are silently skipped.
+        problems.  Subjects whose value is ``None`` are skipped.
     """
     merged: dict[str, dict] = {}
     for _p, d in counts_by_problem.items():
@@ -95,10 +103,7 @@ def merge_first_leave_dicts(counts_by_problem: dict[Any, dict]) -> dict:
             for k, v in cd.items():
                 if v is None:
                     continue
-                try:
-                    merged[subj][k] = (merged[subj].get(k, 0) or 0) + v
-                except Exception:
-                    pass
+                _add_count(merged[subj], k, v)
 
     bad = {s: type(v) for s, v in merged.items() if not isinstance(v, dict)}
     if bad:
