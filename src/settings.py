@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     # DirectoryPath must exist: an unmounted share fails here, not deep in import_data
     data_root: DirectoryPath
+    # disposable on-disk cache for slow steps such as importing raw sessions
+    cache_dir: Path = REPO_ROOT / ".cache"
 
 
 @lru_cache
