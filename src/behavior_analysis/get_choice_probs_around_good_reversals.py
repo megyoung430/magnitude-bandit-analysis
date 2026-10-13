@@ -7,6 +7,7 @@ moving-average smoothing can be applied separately to the pre- and post-
 reversal segments so there is no smoothing bleed-through across the boundary.
 """
 
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from functools import partial
 
@@ -16,8 +17,8 @@ from src.behavior_analysis.get_good_reversal_info import classify_towers_at_good
 
 # Roles of the three towers around a good reversal, in the order returned by
 # classify_towers_at_good_reversals.
-TOWER_ROLES = ("prev_best", "next_best", "third")
-MEAN_KEYS = {role: f"{role}_mean" for role in TOWER_ROLES}
+_TOWER_ROLES = ("prev_best", "next_best", "third")
+_MEAN_KEYS = {role: f"{role}_mean" for role in _TOWER_ROLES}
 
 
 # ---------------------------------------------------------------------------
@@ -25,14 +26,14 @@ MEAN_KEYS = {role: f"{role}_mean" for role in TOWER_ROLES}
 # ---------------------------------------------------------------------------
 
 
-def keep_zero_then_skip(post_list, skip):
+def _keep_zero_then_skip(post_list: list, skip: int) -> list:
     """Return *post_list* with index 0 kept and the next ``skip - 1`` elements dropped."""
     if skip <= 0:
         return post_list
     return post_list[:1] + post_list[skip:]
 
 
-def pad_to_length(arr, length):
+def _pad_to_length(arr: Sequence[float], length: int) -> np.ndarray:
     """Pad or truncate *arr* to *length*, filling missing entries with NaN."""
     out = np.full(length, np.nan, dtype=float)
     n = min(len(arr), length)
@@ -40,7 +41,7 @@ def pad_to_length(arr, length):
     return out
 
 
-def reversal_choice_rows(reversal, skip, length):
+def _reversal_choice_rows(reversal: dict, *, skip: int, length: int) -> dict[str, np.ndarray]:
     """One-hot choice row per tower role (pre + post window) for one reversal.
 
     Args:
@@ -54,28 +55,30 @@ def reversal_choice_rows(reversal, skip, length):
     towers = classify_towers_at_good_reversals(reversal)
     by_tower = reversal["choices_by_tower"]
     return {
-        role: pad_to_length(
-            by_tower[t]["pre"] + keep_zero_then_skip(by_tower[t]["post"], skip), length
+        role: _pad_to_length(
+            by_tower[tower]["pre"] + _keep_zero_then_skip(by_tower[tower]["post"], skip), length
         )
-        for role, t in zip(TOWER_ROLES, towers, strict=True)
+        for role, tower in zip(_TOWER_ROLES, towers, strict=True)
     }
 
 
-def subject_choice_matrices(revs, skip, length):
+def _subject_choice_matrices(
+    reversals: list[dict], *, skip: int, length: int
+) -> dict[str, np.ndarray]:
     """Stack the per-reversal rows of one subject into ``{role: (n_reversals, length)}``."""
-    rows = [reversal_choice_rows(r, skip, length) for r in revs]
-    return {role: np.vstack([row[role] for row in rows]) for role in TOWER_ROLES}
+    rows = [_reversal_choice_rows(reversal, skip=skip, length=length) for reversal in reversals]
+    return {role: np.vstack([row[role] for row in rows]) for role in _TOWER_ROLES}
 
 
-def summarize_subject(matrices):
+def _summarize_subject(matrices: dict[str, np.ndarray]) -> dict:
     """Raw matrices plus their column means and the reversal count for one subject."""
     summary = dict(matrices)
-    summary.update({MEAN_KEYS[role]: np.nanmean(matrices[role], axis=0) for role in TOWER_ROLES})
+    summary.update({_MEAN_KEYS[role]: np.nanmean(matrices[role], axis=0) for role in _TOWER_ROLES})
     summary["num_reversals"] = matrices["prev_best"].shape[0]
     return summary
 
 
-def mean_and_se(stack):
+def _mean_and_se(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """NaN-aware column mean and standard error of a ``(n_rows, n_bins)`` stack.
 
     The standard error divides by ``sqrt(n_rows)`` (NaN bins still count as
@@ -88,7 +91,7 @@ def mean_and_se(stack):
     return mean, np.zeros(n_bins)
 
 
-def across_subject_curves(per_subject, keys_by_role):
+def _across_subject_curves(per_subject: dict[str, dict], keys_by_role: dict[str, str]) -> dict:
     """Mean and SE across subjects of the curve stored under ``keys_by_role[role]``.
 
     Returns:
@@ -100,19 +103,21 @@ def across_subject_curves(per_subject, keys_by_role):
     """
     across = {"mean": {}, "se": {}}
     for role, key in keys_by_role.items():
-        stack = np.vstack([d[key] for d in per_subject.values()])
-        across["mean"][role], across["se"][role] = mean_and_se(stack)
+        stack = np.vstack([curves[key] for curves in per_subject.values()])
+        across["mean"][role], across["se"][role] = _mean_and_se(stack)
     across["num_subjects"] = len(per_subject)
-    across["num_reversals"] = sum(d.get("num_reversals", 0) for d in per_subject.values())
+    across["num_reversals"] = sum(curves.get("num_reversals", 0) for curves in per_subject.values())
     return across
 
 
-def assert_probabilities_sum_to_one(mean_by_role, what, allow_no_finite_bins):
+def _assert_probabilities_sum_to_one(
+    mean_by_role: dict[str, np.ndarray], *, label: str, allow_no_finite_bins: bool
+) -> None:
     """Assert the three role means sum to 1 in every bin where the sum is finite.
 
     Args:
         mean_by_role: ``{role: array}`` as in ``across["mean"]``.
-        what: Noun phrase for the failure message, e.g. ``"Choice probabilities"``.
+        label: Noun phrase for the failure message, e.g. ``"Choice probabilities"``.
         allow_no_finite_bins: If ``False``, a sum that is NaN everywhere also fails.
     """
     total = mean_by_role["prev_best"] + mean_by_role["next_best"] + mean_by_role["third"]
@@ -120,10 +125,10 @@ def assert_probabilities_sum_to_one(mean_by_role, what, allow_no_finite_bins):
     if finite_sums.size == 0:
         assert allow_no_finite_bins, "No finite bins to validate (all-NaN after padding/filtering)."
         return
-    assert np.isclose(finite_sums, 1.0, atol=1e-6).all(), f"{what} do not sum to 1 (finite bins)."
+    assert np.isclose(finite_sums, 1.0, atol=1e-6).all(), f"{label} do not sum to 1 (finite bins)."
 
 
-def trial_offsets(pre, post, skip):
+def _trial_offsets(*, pre: int, post: int, skip: int) -> np.ndarray:
     """Trial offsets ``[-pre, 0)`` followed by ``[0, post - skip)``.
 
     Raises:
@@ -175,18 +180,22 @@ def get_choice_probs_around_good_reversals(
             all finite time-bins.
     """
     skip = skip_n_trials_after_reversal
-    x = trial_offsets(pre, post, skip)
+    x = _trial_offsets(pre=pre, post=post, skip=skip)
     n_bins = pre + (post - skip)
 
     per_subject = {}
-    for subj, revs in reversal_windows.items():
-        if not revs:
+    for subj, reversals in reversal_windows.items():
+        if not reversals:
             print(f"[INFO] Skipping subject {subj} with no good reversals.")
             continue
-        per_subject[subj] = summarize_subject(subject_choice_matrices(revs, skip, n_bins))
+        per_subject[subj] = _summarize_subject(
+            _subject_choice_matrices(reversals, skip=skip, length=n_bins)
+        )
 
-    across = across_subject_curves(per_subject, MEAN_KEYS)
-    assert_probabilities_sum_to_one(across["mean"], "Choice probabilities", False)
+    across = _across_subject_curves(per_subject, _MEAN_KEYS)
+    _assert_probabilities_sum_to_one(
+        across["mean"], label="Choice probabilities", allow_no_finite_bins=False
+    )
 
     return x, per_subject, across
 
@@ -196,7 +205,9 @@ def get_choice_probs_around_good_reversals(
 # ---------------------------------------------------------------------------
 
 
-def nan_moving_average(y, window, mode="centered"):
+def _nan_moving_average(
+    y: Sequence[float], window: int | None, mode: str = "centered"
+) -> np.ndarray:
     """Apply a NaN-aware moving average of *window* width to array *y*.
 
     Each output bin is the mean of the finite values inside its window; bins
@@ -216,7 +227,7 @@ def nan_moving_average(y, window, mode="centered"):
         num = np.convolve(y0, kernel, mode="full")[: len(y0)]
         den = np.convolve(valid, kernel, mode="full")[: len(y0)]
     else:
-        # Known issue, behaviour kept: np.convolve(mode="same") returns
+        # Known issue: np.convolve(mode="same") returns
         # max(len(y), len(kernel)) values, so a centred window longer than the
         # segment makes the caller's masked assignment raise an IndexError.
         num = np.convolve(y0, kernel, mode="same")
@@ -228,17 +239,24 @@ def nan_moving_average(y, window, mode="centered"):
     return out
 
 
-def smooth_pre_post(y, pre_mask, window, mode="centered"):
+def _smooth_pre_post(
+    y: Sequence[float], pre_mask: np.ndarray, window: int | None, mode: str = "centered"
+) -> np.ndarray:
     """Smooth *y* separately on the ``pre_mask`` and ``~pre_mask`` segments."""
     y = np.asarray(y, dtype=float)
     out = np.full_like(y, np.nan, dtype=float)
     for segment in (pre_mask, ~pre_mask):
         if segment.any():
-            out[segment] = nan_moving_average(y[segment], window, mode=mode)
+            out[segment] = _nan_moving_average(y[segment], window, mode=mode)
     return out
 
 
-def add_smoothed_means(curves, use_keys, out_keys, smooth):
+def _add_smoothed_means(
+    curves: dict,
+    use_keys: Sequence[str],
+    out_keys: Sequence[str],
+    smooth: Callable[[np.ndarray], np.ndarray],
+) -> dict:
     """Copy of one subject's dict with ``smooth(<src>)`` stored under each ``dst``.
 
     Sources are read from the copy being written, in order, so an output key
@@ -251,11 +269,11 @@ def add_smoothed_means(curves, use_keys, out_keys, smooth):
     return smoothed
 
 
-def empty_across_summary():
+def _empty_across_summary() -> dict:
     """Across-subject summary for the case where no subject has curves to average."""
     return {
-        "mean": dict.fromkeys(TOWER_ROLES),
-        "se": dict.fromkeys(TOWER_ROLES),
+        "mean": dict.fromkeys(_TOWER_ROLES),
+        "se": dict.fromkeys(_TOWER_ROLES),
         "num_subjects": 0,
         "num_reversals": 0,
     }
@@ -300,21 +318,23 @@ def apply_moving_average_to_choice_probs(
         with the same structure as :func:`get_choice_probs_around_good_reversals`
         but with smoothed means.
     """
-    smooth = partial(smooth_pre_post, pre_mask=x < split_at, window=moving_avg_window, mode=mode)
+    smooth = partial(_smooth_pre_post, pre_mask=x < split_at, window=moving_avg_window, mode=mode)
     per_subject_moving_avg = {
-        subj: add_smoothed_means(curves, use_keys, out_keys, smooth)
+        subj: _add_smoothed_means(curves, use_keys, out_keys, smooth)
         for subj, curves in per_subject.items()
         if all(k in curves for k in use_keys)
     }
     smoothing_params = {"moving_avg_window": moving_avg_window, "mode": mode, "split_at": split_at}
 
     if not per_subject_moving_avg:
-        return x, per_subject_moving_avg, {**empty_across_summary(), **smoothing_params}
+        return x, per_subject_moving_avg, {**_empty_across_summary(), **smoothing_params}
 
-    keys_by_role = {role: out_keys[i] for i, role in enumerate(TOWER_ROLES)}
-    across = across_subject_curves(per_subject_moving_avg, keys_by_role)
+    keys_by_role = {role: out_keys[i] for i, role in enumerate(_TOWER_ROLES)}
+    across = _across_subject_curves(per_subject_moving_avg, keys_by_role)
     across.update(smoothing_params)
-    assert_probabilities_sum_to_one(across["mean"], "Smoothed probabilities", True)
+    _assert_probabilities_sum_to_one(
+        across["mean"], label="Smoothed probabilities", allow_no_finite_bins=True
+    )
 
     return x, per_subject_moving_avg, across
 
@@ -324,17 +344,17 @@ def apply_moving_average_to_choice_probs(
 # ---------------------------------------------------------------------------
 
 
-def next_good_after(goods, g):
-    """First good-reversal index in *goods* strictly after *g* (``inf`` if none)."""
-    return next((gg for gg in goods if gg > g), float("inf"))
+def _next_good_after(goods: Sequence[int], after: int) -> float:
+    """First good-reversal index in *goods* strictly after *after* (``inf`` if none)."""
+    return next((idx for idx in goods if idx > after), float("inf"))
 
 
-def first_bad_between(bads, g, next_g):
-    """First bad-reversal index strictly between *g* and *next_g* (``None`` if none)."""
-    return next((b for b in bads if g < b < next_g), None)
+def _first_bad_between(*, bads: Sequence[int], after: int, before: float) -> int | None:
+    """First bad-reversal index strictly between *after* and *before* (``None`` if none)."""
+    return next((idx for idx in bads if after < idx < before), None)
 
 
-def truncate_post(reversal, cut_len):
+def _truncate_post(reversal: dict, cut_len: int) -> None:
     """Clip every ``"post"`` list in *reversal* to its first *cut_len* entries, in place."""
     for key in ("choices_by_tower", "choices_by_rank"):
         for entry in reversal.get(key, {}).values():
@@ -346,36 +366,44 @@ def truncate_post(reversal, cut_len):
         trial_window["post"] = trial_window["post"][:cut_len]
 
 
-def truncate_reversal_at_bad(reversal, goods, bads, include_bad_trial):
+def _truncate_reversal_at_bad(
+    reversal: dict, *, goods: Sequence[int], bads: Sequence[int], include_bad_trial: bool
+) -> dict:
     """Copy of *reversal* with its post window cut at the first intervening bad reversal.
 
     The copy always carries ``"removed_bad_idx"`` and ``"post_len_after_removal"``
     (both ``None`` when there is nothing to cut).
     """
     out = deepcopy(reversal)
-    g = out.get("reversal_idx", None)
-    cutoff = None if g is None else first_bad_between(bads, g, next_good_after(goods, g))
+    reversal_idx = out.get("reversal_idx", None)
+    bad_idx = (
+        None
+        if reversal_idx is None
+        else _first_bad_between(
+            bads=bads, after=reversal_idx, before=_next_good_after(goods, reversal_idx)
+        )
+    )
 
-    if cutoff is None:
+    if bad_idx is None:
         out["removed_bad_idx"] = None
         out["post_len_after_removal"] = None
         return out
 
-    cut_len = (cutoff - g) + (1 if include_bad_trial else 0)
-    out["removed_bad_idx"] = cutoff
+    # bad_idx > reversal_idx, so cut_len >= 1 whether or not the bad trial is kept.
+    cut_len = (bad_idx - reversal_idx) + (1 if include_bad_trial else 0)
+    out["removed_bad_idx"] = bad_idx
     out["post_len_after_removal"] = cut_len
-    if cut_len >= 1:
-        truncate_post(out, cut_len)
+    _truncate_post(out, cut_len)
     return out
 
 
-def report_removal(subj, reversal):
+def _report_removal(subj: str, reversal: dict) -> None:
     """Print one line if *reversal*'s post window was actually cut."""
-    cut_len = reversal["post_len_after_removal"]
-    if cut_len is not None and cut_len >= 1:
+    if reversal["post_len_after_removal"] is not None:
         print(
             f"[REMOVE] {subj} good@{reversal['reversal_idx']}: "
-            f"cut post at bad@{reversal['removed_bad_idx']} (kept {cut_len} post trials)"
+            f"cut post at bad@{reversal['removed_bad_idx']} "
+            f"(kept {reversal['post_len_after_removal']} post trials)"
         )
 
 
@@ -405,13 +433,15 @@ def remove_trials_after_bad_rev(good_windows, all_good_idx, all_bad_idx, include
     """
     out = {}
     for subj, good_revs in good_windows.items():
-        revs_sorted = sorted(good_revs, key=lambda r: r.get("reversal_idx", 0))
+        revs_sorted = sorted(good_revs, key=lambda rev: rev.get("reversal_idx", 0))
         goods = sorted(all_good_idx.get(subj, []))
         bads = sorted(all_bad_idx.get(subj, []))
 
         out[subj] = []
-        for r in revs_sorted:
-            truncated = truncate_reversal_at_bad(r, goods, bads, include_bad_trial)
-            report_removal(subj, truncated)
+        for rev in revs_sorted:
+            truncated = _truncate_reversal_at_bad(
+                rev, goods=goods, bads=bads, include_bad_trial=include_bad_trial
+            )
+            _report_removal(subj, truncated)
             out[subj].append(truncated)
     return out

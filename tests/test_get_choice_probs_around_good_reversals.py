@@ -1,26 +1,19 @@
+"""Tests for the three public functions of get_choice_probs_around_good_reversals.
+
+Everything goes through the public API; the small helpers behind it are
+exercised by the inputs below (truncated/NaN windows, skips, unsorted indices...).
+"""
+
 import numpy as np
 import pytest
 
 from src.behavior_analysis.get_choice_probs_around_good_reversals import (
-    across_subject_curves,
     apply_moving_average_to_choice_probs,
-    assert_probabilities_sum_to_one,
-    first_bad_between,
     get_choice_probs_around_good_reversals,
-    keep_zero_then_skip,
-    mean_and_se,
-    nan_moving_average,
-    next_good_after,
-    pad_to_length,
     remove_trials_after_bad_rev,
-    reversal_choice_rows,
-    smooth_pre_post,
-    subject_choice_matrices,
-    summarize_subject,
-    trial_offsets,
-    truncate_post,
-    truncate_reversal_at_bad,
 )
+
+ROLES = ("prev_best", "next_best", "third")
 
 
 def make_reversal(idx, pre, post, prev_best="A", next_best="B"):
@@ -49,116 +42,11 @@ def make_reversal(idx, pre, post, prev_best="A", next_best="B"):
     }
 
 
+def role_sum(mean_by_role):
+    return sum(mean_by_role[role] for role in ROLES)
+
+
 # ---------------------------------------------------------------- choice probabilities
-
-
-def test_keep_zero_then_skip_keeps_index_zero():
-    assert keep_zero_then_skip([0, 1, 2, 3, 4], 2) == [0, 2, 3, 4]
-    assert keep_zero_then_skip([0, 1, 2], 0) == [0, 1, 2]
-    assert keep_zero_then_skip([0], 3) == [0]
-
-
-def test_pad_to_length_pads_with_nan_and_truncates():
-    np.testing.assert_array_equal(pad_to_length([1, 0], 4), [1, 0, np.nan, np.nan])
-    np.testing.assert_array_equal(pad_to_length([1, 0, 1], 2), [1, 0])
-
-
-def test_reversal_choice_rows_assigns_tower_roles():
-    rev = make_reversal(10, pre=["A", "A"], post=["B", "C", "B"], prev_best="A", next_best="B")
-    rows = reversal_choice_rows(rev, skip=0, length=5)
-    np.testing.assert_array_equal(rows["prev_best"], [1, 1, 0, 0, 0])
-    np.testing.assert_array_equal(rows["next_best"], [0, 0, 1, 0, 1])
-    np.testing.assert_array_equal(rows["third"], [0, 0, 0, 1, 0])
-
-
-def test_reversal_choice_rows_skips_after_reversal_trial():
-    rev = make_reversal(10, pre=["A"], post=["B", "C", "B", "A"], prev_best="A", next_best="B")
-    rows = reversal_choice_rows(rev, skip=2, length=4)
-    # post becomes [trial 0, trial 2, trial 3] = [B, B, A]
-    np.testing.assert_array_equal(rows["next_best"], [0, 1, 1, 0])
-    np.testing.assert_array_equal(rows["prev_best"], [1, 0, 0, 1])
-
-
-def test_subject_choice_matrices_stacks_one_row_per_reversal():
-    revs = [make_reversal(10, ["A"], ["B", "B"]), make_reversal(30, ["A"], ["C", "B"])]
-    mats = subject_choice_matrices(revs, skip=0, length=3)
-    assert set(mats) == {"prev_best", "next_best", "third"}
-    assert mats["next_best"].shape == (2, 3)
-    np.testing.assert_array_equal(mats["third"], [[0, 0, 0], [0, 1, 0]])
-
-
-def test_summarize_subject_reports_means_and_counts():
-    mats = {
-        "prev_best": np.array([[1.0, 0.0], [0.0, 0.0]]),
-        "next_best": np.array([[0.0, 1.0], [1.0, 0.0]]),
-        "third": np.array([[0.0, 0.0], [0.0, 1.0]]),
-    }
-    summary = summarize_subject(mats)
-    assert summary["num_reversals"] == 2
-    np.testing.assert_allclose(summary["prev_best_mean"], [0.5, 0.0])
-    np.testing.assert_allclose(summary["third_mean"], [0.0, 0.5])
-    np.testing.assert_array_equal(summary["next_best"], mats["next_best"])
-
-
-def test_mean_and_se_ignores_nan_and_uses_sample_sd():
-    stack = np.array([[1.0, np.nan], [3.0, 2.0], [5.0, 4.0]])
-    mean, se = mean_and_se(stack)
-    np.testing.assert_allclose(mean, [3.0, 3.0])
-    # sample SD / sqrt(number of rows), rows being counted even where a bin is NaN
-    np.testing.assert_allclose(se, [2.0 / np.sqrt(3), np.sqrt(2) / np.sqrt(3)])
-
-
-def test_mean_and_se_single_row_has_zero_se():
-    mean, se = mean_and_se(np.array([[0.2, 0.8]]))
-    np.testing.assert_array_equal(mean, [0.2, 0.8])
-    np.testing.assert_array_equal(se, [0.0, 0.0])
-
-
-def test_across_subject_curves_reads_the_requested_keys():
-    per_subject = {
-        "m1": {"k": np.array([1.0, 0.0]), "num_reversals": 4},
-        "m2": {"k": np.array([0.0, 0.0])},  # no count: contributes 0 reversals
-    }
-    across = across_subject_curves(per_subject, {"prev_best": "k"})
-    np.testing.assert_allclose(across["mean"]["prev_best"], [0.5, 0.0])
-    np.testing.assert_allclose(across["se"]["prev_best"], [0.5, 0.0])
-    assert (across["num_subjects"], across["num_reversals"]) == (2, 4)
-
-
-def test_across_subject_curves_rejects_no_subjects():
-    with pytest.raises(ValueError):
-        across_subject_curves({}, {"prev_best": "k"})
-
-
-def test_trial_offsets_skip_shortens_the_post_axis():
-    np.testing.assert_array_equal(trial_offsets(2, 3, 0), [-2, -1, 0, 1, 2])
-    np.testing.assert_array_equal(trial_offsets(2, 5, 3), [-2, -1, 0, 1])
-
-
-@pytest.mark.parametrize("skip", [-1, 3, 4])
-def test_trial_offsets_rejects_bad_skip(skip):
-    with pytest.raises(ValueError, match="skip_n_trials_after_reversal"):
-        trial_offsets(1, 3, skip)
-
-
-def test_assert_probabilities_sum_to_one():
-    ok = {
-        "prev_best": np.array([0.5, np.nan]),
-        "next_best": np.array([0.5, np.nan]),
-        "third": np.array([0.0, np.nan]),
-    }
-    assert_probabilities_sum_to_one(ok, "Probabilities", allow_no_finite_bins=False)
-    bad = {**ok, "third": np.array([0.1, np.nan])}
-    with pytest.raises(AssertionError, match="Probabilities do not sum to 1"):
-        assert_probabilities_sum_to_one(bad, "Probabilities", allow_no_finite_bins=False)
-
-
-def test_assert_probabilities_sum_to_one_all_nan():
-    nan = np.full(2, np.nan)
-    all_nan = {"prev_best": nan, "next_best": nan, "third": nan}
-    assert_probabilities_sum_to_one(all_nan, "Probabilities", allow_no_finite_bins=True)
-    with pytest.raises(AssertionError, match="No finite bins"):
-        assert_probabilities_sum_to_one(all_nan, "Probabilities", allow_no_finite_bins=False)
 
 
 def test_get_choice_probs_end_to_end():
@@ -178,8 +66,74 @@ def test_get_choice_probs_end_to_end():
     # m1 next-best post = [1, 0.5, 0], m2 = [1, 1, 1]
     np.testing.assert_allclose(across["mean"]["next_best"], [0, 0, 1, 0.75, 0.5])
     np.testing.assert_allclose(across["mean"]["prev_best"], [1, 1, 0, 0, 0])
-    total = sum(across["mean"][k] for k in ("prev_best", "next_best", "third"))
-    np.testing.assert_allclose(total, 1.0)
+    np.testing.assert_allclose(role_sum(across["mean"]), 1.0)
+
+
+def test_get_choice_probs_assigns_tower_roles_and_summarises_per_subject():
+    rev = make_reversal(10, pre=["A", "A"], post=["B", "C", "B"], prev_best="A", next_best="B")
+    _, per_subject, _ = get_choice_probs_around_good_reversals({"m1": [rev]}, pre=2, post=3)
+    subject = per_subject["m1"]
+    np.testing.assert_array_equal(subject["prev_best"], [[1, 1, 0, 0, 0]])
+    np.testing.assert_array_equal(subject["next_best"], [[0, 0, 1, 0, 1]])
+    np.testing.assert_array_equal(subject["third"], [[0, 0, 0, 1, 0]])
+    np.testing.assert_array_equal(subject["third_mean"], [0, 0, 0, 1, 0])
+    assert subject["num_reversals"] == 1
+
+
+def test_get_choice_probs_follows_tower_roles_when_best_towers_change():
+    rev = make_reversal(10, ["C", "C"], ["A", "A"], prev_best="C", next_best="A")
+    _, per_subject, _ = get_choice_probs_around_good_reversals({"m1": [rev]}, pre=2, post=2)
+    np.testing.assert_array_equal(per_subject["m1"]["prev_best"], [[1, 1, 0, 0]])
+    np.testing.assert_array_equal(per_subject["m1"]["next_best"], [[0, 0, 1, 1]])
+
+
+def test_get_choice_probs_stacks_one_row_per_reversal():
+    windows = {"m1": [make_reversal(10, ["A"], ["B", "B"]), make_reversal(30, ["A"], ["C", "B"])]}
+    _, per_subject, _ = get_choice_probs_around_good_reversals(windows, pre=1, post=2)
+    assert per_subject["m1"]["next_best"].shape == (2, 3)
+    np.testing.assert_array_equal(per_subject["m1"]["third"], [[0, 0, 0], [0, 1, 0]])
+
+
+def test_get_choice_probs_nan_pads_truncated_windows_and_averages_the_finite_rows():
+    windows = {
+        "m1": [
+            make_reversal(10, ["A"], ["B", "B", "B"]),
+            make_reversal(30, ["A"], ["B"]),  # post window cut short: 2 trailing bins are NaN
+        ],
+        "m2": [make_reversal(50, ["A"], ["B", "B", "B"])],
+    }
+    _, per_subject, across = get_choice_probs_around_good_reversals(windows, pre=1, post=3)
+    assert np.isnan(per_subject["m1"]["next_best"][1, 2:]).all()
+    # nanmean over rows, so a NaN in one row does not hide the other row's value
+    np.testing.assert_allclose(per_subject["m1"]["next_best_mean"], [0, 1, 1, 1])
+    np.testing.assert_allclose(across["mean"]["next_best"], [0, 1, 1, 1])
+    np.testing.assert_allclose(role_sum(across["mean"]), 1.0)
+
+
+def test_get_choice_probs_truncates_long_post_windows_to_the_axis():
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 6)]}
+    x, per_subject, _ = get_choice_probs_around_good_reversals(windows, pre=1, post=2)
+    assert len(x) == 3
+    np.testing.assert_array_equal(per_subject["m1"]["prev_best"], [[1, 0, 0]])
+    np.testing.assert_array_equal(per_subject["m1"]["next_best"], [[0, 1, 1]])
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_get_choice_probs_se_is_zero_for_one_subject_and_sample_sd_over_rows_otherwise():
+    one = {"m1": [make_reversal(10, ["A"], ["B", "B"])]}
+    _, _, across = get_choice_probs_around_good_reversals(one, pre=1, post=2)
+    np.testing.assert_array_equal(across["se"]["next_best"], [0, 0, 0])
+
+    # next-best last bin across subjects: 1, 0 and a truncated (NaN) third subject
+    three = {
+        "m1": [make_reversal(10, ["A"], ["B", "B"])],
+        "m2": [make_reversal(10, ["A"], ["B", "C"])],
+        "m3": [make_reversal(10, ["A"], ["B"])],
+    }
+    _, _, across = get_choice_probs_around_good_reversals(three, pre=1, post=2)
+    np.testing.assert_allclose(across["mean"]["next_best"][-1], 0.5)
+    # Known issue: the SE divides by sqrt(3) although only 2 subjects have data in this bin.
+    np.testing.assert_allclose(across["se"]["next_best"][-1], np.sqrt(0.5) / np.sqrt(3))
 
 
 def test_get_choice_probs_skip_shortens_the_axis():
@@ -189,6 +143,27 @@ def test_get_choice_probs_skip_shortens_the_axis():
     )
     np.testing.assert_array_equal(x, [-3, -2, -1, 0, 1])
     assert per_subject["m1"]["prev_best"].shape == (1, 5)
+
+
+@pytest.mark.parametrize("skip", [0, 1, 15])
+def test_get_choice_probs_skip_axis_length(skip):
+    windows = {"m1": [make_reversal(10, ["A"] * 2, ["B"] * 20)]}
+    x, per_subject, _ = get_choice_probs_around_good_reversals(
+        windows, pre=2, post=20, skip_n_trials_after_reversal=skip
+    )
+    assert len(x) == 2 + 20 - skip
+    assert per_subject["m1"]["next_best"].shape == (1, len(x))
+
+
+def test_get_choice_probs_skip_keeps_the_reversal_trial():
+    rev = make_reversal(10, pre=["A"], post=["B", "C", "B", "A"], prev_best="A", next_best="B")
+    _, per_subject, _ = get_choice_probs_around_good_reversals(
+        {"m1": [rev]}, pre=1, post=4, skip_n_trials_after_reversal=2
+    )
+    # Known issue: skip=2 drops only post trial 1 (the post list becomes trials
+    # [0, 2, 3]), and the over-long row then loses its last trial (3) to padding.
+    np.testing.assert_array_equal(per_subject["m1"]["next_best"], [[0, 1, 1]])
+    np.testing.assert_array_equal(per_subject["m1"]["prev_best"], [[1, 0, 0]])
 
 
 @pytest.mark.parametrize("skip", [-1, 3, 4])
@@ -207,41 +182,29 @@ def test_get_choice_probs_asserts_probabilities_sum_to_one():
         get_choice_probs_around_good_reversals({"m1": [rev]}, pre=1, post=2)
 
 
+def test_get_choice_probs_rejects_windows_with_no_finite_bins():
+    windows = {"m1": [make_reversal(10, [], [])]}  # every bin is NaN padding
+    with pytest.warns(RuntimeWarning), pytest.raises(AssertionError, match="No finite bins"):
+        get_choice_probs_around_good_reversals(windows, pre=1, post=2)
+
+
+def test_get_choice_probs_rejects_no_usable_subjects():
+    with pytest.raises(ValueError):
+        get_choice_probs_around_good_reversals({"none": []}, pre=1, post=2)
+
+
 # ---------------------------------------------------------------- moving average
 
 
-def test_nan_moving_average_centered_skips_nan():
-    y = np.array([1.0, np.nan, 3.0, 5.0])
-    out = nan_moving_average(y, 3, mode="centered")
-    np.testing.assert_allclose(out, [1.0, 2.0, 4.0, 4.0])
-
-
-def test_nan_moving_average_trailing_uses_past_only():
-    out = nan_moving_average(np.array([1.0, 2.0, 3.0, 4.0]), 2, mode="trailing")
-    np.testing.assert_allclose(out, [1.0, 1.5, 2.5, 3.5])
-
-
-def test_nan_moving_average_all_nan_window_stays_nan():
-    out = nan_moving_average(np.array([np.nan, np.nan, 1.0]), 2, mode="trailing")
-    assert np.isnan(out[:2]).all() and out[2] == 1.0
-
-
-@pytest.mark.parametrize("window", [None, 0, 1])
-def test_nan_moving_average_small_window_is_identity(window):
-    y = [1, np.nan, 2]
-    np.testing.assert_array_equal(nan_moving_average(y, window), np.asarray(y, dtype=float))
-
-
-def test_smooth_pre_post_does_not_bleed_across_the_split():
-    y = np.array([0.0, 0.0, 1.0, 1.0])
-    pre_mask = np.array([True, True, False, False])
-    out = smooth_pre_post(y, pre_mask, window=2, mode="trailing")
-    np.testing.assert_allclose(out, [0.0, 0.0, 1.0, 1.0])
-
-
-def test_smooth_pre_post_with_empty_pre_segment():
-    out = smooth_pre_post(np.array([1.0, 3.0]), np.array([False, False]), window=2, mode="trailing")
-    np.testing.assert_allclose(out, [1.0, 2.0])
+def curves_from_prev(prev):
+    """Per-subject curves for which the three roles sum to 1 in every bin."""
+    prev = np.array(prev, dtype=float)
+    return {
+        "prev_best_mean": prev,
+        "next_best_mean": 1.0 - prev,
+        "third_mean": np.zeros_like(prev),
+        "num_reversals": 2,
+    }
 
 
 def per_subject_curves(prev, nxt, third, n=2):
@@ -251,6 +214,14 @@ def per_subject_curves(prev, nxt, third, n=2):
         "third_mean": np.array(third, dtype=float),
         "num_reversals": n,
     }
+
+
+def smoothed_prev(x, prev, **kwargs):
+    """The smoothed prev-best curve of a single subject, via the public function."""
+    _, smoothed, _ = apply_moving_average_to_choice_probs(
+        x, {"m1": curves_from_prev(prev)}, **kwargs
+    )
+    return smoothed["m1"]["prev_best_mean_sm"]
 
 
 def test_apply_moving_average_smooths_and_summarises():
@@ -268,17 +239,106 @@ def test_apply_moving_average_smooths_and_summarises():
     assert across["num_subjects"] == 2
     assert across["num_reversals"] == 5
     assert (across["moving_avg_window"], across["mode"], across["split_at"]) == (2, "trailing", 0)
-    total = sum(across["mean"][k] for k in ("prev_best", "next_best", "third"))
-    np.testing.assert_allclose(total, 1.0)
+    np.testing.assert_allclose(role_sum(across["mean"]), 1.0)
 
 
-def test_apply_moving_average_without_usable_subjects():
+def test_apply_moving_average_default_mode_is_centered_with_window_five():
+    x = np.arange(-6, 6)  # 6 pre bins and 6 post bins
+    prev = np.zeros(12)
+    prev[8] = 5.0  # a spike at the third post bin
+    out = smoothed_prev(x, prev)
+    # window 5 centred, smoothed within the post segment only (edges average fewer bins)
+    np.testing.assert_allclose(out[6:], [5 / 3, 5 / 4, 1, 1, 5 / 4, 0])
+    np.testing.assert_allclose(out[:6], 0.0)
+
+
+def test_apply_moving_average_centered_odd_window():
+    x = np.arange(0, 6)
+    out = smoothed_prev(x, [0, 0, 3, 0, 0, 0], moving_avg_window=3, mode="centered", split_at=-1)
+    np.testing.assert_allclose(out, [0, 1, 1, 1, 0, 0])
+
+
+def test_apply_moving_average_centered_even_window_covers_two_before_and_one_after():
+    # Pinned alignment: with an even window the centred kernel spans bins [i-2, i+1].
+    x = np.arange(0, 6)
+    out = smoothed_prev(x, [0, 0, 4, 0, 0, 0], moving_avg_window=4, mode="centered", split_at=-1)
+    np.testing.assert_allclose(out, [0, 4 / 3, 1, 1, 1, 0])
+
+
+def test_apply_moving_average_split_at_moves_the_segment_boundary():
+    x = np.arange(-4, 4)
+    prev = [0, 0, 0, 0, 3, 3, 3, 3]
+    # split_at=0: the step sits on the boundary, so nothing bleeds across it
+    np.testing.assert_allclose(smoothed_prev(x, prev, moving_avg_window=3, split_at=0), prev)
+    # split_at=1: bin x=0 (value 3) now ends the pre segment and is averaged with its neighbours
+    np.testing.assert_allclose(
+        smoothed_prev(x, prev, moving_avg_window=3, split_at=1), [0, 0, 0, 1, 1.5, 3, 3, 3]
+    )
+
+
+def test_apply_moving_average_split_at_pre_and_post_are_smoothed_independently():
+    x = np.array([-2, -1, 0, 1])
+    out = smoothed_prev(x, [1, 0, 1, 0], moving_avg_window=2, mode="trailing", split_at=0)
+    np.testing.assert_allclose(out, [1, 0.5, 1, 0.5])
+    out = smoothed_prev(x, [1, 0, 1, 0], moving_avg_window=2, mode="trailing", split_at=-1)
+    np.testing.assert_allclose(out, [1, 0, 0.5, 0.5])
+
+
+def test_apply_moving_average_skips_nan_bins():
+    x = np.arange(0, 4)
+    per_subject = {
+        "m1": per_subject_curves([1, np.nan, 1, 0], [0, np.nan, 0, 1], [0, np.nan, 0, 0])
+    }
+    _, smoothed, across = apply_moving_average_to_choice_probs(
+        x, per_subject, moving_avg_window=3, mode="centered"
+    )
+    # NaN bins are left out of the average, so the middle bins still get a value
+    np.testing.assert_allclose(smoothed["m1"]["prev_best_mean_sm"], [1, 1, 0.5, 0.5])
+    np.testing.assert_allclose(role_sum(across["mean"]), 1.0)
+
+
+@pytest.mark.parametrize("window", [None, 0, 1])
+def test_apply_moving_average_small_window_leaves_the_curve_unchanged(window):
+    x = np.array([-1, 0, 1])
+    out = smoothed_prev(x, [1, 0.25, 0.5], moving_avg_window=window)
+    np.testing.assert_array_equal(out, [1, 0.25, 0.5])
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_apply_moving_average_all_nan_window_stays_nan():
+    x = np.array([-1, 0, 1])
+    nan = [np.nan] * 3
+    per_subject = {"m1": per_subject_curves(nan, nan, nan)}
+    _, smoothed, across = apply_moving_average_to_choice_probs(
+        x, per_subject, moving_avg_window=2, mode="trailing"
+    )
+    assert np.isnan(smoothed["m1"]["prev_best_mean_sm"]).all()
+    assert np.isnan(across["mean"]["prev_best"]).all()  # no finite bins is allowed here
+
+
+def test_apply_moving_average_centered_window_longer_than_segment_raises():
+    # Known issue: a centred window longer than a pre/post segment makes np.convolve
+    # return more values than the segment has bins, so the assignment fails.
+    x = np.array([-1, 0, 1])
+    with pytest.raises(IndexError):
+        smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="centered")
+    # a trailing window of the same width is fine
+    out = smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="trailing")
+    np.testing.assert_allclose(out, [1, 0, 0.5])
+
+
+def test_apply_moving_average_custom_keys_and_missing_keys():
     x = np.array([-1, 0])
-    _, smoothed, across = apply_moving_average_to_choice_probs(x, {"m1": {"num_reversals": 1}})
-    assert smoothed == {}
-    assert across["num_subjects"] == 0
-    assert across["mean"] == {"prev_best": None, "next_best": None, "third": None}
-    assert across["se"] == {"prev_best": None, "next_best": None, "third": None}
+    per_subject = {
+        "m1": {"a": np.array([0.5, 0.5]), "b": np.array([0.5, 0.5]), "c": np.array([0.0, 0.0])},
+        "no_keys": {"num_reversals": 1},  # lacks the requested keys: dropped
+    }
+    _, smoothed, across = apply_moving_average_to_choice_probs(
+        x, per_subject, moving_avg_window=1, use_keys=("a", "b", "c"), out_keys=("p", "q", "r")
+    )
+    assert set(smoothed) == {"m1"}
+    assert set(smoothed["m1"]) >= {"a", "p", "q", "r"}
+    assert across["num_subjects"] == 1
 
 
 def test_apply_moving_average_chained_keys_read_the_already_smoothed_value():
@@ -299,8 +359,17 @@ def test_apply_moving_average_chained_keys_read_the_already_smoothed_value():
     np.testing.assert_allclose(smoothed["m1"]["c"], [0, 0.2, 0.2, 0.2])
     np.testing.assert_allclose(smoothed["m1"]["q"], [0, 0.1, 0.2, 0.2])
     np.testing.assert_array_equal(per_subject["m1"]["c"], [0, 0, 0, 0])  # input untouched
-    total = sum(across["mean"][k] for k in ("prev_best", "next_best", "third"))
-    np.testing.assert_allclose(total, 1.0)
+    np.testing.assert_allclose(role_sum(across["mean"]), 1.0)
+
+
+def test_apply_moving_average_without_usable_subjects():
+    x = np.array([-1, 0])
+    _, smoothed, across = apply_moving_average_to_choice_probs(x, {"m1": {"num_reversals": 1}})
+    assert smoothed == {}
+    assert across["num_subjects"] == 0
+    assert across["mean"] == dict.fromkeys(ROLES)
+    assert across["se"] == dict.fromkeys(ROLES)
+    assert (across["moving_avg_window"], across["mode"], across["split_at"]) == (5, "centered", 0)
 
 
 def test_apply_moving_average_rejects_probabilities_off_one():
@@ -310,52 +379,28 @@ def test_apply_moving_average_rejects_probabilities_off_one():
         apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=1)
 
 
+def test_apply_moving_average_counts_subjects_without_num_reversals_as_zero():
+    x = np.array([-1, 0])
+    curves = curves_from_prev([1, 0])
+    del curves["num_reversals"]
+    _, _, across = apply_moving_average_to_choice_probs(
+        x, {"m1": curves, "m2": curves_from_prev([1, 0])}, moving_avg_window=1
+    )
+    assert (across["num_subjects"], across["num_reversals"]) == (2, 2)
+
+
 # ------------------------------- removing trials after bad reversals
 
 
-def test_next_good_after_and_first_bad_between():
-    assert next_good_after([5, 20, 40], 20) == 40
-    assert next_good_after([5, 20], 20) == float("inf")
-    assert first_bad_between([3, 25, 30], 20, 40) == 25
-    assert first_bad_between([20, 40], 20, 40) is None  # both bounds are exclusive
-    assert first_bad_between([], 20, float("inf")) is None
+def post_lengths(reversal):
+    return (
+        len(reversal["choices_by_tower"]["A"]["post"]),
+        len(reversal["choices_by_rank"]["best"]["post"]),
+        len(reversal["trial_window_idx"]["post"]),
+    )
 
 
-def test_truncate_post_clips_every_post_list_and_skips_non_dicts():
-    rev = make_reversal(10, ["A"], ["B"] * 5)
-    rev["choices_by_tower"]["odd"] = "not a dict"
-    truncate_post(rev, 2)
-    assert rev["choices_by_tower"]["A"]["post"] == [0.0, 0.0]
-    assert len(rev["choices_by_tower"]["A"]["pre"]) == 1
-    assert rev["choices_by_rank"]["best"]["post"] == [1.0, 1.0]
-    assert rev["trial_window_idx"]["post"] == [10, 11]
-
-
-def test_truncate_reversal_at_bad_includes_or_excludes_the_bad_trial():
-    rev = make_reversal(10, ["A"], ["B"] * 8)
-    kept = truncate_reversal_at_bad(rev, [10, 30], [14], include_bad_trial=True)
-    assert (kept["removed_bad_idx"], kept["post_len_after_removal"]) == (14, 5)
-    assert len(kept["choices_by_tower"]["A"]["post"]) == 5
-    cut = truncate_reversal_at_bad(rev, [10, 30], [14], include_bad_trial=False)
-    assert cut["post_len_after_removal"] == 4
-    assert len(rev["choices_by_tower"]["A"]["post"]) == 8  # original untouched
-
-
-def test_truncate_reversal_at_bad_ignores_bads_after_next_good():
-    rev = make_reversal(10, ["A"], ["B"] * 8)
-    out = truncate_reversal_at_bad(rev, [10, 12], [13], include_bad_trial=True)
-    assert out["removed_bad_idx"] is None and out["post_len_after_removal"] is None
-    assert len(out["choices_by_tower"]["A"]["post"]) == 8
-
-
-def test_truncate_reversal_at_bad_without_reversal_idx():
-    rev = make_reversal(10, ["A"], ["B"] * 3)
-    del rev["reversal_idx"]
-    out = truncate_reversal_at_bad(rev, [10], [11], include_bad_trial=True)
-    assert out["removed_bad_idx"] is None
-
-
-def test_remove_trials_after_bad_rev_per_subject(capsys):
+def test_remove_trials_after_bad_rev_cuts_all_post_lists_and_reports(capsys):
     windows = {
         "m1": [make_reversal(30, ["A"], ["B"] * 6), make_reversal(10, ["A"], ["B"] * 6)],
         "empty": [],
@@ -364,7 +409,88 @@ def test_remove_trials_after_bad_rev_per_subject(capsys):
         windows, {"m1": [10, 30], "empty": []}, {"m1": [13]}, include_bad_trial=True
     )
     assert [r["reversal_idx"] for r in out["m1"]] == [10, 30]  # sorted by reversal_idx
-    assert out["m1"][0]["post_len_after_removal"] == 4
-    assert out["m1"][1]["post_len_after_removal"] is None
+    cut, untouched = out["m1"]
+    assert (cut["removed_bad_idx"], cut["post_len_after_removal"]) == (13, 4)
+    assert post_lengths(cut) == (4, 4, 4)
+    assert cut["trial_window_idx"]["post"] == [10, 11, 12, 13]
+    assert len(cut["choices_by_tower"]["A"]["pre"]) == 1  # pre window is never cut
+    assert untouched["post_len_after_removal"] is None and untouched["removed_bad_idx"] is None
+    assert post_lengths(untouched) == (6, 6, 6)
     assert out["empty"] == []
     assert "[REMOVE] m1 good@10: cut post at bad@13 (kept 4 post trials)" in capsys.readouterr().out
+    assert post_lengths(windows["m1"][1]) == (6, 6, 6)  # input untouched
+
+
+def test_remove_trials_after_bad_rev_can_exclude_the_bad_trial(capsys):
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    out = remove_trials_after_bad_rev(
+        windows, {"m1": [10, 30]}, {"m1": [14]}, include_bad_trial=False
+    )
+    (rev,) = out["m1"]
+    assert (rev["removed_bad_idx"], rev["post_len_after_removal"]) == (14, 4)
+    assert post_lengths(rev) == (4, 4, 4)
+    assert rev["trial_window_idx"]["post"] == [10, 11, 12, 13]
+    assert "(kept 4 post trials)" in capsys.readouterr().out
+
+
+def test_remove_trials_after_bad_rev_includes_the_bad_trial_by_default():
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    (rev,) = remove_trials_after_bad_rev(windows, {"m1": [10]}, {"m1": [14]})["m1"]
+    assert rev["post_len_after_removal"] == 5
+
+
+def test_remove_trials_after_bad_rev_bad_right_after_the_reversal():
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    kept = remove_trials_after_bad_rev(windows, {"m1": [10]}, {"m1": [11]}, include_bad_trial=True)
+    cut = remove_trials_after_bad_rev(windows, {"m1": [10]}, {"m1": [11]}, include_bad_trial=False)
+    assert kept["m1"][0]["post_len_after_removal"] == 2
+    assert cut["m1"][0]["post_len_after_removal"] == 1
+    assert post_lengths(cut["m1"][0]) == (1, 1, 1)
+
+
+def test_remove_trials_after_bad_rev_uses_the_first_bad_of_unsorted_indices():
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    (rev,) = remove_trials_after_bad_rev(windows, {"m1": [10]}, {"m1": [16, 12, 14]})["m1"]
+    assert rev["removed_bad_idx"] == 12
+
+
+def test_remove_trials_after_bad_rev_sorts_good_indices_to_find_the_next_good():
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    # the next good reversal (12) comes before the bad one (13), so nothing is cut
+    (rev,) = remove_trials_after_bad_rev(windows, {"m1": [40, 12, 10]}, {"m1": [13]})["m1"]
+    assert rev["removed_bad_idx"] is None
+    assert post_lengths(rev) == (8, 8, 8)
+    # with the next good reversal far away the same bad reversal does cut
+    (rev,) = remove_trials_after_bad_rev(windows, {"m1": [40, 10]}, {"m1": [13]})["m1"]
+    assert rev["removed_bad_idx"] == 13
+
+
+def test_remove_trials_after_bad_rev_ignores_bads_at_or_outside_the_good_interval():
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    for bads in ([10], [3], [20], []):  # on the reversal, before it, after the next good, none
+        (rev,) = remove_trials_after_bad_rev(windows, {"m1": [10, 20]}, {"m1": bads})["m1"]
+        assert rev["removed_bad_idx"] is None and post_lengths(rev) == (8, 8, 8)
+
+
+def test_remove_trials_after_bad_rev_subject_missing_from_index_dicts_is_left_whole():
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    (rev,) = remove_trials_after_bad_rev(windows, {}, {})["m1"]
+    assert rev["post_len_after_removal"] is None and post_lengths(rev) == (8, 8, 8)
+
+
+def test_remove_trials_after_bad_rev_reversal_without_idx_passes_through():
+    rev = make_reversal(10, ["A"], ["B"] * 3)
+    del rev["reversal_idx"]
+    (out,) = remove_trials_after_bad_rev({"m1": [rev]}, {"m1": [10]}, {"m1": [11]})["m1"]
+    assert out["removed_bad_idx"] is None and post_lengths(out) == (3, 3, 3)
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_remove_trials_after_bad_rev_output_feeds_get_choice_probs():
+    windows = {"m1": [make_reversal(10, ["A"], ["B", "B", "B", "C", "C"])]}
+    cut = remove_trials_after_bad_rev(windows, {"m1": [10]}, {"m1": [12]}, include_bad_trial=False)
+    _, per_subject, across = get_choice_probs_around_good_reversals(cut, pre=1, post=5)
+    # post window cut to 2 trials; the remaining bins are NaN, so only 2 post bins are finite
+    np.testing.assert_array_equal(per_subject["m1"]["next_best"][0, 1:3], [1, 1])
+    assert np.isnan(per_subject["m1"]["next_best"][0, 3:]).all()
+    np.testing.assert_allclose(role_sum(across["mean"])[:3], 1.0)
