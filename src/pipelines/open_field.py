@@ -1,0 +1,386 @@
+"""Standard open-field bandit figures for a cohort, run problem by problem.
+
+Scripts and notebooks call :func:`run_open_field_analysis` (all problems) or
+:func:`run_problem` (one problem) with settings objects, instead of editing or
+exec-ing a script's source. Every figure is saved under
+``<output_root>/<task>/<cohort>/problem-NN/``.
+"""
+
+from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
+
+from src.behavior_analysis.get_choice_probs_around_good_reversals import (
+    apply_moving_average_to_choice_probs,
+    get_choice_probs_around_good_reversals,
+    remove_trials_after_bad_rev,
+)
+from src.behavior_analysis.get_diagnostic_p_value import (
+    pvalue_paired_t_best_vs_second_vs_third,
+    pvalue_paired_t_new_vs_third,
+)
+from src.behavior_analysis.get_first_leave_after_good_reversals import (
+    average_first_leave_across_subjects,
+    get_first_leave_after_good_reversals,
+)
+from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.get_rank_counts_by_good_reversal import (
+    get_rank_counts_by_good_reversal,
+    get_rank_counts_by_value,
+)
+from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
+from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
+from src.behavior_analysis.split_good_reversals_by_best_change import (
+    split_good_reversals_by_best_change,
+)
+from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
+    plot_choice_probs_around_good_reversals,
+)
+from src.behavior_visualization.plot_first_leave_after_good_reversals import (
+    plot_first_leave_after_good_reversals,
+)
+from src.behavior_visualization.plot_num_reversals import (
+    plot_moving_avg_reversals_over_time,
+    plot_num_reversals,
+    plot_num_reversals_over_time,
+)
+from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
+from src.behavior_visualization.plot_single_session import plot_single_session
+
+VALUE_BASIS_LABELS = {"true": "True Value", "believed": "Believed Value"}
+
+
+class ChoiceProbabilitySettings(BaseModel):
+    """Which choice-probability-around-good-reversal figures to make, and their windows."""
+
+    # extra="forbid": a misspelled option raises instead of being silently ignored
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run_all: bool = True
+    skip: bool = True
+    moving_avg: bool = True
+    remove_bad: bool = True
+    split_by_best_change: bool = False
+    split_by_best_change_and_half: bool = False
+    split_by_first_two: bool = True
+    split_by_half: bool = True
+    pre: int = 10
+    post: int = 30
+    skip_n_trials_after_reversal: int = 15
+    moving_avg_window: int = 4
+
+
+class AnalysisSelection(BaseModel):
+    """Which analysis sections to run for a problem.
+
+    ``rank_value_bases=None`` gives the true-value rank proportions from
+    ``get_rank_counts_by_good_reversal``; a tuple such as ``("true", "believed")``
+    uses ``get_rank_counts_by_value`` for each basis and each pooling mode.
+    """
+
+    # extra="forbid": a misspelled option raises instead of being silently ignored
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run_choice_probability_analysis: bool = True
+    run_first_leave_analysis: bool = True
+    run_number_of_reversals_analysis: bool = True
+    run_rank_proportion_analysis: bool = True
+    run_single_session_analysis: bool = True
+    rank_value_bases: tuple[str, ...] | None = None
+    rank_pooling_modes: tuple[bool, ...] = (True, False)
+    # choice-probability and first-leave analyses only apply up to this problem
+    last_reversal_window_problem: int = 4
+
+
+DEFAULT_SELECTION = AnalysisSelection()
+DEFAULT_CHOICE = ChoiceProbabilitySettings()
+
+
+def problem_dir(output_root: Path, task: str, cohort: str, problem_number: int) -> Path:
+    return Path(output_root) / task / cohort / f"problem-{problem_number:02d}"
+
+
+# ---------------------------------------------------------------------------
+# Choice probabilities around good reversals
+# ---------------------------------------------------------------------------
+
+
+def _choice_probs(windows, s: ChoiceProbabilitySettings, *, skip=False, smooth=False):
+    extra = {"skip_n_trials_after_reversal": s.skip_n_trials_after_reversal} if skip else {}
+    x, per_subject, across = get_choice_probs_around_good_reversals(
+        windows, pre=s.pre, post=s.post, **extra
+    )
+    if smooth:
+        x, _, across = apply_moving_average_to_choice_probs(
+            x, per_subject, moving_avg_window=s.moving_avg_window, mode="centered"
+        )
+    return x, across
+
+
+def _plot_with_reversal_axis(x, across, windows, idx, save_path, *, only_good: bool):
+    """Choice probabilities plus the cumulative-fraction-removed axis."""
+    good_idx, bad_idx = idx
+    # good-only plots state use_total explicitly; remove-bad plots rely on its default
+    extra = {"use_total": False} if only_good else {}
+    plot_choice_probs_around_good_reversals(
+        x,
+        across,
+        add_cumulative_axis=True,
+        only_good=only_good,
+        **extra,
+        windows_for_cumulative_axis=windows,
+        all_good_idx=good_idx,
+        all_bad_idx=bad_idx,
+        save_path=save_path,
+    )
+
+
+def _windows_and_indices(subjects_trials, s: ChoiceProbabilitySettings):
+    # recomputed for every figure family: later steps may modify the windows
+    windows = get_good_reversal_info(
+        subjects_trials, pre=s.pre, post=s.post, include_first_block=False
+    )
+    good_idx, bad_idx, _ = get_all_reversal_indices(subjects_trials)
+    return windows, (good_idx, bad_idx)
+
+
+def _drop_after_bad(windows, idx):
+    return remove_trials_after_bad_rev(windows, *idx, include_bad_trial=True)
+
+
+def run_choice_probability_analysis(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
+    """All enabled choice-probability figures for one problem, saved in *out_dir*."""
+    name = "Choice Probabilities Around Good Reversals"
+
+    if s.run_all:
+        windows, idx = _windows_and_indices(subjects_trials, s)
+        early, late = split_good_reversals_early_late(windows, first_n=2)
+        for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
+            _plot_with_reversal_axis(
+                *_choice_probs(w, s), w, idx, out_dir / f"{name}{suffix}", only_good=True
+            )
+
+    if s.skip:
+        windows, _ = _windows_and_indices(subjects_trials, s)
+        early, late = split_good_reversals_early_late(windows, first_n=2)
+        for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
+            x, across = _choice_probs(w, s, skip=True)
+            plot_choice_probs_around_good_reversals(
+                x,
+                across,
+                add_cumulative_axis=False,
+                skip_n_trials_after_reversal=s.skip_n_trials_after_reversal,
+                save_path=out_dir / f"{name}, Skipping Initial Trials{suffix}",
+            )
+
+    if s.moving_avg:
+        windows, idx = _windows_and_indices(subjects_trials, s)
+        families = [("", windows)]
+        if s.split_by_half:
+            first, second = split_good_reversals_early_late(windows)
+            families += [(" (First Half)", first), (" (Second Half)", second)]
+        if s.split_by_first_two:
+            early, late = split_good_reversals_early_late(windows, first_n=2)
+            families += [(" (Early)", early), (" (Late)", late)]
+        for suffix, w in families:
+            _plot_with_reversal_axis(
+                *_choice_probs(w, s, smooth=True),
+                w,
+                idx,
+                out_dir / f"{name} (Moving Average){suffix}",
+                only_good=True,
+            )
+
+    if s.remove_bad:
+        windows, idx = _windows_and_indices(subjects_trials, s)
+        windows = _drop_after_bad(windows, idx)
+        early, late = split_good_reversals_early_late(windows, first_n=2)
+        families = [
+            ("", windows),
+            (" (Early)", _drop_after_bad(early, idx)),
+            (" (Late)", _drop_after_bad(late, idx)),
+        ]
+        for suffix, w in families:
+            _plot_with_reversal_axis(
+                *_choice_probs(w, s, smooth=True),
+                w,
+                idx,
+                out_dir / f"{name} (Remove Bad){suffix}",
+                only_good=False,
+            )
+
+    if s.split_by_best_change and s.moving_avg:
+        _run_best_change(subjects_trials, out_dir, s)
+
+
+def _run_best_change(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
+    name = "Choice Probs Good Reversals"
+    windows, idx = _windows_and_indices(subjects_trials, s)
+    best2, best3 = split_good_reversals_by_best_change(windows)
+    early, late = split_good_reversals_early_late(windows, first_n=2)
+    best2_early, best3_early = split_good_reversals_by_best_change(early)
+    best2_late, best3_late = split_good_reversals_by_best_change(late)
+
+    families = [(" (Best->Second)", best2), (" (Best->Third)", best3)]
+    if s.split_by_best_change_and_half:
+        families += [
+            (" (Best->Second) (Early)", best2_early),
+            (" (Best->Third) (Early)", best3_early),
+            (" (Best->Second) (Late)", best2_late),
+            (" (Best->Third) (Late)", best3_late),
+        ]
+    for suffix, w in families:
+        _plot_with_reversal_axis(
+            *_choice_probs(w, s, smooth=True), w, idx, out_dir / f"{name}{suffix}", only_good=True
+        )
+
+    if not s.remove_bad:
+        return
+    # The full-problem "(Remove Bad)" figures use best2/best3 without
+    # remove_trials_after_bad_rev; only the early/late splits are filtered.
+    families = [(" (Best->Second) (Remove Bad)", best2), (" (Best->Third) (Remove Bad)", best3)]
+    if s.split_by_best_change_and_half:
+        families += [
+            (" (Best->Second) (Remove Bad) (Early)", _drop_after_bad(best2_early, idx)),
+            (" (Best->Third) (Remove Bad) (Early)", _drop_after_bad(best3_early, idx)),
+            (" (Best->Second) (Remove Bad) (Late)", _drop_after_bad(best2_late, idx)),
+            (" (Best->Third) (Remove Bad) (Late)", _drop_after_bad(best3_late, idx)),
+        ]
+    for suffix, w in families:
+        _plot_with_reversal_axis(
+            *_choice_probs(w, s, smooth=True), w, idx, out_dir / f"{name}{suffix}", only_good=False
+        )
+
+
+# ---------------------------------------------------------------------------
+# Other sections
+# ---------------------------------------------------------------------------
+
+
+def run_first_leave_analysis(subjects_trials, out_dir: Path):
+    """First arm left after good reversals: all, first two, and later reversals."""
+    windows = get_good_reversal_info(subjects_trials, include_first_block=False)
+    early, late = split_good_reversals_early_late(windows, first_n=2)
+    for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
+        per_subject = get_first_leave_after_good_reversals(w)
+        mean, se, _ = average_first_leave_across_subjects(per_subject)
+        p_value = pvalue_paired_t_new_vs_third(per_subject, alternative="greater")
+        plot_first_leave_after_good_reversals(
+            mean,
+            se,
+            per_subject,
+            p_value,
+            save_path=out_dir / f"First Leave After Good Reversals{suffix}",
+        )
+
+
+def run_number_of_reversals_analysis(subjects_trials, out_dir: Path, *, reversal_trial_window=None):
+    """Total, cumulative and moving-average reversal counts."""
+    plot_num_reversals(subjects_trials, save_path=out_dir / "Total Reversals")
+    plot_num_reversals_over_time(
+        subjects_trials, threshold=10, save_path=out_dir / "Cumulative Reversals Over Time"
+    )
+    extra = {} if reversal_trial_window is None else {"trial_window": reversal_trial_window}
+    plot_moving_avg_reversals_over_time(
+        subjects_trials, **extra, save_path=out_dir / "Moving Average Reversals Over Time"
+    )
+
+
+def run_rank_proportion_analysis(subjects_trials, out_dir: Path, selection: AnalysisSelection):
+    """Rank proportions after good reversals; returns counts and p-values when by value basis."""
+    windows = get_good_reversal_info(subjects_trials, include_first_block=True)
+    if selection.rank_value_bases is None:
+        counts = get_rank_counts_by_good_reversal(windows)
+        p_values = pvalue_paired_t_best_vs_second_vs_third(counts)
+        # plot_rank_proportions appends suffixes to a str save_path
+        plot_rank_proportions(
+            counts,
+            average_across_mice_pvalues=p_values,
+            save_path=str(out_dir / "Rank Proportions"),
+        )
+        return {}
+
+    results = {}
+    for value_basis in selection.rank_value_bases:
+        label = VALUE_BASIS_LABELS[value_basis]
+        print(f"Running rank proportions: {out_dir.parent.name}, {label}")
+        counts = get_rank_counts_by_value(subjects_trials, windows, value_basis=value_basis)
+        results[value_basis] = {}
+        for pool_trials in selection.rank_pooling_modes:
+            print(f"  pool_trials_within_subject={pool_trials}")
+            p_values = pvalue_paired_t_best_vs_second_vs_third(
+                counts, pool_trials_within_subject=pool_trials
+            )
+            results[value_basis][pool_trials] = {"counts": counts, "p_values": p_values}
+            plot_rank_proportions(
+                counts,
+                average_across_mice_pvalues=p_values,
+                pool_trials_within_subject=pool_trials,
+                save_path=str(out_dir / f"Rank Proportions ({label}) (Pool Trials {pool_trials})"),
+            )
+    return results
+
+
+def run_single_session_analysis(subjects_trials, out_dir: Path):
+    """One overview plot per session that has trials."""
+    for subject, sessions in subjects_trials.items():
+        for session, session_data in sessions.items():
+            if not session_data["trial_info"]:
+                print(f"Skipping {subject} | {session}. There are no trials.")
+                continue
+            print(f"Plotting {subject} | {session}")
+            plot_single_session(
+                session_data,
+                title=f"{subject} | {session}",
+                save_path=out_dir / subject / session / "Session Plot",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
+
+def run_problem(
+    problem_number: int,
+    subjects_trials: dict,
+    *,
+    task: str,
+    cohort: str,
+    output_root: Path,
+    selection: AnalysisSelection = DEFAULT_SELECTION,
+    choice: ChoiceProbabilitySettings = DEFAULT_CHOICE,
+    reversal_trial_window: int | None = None,
+) -> dict:
+    """Run the selected analyses for one problem; returns rank-proportion results."""
+    out = problem_dir(output_root, task, cohort, problem_number)
+    windowed = problem_number <= selection.last_reversal_window_problem
+    if selection.run_choice_probability_analysis and windowed:
+        print(f"Problem {problem_number}: choice probabilities around good reversals")
+        run_choice_probability_analysis(subjects_trials, out / "reversal-stats", choice)
+    if selection.run_first_leave_analysis and windowed:
+        print(f"Problem {problem_number}: first leave after good reversals")
+        run_first_leave_analysis(subjects_trials, out / "reversal-stats")
+    if selection.run_number_of_reversals_analysis:
+        print(f"Problem {problem_number}: number of reversals")
+        run_number_of_reversals_analysis(
+            subjects_trials, out / "reversal-stats", reversal_trial_window=reversal_trial_window
+        )
+    rank_results = {}
+    if selection.run_rank_proportion_analysis:
+        print(f"Problem {problem_number}: rank proportions")
+        rank_results = run_rank_proportion_analysis(
+            subjects_trials, out / "choice-stats", selection
+        )
+    if selection.run_single_session_analysis:
+        print(f"Problem {problem_number}: single sessions")
+        run_single_session_analysis(subjects_trials, out / "single-sessions")
+    return rank_results
+
+
+def run_open_field_analysis(subjects_trials_by_problem: dict, **kwargs) -> dict:
+    """:func:`run_problem` for every problem; returns ``{problem: rank results}``."""
+    return {
+        problem: run_problem(problem, trials, **kwargs)
+        for problem, trials in sorted(subjects_trials_by_problem.items())
+    }

@@ -1,13 +1,11 @@
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path.cwd().parent))
-from src.behavior_import.import_data import *
-from src.behavior_import.extract_trials import *
-from src.behavior_analysis.get_task_statistics import *
-from src.behavior_visualization.plot_task_statistics import *
+
+from src.behavior_analysis.get_task_statistics import get_block_lengths
+from src.behavior_import.extract_trials import extract_trials_grouped_by_problem
+from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
+from src.behavior_import.import_data import import_data
+from src.behavior_visualization.plot_task_statistics import plot_block_lengths
 from src.settings import get_settings
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-from scripts.fix_grid_maze_cohort_02_problems import *
 
 # task = "grid-maze"
 task = "open-field"
