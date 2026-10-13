@@ -3,11 +3,16 @@
 Functions here transform raw trial data (choices and rewards per tower) into
 design matrices suitable for multinomial logistic regression.
 """
+
 from __future__ import annotations
 
+from functools import partial
+from itertools import compress
 from typing import Any
 
 import numpy as np
+
+from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 
 
 def make_arm_mapping(tower_keys: Any) -> dict[str, str]:
@@ -76,12 +81,128 @@ def get_chosen_reward_per_trial(
     for i in range(n_trials):
         chosen = [t for t in towers if choices_by_tower[t][i] == 1]
         if len(chosen) != 1:
-            raise ValueError(
-                f"Trial {i}: expected exactly one chosen tower, got {chosen}"
-            )
+            raise ValueError(f"Trial {i}: expected exactly one chosen tower, got {chosen}")
         rewards.append(reward_magnitudes_by_tower[chosen[0]][i])
 
     return rewards
+
+
+# ---------------------------------------------------------------------------
+# Design-matrix building blocks shared by both formatters
+# ---------------------------------------------------------------------------
+
+_N_ARMS = 3
+_RANK_NAMES = ("best", "second", "third")
+_ARM_REDUNDANT = ("Arm3",)
+_RANK_REDUNDANT = ("Chose Third", "Third*Reward")
+
+
+def _design_labels(choice_terms: list[str], interaction_terms: list[str], n_lags: int) -> list[str]:
+    """Column labels in design-matrix order: bias, choices, rewards, interactions.
+
+    Choice and interaction terms repeat once per lag (lag-major), the reward
+    term has a single column per lag.
+    """
+    lags = range(1, n_lags + 1)
+    return (
+        ["Bias"]
+        + [f"{term} t-{lag}" for lag in lags for term in choice_terms]
+        + [f"Reward t-{lag}" for lag in lags]
+        + [f"{term} t-{lag}" for lag in lags for term in interaction_terms]
+    )
+
+
+def _keep_mask(labels: list[str], redundant_patterns: tuple[str, ...]) -> np.ndarray:
+    """Boolean mask of the columns whose label contains none of the patterns."""
+    return np.array([not any(p in label for p in redundant_patterns) for label in labels])
+
+
+def _lagged(values: np.ndarray, lag: int, fill: float) -> np.ndarray:
+    """``values`` shifted down by ``lag`` trials; the first ``lag`` rows are ``fill``."""
+    out = np.full(values.shape, fill, dtype=float)
+    if lag < len(values):
+        out[lag:] = values[: len(values) - lag]
+    return out
+
+
+def _design_matrix(
+    choices: np.ndarray, rewards: np.ndarray, n_lags: int, fill: float
+) -> np.ndarray:
+    """Full ``(n_trials, 1 + 7 * n_lags)`` regressor matrix, one row per trial.
+
+    Args:
+        choices: ``(n_trials, 3)`` choice indicators.
+        rewards: ``(n_trials,)`` reward magnitude of the chosen arm.
+        n_lags: Number of history lags.
+        fill: Value for history that reaches before the first trial.
+
+    Row ``t`` holds the bias, then the choices, reward and choice x reward
+    interactions at trials ``t-1 .. t-n_lags``.
+    """
+    interactions = choices * rewards[:, None]
+    lags = range(1, n_lags + 1)
+    blocks = (
+        [np.ones((len(rewards), 1))]
+        + [_lagged(choices, lag, fill) for lag in lags]
+        + [_lagged(rewards, lag, fill)[:, None] for lag in lags]
+        + [_lagged(interactions, lag, fill) for lag in lags]
+    )
+    return np.hstack(blocks)
+
+
+def _designs_by_subject(merged_data: dict, design_fn) -> tuple[dict, dict]:
+    """Apply ``design_fn(subject_data) -> (regressors, true_choices)`` to every subject.
+
+    Returns ``({subject: regressors}, {subject: true_choices})``.
+    """
+    per_subject = {subject: design_fn(data) for subject, data in merged_data.items()}
+    regressors = {subject: x for subject, (x, _) in per_subject.items()}
+    true_choices = {subject: y for subject, (_, y) in per_subject.items()}
+    return regressors, true_choices
+
+
+def _arm_labels(n_lags: int) -> list[str]:
+    arms = [f"Arm{a}" for a in range(1, _N_ARMS + 1)]
+    return _design_labels([f"Choice {a}" for a in arms], [f"Chx Rew {a}" for a in arms], n_lags)
+
+
+def _rank_labels(n_lags: int) -> list[str]:
+    ranks = [r.capitalize() for r in _RANK_NAMES]
+    return _design_labels([f"Chose {r}" for r in ranks], [f"{r}*Reward" for r in ranks], n_lags)
+
+
+# ---------------------------------------------------------------------------
+# Arm-ordered GLM
+# ---------------------------------------------------------------------------
+
+
+def _first_n(values: list, n_trials: int, what: str) -> np.ndarray:
+    """First ``n_trials`` entries as floats; fail if the series is shorter."""
+    if len(values) < n_trials:
+        raise ValueError(f"{what} has {len(values)} entries for {n_trials} trials")
+    return np.asarray(values[:n_trials], dtype=float)
+
+
+def _arm_design_for_subject(
+    subject_data: dict, n_lags: int, n_cols: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Full-width regressors and true choices (first trial dropped) for one subject."""
+    choices_by_tower = subject_data["choices_by_tower"]
+    chosen_rewards = get_chosen_reward_per_trial(
+        choices_by_tower, subject_data["reward_magnitudes_by_tower"]
+    )
+    n_trials = len(subject_data["trial"])
+    if n_trials < 2:  # the first trial has no history, so no row survives
+        return np.zeros((0, n_cols)), np.zeros((0, len(choices_by_tower)))
+
+    choices_by_arm = remap_tower_dict_to_arms(choices_by_tower, make_arm_mapping(choices_by_tower))
+    arm_series = [choices_by_arm[f"Arm{a}"] for a in range(1, _N_ARMS + 1)]
+    if len(choices_by_tower) != _N_ARMS:
+        raise ValueError(f"Expected {_N_ARMS} towers, got {sorted(choices_by_tower)}")
+    choices = np.column_stack([_first_n(s, n_trials, "choices") for s in arm_series])
+    rewards = _first_n(chosen_rewards, n_trials, "chosen rewards")
+    return _design_matrix(choices, rewards, n_lags, fill=0.0)[1:], choices[1:]
+
 
 def format_glm_input(
     data: dict,
@@ -112,87 +233,34 @@ def format_glm_input(
         - *true_choices_across_subjects* is ``{subject: ndarray(n_trials, 3)}``,
         - *col_labels* is a list of column label strings.
     """
-    from src.behavior_analysis.get_variables_across_sessions import (
-        get_vars_across_all_sessions,
-    )
-
     merged_data, _ = get_vars_across_all_sessions(data)
 
-    # Build full column labels
-    _full_labels = (
-        ["Bias"] +
-        [f"Choice Arm{a} t-{l}" for l in range(1, n_lags + 1) for a in range(1, 4)] +
-        [f"Reward t-{l}"        for l in range(1, n_lags + 1)] +
-        [f"Chx Rew Arm{a} t-{l}" for l in range(1, n_lags + 1) for a in range(1, 4)]
+    full_labels = _arm_labels(n_lags)
+    keep = _keep_mask(full_labels, _ARM_REDUNDANT)
+    regressors, true_choices = _designs_by_subject(
+        merged_data, partial(_arm_design_for_subject, n_lags=n_lags, n_cols=len(full_labels))
     )
-    input_dimension = len(_full_labels)
+    if drop_redundant_cols:
+        regressors = {subject: x[:, keep] for subject, x in regressors.items()}
+    # Known issue: the labels omit the Arm3 columns even when
+    # drop_redundant_cols=False keeps them, so labels and columns misalign.
+    return regressors, true_choices, list(compress(full_labels, keep))
 
-    # Drop Arm3 columns by label matching — robust to any n_lags
-    drop_set   = {i for i, l in enumerate(_full_labels) if "Arm3" in l}
-    keep_cols  = [i for i in range(input_dimension) if i not in drop_set]
-    col_labels = [l for i, l in enumerate(_full_labels) if i not in drop_set]
-
-    regressors_across_subjects: dict = {}
-    true_choices_across_subjects: dict = {}
-
-    for subject, subject_data in merged_data.items():
-        choices_by_tower = subject_data["choices_by_tower"]
-        chosen_rewards = get_chosen_reward_per_trial(
-            choices_by_tower,
-            subject_data["reward_magnitudes_by_tower"],
-        )
-
-        tower_to_arm   = make_arm_mapping(choices_by_tower.keys())
-        choices_by_arm = remap_tower_dict_to_arms(choices_by_tower, tower_to_arm)
-
-        num_trials   = len(subject_data["trial"])
-        regressors   = np.zeros((num_trials, input_dimension))
-        true_choices = np.zeros((num_trials, len(choices_by_tower)))
-
-        for t in range(1, num_trials):
-            true_choices[t] = [
-                choices_by_arm["Arm1"][t],
-                choices_by_arm["Arm2"][t],
-                choices_by_arm["Arm3"][t],
-            ]
-            regressors[t, 0] = 1  # bias
-
-            for lag in range(1, n_lags + 1):
-                if t < lag:
-                    continue
-                tk = t - lag
-
-                # choice columns: 1 + (lag-1)*3 .. 1 + (lag-1)*3 + 2
-                base_c = 1 + (lag - 1) * 3
-                regressors[t, base_c]     = choices_by_arm["Arm1"][tk]
-                regressors[t, base_c + 1] = choices_by_arm["Arm2"][tk]
-                regressors[t, base_c + 2] = choices_by_arm["Arm3"][tk]
-
-                # reward column: 1 + n_lags*3 + (lag-1)
-                base_r = 1 + n_lags * 3 + (lag - 1)
-                regressors[t, base_r] = chosen_rewards[tk]
-
-                # interaction columns: 1 + n_lags*3 + n_lags + (lag-1)*3 ..+2
-                base_i = 1 + n_lags * 3 + n_lags + (lag - 1) * 3
-                regressors[t, base_i]     = choices_by_arm["Arm1"][tk] * chosen_rewards[tk]
-                regressors[t, base_i + 1] = choices_by_arm["Arm2"][tk] * chosen_rewards[tk]
-                regressors[t, base_i + 2] = choices_by_arm["Arm3"][tk] * chosen_rewards[tk]
-
-        # Drop first trial (no history)
-        regressors   = regressors[1:]
-        true_choices = true_choices[1:]
-
-        if drop_redundant_cols:
-            regressors = regressors[:, keep_cols]
-
-        regressors_across_subjects[subject]   = regressors
-        true_choices_across_subjects[subject] = true_choices
-
-    return regressors_across_subjects, true_choices_across_subjects, col_labels
 
 # ---------------------------------------------------------------------------
 # Rank-based GLM
 # ---------------------------------------------------------------------------
+
+
+def _ranks_from_magnitudes(magnitudes: dict) -> dict:
+    """Map tower -> "best"/"second"/"third" by descending magnitude.
+
+    Ties are broken deterministically by tower key (lexicographic); any tower
+    beyond the third is labelled "third".
+    """
+    ordered = sorted(magnitudes.items(), key=lambda kv: (-kv[1], str(kv[0])))
+    return {tower: _RANK_NAMES[min(i, 2)] for i, (tower, _) in enumerate(ordered)}
+
 
 def _get_true_rank_at_trial(reward_magnitudes_list: list[dict]) -> list[dict]:
     """
@@ -202,14 +270,7 @@ def _get_true_rank_at_trial(reward_magnitudes_list: list[dict]) -> list[dict]:
 
     Ties are broken deterministically by tower key (lexicographic).
     """
-    rank_names = ["best", "second", "third"]
-    result = []
-    for rm in reward_magnitudes_list:
-        sorted_towers = sorted(rm.items(), key=lambda kv: (-kv[1], str(kv[0])))
-        tower_to_rank = {tower: rank_names[min(i, 2)]
-                         for i, (tower, _) in enumerate(sorted_towers)}
-        result.append(tower_to_rank)
-    return result
+    return [_ranks_from_magnitudes(rm) for rm in reward_magnitudes_list]
 
 
 def _get_believed_rank_at_trial(
@@ -225,20 +286,12 @@ def _get_believed_rank_at_trial(
     BEFORE making its choice on trial t (i.e. last_seen is updated
     AFTER recording the rank for trial t).
     """
-    rank_names = ["best", "second", "third"]
-    last_seen  = {}
-    result     = []
+    last_seen = {}
+    result = []
 
-    for i, rm in enumerate(reward_magnitudes_list):
-        choice = choices[i]
-        arms   = list(rm.keys())
-
-        if all(arm in last_seen for arm in arms):
-            sorted_towers = sorted(last_seen.items(),
-                                   key=lambda kv: (-kv[1], str(kv[0])))
-            tower_to_rank = {tower: rank_names[min(i, 2)]
-                             for i, (tower, _) in enumerate(sorted_towers)}
-            result.append(tower_to_rank)
+    for choice, rm in zip(choices, reward_magnitudes_list, strict=True):
+        if all(arm in last_seen for arm in rm):
+            result.append(_ranks_from_magnitudes(last_seen))
         else:
             result.append(None)
 
@@ -247,6 +300,84 @@ def _get_believed_rank_at_trial(
             last_seen[choice] = rm[choice]
 
     return result
+
+
+def _chosen_tower_per_trial(choices_by_tower: dict, towers: list, n_trials: int) -> list:
+    """The chosen tower at each trial, or ``None`` unless exactly one was chosen."""
+    chosen = [[t for t in towers if choices_by_tower[t][i] == 1] for i in range(n_trials)]
+    return [c[0] if len(c) == 1 else None for c in chosen]
+
+
+def _reward_magnitudes_per_trial(
+    reward_magnitudes_by_tower: dict, towers: list, n_trials: int
+) -> list[dict]:
+    """``{tower: magnitude}`` for each trial."""
+    return [{t: reward_magnitudes_by_tower[t][i] for t in towers} for i in range(n_trials)]
+
+
+def _chosen_rewards(reward_magnitudes_by_tower: dict, chosen_towers: list) -> np.ndarray:
+    """Reward magnitude of the chosen tower at each trial (NaN when none was chosen)."""
+    return np.array(
+        [
+            reward_magnitudes_by_tower[tower][i] if tower is not None else np.nan
+            for i, tower in enumerate(chosen_towers)
+        ],
+        dtype=float,
+    )
+
+
+def _chose_rank_indicators(chosen_towers: list, ranks_per_trial: list) -> np.ndarray:
+    """``(n_trials, 3)`` one-hot of the chosen rank [best, second, third].
+
+    Rows are NaN where no single tower was chosen or no rank is available.
+    """
+
+    def one_hot(tower, ranks):
+        if tower is None or ranks is None:
+            return [np.nan] * len(_RANK_NAMES)
+        return [1.0 if ranks.get(tower) == name else 0.0 for name in _RANK_NAMES]
+
+    rows = [
+        one_hot(tower, ranks) for tower, ranks in zip(chosen_towers, ranks_per_trial, strict=True)
+    ]
+    return np.array(rows, dtype=float).reshape(-1, len(_RANK_NAMES))
+
+
+def _complete_history_rows(regressors: np.ndarray) -> np.ndarray:
+    """Indices of rows after the first trial that contain no NaN."""
+    rows = np.arange(1, len(regressors))
+    return rows[~np.isnan(regressors[rows]).any(axis=1)]
+
+
+def _rank_design_for_subject(
+    subject_data: dict, use_believed: bool, n_lags: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Full-width regressors and rank-ordered true choices for one subject.
+
+    Only trials with a complete history (no NaN anywhere in the row) are kept.
+    """
+    choices_by_tower = subject_data["choices_by_tower"]
+    reward_magnitudes_by_tower = subject_data["reward_magnitudes_by_tower"]
+    towers = list(choices_by_tower)
+
+    n_trials = min(
+        min(len(choices_by_tower[t]) for t in towers),
+        min(len(reward_magnitudes_by_tower[t]) for t in towers),
+    )
+    chosen = _chosen_tower_per_trial(choices_by_tower, towers, n_trials)
+    magnitudes = _reward_magnitudes_per_trial(reward_magnitudes_by_tower, towers, n_trials)
+    rank_at_trial = (
+        _get_believed_rank_at_trial(chosen, magnitudes)
+        if use_believed
+        else _get_true_rank_at_trial(magnitudes)
+    )
+    # The rank indicator at trial t is both the outcome at t and the choice
+    # regressor at t+lag, so one array serves as true choices and history.
+    indicators = _chose_rank_indicators(chosen, rank_at_trial)
+    rewards = _chosen_rewards(reward_magnitudes_by_tower, chosen)
+    regressors = _design_matrix(indicators, rewards, n_lags, fill=np.nan)
+    rows = _complete_history_rows(regressors)
+    return regressors[rows], indicators[rows]
 
 
 def format_glm_input_by_rank(
@@ -295,138 +426,15 @@ def format_glm_input_by_rank(
           columns = [chose_best, chose_second, chose_third],
         - *col_labels* is a list of strings describing each column.
     """
-    from src.behavior_analysis.get_variables_across_sessions import (
-        get_vars_across_all_sessions,
-    )
-
     merged_data, _ = get_vars_across_all_sessions(data)
 
-    rank_names = ["best", "second", "third"]
+    full_labels = _rank_labels(n_lags)
+    regressors, true_choices = _designs_by_subject(
+        merged_data, partial(_rank_design_for_subject, use_believed=use_believed, n_lags=n_lags)
+    )
+    if not drop_redundant_cols:
+        return regressors, true_choices, full_labels
 
-    # Build full column labels
-    full_labels = ["Bias"]
-    for lag in range(1, n_lags + 1):
-        for r in rank_names:
-            full_labels.append(f"Chose {r.capitalize()} t-{lag}")
-    for lag in range(1, n_lags + 1):
-        full_labels.append(f"Reward t-{lag}")
-    for lag in range(1, n_lags + 1):
-        for r in rank_names:
-            full_labels.append(f"{r.capitalize()}*Reward t-{lag}")
-
-    # Redundant cols: "Chose Third t-k" and "Third*Reward t-k"
-    drop_label_patterns = ["Chose Third", "Third*Reward"]
-    if drop_redundant_cols:
-        keep_mask   = [not any(p in l for p in drop_label_patterns)
-                       for l in full_labels]
-        col_labels  = [l for l, k in zip(full_labels, keep_mask) if k]
-    else:
-        keep_mask  = [True] * len(full_labels)
-        col_labels = full_labels
-
-    n_full_cols = len(full_labels)
-
-    regressors_across_subjects:    dict = {}
-    true_choices_across_subjects:  dict = {}
-
-    for subject, subject_data in merged_data.items():
-        choices_by_tower        = subject_data["choices_by_tower"]
-        reward_magnitudes_by_tower = subject_data["reward_magnitudes_by_tower"]
-        towers = list(choices_by_tower.keys())
-
-        n_trials = min(len(choices_by_tower[t]) for t in towers)
-        n_trials = min(n_trials,
-                       min(len(reward_magnitudes_by_tower[t]) for t in towers))
-
-        # Per-trial chosen tower
-        chosen_tower_per_trial = []
-        for i in range(n_trials):
-            chosen = [t for t in towers if choices_by_tower[t][i] == 1]
-            chosen_tower_per_trial.append(chosen[0] if len(chosen) == 1 else None)
-
-        # Per-trial reward magnitude of chosen arm
-        reward_magnitudes_list = [
-            {t: reward_magnitudes_by_tower[t][i] for t in towers}
-            for i in range(n_trials)
-        ]
-        chosen_rewards = [
-            reward_magnitudes_by_tower[chosen_tower_per_trial[i]][i]
-            if chosen_tower_per_trial[i] is not None else np.nan
-            for i in range(n_trials)
-        ]
-
-        # Per-trial rank mapping: tower -> "best"/"second"/"third"
-        if use_believed:
-            rank_at_trial = _get_believed_rank_at_trial(
-                chosen_tower_per_trial, reward_magnitudes_list
-            )
-        else:
-            rank_at_trial = _get_true_rank_at_trial(reward_magnitudes_list)
-
-        # Per-trial chose_rank indicator: {rank: 0/1}
-        chose_rank = []
-        for i in range(n_trials):
-            tower   = chosen_tower_per_trial[i]
-            rm      = rank_at_trial[i]
-            if tower is not None and rm is not None:
-                r = rm.get(tower)
-                chose_rank.append({rk: (1 if rk == r else 0) for rk in rank_names})
-            else:
-                chose_rank.append({rk: np.nan for rk in rank_names})
-
-        regressors   = np.full((n_trials, n_full_cols), np.nan)
-        true_choices = np.full((n_trials, 3), np.nan)
-
-        for t in range(1, n_trials):
-            # true choice at t (by rank at trial t)
-            rm_t = rank_at_trial[t]
-            tower_t = chosen_tower_per_trial[t]
-            if rm_t is not None and tower_t is not None:
-                chosen_rank_t = rm_t.get(tower_t)
-                true_choices[t] = [
-                    1.0 if chosen_rank_t == "best"   else 0.0,
-                    1.0 if chosen_rank_t == "second" else 0.0,
-                    1.0 if chosen_rank_t == "third"  else 0.0,
-                ]
-
-            regressors[t, 0] = 1.0  # bias
-
-            for lag in range(1, n_lags + 1):
-                tk = t - lag
-                if tk < 0:
-                    continue
-
-                # chose-rank indicators at t-lag (using rank at t-lag)
-                cr = chose_rank[tk]
-                base_choice_col = 1 + (lag - 1) * 3
-                regressors[t, base_choice_col]     = cr.get("best",   np.nan)
-                regressors[t, base_choice_col + 1] = cr.get("second", np.nan)
-                regressors[t, base_choice_col + 2] = cr.get("third",  np.nan)
-
-                # reward at t-lag
-                base_reward_col = 1 + n_lags * 3 + (lag - 1)
-                rwd = chosen_rewards[tk]
-                regressors[t, base_reward_col] = rwd
-
-                # rank * reward interactions at t-lag
-                base_inter_col = 1 + n_lags * 3 + n_lags + (lag - 1) * 3
-                regressors[t, base_inter_col]     = cr.get("best",   np.nan) * rwd
-                regressors[t, base_inter_col + 1] = cr.get("second", np.nan) * rwd
-                regressors[t, base_inter_col + 2] = cr.get("third",  np.nan) * rwd
-
-        # Drop first trial (no history) and any trial with NaN rank
-        valid = np.arange(1, n_trials)
-        # also drop trials where believed rank was unavailable (NaN in regressors)
-        nan_rows = np.any(np.isnan(regressors[valid]), axis=1)
-        valid    = valid[~nan_rows]
-
-        regressors   = regressors[valid]
-        true_choices = true_choices[valid]
-
-        if drop_redundant_cols:
-            regressors = regressors[:, keep_mask]
-
-        regressors_across_subjects[subject]   = regressors
-        true_choices_across_subjects[subject] = true_choices
-
-    return regressors_across_subjects, true_choices_across_subjects, col_labels
+    keep = _keep_mask(full_labels, _RANK_REDUNDANT)
+    regressors = {subject: x[:, keep] for subject, x in regressors.items()}
+    return regressors, true_choices, list(compress(full_labels, keep))
