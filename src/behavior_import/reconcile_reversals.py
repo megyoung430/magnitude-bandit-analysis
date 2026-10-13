@@ -12,7 +12,7 @@ from typing import NamedTuple
 KINDS = ("good", "bad")
 
 
-def _state(d):
+def _state(raw):
     aliases = {
         "good": ("num_good_reversals", "num_good_rev"),
         "bad": ("num_bad_reversals", "num_bad_rev"),
@@ -21,7 +21,10 @@ def _state(d):
         "magnitudes": ("current_reward_magnitudes", "curr_rew_mag"),
         "problem": ("num_problem",),
     }
-    return {k: next((d[a] for a in names if a in d), None) for k, names in aliases.items()}
+    return {
+        field: next((raw[name] for name in names if name in raw), None)
+        for field, names in aliases.items()
+    }
 
 
 def _snapshots(df):
@@ -33,22 +36,26 @@ def _snapshots(df):
         # Known issue: a run_start snapshot that fails to parse is skipped, so the
         # baseline becomes 0 and events from earlier runs can be counted again.
         try:
-            d = content if isinstance(content, dict) else json.loads(content)
+            raw = content if isinstance(content, dict) else json.loads(content)
         except (ValueError, TypeError):
             continue
         if row["subtype"] == "run_start":
-            start = _state(d)
+            start = _state(raw)
         else:
-            end = _state(d)
+            end = _state(raw)
     return start, end
 
 
-def _same_problem(a, b):
+def _same_problem(first, second):
     # Require positive evidence of continuity; never bridge different arm sets.
-    am, bm = a.get("magnitudes"), b.get("magnitudes")
-    if not am or not bm or set(am) != set(bm):
+    first_mags, second_mags = first.get("magnitudes"), second.get("magnitudes")
+    if not first_mags or not second_mags or set(first_mags) != set(second_mags):
         return False
-    return a.get("problem") is None or b.get("problem") is None or a["problem"] == b["problem"]
+    return (
+        first.get("problem") is None
+        or second.get("problem") is None
+        or first["problem"] == second["problem"]
+    )
 
 
 class _Run(NamedTuple):
@@ -97,10 +104,10 @@ def _between_runs(previous, start, trial_offset, run_index):
     if not (previous and _same_problem(previous, start)):
         return incoming, events, diagnostics
     for kind in KINDS:
-        a, b = previous.get("total_" + kind), start.get("total_" + kind)
-        if a is None or b is None:
+        before, after = previous.get("total_" + kind), start.get("total_" + kind)
+        if before is None or after is None:
             continue
-        delta = int(b - a)
+        delta = int(after - before)
         if delta > 0:
             incoming[kind] = delta
             events.append(dict(kind=kind, index=trial_offset, count=delta, source="between_runs"))
@@ -149,92 +156,138 @@ def _run_total(last_count, start, end, kind, baseline):
     final = end.get(kind)
     total = max(last_count, int(final) - baseline) if final is not None else last_count
     # Total counters are independent evidence; take whichever source shows more events.
-    a, b = start.get("total_" + kind), end.get("total_" + kind)
-    if a is not None and b is not None and b >= a:
-        total = max(total, int(b - a))
+    start_total, end_total = start.get("total_" + kind), end.get("total_" + kind)
+    if start_total is not None and end_total is not None and end_total >= start_total:
+        total = max(total, int(end_total - start_total))
     return total
 
 
-def _last_magnitudes(tv, n_trials):
-    return tv.get("reward_magnitudes", [None] * n_trials)[-1]
+def _last_magnitudes(variables, n_trials):
+    return variables.get("reward_magnitudes", [None] * n_trials)[-1]
 
 
-def _terminal_magnitude_diagnostics(tv, end, n_trials, trial_offset, events, run_index):
+def _terminal_magnitude_diagnostics(
+    last_magnitudes, end, n_trials, trial_offset, events, run_index
+):
     """Flag a magnitude change after the last trial that no terminal reversal explains."""
-    last_mags = _last_magnitudes(tv, n_trials)
     explained = any(
         e["source"] == "run_end" and e["index"] == trial_offset + n_trials for e in events
     )
-    if end.get("magnitudes") is None or last_mags == end["magnitudes"] or explained:
+    if end.get("magnitudes") is None or last_magnitudes == end["magnitudes"] or explained:
         return []
     return [
         dict(
             source="unclassified_terminal_magnitude_change",
             run=run_index,
-            before=last_mags,
+            before=last_magnitudes,
             after=end["magnitudes"],
         )
     ]
 
 
-def _end_state(start, end, tv, n_trials, run_totals):
-    """The run's end snapshot with missing totals, magnitudes and problem filled in."""
+def _end_state(start, end, last_magnitudes, run_totals):
+    """The run's end snapshot with missing totals, magnitudes and problem filled in.
+
+    ``last_magnitudes`` is ``None`` for a run without trials.
+    """
     state = dict(end)
     for kind in KINDS:
-        a = start.get("total_" + kind)
-        if state.get("total_" + kind) is None and a is not None:
-            state["total_" + kind] = a + run_totals[kind]
-    if n_trials and state.get("magnitudes") is None:
-        state["magnitudes"] = _last_magnitudes(tv, n_trials)
+        start_total = start.get("total_" + kind)
+        if state.get("total_" + kind) is None and start_total is not None:
+            state["total_" + kind] = start_total + run_totals[kind]
+    if last_magnitudes is not None and state.get("magnitudes") is None:
+        state["magnitudes"] = last_magnitudes
     if state.get("problem") is None:
         state["problem"] = start.get("problem")
     return state
 
 
-def _reconcile_run(df, tv, previous, carried, trial_offset, run_index):
+def _reconcile_counter(values, start, end, kind, n_trials, offset):
+    """Reconcile one counter kind within one run.
+
+    ``offset`` is the number of events of this kind before the run's first trial.
+    Returns ``(corrected, total, terminal)``: the per-trial cumulative counts, the
+    events inside the run, and how many of those happen after the last trial.
+    """
+    # Counters can persist across recording restarts: subtract the run-start
+    # baseline rather than counting historical events again.
+    baseline = start.get(kind) or 0
+    counts = _running_counts(values, n_trials, baseline)
+    last_count = counts[-1] if counts else 0
+    total = _run_total(last_count, start, end, kind, baseline)
+    return [offset + c for c in counts], total, total - last_count
+
+
+def _reconcile_run(df, variables, previous, carried, trial_offset, run_index):
     """Reconcile one run given the previous run's end state and totals so far.
 
     Args:
         df: Event frame of this run.
-        tv: Trial variables of this run (may be empty).
+        variables: Trial variables of this run (may be empty).
         previous: End state of the previous run, or ``None`` for the first.
         carried: ``{kind: events counted in earlier runs of this session}``.
         trial_offset: Number of trials in earlier runs of this session.
         run_index: Position of this run in the session (for diagnostics only).
     """
     start, end = _snapshots(df)
-    n_trials = len(tv.get("trial", []))
+    n_trials = len(variables.get("trial", []))
     incoming, events, diagnostics = _between_runs(previous, start, trial_offset, run_index)
     corrected, run_totals, observed = {}, {}, {}
     for kind in KINDS:
-        values = tv.get(kind + "_reversals", [])
+        values = variables.get(kind + "_reversals", [])
         observed[kind] = _counter_observed(values, start, kind)
-        # Counters can persist across recording restarts: subtract the run-start
-        # baseline rather than counting historical events again.
-        baseline = start.get(kind) or 0
-        counts = _running_counts(values, n_trials, baseline)
-        last_count = counts[-1] if counts else 0
-        corrected[kind] = [carried[kind] + incoming[kind] + c for c in counts]
-        run_totals[kind] = _run_total(last_count, start, end, kind, baseline)
-        terminal = run_totals[kind] - last_count
+        corrected[kind], run_totals[kind], terminal = _reconcile_counter(
+            values, start, end, kind, n_trials, carried[kind] + incoming[kind]
+        )
         if terminal:
             events.append(
                 dict(kind=kind, index=trial_offset + n_trials, count=terminal, source="run_end")
             )
+    last_magnitudes = _last_magnitudes(variables, n_trials) if n_trials else None
     if n_trials:
         diagnostics += _terminal_magnitude_diagnostics(
-            tv, end, n_trials, trial_offset, events, run_index
+            last_magnitudes, end, n_trials, trial_offset, events, run_index
         )
-    added = {k: incoming[k] + run_totals[k] for k in KINDS}
     return _Run(
-        n_trials,
-        corrected,
-        added,
-        observed,
-        events,
-        diagnostics,
-        _end_state(start, end, tv, n_trials, run_totals),
+        n_trials=n_trials,
+        corrected=corrected,
+        added={kind: incoming[kind] + run_totals[kind] for kind in KINDS},
+        observed=observed,
+        events=events,
+        diagnostics=diagnostics,
+        end_state=_end_state(start, end, last_magnitudes, run_totals),
     )
+
+
+def _reconcile_runs(sess, previous):
+    """Reconcile every run of a session in order; return ``(runs, last end state)``."""
+    runs = []
+    carried = {kind: 0 for kind in KINDS}
+    trial_offset = 0
+    for run_index, df in enumerate(_session_frames(sess)):
+        run = _reconcile_run(
+            df, _run_variables(sess, run_index), previous, carried, trial_offset, run_index
+        )
+        for kind in KINDS:
+            carried[kind] += run.added[kind]
+        previous = run.end_state
+        trial_offset += run.n_trials
+        runs.append(run)
+    return runs, previous
+
+
+def _combine_runs(runs):
+    """Merge per-run results into session-level values.
+
+    Returns ``(arrays, totals, observed, events, diagnostics)``, each dict keyed by
+    kind except the two lists, which keep run order.
+    """
+    arrays = {kind: [c for run in runs for c in run.corrected[kind]] for kind in KINDS}
+    totals = {kind: sum(run.added[kind] for run in runs) for kind in KINDS}
+    observed = {kind: any(run.observed[kind] for run in runs) for kind in KINDS}
+    events = [e for run in runs for e in run.events]
+    diagnostics = [d for run in runs for d in run.diagnostics]
+    return arrays, totals, observed, events, diagnostics
 
 
 def _correct_blocks(original_blocks, events):
@@ -242,44 +295,32 @@ def _correct_blocks(original_blocks, events):
     # Any None block raises TypeError (None + int); the extractor is expected to
     # supply integer blocks, so a missing one is not handled here.
     return [
-        b + sum(e["count"] for e in events if e["index"] <= i)
-        for i, b in enumerate(original_blocks)
+        block + sum(e["count"] for e in events if e["index"] <= i)
+        for i, block in enumerate(original_blocks)
     ]
 
 
-def _reconcile_session(sess, previous):
-    """Reconcile every run of one session in place; return the last run's end state."""
-    frames = _session_frames(sess)
-    arrays = {k: [] for k in KINDS}
-    totals = {k: 0 for k in KINDS}
-    available = {k: False for k in KINDS}
-    events, diagnostics = [], []
-    trial_offset = 0
-    for run_index, df in enumerate(frames):
-        run = _reconcile_run(
-            df, _run_variables(sess, run_index), previous, totals, trial_offset, run_index
-        )
-        for kind in KINDS:
-            arrays[kind].extend(run.corrected[kind])
-            totals[kind] += run.added[kind]
-            available[kind] |= run.observed[kind]
-        events += run.events
-        diagnostics += run.diagnostics
-        previous = run.end_state
-        trial_offset += run.n_trials
+def _write_session(sess, arrays, totals, observed, events, diagnostics):
+    """Store the reconciled values on the session dict (the only mutation)."""
     # Rebuild block corrections from the original extraction on repeat calls.
     original_blocks = sess.setdefault(
         "blocks_before_boundary_reconciliation", list(sess.get("blocks", []))
     )
     sess["blocks"] = _correct_blocks(original_blocks, events)
-    sess["reversal_totals"] = {k: totals[k] for k in KINDS if available[k]}
+    sess["reversal_totals"] = {k: totals[k] for k in KINDS if observed[k]}
     sess["reversal_boundary_events"] = events
     sess["reversal_diagnostics"] = diagnostics
     for kind in KINDS:
-        if available[kind]:
+        if observed[kind]:
             sess[kind + "_reversals"] = arrays[kind]
             sess["has_" + kind] = True
-    return previous
+
+
+def _reconcile_session(sess, previous):
+    """Reconcile one session in place; return the last run's end state."""
+    runs, last_end_state = _reconcile_runs(sess, previous)
+    _write_session(sess, *_combine_runs(runs))
+    return last_end_state
 
 
 def reconcile_reversals(data):

@@ -1,18 +1,23 @@
 """Unit tests for the pure helpers behind ``reconcile_reversals``."""
 
+import copy
+
 import pandas as pd
 import pytest
 
 from src.behavior_import.reconcile_reversals import (
     _between_runs,
+    _combine_runs,
     _correct_blocks,
     _counter_observed,
     _end_state,
     _reconcile_run,
+    _Run,
     _run_total,
     _running_counts,
     _session_order,
     _terminal_magnitude_diagnostics,
+    reconcile_reversals,
 )
 
 MAGS = {"A": 4, "B": 1, "C": 0}
@@ -30,6 +35,16 @@ def frame(start, end):
             {"type": "variable", "subtype": "run_end", "content": end},
         ]
     )
+
+
+def run_variables(good, bad):
+    n = len(good)
+    return {
+        "trial": list(range(1, n + 1)),
+        "good_reversals": list(good),
+        "bad_reversals": list(bad),
+        "reward_magnitudes": [MAGS] * n,
+    }
 
 
 def test_session_order_sorts_numerically_and_puts_unnumbered_last():
@@ -105,20 +120,18 @@ def test_between_runs_first_run_has_nothing_incoming():
 
 
 def test_terminal_magnitude_change_flagged_unless_a_terminal_reversal_explains_it():
-    tv = {"reward_magnitudes": [MAGS, MAGS]}
     end = {"magnitudes": OTHER_MAGS}
-    flagged = _terminal_magnitude_diagnostics(tv, end, 2, 0, [], run_index=0)
+    flagged = _terminal_magnitude_diagnostics(MAGS, end, 2, 0, [], run_index=0)
     assert [d["source"] for d in flagged] == ["unclassified_terminal_magnitude_change"]
     explained = [dict(kind="good", index=2, count=1, source="run_end")]
-    assert _terminal_magnitude_diagnostics(tv, end, 2, 0, explained, run_index=0) == []
-    assert _terminal_magnitude_diagnostics(tv, {"magnitudes": MAGS}, 2, 0, [], 0) == []
-    assert _terminal_magnitude_diagnostics(tv, {}, 2, 0, [], 0) == []
+    assert _terminal_magnitude_diagnostics(MAGS, end, 2, 0, explained, run_index=0) == []
+    assert _terminal_magnitude_diagnostics(MAGS, {"magnitudes": MAGS}, 2, 0, [], 0) == []
+    assert _terminal_magnitude_diagnostics(MAGS, {}, 2, 0, [], 0) == []
 
 
 def test_end_state_fills_missing_total_magnitudes_and_problem():
     start = {"total_good": 2, "problem": 3}
-    tv = {"reward_magnitudes": [OTHER_MAGS, MAGS]}
-    filled = _end_state(start, {}, tv, 2, {"good": 1, "bad": 0})
+    filled = _end_state(start, {}, MAGS, {"good": 1, "bad": 0})
     assert filled["total_good"] == 3
     assert filled.get("total_bad") is None  # no start total to extend
     assert filled["magnitudes"] == MAGS
@@ -127,7 +140,7 @@ def test_end_state_fills_missing_total_magnitudes_and_problem():
 
 def test_end_state_keeps_recorded_values():
     end = {"total_good": 9, "magnitudes": OTHER_MAGS, "problem": 2}
-    filled = _end_state({"total_good": 2, "problem": 3}, end, {}, 0, {"good": 1, "bad": 0})
+    filled = _end_state({"total_good": 2, "problem": 3}, end, None, {"good": 1, "bad": 0})
     assert filled == {**end, "total_good": 9}
 
 
@@ -148,11 +161,120 @@ def test_correct_blocks_raises_type_error_on_none_block():
 def test_reconcile_run_offsets_trials_and_reports_terminal_event():
     start = {"num_good_rev": 0, "curr_rew_mag": MAGS, "num_problem": 1}
     end = {"num_good_rev": 2, "curr_rew_mag": MAGS, "num_problem": 1}
-    tv = {"trial": [1, 2], "good_reversals": [0, 1], "reward_magnitudes": [MAGS, MAGS]}
+    variables = run_variables((0, 1), ())
     carried = {"good": 5, "bad": 0}
-    run = _reconcile_run(frame(start, end), tv, None, carried, trial_offset=10, run_index=0)
+    run = _reconcile_run(frame(start, end), variables, None, carried, trial_offset=10, run_index=0)
     assert run.n_trials == 2
     assert run.corrected["good"] == [5, 6]
     assert run.added == {"good": 2, "bad": 0}
     assert run.events == [dict(kind="good", index=12, count=1, source="run_end")]
     assert run.observed == {"good": True, "bad": False}
+
+
+def two_run_session():
+    """Run 2 starts with a cumulative good total 2 above where run 1 ended."""
+    first = frame(
+        {"num_good_rev": 0, "num_bad_rev": 0, "tot_num_good_rev": 0, "tot_num_bad_rev": 0}
+        | {"curr_rew_mag": MAGS, "num_problem": 1},
+        {"num_good_rev": 1, "num_bad_rev": 0, "tot_num_good_rev": 1, "tot_num_bad_rev": 0}
+        | {"curr_rew_mag": MAGS, "num_problem": 1},
+    )
+    second = frame(
+        {"num_good_rev": 1, "num_bad_rev": 0, "tot_num_good_rev": 3, "tot_num_bad_rev": 0}
+        | {"curr_rew_mag": MAGS, "num_problem": 1},
+        {"num_good_rev": 2, "num_bad_rev": 0, "tot_num_good_rev": 4, "tot_num_bad_rev": 0}
+        | {"curr_rew_mag": MAGS, "num_problem": 1},
+    )
+    return {
+        "data": [first, second],
+        "trial_variables": [run_variables((0, 1), (0, 0)), run_variables((1, 2), (0, 0))],
+        "blocks": [1, 1, 1, 1],
+    }
+
+
+def test_positive_change_between_runs_is_added_at_the_second_run_start():
+    sess = two_run_session()
+    reconcile_reversals({"mouse": {"ses-1": sess}})
+    assert sess["good_reversals"] == [0, 1, 3, 4]
+    assert sess["bad_reversals"] == [0, 0, 0, 0]
+    assert sess["reversal_totals"] == {"good": 4, "bad": 0}
+    assert sess["blocks"] == [1, 1, 3, 3]
+    assert sess["reversal_boundary_events"] == [
+        dict(kind="good", index=2, count=2, source="between_runs")
+    ]
+    assert sess["reversal_diagnostics"] == []
+
+
+def test_reconcile_reversals_twice_leaves_the_result_unchanged():
+    data = {"mouse": {"ses-1": two_run_session()}}
+    reconcile_reversals(data)
+    once = copy.deepcopy(data)
+    assert reconcile_reversals(data) is data
+    for key, sess in data["mouse"]["ses-1"].items():
+        if key == "data":  # DataFrames do not compare with ==
+            continue
+        assert sess == once["mouse"]["ses-1"][key], key
+
+
+def test_session_with_empty_trial_variables_has_no_trials_but_keeps_terminal_events():
+    start = {"num_good_rev": 0, "num_bad_rev": 0, "curr_rew_mag": MAGS, "num_problem": 1}
+    end = start | {"num_good_rev": 1}
+    sess = {"data": [frame(start, end)], "trial_variables": {}, "blocks": []}
+    reconcile_reversals({"mouse": {"ses-1": sess}})
+    assert sess["good_reversals"] == []
+    assert sess["blocks"] == []
+    assert sess["reversal_totals"] == {"good": 1, "bad": 0}
+    assert sess["reversal_boundary_events"] == [
+        dict(kind="good", index=0, count=1, source="run_end")
+    ]
+
+
+def make_run(**overrides):
+    fields = dict(
+        n_trials=0,
+        corrected={"good": [], "bad": []},
+        added={"good": 0, "bad": 0},
+        observed={"good": False, "bad": False},
+        events=[],
+        diagnostics=[],
+        end_state={},
+    )
+    return _Run(**(fields | overrides))
+
+
+def test_combine_runs_with_no_runs_is_empty_and_unobserved():
+    arrays, totals, observed, events, diagnostics = _combine_runs([])
+    assert arrays == {"good": [], "bad": []}
+    assert totals == {"good": 0, "bad": 0}
+    assert observed == {"good": False, "bad": False}
+    assert (events, diagnostics) == ([], [])
+
+
+def test_combine_runs_concatenates_arrays_events_and_diagnostics_in_run_order():
+    first = make_run(
+        corrected={"good": [0, 1], "bad": [0, 0]},
+        added={"good": 1, "bad": 0},
+        observed={"good": True, "bad": False},
+        events=[dict(kind="good", index=2, count=1, source="run_end")],
+        diagnostics=[dict(source="a")],
+    )
+    second = make_run(
+        corrected={"good": [3], "bad": [0]},
+        added={"good": 2, "bad": 0},
+        observed={"good": False, "bad": False},
+        events=[dict(kind="good", index=2, count=2, source="between_runs")],
+        diagnostics=[dict(source="b")],
+    )
+    arrays, totals, observed, events, diagnostics = _combine_runs([first, second])
+    assert arrays == {"good": [0, 1, 3], "bad": [0, 0, 0]}
+    assert totals == {"good": 3, "bad": 0}
+    assert observed == {"good": True, "bad": False}
+    assert [e["source"] for e in events] == ["run_end", "between_runs"]
+    assert diagnostics == [dict(source="a"), dict(source="b")]
+
+
+def test_combine_runs_does_not_mutate_its_input():
+    run = make_run(corrected={"good": [0], "bad": [0]}, added={"good": 1, "bad": 0})
+    before = copy.deepcopy(run)
+    _combine_runs([run, run])
+    assert run == before
