@@ -1,11 +1,11 @@
 """Extract and process trial-by-trial data from behavioral experiment recordings."""
 
 import re
-import json
 import pandas as pd
 from copy import deepcopy
 from collections import defaultdict
 from datetime import datetime
+from src.behavior_import.import_data import parse_content_json
 from src.behavior_import.reconcile_reversals import reconcile_reversals
 from src.behavior_import.split_recording_configurations import split_recording_configurations
 
@@ -109,17 +109,6 @@ def extract_trials(data):
         - ``"trial_info"`` and ``"trial_variables"`` — raw parsed lists retained
           for debugging.
     """
-    def safe_json_load(x):
-        """Parse JSON safely, returning empty dict on failure."""
-        if pd.isna(x):
-            return {}
-        if isinstance(x, (dict, list)):
-            return x
-        try:
-            return json.loads(x)
-        except Exception:
-            return {}
-    
     data = split_recording_configurations(data)
 
     # Extract trials across subjects
@@ -141,7 +130,7 @@ def extract_trials(data):
             trial_vars_list = []
             for df in df_list:
                 trials_df = df[(df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))].sort_values("time")
-                raw_trial_info = trials_df["content"].map(safe_json_load).tolist()
+                raw_trial_info = trials_df["content"].map(parse_content_json).tolist()
 
                 # Drop any trials where mice are finding ports, i.e., ones that contain "num_t_found"
                 trial_info = [
@@ -554,8 +543,9 @@ def concat_cumulative_numeric(segments):
 def add_dicts(a, b):
     """Return a new dict that is the elementwise sum of *a* and *b*.
 
-    Missing keys in either dict are treated as ``0``.  Non-integer-convertible
-    values in *b* are silently ignored and the existing value from *a* is kept.
+    Missing keys in either dict are treated as ``0``.  Values must be
+    integer-convertible; anything else raises, since a dropped increment would
+    silently undercount the merged counters.
 
     Args:
         a: Base dict (or ``None`` / empty dict).
@@ -568,10 +558,7 @@ def add_dicts(a, b):
     out = dict(a) if a else {}
     if b:
         for k, v in b.items():
-            try:
-                out[k] = int(out.get(k, 0)) + int(v)
-            except Exception:
-                out[k] = out.get(k, 0)
+            out[k] = int(out.get(k, 0)) + int(v)
     return out
 
 def offset_dict_list_cumulative(segments):

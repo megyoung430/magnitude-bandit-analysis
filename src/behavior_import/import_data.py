@@ -210,21 +210,28 @@ def expand_content_columns(df, content_col="content"):
     Returns:
         The same ``df`` with additional columns added for each JSON key found.
     """
-    def safe_json_load(x):
-        """Parse JSON safely, returning empty dict on failure."""
-        if pd.isna(x):
-            return {}
-        if isinstance(x, (dict, list)):
-            return x
-        try:
-            return json.loads(x)
-        except Exception:
-            return {}
-    parsed = df[content_col].map(safe_json_load)
+    parsed = df[content_col].map(parse_content_json)
     norm = pd.json_normalize(parsed, sep=".")
     for col in norm.columns:
         df[col] = norm[col]
     return df
+
+def parse_content_json(x):
+    """Parse one pyControl ``content`` cell as JSON.
+
+    Returns ``{}`` for missing cells and for plain-text rows: event, state and
+    most info rows log text such as ``poke_A``, which is not JSON. Any other
+    failure (e.g. a non-string cell) is unexpected and raises.
+    """
+    if isinstance(x, (dict, list)):
+        return x
+    if isinstance(x, float) and pd.isna(x):
+        return {}
+    try:
+        return json.loads(x)
+    except json.JSONDecodeError:
+        return {}
+
 
 # ========== Metadata Helper Functions ==========
 def parse_file_timestamp(tsv_path, df=None):
@@ -235,7 +242,8 @@ def parse_file_timestamp(tsv_path, df=None):
     1. Timestamp embedded in the filename: ``...-YYYY-MM-DD-HHMMSS.tsv``.
     2. ``start_time`` value from the DataFrame's ``info`` / ``start_time``
        row (only checked if *df* is provided).
-    3. File modification time (``mtime``) as a last resort.
+    3. File modification time (``mtime``) as a last resort; raises
+       ``FileNotFoundError`` if the file does not exist.
 
     Args:
         tsv_path: Path to the ``.tsv`` file.
@@ -259,10 +267,7 @@ def parse_file_timestamp(tsv_path, df=None):
             if pd.notna(dt):
                 return dt.to_pydatetime().replace(tzinfo=None)
     # Attempt 3: File modification time
-    try:
-        return datetime.fromtimestamp(p.stat().st_mtime)
-    except Exception:
-        return datetime.min
+    return datetime.fromtimestamp(p.stat().st_mtime)
 
 def group_by_subj_and_ses(tsv_files: list) -> dict:
     """Group DataFrames by (subject_id, session_key), sorted within-session by time.
