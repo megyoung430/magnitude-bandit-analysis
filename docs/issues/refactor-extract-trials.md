@@ -40,3 +40,18 @@ Behaviour-preserving refactor, test-first (principle 7):
 - `uv run --no-sync pytest -q` passes in your worktree.
 - Commit on your branch in your worktree only, small commits, messages per principle 10. Set
   `status: in review` in this file in your final commit.
+
+## Review
+
+Reviewers found, and the review fixes changed (behaviour unchanged; golden capture IDENTICAL on 401 cases):
+
+- `recording_trial_info` docstring wrongly said a missing `type` column raises. Only a missing `subtype` raises; a missing `type` silently yields no trials. Docstring corrected and flagged as a known issue.
+- Existing silent fallbacks now carry `Known issue:` comments: chosen magnitude blanked on a choice/magnitude length mismatch, a short `choice_towers` padded with `None`, and `fill_missing_chosen_rank_from_rank_counts` filling nothing on a length mismatch. The tests pinning the first two are renamed to say they pin suspect existing behaviour.
+- `assign_problem_ordinals([A, None, A], merge_recurring_problems=False)` gives `[1, 1, 2]`, splitting a problem. Commented as looking wrong; the test comment says it pins suspect behaviour.
+- `RANK_LABEL_MAP` moved up with the other constants, with a note that `unpack_chosen_rank` deliberately keeps its narrower map.
+- `standardize_rank_key` dead inner lookup simplified.
+- `top_magnitudes` docstring no longer claims the tie-break makes output deterministic; the test that could not fail was dropped.
+- `merge_trial_variables` comment now says merged-session key order depends on `PYTHONHASHSEED`.
+- `extract_session_trials` builds its two lists with comprehensions.
+
+Known issues left in place (all behaviour-preserving, to be fixed separately): missing `type` column yields no trials silently; the three silent fallbacks above; the None-signature problem split; hash-seed-dependent key order in merged sessions; the two rank-label maps differ.

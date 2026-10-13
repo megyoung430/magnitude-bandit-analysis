@@ -58,11 +58,6 @@ def test_top_magnitudes_returns_fewer_when_few_towers():
     assert top_magnitudes([], {}, 3) == []
 
 
-def test_top_magnitudes_ties_do_not_change_values():
-    # Tied towers are ordered by name; the magnitudes themselves are the same either way.
-    assert top_magnitudes(["B", "A", "C"], {"A": 2, "B": 2, "C": 2}, 3) == [2, 2, 2]
-
-
 def test_reward_magnitude_features_basic():
     mags = [{"A1": 4, "B1": 2, "C1": 1}, {"A1": 1, "B1": 3, "C1": 2}]
     chosen, by_arm, by_rank = reward_magnitude_features(mags, ["B1", "A1"], None)
@@ -81,7 +76,8 @@ def test_reward_magnitude_features_missing_trials_stay_aligned():
     assert by_rank["third"] == [None, None, None]
 
 
-def test_reward_magnitude_features_mismatched_choice_length_is_all_missing():
+def test_reward_magnitude_features_pins_existing_behaviour_suspect_mismatched_choice_length():
+    # Pins current (suspect) behaviour: a length mismatch silently blanks every chosen magnitude.
     chosen, _, _ = reward_magnitude_features([{"A1": 1}, {"A1": 1}], ["A1"], None)
     assert chosen == [None, None]
 
@@ -94,7 +90,8 @@ def test_reward_magnitude_features_logged_towers_restrict_ranking():
     assert by_rank["second"] == [1]
 
 
-def test_reward_magnitude_features_short_tower_list_falls_back_per_trial():
+def test_reward_magnitude_features_pins_existing_behaviour_suspect_short_tower_list_padding():
+    # Pins current (suspect) behaviour: a too-short tower list is silently padded with None.
     mags = [{"A1": 1, "B1": 2}, {"C1": 5}]
     _, by_arm, _ = reward_magnitude_features(mags, [None, None], [["A1"]])
     assert by_arm == {"A1": [1, None], "C1": [None, 5]}
@@ -152,7 +149,9 @@ def test_problem_signature_is_none_without_towers():
         (["A", "B", "A"], False, [1, 2, 3]),
         (["A", "B", "A"], True, [1, 2, 1]),
         (["A", "A", "B", "B"], False, [1, 1, 2, 2]),
-        (["A", None, "A"], False, [1, 1, 2]),  # None stays put, but breaks "same as previous"
+        # Pins current (suspect) behaviour: a None signature breaks "same as previous", so one
+        # problem is split in two; [1, 1, 1] would arguably be right.
+        (["A", None, "A"], False, [1, 1, 2]),
         ([None, "A"], False, [1, 1]),  # ...and the first real signature is problem 1
         ([None, None], True, [1, 1]),
         (["A", "B", None, "B"], True, [1, 2, 2, 2]),

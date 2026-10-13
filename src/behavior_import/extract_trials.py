@@ -60,6 +60,19 @@ TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
 # Standard rank labels, best first.
 RANK_KEYS = ("best", "second", "third")
 
+# Rank-label spellings (including space-separated) mapped to the standard labels.
+# unpack_chosen_rank deliberately keeps its own narrower map (no space-separated spellings);
+# unifying the two would change its behaviour and is a separate change.
+RANK_LABEL_MAP = {
+    "second_best": "second",
+    "third_best": "third",
+    "second best": "second",
+    "third best": "third",
+    "best": "best",
+    "second": "second",
+    "third": "third",
+}
+
 
 def extract_trials_grouped_by_problem(data, merge_recurring_problems=False):
     """Extract trial variables and group sessions into problems by choice tower set.
@@ -87,9 +100,12 @@ def recording_trial_info(df):
     """Return the per-trial dicts printed by one recording, in time order.
 
     Port-finding trials (those that contain ``"num_t_found"``) are dropped.
-    A recording lacking a ``type`` or ``subtype`` column fails here with an
-    ``AttributeError`` (the ``""`` default has no ``.isin``) rather than being skipped.
+    A recording lacking a ``subtype`` column fails here with an ``AttributeError``
+    (the ``""`` default has no ``.isin``). A recording lacking a ``type`` column
+    silently yields no trials.
     """
+    # Known issue: with no ``type`` column, ``df.get("type", "") == "variable"`` is False, so the
+    # recording yields no trials and nothing is reported (silent failure).
     is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
     printed = df[is_print].sort_values("time")
     raw_trial_info = printed["content"].map(parse_content_json).tolist()
@@ -128,7 +144,8 @@ def merge_segments(var_name, segments):
 
 def merge_trial_variables(trial_vars_list):
     """Combine the per-recording ``{variable: list}`` dicts of one session into one."""
-    # A set gives the variables in an arbitrary order; the order of the session's keys follows it.
+    # Variables come out of a set, so the key order of a merged session depends on PYTHONHASHSEED
+    # and is not reproducible across runs.
     all_var_names = set().union(*[tv.keys() for tv in trial_vars_list])
     return {
         var_name: merge_segments(var_name, [tv.get(var_name, []) for tv in trial_vars_list])
@@ -180,11 +197,8 @@ def extract_session_trials(session_data, subject, session_key):
     if isinstance(frames, pd.DataFrame):
         frames = [frames]
 
-    trial_info_list, trial_vars_list = [], []
-    for df in frames:
-        trial_info = bandit_trial_info(df, subject, session_key)
-        trial_info_list.append(trial_info)
-        trial_vars_list.append(transpose_trials(trial_info, ALIASES))
+    trial_info_list = [bandit_trial_info(df, subject, session_key) for df in frames]
+    trial_vars_list = [transpose_trials(trial_info, ALIASES) for trial_info in trial_info_list]
     if not any(trial_info_list):
         print(f"[WARNING] No trial information found for subject {subject}, session {session_key}")
         session_data["trial_variables"] = {}
@@ -397,17 +411,6 @@ def unpack_chosen_rank(session_data):
     return session_data
 
 
-RANK_LABEL_MAP = {
-    "second_best": "second",
-    "third_best": "third",
-    "second best": "second",
-    "third best": "third",
-    "best": "best",
-    "second": "second",
-    "third": "third",
-}
-
-
 def standardize_rank_key(k):
     """Normalise rank key *k* to ``"best"``, ``"second"``, or ``"third"``.
 
@@ -417,7 +420,8 @@ def standardize_rank_key(k):
     if k is None:
         return k
     if isinstance(k, str):
-        return RANK_LABEL_MAP.get(k.strip().lower(), RANK_LABEL_MAP.get(k, k.strip().lower()))
+        norm = k.strip().lower()
+        return RANK_LABEL_MAP.get(norm, norm)
     return k
 
 
@@ -480,6 +484,7 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
 
     chosen = session_data.get("chosen_rank", [])
     rank_counts = session_data.get("rank_counts", [])
+    # Known issue: a length mismatch between chosen_rank and rank_counts silently fills nothing.
     if not chosen or not rank_counts or len(chosen) != len(rank_counts):
         return session_data
 
@@ -886,6 +891,9 @@ def assign_problem_ordinals(full_sigs, merge_recurring_problems):
             ordinal = max(next_ordinal - 1, 1)
         elif merge_recurring_problems and full_sig in first_ordinal:
             ordinal = first_ordinal[full_sig]
+        # Known issue: with merge_recurring_problems=False, a None signature (no logged towers)
+        # resets `previous`, so ["A", None, "A"] gives [1, 1, 2] and splits one problem in two.
+        # This looks wrong.
         elif not merge_recurring_problems and full_sig == previous:
             ordinal = next_ordinal - 1
         else:
@@ -973,8 +981,7 @@ def available_towers(towers_entry, magnitudes):
 def top_magnitudes(towers, magnitudes, n):
     """Return the *n* largest magnitudes among *towers*, best first.
 
-    Towers without a magnitude are ignored. Ties are broken by the tower's
-    string form so the ordering is deterministic.
+    Towers without a magnitude are ignored.
     """
     pairs = [(tw, magnitudes.get(tw)) for tw in towers]
     pairs = [(tw, m) for tw, m in pairs if m is not None]
@@ -1000,8 +1007,12 @@ def reward_magnitude_features(mags_seq, choice_seq, towers_seq):
     """
     n = len(mags_seq)
     mags = [m if isinstance(m, dict) else {} for m in mags_seq]
+    # Known issue: a choice_seq whose length differs from mags_seq silently makes every
+    # chosen magnitude None.
     if not choice_seq or len(choice_seq) != n:
         choice_seq = [None] * n
+    # Known issue: a towers_seq shorter than mags_seq is silently padded with None, so the
+    # trials past its end read their towers from the magnitude dicts.
     entries = towers_seq if towers_seq and isinstance(towers_seq, list) else []
     entries = (entries + [None] * n)[:n]
     available = [available_towers(entry, m) for entry, m in zip(entries, mags, strict=True)]
