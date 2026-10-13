@@ -1,6 +1,7 @@
 """Unit tests for the small helpers behind ``src.behavior_import.extract_trials``."""
 
 import json
+from copy import deepcopy
 
 import pandas as pd
 import pytest
@@ -13,6 +14,7 @@ from src.behavior_import.extract_trials import (
     drop_unlogged_reversal_vars,
     extract_session_trials,
     extract_trials,
+    extract_trials_grouped_by_problem,
     fill_missing_chosen_rank_from_rank_counts,
     group_sessions_by_problem,
     infer_rank_from_counts,
@@ -102,6 +104,8 @@ def test_add_reward_magnitude_features_sets_all_keys_and_legacy_alias():
     out = add_reward_magnitude_features(session)
     assert out is session
     assert session["chosen_magnitude"] == [2]
+    assert session["reward_magnitude_by_arm"] == {"A1": [2], "B1": [1]}
+    assert session["reward_magnitude_by_rank"] == {"best": [2], "second": [1], "third": [None]}
     assert session["reward_magnitudes_by_tower"] is session["reward_magnitude_by_arm"]
 
 
@@ -116,7 +120,7 @@ def test_add_reward_magnitude_features_leaves_session_without_magnitudes_alone(s
 # --- grouping sessions into problems ---
 
 
-def session(towers, *, trials=True, **extra):
+def session_with_towers(towers, *, trials=True, **extra):
     return {"trial_info": [[{"x": 1}]] if trials else [], "choice_towers": [towers], **extra}
 
 
@@ -131,9 +135,9 @@ def test_session_sort_key_orders_by_session_number_then_date():
 
 
 def test_problem_signature_ignores_tower_order_and_separates_has_good():
-    a = problem_signature(session(["B1", "A1"], has_good=True))
-    b = problem_signature(session(["A1", "B1"], has_good=True))
-    c = problem_signature(session(["A1", "B1"]))
+    a = problem_signature(session_with_towers(["B1", "A1"], has_good=True))
+    b = problem_signature(session_with_towers(["A1", "B1"], has_good=True))
+    c = problem_signature(session_with_towers(["A1", "B1"]))
     assert a == b
     assert a != c
 
@@ -164,9 +168,9 @@ def test_assign_problem_ordinals(sigs, merge, expected):
 
 def test_signed_sessions_skips_sessions_without_trials_and_reports_it(capsys):
     sessions = {
-        "ses-2": session(["A1"]),
-        "ses-1": session(["B1"]),
-        "ses-3": session(["A1"], trials=False),
+        "ses-2": session_with_towers(["A1"]),
+        "ses-1": session_with_towers(["B1"]),
+        "ses-3": session_with_towers(["A1"], trials=False),
     }
     signed = signed_sessions("mouse", sessions)
     assert [sid for sid, _ in signed] == ["ses-1", "ses-2"]
@@ -180,9 +184,9 @@ def by_problem(grouped):
 def test_group_sessions_by_problem_merges_recurring_only_when_asked():
     data = {
         "m": {
-            "ses-1": session(["A1"]),
-            "ses-2": session(["B1"]),
-            "ses-3": session(["A1"]),
+            "ses-1": session_with_towers(["A1"]),
+            "ses-2": session_with_towers(["B1"]),
+            "ses-3": session_with_towers(["A1"]),
         }
     }
     separate = group_sessions_by_problem(data)
@@ -192,7 +196,7 @@ def test_group_sessions_by_problem_merges_recurring_only_when_asked():
 
 
 def test_group_sessions_by_problem_copies_unless_told_not_to():
-    data = {"m": {"ses-1": session(["A1"])}}
+    data = {"m": {"ses-1": session_with_towers(["A1"])}}
     original = data["m"]["ses-1"]
     assert group_sessions_by_problem(data)[1]["m"]["ses-1"] is not original
     assert group_sessions_by_problem(data, copy_sessions=False)[1]["m"]["ses-1"] is original
@@ -200,8 +204,8 @@ def test_group_sessions_by_problem_copies_unless_told_not_to():
 
 def test_group_sessions_by_problem_numbers_each_subject_independently():
     data = {
-        "m1": {"ses-1": session(["A1"]), "ses-2": session(["B1"])},
-        "m2": {"ses-1": session(["B1"])},
+        "m1": {"ses-1": session_with_towers(["A1"]), "ses-2": session_with_towers(["B1"])},
+        "m2": {"ses-1": session_with_towers(["B1"])},
     }
     out = group_sessions_by_problem(data)
     assert list(out[1]) == ["m1", "m2"]
@@ -211,7 +215,7 @@ def test_group_sessions_by_problem_numbers_each_subject_independently():
 # --- filling chosen_rank from rank_counts ---
 
 
-def counts(best, second, third):
+def rank_counts(best, second, third):
     return {"best": best, "second": second, "third": third}
 
 
@@ -241,12 +245,12 @@ def test_standardize_rank_counts_drops_unknown_keys_and_non_dicts():
 @pytest.mark.parametrize(
     ("current", "previous", "first", "expected"),
     [
-        (counts(2, 1, 0), counts(1, 1, 0), False, "best"),
-        (counts(1, 1, 0), counts(1, 1, 0), False, None),  # nothing incremented
-        (counts(2, 2, 0), counts(1, 1, 0), False, None),  # ambiguous: two incremented
-        (counts(0, 0, 3), {}, True, "third"),  # first trial: biggest count wins
-        (counts(2, 2, 1), {}, True, "best"),  # ...earliest rank on ties
-        (counts(0, 0, 0), {}, True, None),  # ...but only if positive
+        (rank_counts(2, 1, 0), rank_counts(1, 1, 0), False, "best"),
+        (rank_counts(1, 1, 0), rank_counts(1, 1, 0), False, None),  # nothing incremented
+        (rank_counts(2, 2, 0), rank_counts(1, 1, 0), False, None),  # ambiguous: two incremented
+        (rank_counts(0, 0, 3), {}, True, "third"),  # first trial: biggest count wins
+        (rank_counts(2, 2, 1), {}, True, "best"),  # ...earliest rank on ties
+        (rank_counts(0, 0, 0), {}, True, None),  # ...but only if positive
         ({"best": None, "second": 1}, {}, False, "second"),  # None counts as zero
     ],
 )
@@ -257,7 +261,12 @@ def test_infer_rank_from_counts(current, previous, first, expected):
 def test_fill_missing_chosen_rank_fills_only_the_none_entries():
     session = {
         "chosen_rank": ["second", None, None, None],
-        "rank_counts": [counts(0, 1, 0), counts(0, 1, 1), counts(1, 1, 1), counts(1, 1, 1)],
+        "rank_counts": [
+            rank_counts(0, 1, 0),
+            rank_counts(0, 1, 1),
+            rank_counts(1, 1, 1),
+            rank_counts(1, 1, 1),
+        ],
     }
     out = fill_missing_chosen_rank_from_rank_counts(session)
     assert out is session
@@ -276,10 +285,10 @@ def test_fill_missing_chosen_rank_reads_label_variants():
 @pytest.mark.parametrize(
     "session",
     [
-        {"rank_counts": [counts(1, 0, 0)]},
+        {"rank_counts": [rank_counts(1, 0, 0)]},
         {"chosen_rank": [None]},
         {"chosen_rank": [], "rank_counts": []},
-        {"chosen_rank": [None, None], "rank_counts": [counts(1, 0, 0)]},
+        {"chosen_rank": [None, None], "rank_counts": [rank_counts(1, 0, 0)]},
     ],
 )
 def test_fill_missing_chosen_rank_skips_unusable_sessions(session):
@@ -301,14 +310,14 @@ def recording(trials, *, other_rows=()):
     return pd.DataFrame(rows)
 
 
-def bandit_trial(n, choice, rank, counts_, **extra):
+def bandit_trial(n, choice, rank, counts, **extra):
     return {
         "num_trials": n,
         "chosen_tower": choice,
         "current_reward_magnitudes": {"A1": 4, "B1": 2, "C1": 1},
         "current_choice_towers": ["A1", "B1", "C1"],
         "chosen_rank": rank,
-        "rank_counts": counts_,
+        "rank_counts": counts,
         **extra,
     }
 
@@ -319,6 +328,18 @@ def test_recording_trial_info_keeps_only_sorted_print_rows_without_port_finding(
         other_rows=[("event", "poke", "poke_A"), ("variable", "run_start", "{}")],
     )
     assert recording_trial_info(df) == [{"num_trials": 1}, {"num_trials": 2}]
+
+
+def test_recording_trial_info_without_subtype_column_raises():
+    df = recording([{"num_trials": 1}]).drop(columns="subtype")
+    with pytest.raises(AttributeError):
+        recording_trial_info(df)
+
+
+def test_recording_trial_info_pins_existing_behaviour_suspect_missing_type_column():
+    # Pins current (suspect) behaviour: no `type` column gives no trials instead of an error.
+    df = recording([{"num_trials": 1}]).drop(columns="type")
+    assert recording_trial_info(df) == []
 
 
 def test_bandit_trial_info_skips_pretraining_recordings(capsys):
@@ -387,7 +408,11 @@ def test_extract_session_trials_merges_restarted_recordings_and_derives_fields()
     extract_session_trials(session, "m", "ses-1")
     assert session["trial"] == [1, 2, 3]
     assert session["blocks"] == [1, 1, 1]
+    # The second trial's rank is only known from rank_counts, so the one-hot list shows
+    # whether the back-fill ran before the rank indicators were built.
     assert session["chosen_rank"] == ["best", "second", "best"]
+    assert session["choices_by_rank"]["best"] == [1, 0, 1]
+    assert session["choices_by_rank"]["second"] == [0, 1, 0]
     assert session["choices_by_tower"]["A1"] == [1, 0, 1]
     assert session["chosen_magnitude"] == [4, 2, 4]
     assert session["has_good"] is False
@@ -400,3 +425,37 @@ def test_extract_trials_updates_every_session_in_place():
     out = extract_trials(data)
     assert out is data
     assert all(session["choice"] == ["A1"] for session in data["m"].values())
+
+
+def test_grouped_by_problem_numbers_a_recurring_problem_with_and_without_merging():
+    problem_a = {"current_choice_towers": ["A1", "B1", "C1"]}
+    problem_b = {
+        "current_choice_towers": ["A1", "B1", "D1"],
+        "current_reward_magnitudes": {"A1": 1, "B1": 3, "D1": 2},
+    }
+    # Session 3 returns to problem A but logged no reward magnitudes.
+    no_magnitudes = {**problem_a, "current_reward_magnitudes": None}
+
+    def one_trial_session(extra):
+        return {
+            "data": recording(
+                [bandit_trial(1, "B1", "second", {"second": 1}, num_blocks=1, **extra)]
+            )
+        }
+
+    data = {
+        "m": {
+            "ses-1": one_trial_session(problem_a),
+            "ses-2": one_trial_session(problem_b),
+            "ses-3": one_trial_session(no_magnitudes),
+        }
+    }
+    separate = extract_trials_grouped_by_problem(deepcopy(data))
+    merged = extract_trials_grouped_by_problem(deepcopy(data), merge_recurring_problems=True)
+
+    assert by_problem(separate) == {1: ["ses-1"], 2: ["ses-2"], 3: ["ses-3"]}
+    assert by_problem(merged) == {1: ["ses-1", "ses-3"], 2: ["ses-2"]}
+    assert merged[1]["m"]["ses-1"]["chosen_magnitude"] == [2]
+    assert merged[2]["m"]["ses-2"]["chosen_magnitude"] == [3]
+    assert merged[1]["m"]["ses-3"]["chosen_magnitude"] == [None]
+    assert merged[1]["m"]["ses-3"]["choices_by_rank"]["second"] == [1]
