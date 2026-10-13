@@ -21,3 +21,6 @@ dist/
 
 # Teacher Scripts
 scripts/bandit_behavior_tutorial_answers.ipynb
+
+# Generated outputs: reproducible from code + data; kept on ceph, not in git
+results/
