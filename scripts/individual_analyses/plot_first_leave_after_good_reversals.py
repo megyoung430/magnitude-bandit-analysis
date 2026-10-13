@@ -8,6 +8,7 @@ from src.behavior_analysis.get_first_leave_after_good_reversals import *
 from src.behavior_analysis.split_early_late_good_reversals import *
 from src.behavior_analysis.get_diagnostic_p_value import *
 from src.behavior_visualization.plot_first_leave_after_good_reversals import *
+from src.settings import get_settings
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from scripts.fix_grid_maze_cohort_02_problems import *
 
@@ -22,7 +23,7 @@ if task == "grid-maze":
 elif task == "open-field":
     cohort = "cohort-02"
     folder_name = "3x3_field_blocked_reward_bandit"
-root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
+root = get_settings().data_root / folder_name / cohort / "rawdata"
 
 subjects_data = import_data(root)
 subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)

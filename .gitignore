@@ -27,3 +27,6 @@ results/
 
 # uv environment
 .venv/
+
+# Machine-specific settings (see .env.example)
+.env

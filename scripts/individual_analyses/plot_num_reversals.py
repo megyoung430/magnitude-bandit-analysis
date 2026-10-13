@@ -4,6 +4,7 @@ sys.path.insert(0, str(Path.cwd().parent))
 from src.behavior_import.import_data import *
 from src.behavior_import.extract_trials import *
 from src.behavior_visualization.plot_num_reversals import *
+from src.settings import get_settings
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from scripts.fix_grid_maze_cohort_02_problems import *
 
@@ -18,7 +19,7 @@ if task == "grid-maze":
 elif task == "open-field":
     cohort = "cohort-02"
     folder_name = "3x3_field_blocked_reward_bandit"
-root = f"/Volumes/behrens/meg/{folder_name}/{cohort}/rawdata/"
+root = get_settings().data_root / folder_name / cohort / "rawdata"
 
 subjects_data = import_data(root)
 subjects_trials_by_problem = extract_trials_grouped_by_problem(subjects_data)
