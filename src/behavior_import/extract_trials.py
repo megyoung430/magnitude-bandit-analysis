@@ -875,6 +875,47 @@ def problem_signature(session_data):
     return (sig, bool(session_data.get("has_good", False)))
 
 
+def merged_problem_ordinals(full_sigs):
+    """Number problems so a recurring signature reuses its first ordinal (A, B, A -> 1, 2, 1).
+
+    A ``None`` signature stays on the current problem.
+    """
+    ordinals = []
+    first_ordinal = {}
+    # Each ordinal depends on all earlier signatures, so this is a loop.
+    for full_sig in full_sigs:
+        if full_sig is None:
+            ordinal = max(len(first_ordinal), 1)
+        else:
+            ordinal = first_ordinal.setdefault(full_sig, len(first_ordinal) + 1)
+        ordinals.append(ordinal)
+    return ordinals
+
+
+def consecutive_problem_ordinals(full_sigs):
+    """Number problems so only consecutive equal signatures share one (A, B, A -> 1, 2, 3).
+
+    A ``None`` signature stays on the current problem.
+    """
+    ordinals = []
+    next_ordinal = 1
+    previous = None
+    # Each ordinal depends on all earlier signatures, so this is a loop.
+    for full_sig in full_sigs:
+        if full_sig is None:
+            ordinal = max(next_ordinal - 1, 1)
+        elif full_sig == previous:
+            ordinal = next_ordinal - 1
+        else:
+            ordinal = next_ordinal
+            next_ordinal += 1
+        ordinals.append(ordinal)
+        # Known issue: a None signature also sets `previous`, so ["A", None, "A"] gives
+        # [1, 1, 2]; keeping A's problem across the gap would give [1, 1, 1].
+        previous = full_sig
+    return ordinals
+
+
 def assign_problem_ordinals(full_sigs, merge_recurring_problems):
     """Number the problems in a subject's chronological sequence of signatures.
 
@@ -892,27 +933,9 @@ def assign_problem_ordinals(full_sigs, merge_recurring_problems):
     Returns:
         List of 1-based ordinals, one per signature.
     """
-    ordinals = []
-    first_ordinal = {}
-    next_ordinal = 1
-    previous = None
-    # Each ordinal depends on all earlier signatures, so this is a loop.
-    for full_sig in full_sigs:
-        if full_sig is None:
-            ordinal = max(next_ordinal - 1, 1)
-        elif merge_recurring_problems and full_sig in first_ordinal:
-            ordinal = first_ordinal[full_sig]
-        elif not merge_recurring_problems and full_sig == previous:
-            ordinal = next_ordinal - 1
-        else:
-            ordinal = next_ordinal
-            first_ordinal[full_sig] = ordinal
-            next_ordinal += 1
-        ordinals.append(ordinal)
-        # Known issue: a None signature also sets `previous`. With merge_recurring_problems=False,
-        # ["A", None, "A"] gives [1, 1, 2]; keeping A's problem across the gap would give [1, 1, 1].
-        previous = full_sig
-    return ordinals
+    if merge_recurring_problems:
+        return merged_problem_ordinals(full_sigs)
+    return consecutive_problem_ordinals(full_sigs)
 
 
 def signed_sessions(subject_id, subject_sessions):
