@@ -275,6 +275,9 @@ def classify_towers_at_good_reversals(reversal):
     Returns:
         A three-tuple ``(prev_best, next_best, third)`` of tower key strings.
     """
+    # Known issue: when prev_best == next_best, the third tower is taken from a set
+    # difference holding the two other towers, so which one is returned depends on
+    # PYTHONHASHSEED (e.g. ('A', 'A', 'C') in one run, ('A', 'A', 'B') in another).
     before = reversal["reward_magnitudes_by_tower_before"]
     after = reversal["reward_magnitudes_by_tower_after"]
 
