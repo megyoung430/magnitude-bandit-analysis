@@ -1,0 +1,55 @@
+{
+  "model": "sticky_rl",
+  "setting_index": 0,
+  "repeat": 0,
+  "setting": {
+    "optimizer_learning_rate": 0.0001,
+    "weight_decay": 1e-05,
+    "batch_size": 32
+  },
+  "effective_batch_size": 32,
+  "best_raw": [
+    0.1010984906174582,
+    -0.39732599121959206,
+    0.21667876730680535
+  ],
+  "parameters": {
+    "learning_rate": 0.5257278640581226,
+    "beta": 4.025530134642185,
+    "alpha": 1.6618762339500661
+  },
+  "step": 1000,
+  "best_step": 1000,
+  "best_validation": 1.947045082919754,
+  "history": [
+    {
+      "step": 0,
+      "validation_cross_entropy": 3.1156942670386174,
+      "validation_release_score": 1.9899948921781925
+    },
+    {
+      "step": 250,
+      "validation_cross_entropy": 3.0646281194028853,
+      "validation_release_score": 1.9797155139647493,
+      "last_batch_objective": 120.59286046800091
+    },
+    {
+      "step": 500,
+      "validation_cross_entropy": 3.0135446043902316,
+      "validation_release_score": 1.9691684452188543,
+      "last_batch_objective": 109.82977352258224
+    },
+    {
+      "step": 750,
+      "validation_cross_entropy": 2.96087937337298,
+      "validation_release_score": 1.9583232406829425,
+      "last_batch_objective": 124.35551579809739
+    },
+    {
+      "step": 1000,
+      "validation_cross_entropy": 2.9079080233306605,
+      "validation_release_score": 1.947045082919754,
+      "last_batch_objective": 116.27946094552621
+    }
+  ]
+}

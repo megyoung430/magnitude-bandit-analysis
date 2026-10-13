@@ -1,0 +1,208 @@
+{
+  "fold": {
+    "mouse": "MY_71_N",
+    "held_out_problem": 10,
+    "training_problems": "5,6,7,8,9",
+    "n_train_trials": 2144,
+    "n_test_trials": 315,
+    "n_train_sessions": 36,
+    "n_test_sessions": 5,
+    "success": true,
+    "converged_starts": 10,
+    "train_cross_entropy": 0.7157311402862658,
+    "test_cross_entropy": 0.7209522726667151,
+    "uniform_cross_entropy": 1.0986122886681098,
+    "improvement_over_uniform": 0.37766001600139465,
+    "learning_rate": 0.0005096904143447815,
+    "at_bound_learning_rate": false,
+    "beta": 517.7752537537954,
+    "at_bound_beta": false,
+    "kappa": 0.0006138057686174837,
+    "at_bound_kappa": false,
+    "bias": 0.000633727816138977,
+    "at_bound_bias": false,
+    "forgetting": 0.3277938437244761,
+    "at_bound_forgetting": false,
+    "q_init": -0.5224411785760289,
+    "at_bound_q_init": false
+  },
+  "sessions": [
+    {
+      "mouse": "MY_71_N",
+      "held_out_problem": 10,
+      "session": "ses-95_date-20260401",
+      "n_trials": 49,
+      "cross_entropy": 0.5744563897544525
+    },
+    {
+      "mouse": "MY_71_N",
+      "held_out_problem": 10,
+      "session": "ses-96_date-20260401",
+      "n_trials": 30,
+      "cross_entropy": 0.8229703371202428
+    },
+    {
+      "mouse": "MY_71_N",
+      "held_out_problem": 10,
+      "session": "ses-97_date-20260402",
+      "n_trials": 100,
+      "cross_entropy": 0.8425368058860908
+    },
+    {
+      "mouse": "MY_71_N",
+      "held_out_problem": 10,
+      "session": "ses-98_date-20260402",
+      "n_trials": 42,
+      "cross_entropy": 0.8666061949169261
+    },
+    {
+      "mouse": "MY_71_N",
+      "held_out_problem": 10,
+      "session": "ses-99_date-20260403",
+      "n_trials": 94,
+      "cross_entropy": 0.5703335308863811
+    }
+  ],
+  "starts": [
+    {
+      "start": 0,
+      "success": true,
+      "loss": 0.715741017353082,
+      "parameters": [
+        0.0014395508030265777,
+        183.22881348988855,
+        0.0017376802722958327,
+        0.04887894535470512,
+        0.3275924539989566,
+        32.18496475026295
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 1,
+      "success": true,
+      "loss": 0.7157311402862658,
+      "parameters": [
+        0.0005096904143447815,
+        517.7752537537954,
+        0.0006138057686174837,
+        0.000633727816138977,
+        0.3277938437244761,
+        -0.5224411785760289
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 2,
+      "success": true,
+      "loss": 0.7157646566811835,
+      "parameters": [
+        0.003616927124289245,
+        73.02977313855529,
+        0.004295607421902192,
+        -0.4418990809705179,
+        0.3276680261804131,
+        -123.96442721649649
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 3,
+      "success": true,
+      "loss": 0.7157365941806837,
+      "parameters": [
+        0.0010264469624517581,
+        256.8841335593842,
+        0.0012389378198022854,
+        0.015926774970536038,
+        0.3274460761710552,
+        13.750246169542919
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 4,
+      "success": true,
+      "loss": 0.7157411493699604,
+      "parameters": [
+        0.0014453753717133782,
+        181.88391316797043,
+        0.001757625049223721,
+        0.05204213874527785,
+        0.3268595018639768,
+        34.23612033550703
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 5,
+      "success": true,
+      "loss": 0.7157390392449345,
+      "parameters": [
+        0.001239811472837386,
+        213.4481444448653,
+        0.001479327890499466,
+        0.00837102825107274,
+        0.32838102758127846,
+        4.9789409835865746
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 6,
+      "success": true,
+      "loss": 0.7157364637285976,
+      "parameters": [
+        0.0010050318324114937,
+        262.6671921182054,
+        0.0012136183823398146,
+        -0.01073028676320661,
+        0.32724872430969415,
+        -12.43361084984753
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 7,
+      "success": true,
+      "loss": 0.715738294068254,
+      "parameters": [
+        0.001183013748400465,
+        223.4084249437193,
+        0.0014186285528305323,
+        -0.013138112427146015,
+        0.3276944305059541,
+        -12.8695392256179
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 8,
+      "success": true,
+      "loss": 0.7157406718298682,
+      "parameters": [
+        0.0013716560462211237,
+        192.48398445365152,
+        0.0016389643223894085,
+        0.019858660504083792,
+        0.3283790257721323,
+        12.694963555681635
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 9,
+      "success": true,
+      "loss": 0.7157389334077563,
+      "parameters": [
+        0.001220851156899785,
+        216.00642761325304,
+        0.0014618018964748973,
+        -0.01850098306850708,
+        0.32808124016503704,
+        -16.936554149267728
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "repository": "https://github.com/google-deepmind/hybrid_rnns_reward_learning",
+  "commit": "baf38da49fd1c1537affbc3745e961bbf0ae547d",
+  "purpose": "Unmodified Apache-2.0 reference source for numerical parity tests; not imported by production models"
+}

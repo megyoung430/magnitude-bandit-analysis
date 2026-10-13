@@ -1,0 +1,193 @@
+{
+  "fold": {
+    "mouse": "MY_72_N",
+    "held_out_problem": 9,
+    "training_problems": "5,6,7,8,10,11",
+    "n_train_trials": 2622,
+    "n_test_trials": 361,
+    "n_train_sessions": 45,
+    "n_test_sessions": 8,
+    "success": true,
+    "converged_starts": 10,
+    "train_cross_entropy": 0.7770854372770825,
+    "test_cross_entropy": 0.8156656795034181,
+    "uniform_cross_entropy": 1.0986122886681098,
+    "improvement_over_uniform": 0.2829466091646917,
+    "learning_rate": 0.2546384955887262,
+    "at_bound_learning_rate": false,
+    "beta": 0.5307142854199823,
+    "at_bound_beta": false,
+    "alpha": 1.8432214056218492,
+    "at_bound_alpha": false
+  },
+  "sessions": [
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-77_date-20260321",
+      "n_trials": 42,
+      "cross_entropy": 0.9607299126235228
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-78_date-20260321",
+      "n_trials": 53,
+      "cross_entropy": 0.9394632218959647
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-79_date-20260322",
+      "n_trials": 47,
+      "cross_entropy": 0.5715626260836886
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-80_date-20260322",
+      "n_trials": 43,
+      "cross_entropy": 0.6338972565473393
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-81_date-20260323",
+      "n_trials": 38,
+      "cross_entropy": 1.0458257048761104
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-82_date-20260323",
+      "n_trials": 35,
+      "cross_entropy": 0.9249594710220531
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-83_date-20260324",
+      "n_trials": 53,
+      "cross_entropy": 0.7170540048740107
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 9,
+      "session": "ses-84_date-20260324",
+      "n_trials": 50,
+      "cross_entropy": 0.8014651444640848
+    }
+  ],
+  "starts": [
+    {
+      "start": 0,
+      "success": true,
+      "loss": 0.8379031299802541,
+      "parameters": [
+        0.0013882637163911324,
+        8.843535354458187,
+        0.14442286110816407
+      ],
+      "message": "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
+    },
+    {
+      "start": 1,
+      "success": true,
+      "loss": 0.8374060151643152,
+      "parameters": [
+        0.0026220945485240176,
+        4.8893120687809075,
+        0.26034653162998894
+      ],
+      "message": "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
+    },
+    {
+      "start": 2,
+      "success": true,
+      "loss": 0.8376696526934279,
+      "parameters": [
+        0.0019667998092181838,
+        6.370546194166923,
+        0.20017336442864442
+      ],
+      "message": "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
+    },
+    {
+      "start": 3,
+      "success": true,
+      "loss": 0.8378274927358774,
+      "parameters": [
+        0.0015755083205128537,
+        7.8440648457085995,
+        0.16274562794698677
+      ],
+      "message": "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
+    },
+    {
+      "start": 4,
+      "success": true,
+      "loss": 0.777085437304222,
+      "parameters": [
+        0.25464349124359364,
+        0.5307098608264942,
+        1.8432749114009586
+      ],
+      "message": "CONVERGENCE: NORM_OF_PROJECTED_GRADIENT_<=_PGTOL"
+    },
+    {
+      "start": 5,
+      "success": true,
+      "loss": 0.7770854372770825,
+      "parameters": [
+        0.2546384955887262,
+        0.5307142854199823,
+        1.8432214056218492
+      ],
+      "message": "CONVERGENCE: NORM_OF_PROJECTED_GRADIENT_<=_PGTOL"
+    },
+    {
+      "start": 6,
+      "success": true,
+      "loss": 0.837901384873547,
+      "parameters": [
+        0.001392581685862688,
+        8.817453761718125,
+        0.14484824862438503
+      ],
+      "message": "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
+    },
+    {
+      "start": 7,
+      "success": true,
+      "loss": 0.8365948678755999,
+      "parameters": [
+        0.00465634201591269,
+        2.9548924939299166,
+        0.4282400081942798
+      ],
+      "message": "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
+    },
+    {
+      "start": 8,
+      "success": true,
+      "loss": 0.7770854372974312,
+      "parameters": [
+        0.2546335671808701,
+        0.530712538531782,
+        1.8432652567298613
+      ],
+      "message": "CONVERGENCE: NORM_OF_PROJECTED_GRADIENT_<=_PGTOL"
+    },
+    {
+      "start": 9,
+      "success": true,
+      "loss": 0.8379151417665596,
+      "parameters": [
+        0.0013585461930950091,
+        9.027546506399592,
+        0.14149029546127842
+      ],
+      "message": "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
+    }
+  ]
+}

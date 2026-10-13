@@ -1,0 +1,531 @@
+{
+  "data_sha256": "051d25fd4ba41bc4ebe9add8333cc5c3e7879cdefe60b4444357ea748ce5efea",
+  "fit_seed": 123,
+  "grid": [
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 16,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 32,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 0.0001
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 0.001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 0.0001,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 32,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 64,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    },
+    {
+      "batch_size": 128,
+      "hidden_units": 64,
+      "l2_weight": 1e-05,
+      "optimizer_learning_rate": 1e-05
+    }
+  ],
+  "implementation": "\"\"\"Participant-disjoint JAX/Optax Adam fitting for the two notebook RL models.\n\nPaper-style procedure, with explicit mouse/session adaptations. Optional JAX and\nOptax imports are delayed so the existing SciPy workflows need no new packages.\n\"\"\"\nimport hashlib\nimport itertools\nimport json\nfrom pathlib import Path\n\nimport numpy as np\n\nMODEL_NAMES = ('sticky_rl', 'best_rl')\nPARAMETER_NAMES = {\n    'sticky_rl': ['learning_rate', 'beta', 'alpha'],\n    'best_rl': ['learning_rate', 'beta', 'kappa', 'bias', 'forgetting', 'q_init'],\n}\nFULL_GRID = [dict(optimizer_learning_rate=lr, l2_weight=l2, batch_size=bs)\n             for lr, l2, bs in itertools.product(\n                 [1e-3, 1e-4, 1e-5], [1e-3, 1e-4, 1e-5], [32, 64, 128])]\n\n\ndef dependencies():\n    try:\n        import jax\n        import jax.numpy as jnp\n        import optax\n    except ImportError as exc:\n        raise ImportError('Paper-style fitting needs jax and optax in the notebook kernel. '\n                          'Install requirements-paper-rl.txt in that environment.') from exc\n    jax.config.update('jax_enable_x64', True)\n    return jax, jnp, optax\n\n\ndef split_by_mouse(sequences, seed=42, fractions=(.8, .1, .1)):\n    \"\"\"Seeded mouse split: no session of a mouse can cross partitions.\n\n    Floor training and validation counts, with at least one mouse per partition.\n    Small cohorts cannot exactly match 80/10/10; returned identities are auditable.\n    \"\"\"\n    if len(fractions) != 3 or min(fractions) <= 0 or not np.isclose(sum(fractions), 1):\n        raise ValueError('Need three positive fractions summing to one.')\n    mice = sorted({s['mouse'] for s in sequences})\n    if len(mice) < 3:\n        raise ValueError('Participant-disjoint training/validation/test needs at least three mice.')\n    shuffled = np.random.default_rng(seed).permutation(mice).tolist()\n    n_train = min(max(1, int(len(mice)*fractions[0])), len(mice)-2)\n    n_val = min(max(1, int(len(mice)*fractions[1])), len(mice)-n_train-1)\n    ids = dict(train=shuffled[:n_train], validation=shuffled[n_train:n_train+n_val],\n               test=shuffled[n_train+n_val:])\n    return {part: [s for s in sequences if s['mouse'] in group] for part, group in ids.items()}, ids\n\n\ndef pack_sequences(sequences, max_trials=None, num_arms=3):\n    \"\"\"Pad complete sessions; masked trials contribute no loss and no state update.\"\"\"\n    if not sequences:\n        raise ValueError('Empty data partition.')\n    length = max(len(s['actions']) for s in sequences)\n    if max_trials is not None and length > max_trials:\n        raise ValueError('max_trials would truncate a session.')\n    length = max_trials or length\n    a = np.zeros((len(sequences), length), dtype=np.int32)\n    r = np.zeros_like(a, dtype=float)\n    m = np.zeros_like(a, dtype=bool)\n    for i, s in enumerate(sequences):\n        actions, rewards = np.asarray(s['actions']), np.asarray(s['rewards'], dtype=float)\n        if (len(s['towers']) != num_arms or actions.ndim != 1 or not len(actions)\n                or rewards.shape != actions.shape\n                or not np.issubdtype(actions.dtype, np.integer)\n                or np.any(actions < 0) or np.any(actions >= num_arms)\n                or not np.all(np.isfinite(rewards))):\n            raise ValueError('Invalid sequence, reward history or arm count.')\n        n = len(actions)\n        a[i, :n], r[i, :n], m[i, :n] = actions, rewards, True\n    return a, r, m\n\n\ndef transform_parameters(raw, model):\n    \"\"\"Transform trainable coordinates; regularization is on these raw coordinates.\n\n    Best RL: sigmoid rates, positive softplus beta, tanh bias/kappa, free q_init.\n    Sticky RL: sigmoid maps to existing fitting bounds for rate/beta/stickiness.\n    \"\"\"\n    jax, jnp, _ = dependencies()\n    if model == 'sticky_rl':\n        return jnp.stack([.001+.999*jax.nn.sigmoid(raw[0]), .01+9.99*jax.nn.sigmoid(raw[1]),\n                          3*jax.nn.sigmoid(raw[2])])\n    if model == 'best_rl':\n        return jnp.stack([jax.nn.sigmoid(raw[0]), jax.nn.softplus(raw[1])+1e-8,\n                          jnp.tanh(raw[2]), jnp.tanh(raw[3]),\n                          jax.nn.sigmoid(raw[4]), raw[5]])\n    raise ValueError('Unknown model.')\n\n\ndef make_backend(model, num_arms=3, hidden_units=16):\n    if model not in MODEL_NAMES:\n        from src.agents.neural_bandit import make_backend as neural_backend\n        return neural_backend(model, hidden_units=hidden_units, num_arms=num_arms)\n    jax, jnp, optax = dependencies()\n    if model not in MODEL_NAMES:\n        raise ValueError('Unknown model.')\n\n    @jax.jit\n    def statistics(raw, actions, rewards, mask):\n        params = transform_parameters(raw, model)\n        if model == 'sticky_rl':\n            lr, beta, stickiness = params\n            bias, forgetting, q_init = 0., 0., 0.\n        else:\n            lr, beta, stickiness, bias, forgetting, q_init = params\n        batch = actions.shape[0]\n        initial = (jnp.full((batch, num_arms), q_init), jnp.full(batch, -1, dtype=jnp.int32),\n                   jnp.zeros(batch), jnp.zeros(batch))\n        index = jnp.arange(batch)\n\n        def trial(carry, inputs):\n            q, previous, nll, correct = carry\n            action, reward, valid = inputs\n            choice_bonus = jax.nn.one_hot(previous, num_arms)*stickiness\n            logits = beta*(q+choice_bonus)\n            log_probs = jax.nn.log_softmax(logits, axis=-1)\n            nll += jnp.where(valid, -log_probs[index, action], 0.)\n            correct += jnp.where(valid, jnp.argmax(logits, axis=-1) == action, 0.)\n            updated = q.at[index, action].add(lr*(reward-q[index, action])+bias)\n            updated = (1-forgetting)*updated+forgetting*q_init\n            q = jnp.where(valid[:, None], updated, q)\n            previous = jnp.where(valid, action, previous)\n            return (q, previous, nll, correct), None\n\n        final, _ = jax.lax.scan(trial, initial, (actions.T, rewards.T, mask.T))\n        return final[2], final[3]\n\n    def objective(raw, actions, rewards, mask, l2_weight):\n        # Paper Eq. L: SUM over sessions and observed trials, not mean CE.\n        nll, _ = statistics(raw, actions, rewards, mask)\n        return nll.sum()+l2_weight*jnp.square(raw).sum()\n\n    value_grad = jax.value_and_grad(objective)\n\n    def trainer(setting):\n        optimizer = optax.adam(setting['optimizer_learning_rate'])\n        batch_size = setting['batch_size']\n        l2 = setting['l2_weight']\n\n        def step(carry, unused):\n            raw, state, key, actions, rewards, mask = carry\n            key, sampling_key = jax.random.split(key)\n            ids = jax.random.randint(sampling_key, (batch_size,), 0, actions.shape[0])\n            loss, grad = value_grad(raw, actions[ids], rewards[ids], mask[ids], l2)\n            updates, state = optimizer.update(grad, state, raw)\n            raw = optax.apply_updates(raw, updates)\n            return (raw, state, key, actions, rewards, mask), loss\n\n        def chunk(raw, state, key, actions, rewards, mask, steps):\n            carry, losses = jax.lax.scan(step, (raw, state, key, actions, rewards, mask),\n                                         xs=None, length=steps)\n            return carry[:3], losses[-1]\n\n        return optimizer, jax.jit(chunk, static_argnums=(6,))\n\n    return statistics, objective, trainer\n\n\ndef score_sequences(raw, sequences, model, statistics=None, evaluation_batch_size=32):\n    if evaluation_batch_size < 1:\n        raise ValueError('evaluation_batch_size must be positive.')\n    statistics = statistics or make_backend(model)[0]\n    packed = pack_sequences(sequences)\n    rows = []\n    for offset in range(0, len(sequences), evaluation_batch_size):\n        nll, correct = statistics(raw, *(x[offset:offset+evaluation_batch_size] for x in packed))\n        for s, loss, count in zip(sequences[offset:offset+evaluation_batch_size], np.asarray(nll), np.asarray(correct)):\n            n = len(s['actions'])\n            rows.append(dict(mouse=s['mouse'], problem=int(s['problem']), session=s['session'],\n                             n_trials=n, nll=float(loss), cross_entropy=float(loss/n),\n                             geometric_mean_choice_probability=float(np.exp(-loss/n)),\n                             argmax_accuracy=float(count/n)))\n    total_trials = sum(r['n_trials'] for r in rows)\n    return sum(r['nll'] for r in rows)/total_trials, rows\n\n\ndef _save_checkpoint(path, raw, state, key, best_raw, metadata):\n    jax, _, _ = dependencies()\n    leaves, _ = jax.tree_util.tree_flatten(state)\n    raw_leaves, _ = jax.tree_util.tree_flatten(raw)\n    best_leaves, _ = jax.tree_util.tree_flatten(best_raw)\n    tmp = path.with_suffix('.tmp')\n    with tmp.open('wb') as file:\n        np.savez(file, key=np.asarray(key),\n                 metadata=np.array(json.dumps(metadata, allow_nan=False)),\n                 **{f'raw_{i}': np.asarray(v) for i, v in enumerate(raw_leaves)},\n                 **{f'best_{i}': np.asarray(v) for i, v in enumerate(best_leaves)},\n                 **{f'opt_{i}': np.asarray(v) for i, v in enumerate(leaves)})\n    tmp.replace(path)\n\n\ndef run_paper_sweep(sequences, output_root, grid=None, n_seeds=5, max_steps=1_000_000,\n                    validation_every=10_000, split_seed=42, fit_seed=123,\n                    max_new_runs=None, profile='full', models=MODEL_NAMES):\n    \"\"\"Run/resume Adam sweep; select only on validation, score test after completion.\n\n    Checkpoints contain parameters, Adam moments, sampling RNG and best validation\n    iterate, so restarting an interrupted run resumes exactly at its saved step.\n    Runs use matched initialization seeds/minibatch streams across the two models.\n    Test scores are never computed during optimization or hyperparameter selection.\n    \"\"\"\n    jax, jnp, optax = dependencies()\n    from src.agents import neural_bandit\n    if not models or len(set(models)) != len(models) or any(\n        model not in (*MODEL_NAMES, *neural_bandit.NEURAL_MODELS) for model in models\n    ):\n        raise ValueError('Need unique supported model names.')\n    if grid is None:\n        grid = FULL_GRID\n    if (not grid or n_seeds < 1 or max_steps < 1 or validation_every < 1\n            or (max_new_runs is not None and max_new_runs < 0)):\n        raise ValueError('Invalid sweep sizes.')\n    for setting in grid:\n        if (setting['optimizer_learning_rate'] <= 0 or setting['l2_weight'] < 0\n                or setting['batch_size'] < 1 or setting.get('hidden_units', 16) < 1):\n            raise ValueError('Invalid optimizer setting.')\n    parts, identities = split_by_mouse(sequences, split_seed)\n    # Only training and validation histories enter training/selection functions.\n    train_arrays = tuple(jnp.asarray(x) for x in pack_sequences(parts['train']))\n    fingerprint = hashlib.sha256()\n    for s in sequences:\n        fingerprint.update(json.dumps([s['mouse'], int(s['problem']), s['session'], s['towers']]).encode())\n        fingerprint.update(np.asarray(s['actions'], dtype=np.int64).tobytes())\n        fingerprint.update(np.asarray(s['rewards'], dtype=np.float64).tobytes())\n    manifest = dict(profile=profile, models=list(models), grid=grid, n_seeds=n_seeds, max_steps=max_steps,\n                    validation_every=validation_every, split_seed=split_seed, fit_seed=fit_seed,\n                    split_mice=identities, data_sha256=fingerprint.hexdigest(),\n                    objective='sum_batch_nll + l2_weight * sum(raw_parameters ** 2)',\n                    selection='lowest unregularized validation mean NLL, including step zero',\n                    initialization='normal(0, .5) raw coordinates', precision='float64',\n                    reset='each full extracted session', reward='unaltered delivered pulses',\n                    versions=dict(jax=jax.__version__, optax=optax.__version__, numpy=np.__version__),\n                    implementation=Path(__file__).read_text())\n    if any(model in neural_bandit.NEURAL_MODELS for model in models):\n        manifest['neural_implementation'] = Path(neural_bandit.__file__).read_text()\n        manifest['neural_initialization'] = 'Glorot uniform weights; zero biases/states; forgetting .05'\n    encoded = json.dumps(manifest, sort_keys=True, indent=2)\n    output = Path(output_root)/hashlib.sha256(encoded.encode()).hexdigest()[:12]\n    output.mkdir(parents=True, exist_ok=True)\n    (output/'manifest.json').write_text(encoded)\n    records, completed_now = [], 0\n    for model in models:\n        for setting_index, setting in enumerate(grid):\n            stats, _, make_trainer = make_backend(model, hidden_units=setting.get('hidden_units', 16))\n            optimizer, chunk = make_trainer(setting)\n            for repeat in range(n_seeds):\n                run_id = f'{model}_setting-{setting_index:02d}_seed-{repeat:02d}'\n                done_file, checkpoint = output/f'{run_id}.json', output/f'{run_id}.npz'\n                if done_file.exists():\n                    records.append(json.loads(done_file.read_text()))\n                    continue\n                if max_new_runs is not None and completed_now >= max_new_runs:\n                    continue\n                init_key, sample_key = jax.random.split(jax.random.PRNGKey(fit_seed+repeat))\n                if model in MODEL_NAMES:\n                    raw = .5*jax.random.normal(init_key, (len(PARAMETER_NAMES[model]),), dtype=jnp.float64)\n                else:\n                    raw = neural_bandit.initialize_parameters(init_key, model, setting.get('hidden_units', 16))\n                state = optimizer.init(raw)\n                if checkpoint.exists():\n                    with np.load(checkpoint, allow_pickle=False) as saved:\n                        metadata = json.loads(str(saved['metadata']))\n                        raw_leaves, raw_tree = jax.tree_util.tree_flatten(raw)\n                        raw = jax.tree_util.tree_unflatten(raw_tree, [jnp.asarray(saved[f'raw_{i}']) for i in range(len(raw_leaves))])\n                        best_raw = jax.tree_util.tree_unflatten(raw_tree, [jnp.asarray(saved[f'best_{i}']) for i in range(len(raw_leaves))])\n                        sample_key = jnp.asarray(saved['key'])\n                        leaves, tree = jax.tree_util.tree_flatten(state)\n                        state = jax.tree_util.tree_unflatten(tree, [jnp.asarray(saved[f'opt_{i}']) for i in range(len(leaves))])\n                else:\n                    validation, _ = score_sequences(raw, parts['validation'], model, stats)\n                    best_raw = raw\n                    metadata = dict(step=0, best_step=0, best_validation=validation,\n                                    history=[dict(step=0, validation_cross_entropy=validation)])\n                while metadata['step'] < max_steps:\n                    steps = min(validation_every, max_steps-metadata['step'])\n                    (raw, state, sample_key), train_loss = chunk(raw, state, sample_key, *train_arrays, steps)\n                    validation, _ = score_sequences(raw, parts['validation'], model, stats)\n                    if not np.isfinite(validation) or not np.isfinite(float(train_loss)):\n                        raise FloatingPointError(f'{run_id}: nonfinite objective; last finite checkpoint retained.')\n                    metadata['step'] += steps\n                    metadata['history'].append(dict(step=metadata['step'], validation_cross_entropy=validation,\n                                                    last_regularized_batch_loss=float(train_loss)))\n                    if validation < metadata['best_validation']:\n                        metadata.update(best_step=metadata['step'], best_validation=validation)\n                        best_raw = raw\n                    _save_checkpoint(checkpoint, raw, state, sample_key, best_raw, metadata)\n                    print(f'{run_id}: {metadata[\"step\"]:,}/{max_steps:,} steps; '\n                          f'validation CE {validation:.5f}', flush=True)\n                serialized = ({k: np.asarray(v).tolist() for k, v in best_raw.items()}\n                              if isinstance(best_raw, dict) else np.asarray(best_raw).tolist())\n                summary = (dict(zip(PARAMETER_NAMES[model], np.asarray(transform_parameters(best_raw, model)).tolist()))\n                           if model in MODEL_NAMES else neural_bandit.parameter_summary(best_raw, model))\n                record = dict(model=model, setting_index=setting_index, repeat=repeat, setting=setting,\n                              best_raw=serialized, parameters=summary,\n                              **metadata)\n                done_file.write_text(json.dumps(record, indent=2, allow_nan=False))\n                records.append(record)\n                completed_now += 1\n    expected = len(models)*len(grid)*n_seeds\n    if len(records) != expected:\n        return dict(complete=False, completed_runs=len(records), expected_runs=expected,\n                    output_dir=str(output), split_mice=identities, selected=[], test_sessions=[])\n    selected, test_sessions = [], []\n    for model in models:\n        winner = min((r for r in records if r['model'] == model), key=lambda r: r['best_validation'])\n        # The winner is fixed before the test data reach the scoring function.\n        best_raw = ({k: jnp.asarray(v) for k, v in winner['best_raw'].items()}\n                    if isinstance(winner['best_raw'], dict) else jnp.asarray(winner['best_raw']))\n        test_ce, rows = score_sequences(best_raw, parts['test'], model)\n        winner_file = output/f'{model}_selected_parameters.npz'\n        with winner_file.open('wb') as file:\n            np.savez(file, **best_raw) if isinstance(best_raw, dict) else np.savez(file, parameters=np.asarray(best_raw))\n        selected.append(dict(model=model, setting=winner['setting'], repeat=winner['repeat'],\n                             selected_step=winner['best_step'], parameters=winner['parameters'],\n                             parameters_file=winner_file.name,\n                             validation_cross_entropy=winner['best_validation'], test_cross_entropy=test_ce,\n                             geometric_mean_choice_probability=float(np.exp(-test_ce))))\n        test_sessions.extend(dict(model=model, **r) for r in rows)\n    result = dict(complete=True, completed_runs=len(records), expected_runs=expected,\n                  output_dir=str(output), split_mice=identities, selected=selected, test_sessions=test_sessions)\n    (output/'results.json').write_text(json.dumps(result, indent=2, allow_nan=False))\n    return result\n",
+  "initialization": "normal(0, .5) raw coordinates",
+  "max_steps": 1000000,
+  "models": [
+    "rl_ann",
+    "context_ann",
+    "memory_ann",
+    "vanilla_rnn"
+  ],
+  "n_seeds": 5,
+  "neural_implementation": "\"\"\"Four paper-inspired neural bandit architectures with JAX functional state.\n\nNo beta multiplier: learned outputs are logits. The hybrid reward network only\nwrites the selected Q entry, then ALL Q values forget toward learned q_init.\nAction inputs are one-hot. Memory-ANN has a single global hidden state per\nchannel; vanilla recurrence explicitly includes its previous hidden state.\nThese choices and published equation/count ambiguities are documented in the\nRNN notebook. All functions use predict-before-observe timing.\n\"\"\"\nimport numpy as np\nfrom src.agents.paper_rl_fitting import dependencies\n\nNEURAL_MODELS = ('rl_ann', 'context_ann', 'memory_ann', 'vanilla_rnn')\nDISPLAY_NAMES = dict(rl_ann='RL-ANN', context_ann='Context-ANN',\n                     memory_ann='Memory-ANN', vanilla_rnn='Vanilla RNN')\nPAPER_CHOSEN = {\n    'rl_ann': dict(hidden_units=16, batch_size=32, max_steps=1_000_000),\n    'context_ann': dict(hidden_units=64, batch_size=64, max_steps=1_000_000),\n    'memory_ann': dict(hidden_units=32, batch_size=128, max_steps=1_000_000),\n    'vanilla_rnn': dict(hidden_units=64, batch_size=64, max_steps=1_000_000),\n}\n\n\ndef initialize_parameters(key, model, hidden_units=16, num_arms=3):\n    \"\"\"Glorot-uniform weights; zero biases/states, forgetting initialized at .05.\"\"\"\n    jax, jnp, _ = dependencies()\n    if model not in NEURAL_MODELS or hidden_units < 1 or num_arms < 2:\n        raise ValueError('Unknown architecture or invalid layer dimensions.')\n    keys = iter(jax.random.split(key, 4))\n    def weights(n_in, n_out):\n        bound = np.sqrt(6/(n_in+n_out))\n        return jax.random.uniform(next(keys), (n_in, n_out), dtype=jnp.float64,\n                                  minval=-bound, maxval=bound)\n    h, k = hidden_units, num_arms\n    if model == 'vanilla_rnn':\n        return dict(joint_w1=weights(k+1+h, h), joint_b1=jnp.zeros(h),\n                    joint_w2=weights(h, k), joint_b2=jnp.zeros(k))\n    reward_inputs = {'rl_ann': 2, 'context_ann': 2+k, 'memory_ann': 1+h}[model]\n    action_inputs = {'rl_ann': k, 'context_ann': 2*k, 'memory_ann': k+h}[model]\n    return dict(reward_w1=weights(reward_inputs, h), reward_b1=jnp.zeros(h),\n                reward_w2=weights(h, 1), reward_b2=jnp.zeros(1),\n                action_w1=weights(action_inputs, h), action_b1=jnp.zeros(h),\n                action_w2=weights(h, k), action_b2=jnp.zeros(k),\n                forgetting_raw=jnp.array(np.log(.05/.95)), q_init=jnp.array(0.))\n\n\ndef hidden_width(parameters, model):\n    return int(parameters['joint_b1' if model == 'vanilla_rnn' else 'reward_b1'].shape[0])\n\n\ndef parameter_summary(parameters, model):\n    jax, _, _ = dependencies()\n    summary = dict(hidden_units=hidden_width(parameters, model),\n                   n_parameters=sum(np.asarray(v).size for v in parameters.values()))\n    if model != 'vanilla_rnn':\n        summary.update(forgetting=float(jax.nn.sigmoid(parameters['forgetting_raw'])),\n                       q_init=float(parameters['q_init']))\n    return summary\n\n\ndef initial_state(parameters, model, batch_size=1, num_arms=3):\n    _, jnp, _ = dependencies()\n    h = hidden_width(parameters, model)\n    q_init = 0. if model == 'vanilla_rnn' else parameters['q_init']\n    return dict(q=jnp.full((batch_size, num_arms), q_init),\n                c=jnp.zeros((batch_size, num_arms)),\n                reward_hidden=jnp.zeros((batch_size, h)),\n                action_hidden=jnp.zeros((batch_size, h)),\n                joint_hidden=jnp.zeros((batch_size, h)))\n\n\ndef choice_logits(parameters, state, model):\n    if model == 'vanilla_rnn':\n        return state['joint_hidden'] @ parameters['joint_w2']+parameters['joint_b2']\n    return state['q']+state['c']\n\n\ndef observe(parameters, state, model, actions, rewards):\n    \"\"\"Advance batch states after rewards; the returned state predicts next choice.\"\"\"\n    jax, jnp, _ = dependencies()\n    q, c = state['q'], state['c']\n    k, batch = q.shape[1], q.shape[0]\n    index = jnp.arange(batch)\n    onehot = jax.nn.one_hot(actions, k, dtype=jnp.float64)\n    reward_column = rewards[:, None]\n    if model == 'vanilla_rnn':\n        inputs = jnp.concatenate([onehot, reward_column, state['joint_hidden']], axis=1)\n        hidden = jnp.tanh(inputs @ parameters['joint_w1']+parameters['joint_b1'])\n        return dict(state, joint_hidden=hidden)\n    if model == 'rl_ann':\n        reward_inputs = jnp.concatenate([q[index, actions, None], reward_column], axis=1)\n        action_inputs = onehot\n    elif model == 'context_ann':\n        reward_inputs = jnp.concatenate([q[index, actions, None], reward_column, q], axis=1)\n        action_inputs = jnp.concatenate([onehot, c], axis=1)\n    elif model == 'memory_ann':\n        reward_inputs = jnp.concatenate([reward_column, state['reward_hidden']], axis=1)\n        action_inputs = jnp.concatenate([onehot, state['action_hidden']], axis=1)\n    else:\n        raise ValueError('Unknown model.')\n    sr = jnp.tanh(reward_inputs @ parameters['reward_w1']+parameters['reward_b1'])\n    sa = jnp.tanh(action_inputs @ parameters['action_w1']+parameters['action_b1'])\n    updated_value = (sr @ parameters['reward_w2']+parameters['reward_b2'])[:, 0]\n    q = q.at[index, actions].set(updated_value)\n    forgetting = jax.nn.sigmoid(parameters['forgetting_raw'])\n    q = (1-forgetting)*q+forgetting*parameters['q_init']\n    c = sa @ parameters['action_w2']+parameters['action_b2']\n    return dict(state, q=q, c=c, reward_hidden=sr, action_hidden=sa)\n\n\ndef make_backend(model, hidden_units=16, num_arms=3):\n    jax, jnp, optax = dependencies()\n    if model not in NEURAL_MODELS:\n        raise ValueError('Unknown model.')\n\n    @jax.jit\n    def statistics(parameters, actions, rewards, mask):\n        batch = actions.shape[0]\n        index = jnp.arange(batch)\n        start = (initial_state(parameters, model, batch, num_arms), jnp.zeros(batch), jnp.zeros(batch))\n        def trial(carry, inputs):\n            state, nll, correct = carry\n            action, reward, valid = inputs\n            logits = choice_logits(parameters, state, model)\n            log_probs = jax.nn.log_softmax(logits, axis=-1)\n            nll += jnp.where(valid, -log_probs[index, action], 0.)\n            correct += jnp.where(valid, jnp.argmax(logits, axis=-1) == action, 0.)\n            # Sanitize padding before the network, then freeze its state.\n            new_state = observe(parameters, state, model, action, jnp.where(valid, reward, 0.))\n            state = jax.tree_util.tree_map(lambda new, old: jnp.where(valid[:, None], new, old), new_state, state)\n            return (state, nll, correct), None\n        final, _ = jax.lax.scan(trial, start, (actions.T, rewards.T, mask.T))\n        return final[1], final[2]\n\n    def objective(parameters, actions, rewards, mask, l2_weight):\n        nll, _ = statistics(parameters, actions, rewards, mask)\n        penalty = sum(jnp.square(v).sum() for v in parameters.values())\n        return nll.sum()+l2_weight*penalty\n\n    value_grad = jax.value_and_grad(objective)\n    def trainer(setting):\n        optimizer = optax.adam(setting['optimizer_learning_rate'])\n        def step(carry, unused):\n            parameters, state, key, actions, rewards, mask = carry\n            key, sampling_key = jax.random.split(key)\n            ids = jax.random.randint(sampling_key, (setting['batch_size'],), 0, actions.shape[0])\n            loss, grad = value_grad(parameters, actions[ids], rewards[ids], mask[ids], setting['l2_weight'])\n            updates, state = optimizer.update(grad, state, parameters)\n            parameters = optax.apply_updates(parameters, updates)\n            return (parameters, state, key, actions, rewards, mask), loss\n        def chunk(parameters, state, key, actions, rewards, mask, steps):\n            carry, losses = jax.lax.scan(step, (parameters, state, key, actions, rewards, mask),\n                                         xs=None, length=steps)\n            return carry[:3], losses[-1]\n        return optimizer, jax.jit(chunk, static_argnums=(6,))\n    return statistics, objective, trainer\n\n\ndef trace_sequence(parameters, sequence, model):\n    \"\"\"Pre-choice probabilities/logits/states and post-observation channel states.\"\"\"\n    from src.agents.paper_rl_fitting import pack_sequences\n    jax, jnp, _ = dependencies()\n    actions, rewards, _ = pack_sequences([sequence])\n    @jax.jit\n    def trace(parameters, actions, rewards):\n        def trial(state, inputs):\n            action, reward = inputs\n            logits = choice_logits(parameters, state, model)\n            log_probs = jax.nn.log_softmax(logits, axis=-1)\n            new = observe(parameters, state, model, action[None], reward[None])\n            result = dict(logits=logits[0], log_probabilities=log_probs[0],\n                          pre_q=state['q'][0], pre_c=state['c'][0],\n                          pre_reward_hidden=state['reward_hidden'][0],\n                          pre_action_hidden=state['action_hidden'][0],\n                          pre_joint_hidden=state['joint_hidden'][0],\n                          post_q=new['q'][0], post_c=new['c'][0])\n            return new, result\n        _, result = jax.lax.scan(trial, initial_state(parameters, model), (actions, rewards))\n        return result\n    return {k: np.asarray(v) for k, v in trace(parameters, jnp.asarray(actions[0]), jnp.asarray(rewards[0])).items()}\n\n\nclass NeuralBanditMouse:\n    \"\"\"Adapter to DriftingBanditTask.simulate; reset between independent sessions.\n\n    q_values exposes hybrid Q contributions or vanilla logits for plotting only.\n    The task's previous_action is ignored: observe already carries the history.\n    \"\"\"\n    def __init__(self, parameters, model, num_arms=3, seed=0):\n        self.parameters, self.model, self.num_arms = parameters, model, num_arms\n        self.rng = np.random.default_rng(seed)\n        jax, _, _ = dependencies()\n        self._observe = jax.jit(lambda state, a, r: observe(parameters, state, model, a, r))\n        self.reset()\n\n    def reset(self):\n        self.state = initial_state(self.parameters, self.model, 1, self.num_arms)\n        self._refresh_values()\n\n    def _refresh_values(self):\n        self.q_values = np.asarray(choice_logits(self.parameters, self.state, self.model)[0]\n                                   if self.model == 'vanilla_rnn' else self.state['q'][0])\n\n    def choose_action(self, previous_action=None):\n        logits = np.asarray(choice_logits(self.parameters, self.state, self.model)[0])\n        probs = np.exp(logits-logits.max())\n        return self.rng.choice(self.num_arms, p=probs/probs.sum())\n\n    def update_q_values(self, action, reward):\n        _, jnp, _ = dependencies()\n        self.state = self._observe(self.state, jnp.array([action]), jnp.array([reward], dtype=jnp.float64))\n        self._refresh_values()\n\n\ndef probe_reward_module(parameters, model, rewards, chosen_values=(0.,), context=None,\n                        reward_hidden=None, chosen_arm=0):\n    \"\"\"Probe hybrid reward function at controlled states; returns after-forgetting Q.\n\n    Context-ANN sets context[chosen_arm] to each chosen value for consistency.\n    Memory-ANN ignores chosen_values and uses a fixed GLOBAL reward hidden state.\n    These probes describe the supplied network, not validated behavioral effects.\n    \"\"\"\n    jax, jnp, _ = dependencies()\n    if model not in NEURAL_MODELS[:3]:\n        raise ValueError('Vanilla RNN has no separate reward module.')\n    rewards, values = np.asarray(rewards, dtype=float), np.asarray(chosen_values, dtype=float)\n    if rewards.ndim != 1 or values.ndim != 1 or not np.all(np.isfinite(rewards)) or not np.all(np.isfinite(values)):\n        raise ValueError('Need finite one-dimensional probe values.')\n    k, h = len(parameters['action_b2']), hidden_width(parameters, model)\n    if chosen_arm < 0 or chosen_arm >= k:\n        raise ValueError('Invalid chosen arm.')\n    results = []\n    for value in values:\n        if model == 'memory_ann':\n            hidden = np.zeros(h) if reward_hidden is None else np.asarray(reward_hidden)\n            if hidden.shape != (h,):\n                raise ValueError('reward_hidden must have hidden_units entries.')\n            inputs = np.column_stack([rewards, np.broadcast_to(hidden, (len(rewards), h))])\n        else:\n            inputs = np.column_stack([np.full(len(rewards), value), rewards])\n            if model == 'context_ann':\n                ctx = np.zeros(k) if context is None else np.asarray(context)\n                if ctx.shape != (k,):\n                    raise ValueError('context must have num_arms entries.')\n                ctx_batch = np.broadcast_to(ctx, (len(rewards), k)).copy()\n                ctx_batch[:, chosen_arm] = value\n                inputs = np.column_stack([inputs, ctx_batch])\n        hidden = jnp.tanh(jnp.asarray(inputs) @ parameters['reward_w1']+parameters['reward_b1'])\n        output = (hidden @ parameters['reward_w2']+parameters['reward_b2'])[:, 0]\n        f = jax.nn.sigmoid(parameters['forgetting_raw'])\n        results.append(np.asarray((1-f)*output+f*parameters['q_init']))\n    return np.asarray(results)\n",
+  "neural_initialization": "Glorot uniform weights; zero biases/states; forgetting .05",
+  "objective": "sum_batch_nll + l2_weight * sum(raw_parameters ** 2)",
+  "precision": "float64",
+  "profile": "full",
+  "reset": "each full extracted session",
+  "reward": "unaltered delivered pulses",
+  "selection": "lowest unregularized validation mean NLL, including step zero",
+  "split_mice": {
+    "test": [
+      "MY_71_L"
+    ],
+    "train": [
+      "MY_72_L",
+      "MY_71_R",
+      "MY_72_R",
+      "MY_72_N"
+    ],
+    "validation": [
+      "MY_71_N"
+    ]
+  },
+  "split_seed": 42,
+  "validation_every": 10000,
+  "versions": {
+    "jax": "0.11.2",
+    "numpy": "2.3.3",
+    "optax": "0.2.8"
+  }
+}

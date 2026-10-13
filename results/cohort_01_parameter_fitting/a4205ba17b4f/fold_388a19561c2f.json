@@ -1,0 +1,186 @@
+{
+  "fold": {
+    "mouse": "MY_72_N",
+    "held_out_problem": 10,
+    "training_problems": "5,6,7,8,9,11",
+    "n_train_trials": 2538,
+    "n_test_trials": 445,
+    "n_train_sessions": 46,
+    "n_test_sessions": 7,
+    "success": true,
+    "converged_starts": 10,
+    "train_cross_entropy": 0.7938397343138504,
+    "test_cross_entropy": 0.7125933500200231,
+    "uniform_cross_entropy": 1.0986122886681098,
+    "improvement_over_uniform": 0.3860189386480867,
+    "learning_rate": 0.2670384618817892,
+    "at_bound_learning_rate": false,
+    "beta": 0.4858070228477456,
+    "at_bound_beta": false,
+    "alpha": 2.0204715631276517,
+    "at_bound_alpha": false
+  },
+  "sessions": [
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 10,
+      "session": "ses-85_date-20260325",
+      "n_trials": 22,
+      "cross_entropy": 0.2731993872095337
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 10,
+      "session": "ses-86_date-20260325",
+      "n_trials": 54,
+      "cross_entropy": 0.8537872422928849
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 10,
+      "session": "ses-87_date-20260326",
+      "n_trials": 81,
+      "cross_entropy": 0.9185566296815931
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 10,
+      "session": "ses-88_date-20260326",
+      "n_trials": 36,
+      "cross_entropy": 0.6428282315338946
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 10,
+      "session": "ses-89_date-20260327",
+      "n_trials": 69,
+      "cross_entropy": 0.763441165991599
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 10,
+      "session": "ses-90_date-20260327",
+      "n_trials": 58,
+      "cross_entropy": 0.6515193366956692
+    },
+    {
+      "mouse": "MY_72_N",
+      "held_out_problem": 10,
+      "session": "ses-91_date-20260330",
+      "n_trials": 125,
+      "cross_entropy": 0.615829422682291
+    }
+  ],
+  "starts": [
+    {
+      "start": 0,
+      "success": true,
+      "loss": 0.8509020500748334,
+      "parameters": [
+        0.0014612127528434128,
+        7.979731367363234,
+        0.15760793939300657
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 1,
+      "success": true,
+      "loss": 0.8509498752542216,
+      "parameters": [
+        0.0013300514419521325,
+        8.7270819513455,
+        0.14415784671393725
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 2,
+      "success": true,
+      "loss": 0.8509210282154905,
+      "parameters": [
+        0.0014091530817013918,
+        8.259667223481037,
+        0.15228640568175847
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 3,
+      "success": true,
+      "loss": 0.8509375449713159,
+      "parameters": [
+        0.0013638541822245359,
+        8.520664638039833,
+        0.14763829030765976
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 4,
+      "success": true,
+      "loss": 0.7938397343969225,
+      "parameters": [
+        0.2670426006141924,
+        0.485794457442471,
+        2.0205803545579424
+      ],
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL"
+    },
+    {
+      "start": 5,
+      "success": true,
+      "loss": 0.8507334377541024,
+      "parameters": [
+        0.0019241298861187802,
+        6.1573655106732215,
+        0.20401864975498554
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    },
+    {
+      "start": 6,
+      "success": true,
+      "loss": 0.7938397343143558,
+      "parameters": [
+        0.26703778410235346,
+        0.48580870756919176,
+        2.020460394126877
+      ],
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL"
+    },
+    {
+      "start": 7,
+      "success": true,
+      "loss": 0.7938397343254989,
+      "parameters": [
+        0.2670372338358516,
+        0.48580844127455947,
+        2.020485566692195
+      ],
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL"
+    },
+    {
+      "start": 8,
+      "success": true,
+      "loss": 0.7938397343138504,
+      "parameters": [
+        0.2670384618817892,
+        0.4858070228477456,
+        2.0204715631276517
+      ],
+      "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL"
+    },
+    {
+      "start": 9,
+      "success": true,
+      "loss": 0.8504350869884757,
+      "parameters": [
+        0.0027456554155327164,
+        4.438893391035646,
+        0.28237481216214105
+      ],
+      "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH"
+    }
+  ]
+}
