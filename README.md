@@ -140,7 +140,7 @@ Magnitude-only changes and counter decreases are retained in
 All reversal analyses use these corrected counters and totals. Re-extract raw
 sessions before rerunning analyses on previously loaded data; existing notebook
 outputs and saved figures are not automatically refreshed by a code change.
-Run regression checks with `uv run pytest`.
+Run regression checks with `uv run pytest`; GitHub Actions runs the same suite on every push and pull request (`.github/workflows/tests.yml`). Tests build their own synthetic inputs, so they pass without access to ceph.
 
 Reversal-over-time plotting also saves trial-based companions. Cumulative
 curves use completed trials and include reversals after the final trial.
