@@ -101,9 +101,10 @@ immediately with a clear message instead of failing later inside `import_data`.
 | `src/behavior_import/` | Parses raw pyControl `.tsv` logs into trial-level structures. `import_data.py` is the main entry point; handles field-name aliasing across protocol versions. |
 | `src/behavior_analysis/` | Computes derived metrics from imported trials — reversals, choice probabilities, task statistics, GLM utilities, cross-problem summaries. |
 | `src/behavior_visualization/` | One plotting function per analysis in `behavior_analysis/`. |
+| `src/pipelines/` | End-to-end analysis pipelines as functions with typed settings (`open_field.py`: every standard open-field figure, per problem). Scripts and notebooks call these rather than copying or exec-ing script code. |
 | `src/task_simulations/` | Synthetic bandit sessions (GP-driven and Markov-chain reward dynamics) for comparing real behavior against simulated agents. |
 | `scripts/individual_analyses/` | Standalone scripts, one per analysis/plot type — thin wrappers around `src/`. |
-| `scripts/full_pipelines/` | End-to-end pipelines that chain multiple analyses together (`run_grid_maze_analysis.py`, `run_open_field_analysis.py`). |
+| `scripts/full_pipelines/` | Entry points for full cohort runs (`run_open_field_analysis.py` calls `src/pipelines/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
 | `scripts/to_integrate/` | Exploratory notebooks not yet folded into `src/`. |
 
 ## Getting started
