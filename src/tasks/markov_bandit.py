@@ -3,11 +3,152 @@
 Functions here generate synthetic 3-armed bandit sessions where arm reward
 values evolve as discrete Markov chains, with block-swap dynamics that mimic
 the experimental paradigm.
+
+The public entry points are thin compositions of small pure helpers:
+
+- :func:`sample_two_markov_bandits` — two Markov reward streams.
+- :func:`simulate_3armed_blockswaps_markov` — streams -> 3-armed session -> metrics.
+- :func:`sweep_markov_metrics` — metric heatmaps over (max_block_len, pud).
+- :func:`plot_example_session_markov` — simulate one session and draw it.
+
+Simulations consume the random generator in a fixed order, so a seeded
+generator reproduces a session exactly.
 """
+
 from __future__ import annotations
 
-import numpy as np
+from dataclasses import dataclass
+from functools import partial
+
 import matplotlib.pyplot as plt
+import numpy as np
+
+# ---------------------------------------------------------------------------
+# Two Markov reward streams
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChainSpec:
+    """Parameters of the two-arm Markov chain.
+
+    Attributes:
+        n_states: Number of discrete reward states.
+        pud: Probability of moving down (and, separately, up) by one step.
+        pstay: Probability of staying, ``1 - 2 * pud``.
+        min_hold: Steps an arm must stay in a state before it may change.
+        enforce_distinct: Keep the two arms in different states.
+    """
+
+    n_states: int
+    pud: float
+    pstay: float
+    min_hold: int
+    enforce_distinct: bool
+
+
+def validate_chain_args(n_states: int, pud: float, enforce_distinct: bool) -> float:
+    """Check the chain parameters and return the stay probability ``1 - 2 * pud``.
+
+    Raises:
+        ValueError: If distinctness cannot be satisfied or *pud* exceeds 0.5.
+    """
+    if enforce_distinct and n_states < 2:
+        raise ValueError("Need at least 2 states in val_list to enforce distinctness.")
+    pstay = 1 - 2 * pud
+    if pstay < 0:
+        raise ValueError("pud must be ≤ 0.5")
+    return pstay
+
+
+def draw_initial_states(
+    rng: np.random.Generator, n_states: int, enforce_distinct: bool
+) -> np.ndarray:
+    """Draw the two arms' starting state indices, distinct if requested."""
+    if enforce_distinct:
+        return rng.choice(n_states, size=2, replace=False)
+    return rng.integers(0, n_states, size=2)
+
+
+def sample_direction(rng: np.random.Generator, pud: float, pstay: float) -> int:
+    """Sample -1 (down), 0 (stay), or +1 (up) using the Markov transition probabilities."""
+    r = rng.random()
+    if r < pud:
+        return -1
+    if r < pud + pstay:
+        return 0
+    return 1
+
+
+def _first_free_state(cur: int, direction: int, other_state: int, chain: ChainSpec) -> int | None:
+    """First state reached walking from *cur* along *direction* that the other arm does not occupy.
+
+    Returns ``None`` if the walk leaves the state range first.
+    """
+    s = cur
+    while 0 <= s + direction < chain.n_states:
+        s += direction
+        if not (chain.enforce_distinct and s == other_state):
+            return s
+    return None
+
+
+def step_in_direction(cur: int, direction: int, other_state: int, chain: ChainSpec) -> int:
+    """Move *cur* in *direction*, skipping *other_state* if needed.
+
+    If the move runs off the end of the state range, the opposite direction is
+    tried.
+
+    Raises:
+        RuntimeError: If neither direction reaches a free state.
+    """
+    if direction == 0:
+        return cur
+    for step in (direction, -direction):
+        s = _first_free_state(cur, step, other_state, chain)
+        if s is not None:
+            return s
+    raise RuntimeError("Could not resolve collision; val_list may be too small.")
+
+
+def advance_arms(
+    rng: np.random.Generator, cur: np.ndarray, hold: np.ndarray, chain: ChainSpec
+) -> np.ndarray:
+    """Next state of both arms, visiting them in random order.
+
+    An arm whose dwell count is below ``chain.min_hold`` stays put and consumes
+    no random draw. The second arm sees the first arm's new state.
+    """
+    nxt = cur.copy()
+    for arm in rng.permutation(2):
+        if hold[arm] < chain.min_hold:
+            continue
+        other_state = nxt[1 - arm]
+        direction = sample_direction(rng, chain.pud, chain.pstay)
+        nxt[arm] = step_in_direction(cur[arm], direction, other_state, chain)
+    return nxt
+
+
+def resolve_collision(nxt: np.ndarray, n_states: int) -> np.ndarray:
+    """Return a copy of two equal states with arm 0 nudged up (or down at the top).
+
+    Raises:
+        RuntimeError: If neither neighbouring state exists.
+    """
+    fixed = nxt.copy()
+    if fixed[0] + 1 < n_states and fixed[0] + 1 != fixed[1]:
+        fixed[0] += 1
+    elif fixed[0] - 1 >= 0 and fixed[0] - 1 != fixed[1]:
+        fixed[0] -= 1
+    else:
+        raise RuntimeError("Distinctness enforcement failed unexpectedly.")
+    return fixed
+
+
+def update_hold(hold: np.ndarray, prev: np.ndarray, new: np.ndarray) -> np.ndarray:
+    """Dwell counts after a step: reset to 1 for arms that changed, else +1."""
+    return np.where(new != prev, 1, hold + 1)
+
 
 def sample_two_markov_bandits(
     T: int,
@@ -46,82 +187,27 @@ def sample_two_markov_bandits(
 
     val_list = np.array(val_list)
     n_states = len(val_list)
-    if enforce_distinct and n_states < 2:
-        raise ValueError("Need at least 2 states in val_list to enforce distinctness.")
-
-    pstay = 1 - 2 * pud
-    if pstay < 0:
-        raise ValueError("pud must be ≤ 0.5")
+    pstay = validate_chain_args(n_states, pud, enforce_distinct)
+    chain = ChainSpec(n_states, pud, pstay, min_hold, enforce_distinct)
 
     state_vals = np.zeros((T, 2), dtype=int)
-    if enforce_distinct:
-        state_vals[0] = rng.choice(n_states, size=2, replace=False)
-    else:
-        state_vals[0] = rng.integers(0, n_states, size=2)
-
+    state_vals[0] = draw_initial_states(rng, n_states, enforce_distinct)
     hold = np.ones(2, dtype=int)
 
-    def _step_in_direction(cur: int, direction: int, other_state: int) -> int:
-        """Move *cur* in *direction*, skipping *other_state* if needed."""
-        if direction == 0:
-            return cur
-        s = cur
-        while True:
-            s_next = s + direction
-            if s_next < 0 or s_next >= n_states:
-                break
-            s = s_next
-            if not (enforce_distinct and s == other_state):
-                return s
-        # fallback: try opposite direction
-        direction2 = -direction
-        s = cur
-        while True:
-            s_next = s + direction2
-            if s_next < 0 or s_next >= n_states:
-                break
-            s = s_next
-            if not (enforce_distinct and s == other_state):
-                return s
-        raise RuntimeError("Could not resolve collision; val_list may be too small.")
-
-    def _sample_direction() -> int:
-        """Sample -1 (down), 0 (stay), or +1 (up) using the Markov transition probabilities."""
-        r = rng.random()
-        if r < pud:
-            return -1
-        elif r < pud + pstay:
-            return 0
-        return +1
-
+    # Each step depends on the previous state and the dwell counts, so this stays a loop.
     for t in range(T - 1):
-        cur = state_vals[t].copy()
-        order = rng.permutation(2)
-        nxt = cur.copy()
-
-        for arm in order:
-            other = 1 - arm
-            other_state = nxt[other]
-            if hold[arm] < min_hold:
-                nxt[arm] = cur[arm]
-                continue
-            nxt[arm] = _step_in_direction(cur[arm], _sample_direction(), other_state)
-
+        nxt = advance_arms(rng, state_vals[t], hold, chain)
         if enforce_distinct and nxt[0] == nxt[1]:
-            if nxt[0] + 1 < n_states and nxt[0] + 1 != nxt[1]:
-                nxt[0] += 1
-            elif nxt[0] - 1 >= 0 and nxt[0] - 1 != nxt[1]:
-                nxt[0] -= 1
-            else:
-                raise RuntimeError("Distinctness enforcement failed unexpectedly.")
-
+            nxt = resolve_collision(nxt, n_states)
         state_vals[t + 1] = nxt
-        for arm in range(2):
-            hold[arm] = (
-                1 if state_vals[t + 1, arm] != state_vals[t, arm] else hold[arm] + 1
-            )
+        hold = update_hold(hold, state_vals[t], nxt)
 
     return val_list[state_vals]
+
+
+# ---------------------------------------------------------------------------
+# Three-armed block-swap session
+# ---------------------------------------------------------------------------
 
 
 def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
@@ -133,13 +219,128 @@ def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.
     """
     edges = np.r_[0, boundaries, len(vals3)]
     counts = []
-    for start, stop in zip(edges[:-1], edges[1:]):
+    for start, stop in zip(edges[:-1], edges[1:], strict=True):
         block = vals3[start:stop]
         maxima = block.max(axis=1, keepdims=True)
         unique = (block == maxima).sum(axis=1) == 1
         winners = block[unique].argmax(axis=1)
         counts.append(np.count_nonzero(winners[1:] != winners[:-1]))
     return np.asarray(counts, dtype=int)
+
+
+def draw_block_boundaries(
+    rng: np.random.Generator,
+    T: int,
+    min_block_len: int,
+    max_block_len: int,
+    n_blocks_draw: int,
+) -> np.ndarray:
+    """Trial indices at which blocks end, drawn from random block lengths.
+
+    Block lengths are uniform on ``[min_block_len, max_block_len]``; boundaries at
+    or beyond *T* are dropped.
+    """
+    block_lengths = rng.integers(min_block_len, max_block_len + 1, size=n_blocks_draw)
+    boundaries = np.cumsum(block_lengths)
+    return boundaries[boundaries < T]
+
+
+def swap_arm_roles(
+    row: np.ndarray,
+    inactive_arm: int,
+    active_arms: list[int],
+    arm_to_stream: dict[int, int],
+) -> tuple[int, list[int], dict[int, int]]:
+    """Arm roles after a block boundary.
+
+    The arm that is best in *row* becomes inactive. The previously inactive arm
+    takes over the best arm's stream, and the first remaining active arm keeps
+    its own stream.
+
+    Returns:
+        ``(inactive_arm, active_arms, arm_to_stream)`` for the next block.
+    """
+    best_arm = int(np.argmax(row))
+    old_inactive = inactive_arm
+    # An inactive best arm (possible only when val_list has non-positive values)
+    # has no stream entry and falls back to stream 0.
+    inherited_stream = arm_to_stream.get(best_arm, 0)
+    other_active = next(a for a in active_arms if a != best_arm)
+    return (
+        best_arm,
+        [old_inactive, other_active],
+        {other_active: arm_to_stream[other_active], old_inactive: inherited_stream},
+    )
+
+
+def build_vals3(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
+    """Per-trial reward of the three arms, shape ``(T, 3)``.
+
+    Two arms are active and read the two *streams*; the third is inactive and
+    pays zero. At each boundary the best arm turns inactive (see
+    :func:`swap_arm_roles`), so only the roles change, not the streams.
+    """
+    T = len(streams)
+    vals3 = np.zeros((T, 3), dtype=float)
+    inactive_arm, active_arms, arm_to_stream = 2, [0, 1], {0: 0, 1: 1}
+
+    # A swap follows trial b - 1 for each distinct boundary b >= 1.
+    swap_trials = np.unique(boundaries[boundaries >= 1])
+    edges = np.r_[0, swap_trials, T]
+    for start, stop in zip(edges[:-1], edges[1:], strict=True):
+        for arm in active_arms:
+            vals3[start:stop, arm] = streams[start:stop, arm_to_stream[arm]]
+        if stop < T:
+            inactive_arm, active_arms, arm_to_stream = swap_arm_roles(
+                vals3[stop - 1], inactive_arm, active_arms, arm_to_stream
+            )
+    return vals3
+
+
+def gap_series(vals3: np.ndarray) -> np.ndarray:
+    """Per-trial value of the best arm minus the second-best arm."""
+    sorted_vals = np.sort(vals3, axis=1)
+    return sorted_vals[:, -1] - sorted_vals[:, -2]
+
+
+def best_run_lengths(best_arm_series: np.ndarray) -> np.ndarray:
+    """Lengths of consecutive stretches in which the same arm is best."""
+    changes = np.where(best_arm_series[1:] != best_arm_series[:-1])[0] + 1
+    return np.diff(np.r_[0, changes, len(best_arm_series)]).astype(float)
+
+
+def session_metrics(
+    best_minus_second: np.ndarray, best_arm_series: np.ndarray
+) -> tuple[float, float, float, float]:
+    """Summary of a session.
+
+    Returns:
+        ``(mean gap, fraction of trials with gap >= 2, mean best-run length,
+        std of best-run length)``.
+    """
+    run_lengths = best_run_lengths(best_arm_series)
+    return (
+        float(best_minus_second.mean()),
+        float((best_minus_second >= 2).mean()),
+        float(run_lengths.mean()),
+        float(run_lengths.std(ddof=0)),
+    )
+
+
+def build_session(
+    vals3: np.ndarray,
+    boundaries: np.ndarray,
+    best_arm_series: np.ndarray,
+    best_minus_second: np.ndarray,
+) -> dict:
+    """Session dict returned by :func:`simulate_3armed_blockswaps_markov`."""
+    return {
+        "vals3": vals3,
+        "boundaries": boundaries,
+        "best_arm_series": best_arm_series,
+        "best_minus_second": best_minus_second,
+        "best_second_switches_per_block": count_best_second_switches(vals3, boundaries),
+    }
 
 
 def simulate_3armed_blockswaps_markov(
@@ -178,70 +379,61 @@ def simulate_3armed_blockswaps_markov(
     if min_block_len is None:
         min_block_len = max_block_len - 10
 
+    # Stream sampling must precede the block-length draw to keep the rng order.
     streams = sample_two_markov_bandits(
-        T=T, pud=pud, val_list=val_list, rng=rng,
-        min_hold=min_hold, enforce_distinct=enforce_distinct,
+        T=T,
+        pud=pud,
+        val_list=val_list,
+        rng=rng,
+        min_hold=min_hold,
+        enforce_distinct=enforce_distinct,
     )
+    boundaries = draw_block_boundaries(rng, T, min_block_len, max_block_len, n_blocks_draw)
+    vals3 = build_vals3(streams, boundaries)
 
-    block_lengths = rng.integers(min_block_len, max_block_len + 1, size=n_blocks_draw)
-    boundaries = np.cumsum(block_lengths)
-    boundaries = boundaries[boundaries < T]
-    boundary_set = set(boundaries.tolist())
-
-    inactive_arm = 2
-    active_arms = [0, 1]
-    arm_to_stream = {0: 0, 1: 1}
-
-    vals3 = np.zeros((T, 3), dtype=float)
-
-    for t in range(T):
-        vals3[t, inactive_arm] = 0.0
-        for a in active_arms:
-            vals3[t, a] = streams[t, arm_to_stream[a]]
-
-        if (t + 1) in boundary_set:
-            best_arm = int(np.argmax(vals3[t]))
-            old_inactive = inactive_arm
-            inherited_stream = arm_to_stream.get(best_arm, 0)
-            other_active = [a for a in active_arms if a != best_arm]
-            if not other_active:
-                other_active = [a for a in [0, 1, 2] if a != best_arm and a != old_inactive][:1]
-            other_active = other_active[0]
-            inactive_arm = best_arm
-            active_arms = [old_inactive, other_active]
-            other_stream = arm_to_stream[other_active]
-            arm_to_stream = {other_active: other_stream, old_inactive: inherited_stream}
-
-    # Gap metrics
-    sorted_vals = np.sort(vals3, axis=1)
-    best_minus_second = sorted_vals[:, -1] - sorted_vals[:, -2]
-    mean_best_minus_second = float(best_minus_second.mean())
-    frac_gap_ge2 = float((best_minus_second >= 2).mean())
-
-    # Run-length metrics
+    best_minus_second = gap_series(vals3)
     best_arm_series = np.argmax(vals3, axis=1)
-    changes = np.where(best_arm_series[1:] != best_arm_series[:-1])[0] + 1
-    run_lengths = np.diff(np.r_[0, changes, T]).astype(float)
-    mean_best_run_length = float(run_lengths.mean())
-    std_best_run_length = float(run_lengths.std(ddof=0))
+    metrics = session_metrics(best_minus_second, best_arm_series)
+    if not return_session:
+        return metrics
 
-    if return_session:
-        session = {
-            "vals3": vals3,
-            "boundaries": boundaries,
-            "best_arm_series": best_arm_series,
-            "best_minus_second": best_minus_second,
-            "best_second_switches_per_block": count_best_second_switches(vals3, boundaries),
-        }
-        return (mean_best_minus_second, frac_gap_ge2,
-                mean_best_run_length, std_best_run_length, session)
+    session = build_session(vals3, boundaries, best_arm_series, best_minus_second)
+    return (*metrics, session)
 
-    return mean_best_minus_second, frac_gap_ge2, mean_best_run_length, std_best_run_length
+
+# ---------------------------------------------------------------------------
+# Parameter sweep
+# ---------------------------------------------------------------------------
+
+
+def summarise_sweep_cell(results: list[tuple], include_switches: bool) -> tuple[float, ...]:
+    """Average the simulations of one (max_block_len, pud) cell.
+
+    Args:
+        results: One :func:`simulate_3armed_blockswaps_markov` return per
+            simulation; with a session dict last when *include_switches*.
+        include_switches: Also pool the best/second switches per observed block.
+
+    Returns:
+        ``(gap_mean, gap_ge2, run_mean, run_std, switch_mean)``; ``switch_mean``
+        is 0.0 when *include_switches* is False.
+    """
+    n_sims = len(results)
+    # Left-to-right float sums keep the result independent of numpy's pairwise summation.
+    means = tuple(sum((r[k] for r in results), 0.0) / n_sims for k in range(4))
+    if not include_switches:
+        return (*means, 0.0)
+    counts = [r[4]["best_second_switches_per_block"] for r in results]
+    return (*means, sum(int(c.sum()) for c in counts) / sum(len(c) for c in counts))
+
+
+DEFAULT_PUD_VALUES = np.linspace(0.01, 0.25, 25)
+DEFAULT_MAX_BLOCK_LENS = np.arange(20, 81, 1)
 
 
 def sweep_markov_metrics(
-    pud_values: np.ndarray = np.linspace(0.01, 0.25, 25),
-    max_block_lens: np.ndarray = np.arange(20, 81, 1),
+    pud_values: np.ndarray = DEFAULT_PUD_VALUES,
+    max_block_lens: np.ndarray = DEFAULT_MAX_BLOCK_LENS,
     T: int = 150,
     n_sims: int = 1000,
     seed: int = 0,
@@ -271,43 +463,35 @@ def sweep_markov_metrics(
         blocks (including final partial blocks) across simulations.
     """
     rng = np.random.default_rng(seed)
-    shape = (len(max_block_lens), len(pud_values))
-    H_gap_mean = np.zeros(shape)
-    H_gap_ge2 = np.zeros(shape)
-    H_run_mean = np.zeros(shape)
-    H_run_std = np.zeros(shape)
-    H_switch_mean = np.zeros(shape)
+    simulate = partial(
+        simulate_3armed_blockswaps_markov,
+        T=T,
+        val_list=val_list,
+        rng=rng,
+        min_hold=min_hold,
+        enforce_distinct=enforce_distinct,
+        return_session=include_switches,
+    )
+    heatmaps = np.zeros((5, len(max_block_lens), len(pud_values)))
 
+    # One shared rng drawn in row-major cell order: the cells are not independent.
+    # min_block_len = max_block_len - 10 is non-positive for max_block_len <= 10, which
+    # yields zero or negative block lengths; such rows are not validated.
     for i, mbl in enumerate(max_block_lens):
         for j, pud in enumerate(pud_values):
-            acc = [0.0, 0.0, 0.0, 0.0]
-            switch_total = block_total = 0
-            for _ in range(n_sims):
-                result = simulate_3armed_blockswaps_markov(
-                    T=T, pud=float(pud), max_block_len=int(mbl),
-                    min_block_len=int(mbl) - 10, val_list=val_list,
-                    rng=rng, min_hold=min_hold,
-                    enforce_distinct=enforce_distinct, return_session=include_switches,
-                )
-                gm, gg, rm, rs = result[:4]
-                if include_switches:
-                    counts = result[4]["best_second_switches_per_block"]
-                    switch_total += counts.sum()
-                    block_total += len(counts)
-                acc[0] += gm; acc[1] += gg; acc[2] += rm; acc[3] += rs
-
-            H_gap_mean[i, j] = acc[0] / n_sims
-            H_gap_ge2[i, j] = acc[1] / n_sims
-            H_run_mean[i, j] = acc[2] / n_sims
-            H_run_std[i, j] = acc[3] / n_sims
-
-            if include_switches:
-                H_switch_mean[i, j] = switch_total / block_total
-
+            results = [
+                simulate(pud=float(pud), max_block_len=int(mbl), min_block_len=int(mbl) - 10)
+                for _ in range(n_sims)
+            ]
+            heatmaps[:, i, j] = summarise_sweep_cell(results, include_switches)
             print(f"Done pud={pud:.4f}, max_block_len={mbl}")
 
-    metrics = (H_gap_mean, H_gap_ge2, H_run_mean, H_run_std)
-    return metrics + (H_switch_mean,) if include_switches else metrics
+    return tuple(heatmaps[: 5 if include_switches else 4])
+
+
+# ---------------------------------------------------------------------------
+# Heatmaps and example session plots
+# ---------------------------------------------------------------------------
 
 
 def plot_heatmaps_pair_1(
@@ -333,8 +517,7 @@ def plot_heatmaps_pair_1(
     axes[0].set_ylabel("max_block_len")
     fig.colorbar(im0, ax=axes[0])
 
-    im1 = axes[1].imshow(H_gap_ge2, origin="lower", aspect="auto",
-                         extent=extent, vmin=0, vmax=1)
+    im1 = axes[1].imshow(H_gap_ge2, origin="lower", aspect="auto", extent=extent, vmin=0, vmax=1)
     axes[1].set_title("Frac trials (best − second ≥ 2)")
     axes[1].set_xlabel("p_ud")
     axes[1].set_ylabel("max_block_len")
@@ -391,6 +574,90 @@ def plot_switch_heatmap(
     plt.show()
 
 
+def simulate_example_session(
+    pud: float,
+    max_block_len: int,
+    val_list: tuple | list,
+    T: int,
+    seed: int,
+) -> tuple[tuple[float, ...], dict]:
+    """Simulate one seeded session.
+
+    Returns:
+        ``((gap_mean, gap_ge2, run_mean, run_std), session)`` as returned by
+        :func:`simulate_3armed_blockswaps_markov` with ``return_session=True``.
+    """
+    *metrics, session = simulate_3armed_blockswaps_markov(
+        T=T,
+        pud=float(pud),
+        max_block_len=int(max_block_len),
+        min_block_len=int(max_block_len) - 10,
+        val_list=val_list,
+        min_hold=5,
+        rng=np.random.default_rng(seed),
+        return_session=True,
+    )
+    return tuple(metrics), session
+
+
+def example_session_title(
+    pud: float, max_block_len: int, metrics: tuple[float, ...], title: str | None
+) -> str:
+    """*title* if given, otherwise a summary of the parameters and session metrics."""
+    gap_mean, gap_ge2, run_mean, run_std = metrics
+    return title or (
+        f"Example session | pud={pud:.3f}, max_block_len={max_block_len} "
+        f"| gap_mean={gap_mean:.2f}, frac≥2={gap_ge2:.2f}, "
+        f"run_mean={run_mean:.2f}, run_std={run_std:.2f}"
+    )
+
+
+def plot_session_values(
+    vals3: np.ndarray,
+    boundaries: np.ndarray,
+    y_max: float,
+    title: str,
+    choices: np.ndarray | None = None,
+    ax: plt.Axes | None = None,
+) -> plt.Axes:
+    """Draw the three arms' rewards over trials, with block boundaries and choices.
+
+    Args:
+        vals3: ``(T, 3)`` reward of each arm per trial.
+        boundaries: Trial indices where blocks end.
+        y_max: Largest reward value; sets the y-limit.
+        title: Axes title.
+        choices: Optional ``(T,)`` int array of chosen arm indices (0–2).
+        ax: Axes to draw into; a new figure is created if ``None``.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
+    T = len(vals3)
+    x = np.arange(T)
+
+    for arm_idx in range(3):
+        ax.plot(x, vals3[:, arm_idx], linewidth=2.5, label=f"Arm {arm_idx}")
+
+    if choices is not None:
+        ch = np.asarray(choices, dtype=int)
+        ax.scatter(x, vals3[x, ch], s=25, color="black", zorder=5, label="Choice")
+
+    for k, b in enumerate(boundaries):
+        ax.axvline(
+            b - 0.5, linestyle="--", color="k", linewidth=2.0, label="Block" if k == 0 else None
+        )
+
+    ax.set_xlim(0, T - 1)
+    ax.set_ylim(-0.5, y_max + 0.5)
+    ax.set_xlabel("Trial")
+    ax.set_ylabel("Reward Magnitude")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_title(title)
+    ax.legend(loc="upper left")
+    return ax
+
+
 def plot_example_session_markov(
     pud: float,
     max_block_len: int,
@@ -414,48 +681,15 @@ def plot_example_session_markov(
     Returns:
         The session dict from :func:`simulate_3armed_blockswaps_markov`.
     """
-    rng = np.random.default_rng(seed)
-    gap_mean, gap_ge2, run_mean, run_std, session = simulate_3armed_blockswaps_markov(
-        T=T, pud=float(pud), max_block_len=int(max_block_len),
-        min_block_len=int(max_block_len) - 10, val_list=val_list,
-        min_hold=5, rng=rng, return_session=True,
+    metrics, session = simulate_example_session(pud, max_block_len, val_list, T, seed)
+    plot_session_values(
+        session["vals3"],
+        session["boundaries"],
+        max(val_list),
+        example_session_title(pud, max_block_len, metrics, title),
+        choices=choices,
     )
-
-    vals3 = session["vals3"]
-    boundaries = session["boundaries"]
-    x = np.arange(T)
-
-    fig, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
-    for arm_idx in range(3):
-        ax.plot(x, vals3[:, arm_idx], linewidth=2.5, label=f"Arm {arm_idx}")
-
-    if choices is not None:
-        ch = np.asarray(choices, dtype=int)
-        ax.scatter(x, vals3[np.arange(T), ch], s=25, color="black",
-                   zorder=5, label="Choice")
-
-    first = True
-    for b in boundaries:
-        ax.axvline(b - 0.5, linestyle="--", color="k", linewidth=2.0,
-                   label="Block" if first else None)
-        first = False
-
-    ax.set_xlim(0, T - 1)
-    ax.set_ylim(-0.5, max(val_list) + 0.5)
-    ax.set_xlabel("Trial")
-    ax.set_ylabel("Reward Magnitude")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.set_title(
-        title or (
-            f"Example session | pud={pud:.3f}, max_block_len={max_block_len} "
-            f"| gap_mean={gap_mean:.2f}, frac≥2={gap_ge2:.2f}, "
-            f"run_mean={run_mean:.2f}, run_std={run_std:.2f}"
-        )
-    )
-    ax.legend(loc="upper left")
     plt.show()
-
     return session
 
 
@@ -485,7 +719,9 @@ def collect_markov_run_stats(
         run_mean_acc = 0.0
         run_std_acc = 0.0
         for _ in range(n_sims):
-            _, _, run_mean, run_std = simulate_3armed_blockswaps_markov(T=T, pud=pud, max_block_len=80, min_block_len=70, val_list=val_list, rng=rng)
+            _, _, run_mean, run_std = simulate_3armed_blockswaps_markov(
+                T=T, pud=pud, max_block_len=80, min_block_len=70, val_list=val_list, rng=rng
+            )
             run_mean_acc += run_mean
             run_std_acc += run_std
         mean_runs.append(run_mean_acc / n_sims)
