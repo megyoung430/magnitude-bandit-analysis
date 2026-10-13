@@ -4,8 +4,13 @@ import pytest
 
 from src.behavior_import.extract_trials import (
     add_reward_magnitude_features,
+    assign_problem_ordinals,
     available_towers,
+    group_sessions_by_problem,
+    problem_signature,
     reward_magnitude_features,
+    session_sort_key,
+    signed_sessions,
     top_magnitudes,
 )
 
@@ -94,3 +99,96 @@ def test_add_reward_magnitude_features_sets_all_keys_and_legacy_alias():
 def test_add_reward_magnitude_features_leaves_session_without_magnitudes_alone(session):
     before = dict(session)
     assert add_reward_magnitude_features(session) == before
+
+
+# --- grouping sessions into problems ---
+
+
+def session(towers, *, trials=True, **extra):
+    return {"trial_info": [[{"x": 1}]] if trials else [], "choice_towers": [towers], **extra}
+
+
+def test_session_sort_key_orders_by_session_number_then_date():
+    keys = ["ses-10_date-20260101", "ses-2_date-20260301", "other", "ses-2_date-20260201"]
+    assert sorted(keys, key=session_sort_key) == [
+        "ses-2_date-20260201",
+        "ses-2_date-20260301",
+        "ses-10_date-20260101",
+        "other",
+    ]
+
+
+def test_problem_signature_ignores_tower_order_and_separates_has_good():
+    a = problem_signature(session(["B1", "A1"], has_good=True))
+    b = problem_signature(session(["A1", "B1"], has_good=True))
+    c = problem_signature(session(["A1", "B1"]))
+    assert a == b
+    assert a != c
+
+
+def test_problem_signature_is_none_without_towers():
+    assert problem_signature({}) is None
+    assert problem_signature({"choice_towers": [None]}) is None
+
+
+@pytest.mark.parametrize(
+    ("sigs", "merge", "expected"),
+    [
+        (["A", "B", "A"], False, [1, 2, 3]),
+        (["A", "B", "A"], True, [1, 2, 1]),
+        (["A", "A", "B", "B"], False, [1, 1, 2, 2]),
+        (["A", None, "A"], False, [1, 1, 2]),  # None stays put, but breaks "same as previous"
+        ([None, "A"], False, [1, 1]),  # ...and the first real signature is problem 1
+        ([None, None], True, [1, 1]),
+        (["A", "B", None, "B"], True, [1, 2, 2, 2]),
+        ([], False, []),
+    ],
+)
+def test_assign_problem_ordinals(sigs, merge, expected):
+    assert assign_problem_ordinals(sigs, merge) == expected
+
+
+def test_signed_sessions_skips_sessions_without_trials_and_reports_it(capsys):
+    sessions = {
+        "ses-2": session(["A1"]),
+        "ses-1": session(["B1"]),
+        "ses-3": session(["A1"], trials=False),
+    }
+    signed = signed_sessions("mouse", sessions)
+    assert [sid for sid, _ in signed] == ["ses-1", "ses-2"]
+    assert "ses-3" in capsys.readouterr().out
+
+
+def by_problem(grouped):
+    return {problem: list(subjects["m"]) for problem, subjects in grouped.items()}
+
+
+def test_group_sessions_by_problem_merges_recurring_only_when_asked():
+    data = {
+        "m": {
+            "ses-1": session(["A1"]),
+            "ses-2": session(["B1"]),
+            "ses-3": session(["A1"]),
+        }
+    }
+    separate = group_sessions_by_problem(data)
+    merged = group_sessions_by_problem(data, merge_recurring_problems=True)
+    assert by_problem(separate) == {1: ["ses-1"], 2: ["ses-2"], 3: ["ses-3"]}
+    assert by_problem(merged) == {1: ["ses-1", "ses-3"], 2: ["ses-2"]}
+
+
+def test_group_sessions_by_problem_copies_unless_told_not_to():
+    data = {"m": {"ses-1": session(["A1"])}}
+    original = data["m"]["ses-1"]
+    assert group_sessions_by_problem(data)[1]["m"]["ses-1"] is not original
+    assert group_sessions_by_problem(data, copy_sessions=False)[1]["m"]["ses-1"] is original
+
+
+def test_group_sessions_by_problem_numbers_each_subject_independently():
+    data = {
+        "m1": {"ses-1": session(["A1"]), "ses-2": session(["B1"])},
+        "m2": {"ses-1": session(["B1"])},
+    }
+    out = group_sessions_by_problem(data)
+    assert list(out[1]) == ["m1", "m2"]
+    assert list(out[2]) == ["m1"]

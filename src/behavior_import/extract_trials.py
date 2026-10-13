@@ -3,7 +3,6 @@
 import re
 import pandas as pd
 from copy import deepcopy
-from collections import defaultdict
 from datetime import datetime
 from src.behavior_import.import_data import parse_content_json
 from src.behavior_import.reconcile_reversals import reconcile_reversals
@@ -776,6 +775,77 @@ def permutation_invariant_signature(raw_sig):
 
     return raw_sig
 
+def session_sort_key(session_id):
+    """Sort key putting sessions in chronological order: ``ses-N`` number, then ``date-YYYYMMDD``.
+
+    Keys without a session number or date sort last; the key string breaks ties.
+    """
+    m_ses = re.search(r"ses-(\d+)", session_id)
+    m_date = re.search(r"date-(\d{8})", session_id)
+    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
+    dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
+    return (ses_num, dt, session_id)
+
+def problem_signature(session_data):
+    """Return ``(tower signature, has_good)`` identifying a session's problem, or ``None``.
+
+    Sessions with and without performance-dependent reversals count as
+    different problems even when they offer the same towers. ``None`` means
+    the session logged no choice towers.
+    """
+    sig = permutation_invariant_signature(choice_towers_signature(session_data))
+    if sig is None:
+        return None
+    return (sig, bool(session_data.get("has_good", False)))
+
+def assign_problem_ordinals(full_sigs, merge_recurring_problems):
+    """Number the problems in a subject's chronological sequence of signatures.
+
+    Each new signature gets the next ordinal (1, 2, 3, ...). A ``None``
+    signature stays on the current problem. A signature seen before gets its
+    old ordinal back if *merge_recurring_problems* (A, B, A -> 1, 2, 1);
+    otherwise it only keeps the ordinal when it equals the previous session's
+    signature (A, B, A -> 1, 2, 3).
+
+    Args:
+        full_sigs: Signatures from :func:`problem_signature`, in session order.
+        merge_recurring_problems: Whether a recurring signature rejoins its
+            original problem.
+
+    Returns:
+        List of 1-based ordinals, one per signature.
+    """
+    ordinals = []
+    first_ordinal = {}
+    next_ordinal = 1
+    previous = None
+    # The ordinal depends on everything seen so far, so this stays a loop.
+    for full_sig in full_sigs:
+        if full_sig is None:
+            ordinal = max(next_ordinal - 1, 1)
+        elif merge_recurring_problems and full_sig in first_ordinal:
+            ordinal = first_ordinal[full_sig]
+        elif not merge_recurring_problems and full_sig == previous:
+            ordinal = next_ordinal - 1
+        else:
+            ordinal = next_ordinal
+            first_ordinal[full_sig] = ordinal
+            next_ordinal += 1
+        ordinals.append(ordinal)
+        previous = full_sig
+    return ordinals
+
+def signed_sessions(subject_id, subject_sessions):
+    """Return ``[(session_id, signature)]`` in chronological order, skipping sessions without trials."""
+    signed = []
+    for session_id in sorted(subject_sessions, key=session_sort_key):
+        sess = subject_sessions[session_id]
+        if not sess.get("trial_info"):
+            print(f"[WARNING] Skipping session {session_id} for subject {subject_id} due to missing trial information.")
+            continue
+        signed.append((session_id, problem_signature(sess)))
+    return signed
+
 def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems=False):
     """Group sessions into numbered problems based on per-subject problem ordinal.
 
@@ -792,68 +862,22 @@ def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems
             :func:`extract_trials` has been applied.
         copy_sessions: If ``True`` (default), each session dict is deep-copied
             into the output to avoid aliasing the input.
-        merge_recurring_problems: If ``True`` (default), recurring signatures
-            are folded back into their original ordinal.  If ``False``, every
+        merge_recurring_problems: If ``True``, recurring signatures are folded
+            back into their original ordinal.  If ``False`` (default), every
             new occurrence of a signature gets a fresh ordinal.
 
     Returns:
         Dict ``{problem_id: {subject: {session_key: session_dict}}}``.
     """
-
-    def sort_ses_date(session_id: str):
-        m_ses = re.search(r"ses-(\d+)", session_id)
-        m_date = re.search(r"date-(\d{8})", session_id)
-        ses_num = int(m_ses.group(1)) if m_ses else float("inf")
-        dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
-        return (ses_num, dt, session_id)
-
-    problems = defaultdict(lambda: defaultdict(dict))
-
+    problems = {}
     for subject_id, subject_sessions in data.items():
-        sessions_sorted = sorted(subject_sessions.keys(), key=sort_ses_date)
-
-        sig_to_ordinal: dict = {}
-        next_ordinal = 1
-        prev_full_sig = None
-
-        for session_id in sessions_sorted:
+        signed = signed_sessions(subject_id, subject_sessions)
+        ordinals = assign_problem_ordinals([sig for _, sig in signed], merge_recurring_problems)
+        for (session_id, _), ordinal in zip(signed, ordinals, strict=True):
             sess = subject_sessions[session_id]
-
-            if not sess.get("trial_info"):
-                print(f"[WARNING] Skipping session {session_id} for subject {subject_id} due to missing trial information.")
-                continue
-
-            raw_sig = choice_towers_signature(sess)
-            sig = permutation_invariant_signature(raw_sig)
-
-            has_good = bool(sess.get("has_good", False))
-            full_sig = (sig, has_good) if sig is not None else None
-
-            if full_sig is None:
-                # No signature — stay on current problem
-                num_problem = max(next_ordinal - 1, 1)
-
-            elif merge_recurring_problems:
-                # Reuse ordinal if this exact (sig, has_good) was seen before
-                if full_sig in sig_to_ordinal:
-                    num_problem = sig_to_ordinal[full_sig]
-                else:
-                    num_problem = next_ordinal
-                    sig_to_ordinal[full_sig] = num_problem
-                    next_ordinal += 1
-
-            else:
-                # Only increment if signature changed from previous session
-                if full_sig == prev_full_sig:
-                    num_problem = next_ordinal - 1
-                else:
-                    num_problem = next_ordinal
-                    next_ordinal += 1
-
-            prev_full_sig = full_sig
-            problems[num_problem][subject_id][session_id] = deepcopy(sess) if copy_sessions else sess
-
-    return {p: {s: dict(ss) for s, ss in subj.items()} for p, subj in problems.items()}
+            by_subject = problems.setdefault(ordinal, {})
+            by_subject.setdefault(subject_id, {})[session_id] = deepcopy(sess) if copy_sessions else sess
+    return problems
 
 # --- Adding Variables to Analyze Value ---
 RANK_KEYS = ("best", "second", "third")
