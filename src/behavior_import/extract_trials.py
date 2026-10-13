@@ -61,8 +61,7 @@ TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
 RANK_KEYS = ("best", "second", "third")
 
 # Rank-label spellings (including space-separated) mapped to the standard labels.
-# unpack_chosen_rank deliberately keeps its own narrower map (no space-separated spellings);
-# unifying the two would change its behaviour and is a separate change.
+# unpack_chosen_rank uses a narrower map: no space-separated spellings, no strip/lower.
 RANK_LABEL_MAP = {
     "second_best": "second",
     "third_best": "third",
@@ -85,11 +84,15 @@ def extract_trials_grouped_by_problem(data, merge_recurring_problems=False):
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}`` as returned
             by :func:`src.behavior_import.import_data.import_data`.
+        merge_recurring_problems: Passed to :func:`group_sessions_by_problem`. If
+            ``True``, a signature that recurs later reuses its first problem id.
 
     Returns:
         Dict ``{problem_id: {subject: {session_key: session_dict}}}`` where
-        *problem_id* is a 1-based integer that increments each time the choice
-        tower signature changes within a subject.
+        *problem_id* is a 1-based integer that increments each time a new choice
+        tower signature appears within a subject (and, if
+        *merge_recurring_problems* is ``False``, each time the signature
+        changes from the previous session's).
     """
     data = extract_trials(data)
     problems = group_sessions_by_problem(data, merge_recurring_problems=merge_recurring_problems)
@@ -102,10 +105,11 @@ def recording_trial_info(df):
     Port-finding trials (those that contain ``"num_t_found"``) are dropped.
     A recording lacking a ``subtype`` column fails here with an ``AttributeError``
     (the ``""`` default has no ``.isin``). A recording lacking a ``type`` column
-    silently yields no trials.
+    yields no trials here, without an error; the pipeline then fails later with
+    ``KeyError: 'type'`` in ``reconcile_reversals``.
     """
-    # Known issue: with no ``type`` column, ``df.get("type", "") == "variable"`` is False, so the
-    # recording yields no trials and nothing is reported (silent failure).
+    # Known issue: with no ``type`` column, ``df.get("type", "") == "variable"`` is False, so this
+    # returns [] instead of raising.
     is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
     printed = df[is_print].sort_values("time")
     raw_trial_info = printed["content"].map(parse_content_json).tolist()
@@ -163,6 +167,11 @@ def session_trial_variables(trial_vars_list, subject, session_key):
 
 def add_derived_fields(session_data):
     """Add the per-tower and per-rank fields derived from the standardised trial variables."""
+    # Known issue: unpack_reward_magnitudes writes ``reward_magnitudes_by_tower`` and
+    # add_reward_magnitude_features then overwrites it (it also includes towers from
+    # ``choice_towers``), so the order of these two steps changes the result.
+    # fill_missing_chosen_rank_from_rank_counts must precede unpack_chosen_rank, which reads
+    # ``chosen_rank``.
     for step in (
         unpack_reward_magnitudes,
         add_reward_magnitude_features,
@@ -246,7 +255,9 @@ def extract_trials(data):
     data = split_recording_configurations(data)
     for subject, subject_sessions in data.items():
         for session_key, session_data in subject_sessions.items():
-            extract_session_trials(session_data, subject, session_key)
+            subject_sessions[session_key] = extract_session_trials(
+                session_data, subject, session_key
+            )
     return reconcile_reversals(data)
 
 
@@ -885,15 +896,12 @@ def assign_problem_ordinals(full_sigs, merge_recurring_problems):
     first_ordinal = {}
     next_ordinal = 1
     previous = None
-    # The ordinal depends on everything seen so far, so this stays a loop.
+    # Each ordinal depends on all earlier signatures, so this is a loop.
     for full_sig in full_sigs:
         if full_sig is None:
             ordinal = max(next_ordinal - 1, 1)
         elif merge_recurring_problems and full_sig in first_ordinal:
             ordinal = first_ordinal[full_sig]
-        # Known issue: with merge_recurring_problems=False, a None signature (no logged towers)
-        # resets `previous`, so ["A", None, "A"] gives [1, 1, 2] and splits one problem in two.
-        # This looks wrong.
         elif not merge_recurring_problems and full_sig == previous:
             ordinal = next_ordinal - 1
         else:
@@ -901,6 +909,8 @@ def assign_problem_ordinals(full_sigs, merge_recurring_problems):
             first_ordinal[full_sig] = ordinal
             next_ordinal += 1
         ordinals.append(ordinal)
+        # Known issue: a None signature also sets `previous`. With merge_recurring_problems=False,
+        # ["A", None, "A"] gives [1, 1, 2]; keeping A's problem across the gap would give [1, 1, 1].
         previous = full_sig
     return ordinals
 
@@ -926,8 +936,10 @@ def signed_sessions(subject_id, subject_sessions):
 def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems=False):
     """Group sessions into numbered problems based on per-subject problem ordinal.
 
-    Within each subject, sessions are sorted chronologically. Each time a new
-    (previously unseen) tower signature appears for that subject, it is assigned
+    Within each subject, sessions are sorted chronologically. The problem key is
+    the tower signature plus ``has_good`` (see :func:`problem_signature`), so
+    sessions with and without performance-dependent reversals are different
+    problems. Each time a new (previously unseen) signature appears for that subject, it is assigned
     the next ordinal (1, 2, 3, ...). If a signature recurs later for the same
     subject, behaviour depends on *merge_recurring_problems*: if ``True``, the
     session is folded back into its original ordinal (A -> B -> A yields
