@@ -149,6 +149,17 @@ def extract_trials(data):
                     if not (isinstance(d, dict) and "num_t_found" in d)
                 ]
 
+                # The cohort directory can also contain port-finding and
+                # initiation pretraining. These print trials, but no bandit
+                # fields; including them creates all-None bandit variables.
+                bandit_keys = (
+                    ALIASES["reward_magnitudes"] + ALIASES["choice_towers"]
+                    + ALIASES["rank_counts"]
+                )
+                if trial_info and not session_has_any_key(trial_info, bandit_keys):
+                    print(f"[WARNING] Skipping recording with no bandit trial fields for subject {current_subject}, session {current_session}")
+                    trial_info = []
+
                 trial_info_list.append(trial_info)
                 trial_vars = transpose_trials(trial_info, ALIASES)
                 trial_vars_list.append(trial_vars)
@@ -277,17 +288,23 @@ def unpack_reward_magnitudes(session_data):
 
     Args:
         session_data: Session dict containing a ``"reward_magnitudes"`` key whose
-            value is a non-empty list of dicts mapping tower names to magnitudes.
+            value is a list of dicts mapping tower names to magnitudes.
+            Missing trials or tower values remain ``None`` without shifting
+            trial indices. Towers are collected across all trials.
 
     Returns:
         The same *session_data* dict with ``"reward_magnitudes_by_tower"`` added.
     """
-    choice_towers = session_data['reward_magnitudes'][0].keys()
-    magnitude_by_tower = {k: [] for k in choice_towers}
-    for i in range(len(session_data['reward_magnitudes'])):
-        current_reward_magnitudes = session_data['reward_magnitudes'][i]
-        for tower in choice_towers:
-            magnitude_by_tower[tower].append(current_reward_magnitudes[tower])
+    magnitudes = session_data.get('reward_magnitudes', [])
+    choice_towers = dict.fromkeys(
+        tower for values in magnitudes if isinstance(values, dict)
+        for tower in values
+    )
+    magnitude_by_tower = {
+        tower: [values.get(tower) if isinstance(values, dict) else None
+                for values in magnitudes]
+        for tower in choice_towers
+    }
     session_data['reward_magnitudes_by_tower'] = magnitude_by_tower
     return session_data
 

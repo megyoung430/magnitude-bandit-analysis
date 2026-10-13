@@ -124,6 +124,24 @@ def sample_two_markov_bandits(
     return val_list[state_vals]
 
 
+def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
+    """Count strict best-arm reversals within each observed block.
+
+    Ignore tied trials, comparing successive unique winners across ties.
+    Reset at each boundary; include zero-switch and final partial blocks.
+    Assumes the two active arms have positive values and the inactive arm is zero.
+    """
+    edges = np.r_[0, boundaries, len(vals3)]
+    counts = []
+    for start, stop in zip(edges[:-1], edges[1:]):
+        block = vals3[start:stop]
+        maxima = block.max(axis=1, keepdims=True)
+        unique = (block == maxima).sum(axis=1) == 1
+        winners = block[unique].argmax(axis=1)
+        counts.append(np.count_nonzero(winners[1:] != winners[:-1]))
+    return np.asarray(counts, dtype=int)
+
+
 def simulate_3armed_blockswaps_markov(
     T: int,
     pud: float,
@@ -213,6 +231,7 @@ def simulate_3armed_blockswaps_markov(
             "boundaries": boundaries,
             "best_arm_series": best_arm_series,
             "best_minus_second": best_minus_second,
+            "best_second_switches_per_block": count_best_second_switches(vals3, boundaries),
         }
         return (mean_best_minus_second, frac_gap_ge2,
                 mean_best_run_length, std_best_run_length, session)
@@ -229,7 +248,8 @@ def sweep_markov_metrics(
     val_list: tuple | list = (1, 2, 3, 4),
     min_hold: int = 5,
     enforce_distinct: bool = True,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    include_switches: bool = False,
+) -> tuple[np.ndarray, ...]:
     """Sweep over Markov parameter combinations and compute summary metrics.
 
     Args:
@@ -241,10 +261,14 @@ def sweep_markov_metrics(
         val_list: Discrete reward values (default: ``(1, 2, 3, 4)``).
         min_hold: Minimum dwell time (default: 5).
         enforce_distinct: Enforce distinctness (default: True).
+        include_switches: Append mean best/second switches per observed block.
+            Ties are ignored; block-boundary changes are excluded.
 
     Returns:
         Four 2-D arrays ``(H_gap_mean, H_gap_ge2, H_run_mean, H_run_std)``
-        of shape ``(len(max_block_lens), len(pud_values))``.
+        of shape ``(len(max_block_lens), len(pud_values))``. When
+        ``include_switches=True``, append ``H_switch_mean``, pooling all observed
+        blocks (including final partial blocks) across simulations.
     """
     rng = np.random.default_rng(seed)
     shape = (len(max_block_lens), len(pud_values))
@@ -252,17 +276,24 @@ def sweep_markov_metrics(
     H_gap_ge2 = np.zeros(shape)
     H_run_mean = np.zeros(shape)
     H_run_std = np.zeros(shape)
+    H_switch_mean = np.zeros(shape)
 
     for i, mbl in enumerate(max_block_lens):
         for j, pud in enumerate(pud_values):
             acc = [0.0, 0.0, 0.0, 0.0]
+            switch_total = block_total = 0
             for _ in range(n_sims):
-                gm, gg, rm, rs = simulate_3armed_blockswaps_markov(
+                result = simulate_3armed_blockswaps_markov(
                     T=T, pud=float(pud), max_block_len=int(mbl),
                     min_block_len=int(mbl) - 10, val_list=val_list,
                     rng=rng, min_hold=min_hold,
-                    enforce_distinct=enforce_distinct, return_session=False,
+                    enforce_distinct=enforce_distinct, return_session=include_switches,
                 )
+                gm, gg, rm, rs = result[:4]
+                if include_switches:
+                    counts = result[4]["best_second_switches_per_block"]
+                    switch_total += counts.sum()
+                    block_total += len(counts)
                 acc[0] += gm; acc[1] += gg; acc[2] += rm; acc[3] += rs
 
             H_gap_mean[i, j] = acc[0] / n_sims
@@ -270,9 +301,13 @@ def sweep_markov_metrics(
             H_run_mean[i, j] = acc[2] / n_sims
             H_run_std[i, j] = acc[3] / n_sims
 
+            if include_switches:
+                H_switch_mean[i, j] = switch_total / block_total
+
             print(f"Done pud={pud:.4f}, max_block_len={mbl}")
 
-    return H_gap_mean, H_gap_ge2, H_run_mean, H_run_std
+    metrics = (H_gap_mean, H_gap_ge2, H_run_mean, H_run_std)
+    return metrics + (H_switch_mean,) if include_switches else metrics
 
 
 def plot_heatmaps_pair_1(
@@ -337,6 +372,22 @@ def plot_heatmaps_pair_2(
     axes[1].set_ylabel("max_block_len")
     fig.colorbar(im1, ax=axes[1])
 
+    plt.show()
+
+
+def plot_switch_heatmap(
+    H_switch_mean: np.ndarray,
+    pud_values: np.ndarray,
+    max_block_lens: np.ndarray,
+) -> None:
+    """Plot the mean count of best/second reversals per observed block."""
+    extent = [pud_values[0], pud_values[-1], max_block_lens[0], max_block_lens[-1]]
+    fig, ax = plt.subplots(figsize=(7, 5), constrained_layout=True)
+    im = ax.imshow(H_switch_mean, origin="lower", aspect="auto", extent=extent, vmin=0)
+    ax.set_title("Avg best/second switches within a block")
+    ax.set_xlabel("p_ud")
+    ax.set_ylabel("max_block_len")
+    fig.colorbar(im, ax=ax, label="Switches per observed block")
     plt.show()
 
 

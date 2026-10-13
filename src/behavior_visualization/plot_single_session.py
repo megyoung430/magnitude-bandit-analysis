@@ -8,7 +8,8 @@ from matplotlib.gridspec import GridSpec
 
 
 def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choice_key="choices_by_tower",
-                        ema_keys=("ema_best_arm_choices", "ema_second_arm_choices"), title=None, save_path=None):
+                        ema_keys=("ema_best_arm_choices", "ema_second_arm_choices"), title=None, save_path=None,
+                        choice_probabilities_by_tower=None):
     """Plot a four-panel summary of a single experimental session.
 
     Panels include reward magnitude traces (with chosen-arm scatter),
@@ -28,6 +29,8 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
         ema_keys: Tuple of keys whose values are plotted as EMA traces
             (default: ``("ema_best_arm_choices", "ema_second_arm_choices")``).
         title: Custom figure title for the top panel (default: ``None``).
+        choice_probabilities_by_tower: Optional normalized pre-choice probabilities
+            by physical tower, aligned to session trials; dashed lines on a right axis.
         save_path: Base path (without extension) for saving ``.pdf`` and
             ``.png`` output.  If ``None``, the figure is shown interactively.
     """
@@ -105,6 +108,24 @@ def plot_single_session(session_data, mag_key="reward_magnitudes_by_tower", choi
     ax1.set_yticks([0, 1, 4])
     ax1.set_title(title or "Reward Magnitudes & Choices", fontsize=14)
     ax1.legend(loc="upper left", fontsize=10)
+
+    # Optional pre-choice model predictions, aligned to the same physical towers.
+    if choice_probabilities_by_tower is not None:
+        if set(choice_probabilities_by_tower) != set(towers):
+            raise ValueError("Model probabilities must use the session's physical tower labels.")
+        probabilities = np.column_stack([choice_probabilities_by_tower[t] for t in towers])
+        if (probabilities.shape != (N, len(towers)) or not np.all(np.isfinite(probabilities))
+                or np.any(probabilities < 0) or np.any(probabilities > 1)
+                or not np.allclose(probabilities.sum(axis=1), 1)):
+            raise ValueError("Model probabilities must be normalized and aligned to every session trial.")
+        probability_axis = ax1.twinx()
+        for arm, (tower, color) in enumerate(zip(towers, TOWER_COLORS)):
+            probability_axis.plot(x, probabilities[:, arm], color=color, linestyle="--",
+                                  linewidth=1.8, label=f"RNN P({tower})", alpha=.95)
+        probability_axis.set_ylim(0, 1)
+        probability_axis.set_ylabel("Vanilla RNN choice probability", fontsize=12)
+        probability_axis.spines["top"].set_visible(False)
+        probability_axis.legend(loc="upper right", fontsize=9)
 
     # --- EMA ---
     if has_ema and ax2 is not None:
