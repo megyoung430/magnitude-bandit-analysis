@@ -49,7 +49,7 @@ def row_props(row, *, strict=False):
 
 def prop_units(rows):
     """One ``{rank: proportion}`` unit per count row."""
-    return [dict(zip(RANKS, row_props(row))) for row in rows]
+    return [dict(zip(RANKS, row_props(row), strict=True)) for row in rows]
 
 
 def mouse_block_rows(rows, pool_trials_within_subject=False):
