@@ -113,3 +113,9 @@ def test_plot_single_session_rejects_unnormalised_probabilities(session):
     probs = {t: [0.9] * 12 for t in TOWERS}
     with pytest.raises(ValueError, match="normalized"):
         plot_single_session(session, choice_probabilities_by_tower=probs)
+
+
+@pytest.mark.parametrize("not_a_session", [[1, 2, 3], None])
+def test_plot_single_session_rejects_non_mapping_session_with_type_error(not_a_session):
+    with pytest.raises(TypeError):
+        plot_single_session(not_a_session)

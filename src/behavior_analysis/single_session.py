@@ -81,9 +81,16 @@ def choice_counts_by_tower(choices_by, towers, N):
 
 
 def has_ema_traces(session_data, ema_keys):
-    """True when any of *ema_keys* holds at least one non-``None`` value."""
+    """True when any of *ema_keys* holds at least one non-``None`` value.
+
+    Written with ``in`` and ``[]`` rather than ``.get`` so that a non-mapping
+    *session_data* raises ``TypeError`` (as the original single function did),
+    not ``AttributeError``.
+    """
     return any(
-        session_data.get(k) is not None and any(v is not None for v in session_data[k])
+        k in session_data
+        and session_data[k] is not None
+        and any(v is not None for v in session_data[k])
         for k in ema_keys
     )
 
