@@ -6,15 +6,21 @@ composes the panels into the standard four-panel figure and saves or shows it.
 """
 
 import warnings
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
 
 import src.behavior_visualization.plot_style  # noqa: F401  # applies rcParams
 from src.behavior_analysis.single_session import (
+    Reversals,
     choice_counts_by_tower,
+    choice_probability_matrix,
     chosen_magnitudes,
     event_indices_from_cumulative,  # noqa: F401  # kept importable here; it was part of this module's public API
     has_ema_traces,
@@ -22,19 +28,19 @@ from src.behavior_analysis.single_session import (
     ordered_rank_counts,
     percent_of_total,
     reversal_event_indices,
-    validate_choice_probabilities,
 )
 
-TOWER_COLORS = ["#A6CEE3", "#FDBF6F", "#B2DF8A"]
-EMA_LABELS = {"ema_best_arm_choices": "Best", "ema_second_arm_choices": "Second"}
-EMA_COLORS = {"ema_best_arm_choices": "#000000", "ema_second_arm_choices": "#858585"}
-RANK_COLORS = {
-    "best": EMA_COLORS["ema_best_arm_choices"],
-    "second": EMA_COLORS["ema_second_arm_choices"],
+# Figure styling, not part of the module API.
+_TOWER_COLORS = ["#A6CEE3", "#FDBF6F", "#B2DF8A"]
+_EMA_LABELS = {"ema_best_arm_choices": "Best", "ema_second_arm_choices": "Second"}
+_EMA_COLORS = {"ema_best_arm_choices": "#000000", "ema_second_arm_choices": "#858585"}
+_RANK_COLORS = {
+    "best": _EMA_COLORS["ema_best_arm_choices"],
+    "second": _EMA_COLORS["ema_second_arm_choices"],
     "third": "#CCCCCC",
 }
-GOOD_REVERSAL_COLOR = "#3A982E"
-BAD_REVERSAL_COLOR = "#F97979"
+_GOOD_REVERSAL_COLOR = "#3A982E"
+_BAD_REVERSAL_COLOR = "#F97979"
 
 
 # ---------------------------------------------------------------------------
@@ -42,14 +48,14 @@ BAD_REVERSAL_COLOR = "#F97979"
 # ---------------------------------------------------------------------------
 
 
-def _ensure_ax(ax):
+def _ensure_ax(ax: Axes | None) -> Axes:
     """Return *ax*, or the axes of a new figure when none is given."""
     if ax is None:
         _, ax = plt.subplots()
     return ax
 
 
-def _vlines(ax, indices, color, label):
+def _vlines(ax: Axes, indices: list[int], color: str, label: str) -> None:
     """Dashed vertical line before each trial in *indices*; only the first is labelled."""
     for j, i in enumerate(indices):
         ax.axvline(
@@ -57,16 +63,26 @@ def _vlines(ax, indices, color, label):
         )
 
 
-def add_reversal_lines(ax, good_idx, bad_idx, block_idx):
+def add_reversal_lines(
+    ax: Axes, good_idx: list[int], bad_idx: list[int], block_idx: list[int]
+) -> None:
     """Draw dashed lines for good/bad reversals, or for blocks when neither exists."""
     if good_idx or bad_idx:
-        _vlines(ax, good_idx, GOOD_REVERSAL_COLOR, "Good Rev")
-        _vlines(ax, bad_idx, BAD_REVERSAL_COLOR, "Bad Rev")
+        _vlines(ax, good_idx, _GOOD_REVERSAL_COLOR, "Good Rev")
+        _vlines(ax, bad_idx, _BAD_REVERSAL_COLOR, "Bad Rev")
     elif block_idx:
-        _vlines(ax, block_idx, GOOD_REVERSAL_COLOR, "Rev")
+        _vlines(ax, block_idx, _GOOD_REVERSAL_COLOR, "Rev")
 
 
-def plot_magnitudes_and_choices(mags_by, choices_by, towers, reversals, title=None, ax=None):
+def plot_magnitudes_and_choices(
+    mags_by: Mapping[str, Sequence[float]],
+    choices_by: Mapping[str, Sequence[float]],
+    towers: Sequence[str],
+    reversals: Reversals,
+    *,
+    title: str | None = None,
+    ax: Axes | None = None,
+) -> Axes:
     """Per-tower reward magnitude traces with the chosen magnitude as black dots.
 
     Args:
@@ -78,11 +94,11 @@ def plot_magnitudes_and_choices(mags_by, choices_by, towers, reversals, title=No
     x = np.arange(N)
     # Towers beyond the palette length (3) are not drawn, though their choices
     # still count in the bar chart.
-    for tower, color in zip(towers, TOWER_COLORS, strict=False):
+    for tower, color in zip(towers, _TOWER_COLORS, strict=False):
         ax.plot(
             x, np.asarray(mags_by[tower], dtype=float), linewidth=2.5, color=color, label=f"{tower}"
         )
-    chosen = chosen_magnitudes(mags_by, choices_by, towers, N)
+    chosen = chosen_magnitudes(mags_by, choices_by, towers=towers, N=N)
     ax.scatter(x, chosen, s=30, color="black", marker="o", label="Choice", zorder=5)
     add_reversal_lines(ax, *reversals)
     ax.set_ylabel("Reward Magnitude", fontsize=12)
@@ -92,15 +108,18 @@ def plot_magnitudes_and_choices(mags_by, choices_by, towers, reversals, title=No
     return ax
 
 
-def plot_choice_probabilities(probabilities, towers, ax):
-    """Dashed per-tower model choice probabilities on a right-hand twin of *ax*.
+def add_choice_probabilities(probabilities: np.ndarray, towers: Sequence[str], ax: Axes) -> Axes:
+    """Overlay dashed per-tower model choice probabilities on a right-hand twin of *ax*.
 
     Args:
         probabilities: ``(N, len(towers))`` array, one column per tower.
+
+    Returns:
+        The new twin axis.
     """
     probability_axis = ax.twinx()
     x = np.arange(len(probabilities))
-    for arm, (tower, color) in enumerate(zip(towers, TOWER_COLORS, strict=False)):
+    for arm, (tower, color) in enumerate(zip(towers, _TOWER_COLORS, strict=False)):
         probability_axis.plot(
             x,
             probabilities[:, arm],
@@ -117,7 +136,14 @@ def plot_choice_probabilities(probabilities, towers, ax):
     return probability_axis
 
 
-def plot_ema_traces(session_data, ema_keys, reversals, N, ax=None):
+def plot_ema_traces(
+    session_data: Mapping[str, Any],
+    ema_keys: Sequence[str],
+    reversals: Reversals,
+    *,
+    N: int,
+    ax: Axes | None = None,
+) -> Axes:
     """EMA choice curves over *N* trials for the keys in *ema_keys* that the session holds."""
     ax = _ensure_ax(ax)
     x = np.arange(N)
@@ -127,8 +153,8 @@ def plot_ema_traces(session_data, ema_keys, reversals, N, ax=None):
                 x,
                 np.asarray(session_data[k], dtype=float),
                 linewidth=3,
-                color=EMA_COLORS.get(k),
-                label=EMA_LABELS.get(k, k),
+                color=_EMA_COLORS.get(k),
+                label=_EMA_LABELS.get(k, k),
             )
     ax.axhline(0.7, linestyle="--", linewidth=2, color="#DCDCDC", alpha=0.7, label="Threshold")
     add_reversal_lines(ax, *reversals)
@@ -140,7 +166,9 @@ def plot_ema_traces(session_data, ema_keys, reversals, N, ax=None):
     return ax
 
 
-def _bar_with_percent_labels(ax, names, counts, colors, ylabel):
+def _bar_with_percent_labels(
+    ax: Axes, names: Sequence[str], counts: Sequence[int], colors: Sequence[str], ylabel: str
+) -> None:
     """Bar chart of *counts* with each bar's share of the total written above it."""
     bars = ax.bar(names, counts, color=colors)
     ax.set_ylabel(ylabel, fontsize=12)
@@ -155,25 +183,31 @@ def _bar_with_percent_labels(ax, names, counts, colors, ylabel):
         )
 
 
-def plot_choices_by_tower(choices_by, towers, N, ax=None):
+def plot_choices_by_tower(
+    choices_by: Mapping[str, Sequence[float]],
+    towers: Sequence[str],
+    *,
+    N: int,
+    ax: Axes | None = None,
+) -> Axes:
     """Bar chart of how often each tower was chosen over the first *N* trials."""
     ax = _ensure_ax(ax)
     counts = choice_counts_by_tower(choices_by, towers, N)
-    _bar_with_percent_labels(ax, towers, counts, TOWER_COLORS[: len(towers)], "Count by Tower")
+    _bar_with_percent_labels(ax, towers, counts, _TOWER_COLORS[: len(towers)], "Count by Tower")
     return ax
 
 
-def plot_choices_by_rank(rank_counts, ax=None):
+def plot_choices_by_rank(rank_counts: Mapping[str, float] | None, ax: Axes | None = None) -> Axes:
     """Bar chart of choices per rank; a placeholder text when *rank_counts* is empty/None."""
     ax = _ensure_ax(ax)
     if rank_counts:
         names, counts = ordered_rank_counts(rank_counts)
-        colors = [RANK_COLORS.get(k, "#CCCCCC") for k in names]
+        colors = [_RANK_COLORS.get(k, "#CCCCCC") for k in names]
         _bar_with_percent_labels(ax, names, counts, colors, "Count by Rank")
     else:
         ax.text(0.5, 0.5, "No rank data", ha="center", va="center")
         ax.set_xticks([])
-    ax.set_ylabel("Count by Rank", fontsize=12)
+        ax.set_ylabel("Count by Rank", fontsize=12)
     return ax
 
 
@@ -182,7 +216,7 @@ def plot_choices_by_rank(rank_counts, ax=None):
 # ---------------------------------------------------------------------------
 
 
-def _make_axes(has_ema):
+def _make_axes(has_ema: bool) -> tuple[Figure, tuple[Axes, Axes | None, Axes, Axes]]:
     """Figure and ``(ax_magnitudes, ax_ema | None, ax_towers, ax_ranks)``."""
     if has_ema:
         fig = plt.figure(figsize=(14, 11))
@@ -196,7 +230,7 @@ def _make_axes(has_ema):
     return fig, (ax1, None, fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]))
 
 
-def _style_spines(axes):
+def _style_spines(axes: Sequence[Axes | None]) -> None:
     for ax in axes:
         if ax is None:
             continue
@@ -207,8 +241,14 @@ def _style_spines(axes):
 
 
 def _draw_session(
-    session_data, mag_key, choice_key, ema_keys, title, choice_probabilities_by_tower
-):
+    session_data: Mapping[str, Any],
+    *,
+    mag_key: str,
+    choice_key: str,
+    ema_keys: Sequence[str],
+    title: str | None,
+    choice_probabilities_by_tower: Mapping[str, Sequence[float]] | None,
+) -> Figure:
     """Build the four-panel figure for one session and return it.
 
     The figure is created before the inputs are fully validated, so an error
@@ -222,32 +262,35 @@ def _draw_session(
 
     fig, (ax1, ax2, ax3, ax4) = _make_axes(has_ema)
     reversals = reversal_event_indices(session_data, N)
-    plot_magnitudes_and_choices(mags_by, choices_by, towers, reversals, title, ax=ax1)
+    plot_magnitudes_and_choices(mags_by, choices_by, towers, reversals, title=title, ax=ax1)
     if choice_probabilities_by_tower is not None:
-        probabilities = validate_choice_probabilities(choice_probabilities_by_tower, towers, N)
-        plot_choice_probabilities(probabilities, towers, ax1)
+        probabilities = choice_probability_matrix(choice_probabilities_by_tower, towers, N)
+        add_choice_probabilities(probabilities, towers, ax1)
     if has_ema:
-        plot_ema_traces(session_data, ema_keys, reversals, N, ax=ax2)
+        plot_ema_traces(session_data, ema_keys, reversals, N=N, ax=ax2)
     else:
         ax1.set_xlabel("Trial", fontsize=12)
-    plot_choices_by_tower(choices_by, towers, N, ax=ax3)
+    plot_choices_by_tower(choices_by, towers, N=N, ax=ax3)
     plot_choices_by_rank(latest_rank_counts(session_data), ax=ax4)
     _style_spines((ax1, ax2, ax3, ax4))
+    # The twin axis and the shared-x EMA panel can make tight_layout warn
+    # "This figure includes Axes that are not compatible with tight_layout";
+    # the layout it produces is still what we want, so hide that UserWarning.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        plt.tight_layout()
+        fig.tight_layout()
     return fig
 
 
 def plot_single_session(
-    session_data,
-    mag_key="reward_magnitudes_by_tower",
-    choice_key="choices_by_tower",
-    ema_keys=("ema_best_arm_choices", "ema_second_arm_choices"),
-    title=None,
-    save_path=None,
-    choice_probabilities_by_tower=None,
-):
+    session_data: Mapping[str, Any],
+    mag_key: str = "reward_magnitudes_by_tower",
+    choice_key: str = "choices_by_tower",
+    ema_keys: Sequence[str] = ("ema_best_arm_choices", "ema_second_arm_choices"),
+    title: str | None = None,
+    save_path: str | Path | None = None,
+    choice_probabilities_by_tower: Mapping[str, Sequence[float]] | None = None,
+) -> None:
     """Plot a four-panel summary of a single experimental session.
 
     Panels include reward magnitude traces (with chosen-arm scatter),
@@ -290,7 +333,12 @@ def plot_single_session(
         is raised while drawing or saving it.
     """
     fig = _draw_session(
-        session_data, mag_key, choice_key, ema_keys, title, choice_probabilities_by_tower
+        session_data,
+        mag_key=mag_key,
+        choice_key=choice_key,
+        ema_keys=ema_keys,
+        title=title,
+        choice_probabilities_by_tower=choice_probabilities_by_tower,
     )
     if save_path:
         base = Path(save_path)

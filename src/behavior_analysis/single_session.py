@@ -5,12 +5,20 @@ arrays, so it can be tested without a display. The drawing lives in
 ``src.behavior_visualization.plot_single_session``.
 """
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 
 RANK_ORDER = ("best", "second", "third")
 
+# (good_idx, bad_idx, block_idx): trial indices of good reversals, bad reversals and block starts.
+Reversals = tuple[list[int], list[int], list[int]]
 
-def event_indices_from_cumulative(counter, N=None):
+
+def event_indices_from_cumulative(
+    counter: Sequence[float] | None, N: int | None = None
+) -> list[int]:
     """Return trial indices where a cumulative counter increments.
 
     Args:
@@ -34,7 +42,7 @@ def event_indices_from_cumulative(counter, N=None):
     return list(np.where(d > 0)[0] + 1)
 
 
-def reversal_event_indices(session_data, N):
+def reversal_event_indices(session_data: Mapping[str, Any], N: int) -> Reversals:
     """Trial indices of good reversals, bad reversals and block starts.
 
     Good/bad indices come from the cumulative counters and are extended with
@@ -59,8 +67,26 @@ def reversal_event_indices(session_data, N):
     return good_idx, bad_idx, block_idx
 
 
-def chosen_magnitudes(mags_by, choices_by, towers, N):
-    """Reward magnitude of the chosen tower on each trial.
+def _chosen_magnitude(mags_by, choices_by, towers, trial):
+    """Magnitude of the first tower flagged on *trial* (NaN if none is)."""
+    return next(
+        (
+            mags_by[tower][trial]
+            for tower in towers
+            if trial < len(choices_by[tower]) and choices_by[tower][trial] == 1
+        ),
+        np.nan,
+    )
+
+
+def chosen_magnitudes(
+    mags_by: Mapping[str, Sequence[float]],
+    choices_by: Mapping[str, Sequence[float]],
+    *,
+    towers: Sequence[str],
+    N: int,
+) -> np.ndarray:
+    """Reward magnitude of the chosen tower on each of the first *N* trials.
 
     Trials without a recorded choice are NaN. If several towers are flagged on
     one trial, the first in *towers* order wins.
@@ -70,22 +96,14 @@ def chosen_magnitudes(mags_by, choices_by, towers, N):
     counted twice there but is not a choice here.
     """
     return np.array(
-        [
-            next(
-                (
-                    mags_by[tower][i]
-                    for tower in towers
-                    if i < len(choices_by[tower]) and choices_by[tower][i] == 1
-                ),
-                np.nan,
-            )
-            for i in range(N)
-        ],
+        [_chosen_magnitude(mags_by, choices_by, towers, trial) for trial in range(N)],
         dtype=float,
     )
 
 
-def choice_counts_by_tower(choices_by, towers, N):
+def choice_counts_by_tower(
+    choices_by: Mapping[str, Sequence[float]], towers: Sequence[str], N: int
+) -> list[int]:
     """Number of choices of each tower over the first *N* trials (NaN counts as 0).
 
     Sums the raw flag values (a 2 counts twice); see :func:`chosen_magnitudes`
@@ -94,7 +112,7 @@ def choice_counts_by_tower(choices_by, towers, N):
     return [int(np.nansum(np.asarray(choices_by[t][:N], dtype=float))) for t in towers]
 
 
-def has_ema_traces(session_data, ema_keys):
+def has_ema_traces(session_data: Mapping[str, Any], ema_keys: Sequence[str]) -> bool:
     """True when any of *ema_keys* holds at least one non-``None`` value.
 
     This decides whether the figure gets an EMA panel. The panel then plots
@@ -114,7 +132,9 @@ def has_ema_traces(session_data, ema_keys):
     )
 
 
-def validate_choice_probabilities(probabilities_by_tower, towers, N):
+def choice_probability_matrix(
+    probabilities_by_tower: Mapping[str, Sequence[float]], towers: Sequence[str], N: int
+) -> np.ndarray:
     """Stack per-tower probabilities into an ``(N, len(towers))`` array.
 
     Raises:
@@ -138,7 +158,7 @@ def validate_choice_probabilities(probabilities_by_tower, towers, N):
     return probabilities
 
 
-def latest_rank_counts(session_data):
+def latest_rank_counts(session_data: Mapping[str, Any]) -> dict | None:
     """The final cumulative ``{rank: count}`` dict, or ``None`` if unavailable.
 
     A last entry that is not a dict (malformed data) also gives ``None``, which
@@ -151,7 +171,7 @@ def latest_rank_counts(session_data):
     return last if isinstance(last, dict) else None
 
 
-def ordered_rank_counts(rank_counts):
+def ordered_rank_counts(rank_counts: Mapping[str, float]) -> tuple[list[str], list[int]]:
     """Rank names and integer counts, with best/second/third first.
 
     Ranks outside :data:`RANK_ORDER` keep their input order after the standard ones.
@@ -161,7 +181,7 @@ def ordered_rank_counts(rank_counts):
     return keys, [int(rank_counts[k]) for k in keys]
 
 
-def percent_of_total(counts):
+def percent_of_total(counts: Sequence[float]) -> list[float]:
     """Each count as a percentage of the total (an all-zero total counts as 1)."""
     # An all-zero panel (no choices, or all-zero rank counts) should label its
     # bars "0%" rather than divide by zero.

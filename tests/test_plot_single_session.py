@@ -51,8 +51,8 @@ def test_panels_draw_into_given_axes_without_creating_a_figure(session):
     fig, axes = plt.subplots(2, 2)
     mags, choices = session["reward_magnitudes_by_tower"], session["choices_by_tower"]
     plot_magnitudes_and_choices(mags, choices, TOWERS, ([6], [9], []), ax=axes[0, 0])
-    plot_ema_traces(session, ("ema_best_arm_choices",), ([6], [9], []), 12, ax=axes[0, 1])
-    plot_choices_by_tower(choices, TOWERS, 12, ax=axes[1, 0])
+    plot_ema_traces(session, ("ema_best_arm_choices",), ([6], [9], []), N=12, ax=axes[0, 1])
+    plot_choices_by_tower(choices, TOWERS, N=12, ax=axes[1, 0])
     plot_choices_by_rank({"best": 6, "second": 4}, ax=axes[1, 1])
     assert plt.get_fignums() == [fig.number]
     assert len(axes[0, 0].lines) == 3 + 2  # tower traces + good and bad reversal lines
@@ -60,7 +60,7 @@ def test_panels_draw_into_given_axes_without_creating_a_figure(session):
 
 
 def test_panels_create_their_own_figure_when_no_ax_given(session):
-    ax = plot_choices_by_tower(session["choices_by_tower"], TOWERS, 12)
+    ax = plot_choices_by_tower(session["choices_by_tower"], TOWERS, N=12)
     assert len(plt.get_fignums()) == 1
     assert ax.figure.number in plt.get_fignums()
 
@@ -87,7 +87,7 @@ def test_rank_panel_shows_placeholder_without_rank_data():
 
 
 def test_tower_panel_labels_percentages_and_survives_no_choices():
-    ax = plot_choices_by_tower({t: [0, 0] for t in TOWERS}, TOWERS, 2)
+    ax = plot_choices_by_tower({t: [0, 0] for t in TOWERS}, TOWERS, N=2)
     assert [t.get_text() for t in ax.texts] == ["0%", "0%", "0%"]
 
 

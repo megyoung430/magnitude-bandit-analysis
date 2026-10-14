@@ -10,7 +10,7 @@ from src.behavior_analysis.single_session import (
     ordered_rank_counts,
     percent_of_total,
     reversal_event_indices,
-    validate_choice_probabilities,
+    choice_probability_matrix,
 )
 
 TOWERS = ["A1", "B1", "C1"]
@@ -84,13 +84,13 @@ def test_reversal_event_indices_boundary_event_missing_index_raises():
 def test_chosen_magnitudes_picks_magnitude_of_chosen_tower():
     mags = {"A1": [1, 4, 0], "B1": [4, 0, 1], "C1": [0, 1, 4]}
     choices = {"A1": [1, 0, 0], "B1": [0, 1, 0], "C1": [0, 0, 1]}
-    np.testing.assert_array_equal(chosen_magnitudes(mags, choices, TOWERS, 3), [1, 0, 4])
+    np.testing.assert_array_equal(chosen_magnitudes(mags, choices, towers=TOWERS, N=3), [1, 0, 4])
 
 
 def test_chosen_magnitudes_nan_when_no_choice_and_first_tower_wins_ties():
     mags = {"A1": [1, 1, 1], "B1": [4, 4, 4], "C1": [0, 0, 0]}
     choices = {"A1": [0, 0, 1], "B1": [0, 0, 1], "C1": [0, 0, 0]}
-    result = chosen_magnitudes(mags, choices, TOWERS, 3)
+    result = chosen_magnitudes(mags, choices, towers=TOWERS, N=3)
     assert np.isnan(result[:2]).all()
     assert result[2] == 1
 
@@ -98,13 +98,13 @@ def test_chosen_magnitudes_nan_when_no_choice_and_first_tower_wins_ties():
 def test_chosen_magnitudes_short_choice_list_leaves_trailing_nan():
     mags = {"A1": [1, 1, 1]}
     choices = {"A1": [1]}
-    result = chosen_magnitudes(mags, choices, ["A1"], 3)
+    result = chosen_magnitudes(mags, choices, towers=["A1"], N=3)
     assert result[0] == 1
     assert np.isnan(result[1:]).all()
 
 
 def test_chosen_magnitudes_single_trial_without_choice():
-    result = chosen_magnitudes({"A1": [4]}, {"A1": [0]}, ["A1"], 1)
+    result = chosen_magnitudes({"A1": [4]}, {"A1": [0]}, towers=["A1"], N=1)
     assert result.shape == (1,) and np.isnan(result).all()
 
 
@@ -152,7 +152,7 @@ def test_has_ema_traces_false_for_empty_key_tuple():
 
 
 # ---------------------------------------------------------------------------
-# validate_choice_probabilities
+# choice_probability_matrix
 # ---------------------------------------------------------------------------
 
 
@@ -161,44 +161,44 @@ def good_probs(n=4):
     return {t: p[:, j].tolist() for j, t in enumerate(TOWERS)}
 
 
-def test_validate_choice_probabilities_returns_trial_by_tower_matrix():
+def test_choice_probability_matrix_returns_trial_by_tower_matrix():
     probs = {"A1": [0.2, 1.0], "B1": [0.3, 0.0], "C1": [0.5, 0.0]}
-    result = validate_choice_probabilities(probs, TOWERS, 2)
+    result = choice_probability_matrix(probs, TOWERS, 2)
     np.testing.assert_allclose(result, [[0.2, 0.3, 0.5], [1.0, 0.0, 0.0]])
 
 
-def test_validate_choice_probabilities_follows_tower_order_not_dict_order():
+def test_choice_probability_matrix_follows_tower_order_not_dict_order():
     probs = {"C1": [0.5], "A1": [0.2], "B1": [0.3]}
-    np.testing.assert_allclose(validate_choice_probabilities(probs, TOWERS, 1), [[0.2, 0.3, 0.5]])
+    np.testing.assert_allclose(choice_probability_matrix(probs, TOWERS, 1), [[0.2, 0.3, 0.5]])
 
 
-def test_validate_choice_probabilities_wrong_tower_labels():
+def test_choice_probability_matrix_wrong_tower_labels():
     probs = good_probs()
     probs["X"] = probs.pop("A1")
     with pytest.raises(ValueError, match="physical tower labels"):
-        validate_choice_probabilities(probs, TOWERS, 4)
+        choice_probability_matrix(probs, TOWERS, 4)
 
 
-def test_validate_choice_probabilities_wrong_length():
+def test_choice_probability_matrix_wrong_length():
     with pytest.raises(ValueError):
-        validate_choice_probabilities(good_probs(3), TOWERS, 4)
+        choice_probability_matrix(good_probs(3), TOWERS, 4)
 
 
-def test_validate_choice_probabilities_not_normalised():
+def test_choice_probability_matrix_not_normalised():
     probs = good_probs()
     probs["A1"] = [0.9] * 4
     with pytest.raises(ValueError, match="normalized"):
-        validate_choice_probabilities(probs, TOWERS, 4)
+        choice_probability_matrix(probs, TOWERS, 4)
 
 
-def test_validate_choice_probabilities_nan_and_negative():
+def test_choice_probability_matrix_nan_and_negative():
     nan_probs = good_probs()
     nan_probs["A1"][0] = np.nan
     with pytest.raises(ValueError, match="normalized"):
-        validate_choice_probabilities(nan_probs, TOWERS, 4)
+        choice_probability_matrix(nan_probs, TOWERS, 4)
     negative = {"A1": [-0.1], "B1": [0.6], "C1": [0.5]}
     with pytest.raises(ValueError, match="normalized"):
-        validate_choice_probabilities(negative, TOWERS, 1)
+        choice_probability_matrix(negative, TOWERS, 1)
 
 
 # ---------------------------------------------------------------------------
