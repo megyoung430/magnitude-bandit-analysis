@@ -31,7 +31,7 @@ def _trial_counts(subjects: dict) -> dict:
     }
 
 
-def _reference_budget(counts: dict, subject_numbers: dict, reference_numbers) -> tuple:
+def _reference_budget(counts: dict, *, subject_numbers: dict, reference_numbers) -> tuple:
     """``(reference trial counts, their mean, floored mean)`` of the reference mice."""
     reference = {m: n for m, n in counts.items() if subject_numbers[m] in reference_numbers}
     missing = set(reference_numbers) - {subject_numbers[m] for m in reference}
@@ -43,11 +43,13 @@ def _reference_budget(counts: dict, subject_numbers: dict, reference_numbers) ->
     return reference, mean, math.floor(mean)
 
 
-def _resolve_budget(counts, subject_numbers, reference_numbers, trial_budget) -> tuple:
+def _resolve_budget(counts, *, subject_numbers, reference_numbers, trial_budget) -> tuple:
     """``(budget, reference trial counts, reference mean)`` from a fixed or reference budget."""
     reference, mean = {}, None
     if trial_budget is None:
-        reference, mean, budget = _reference_budget(counts, subject_numbers, reference_numbers)
+        reference, mean, budget = _reference_budget(
+            counts, subject_numbers=subject_numbers, reference_numbers=reference_numbers
+        )
     else:
         # bool is an int subclass, but True is not a trial count
         if not isinstance(trial_budget, int) or isinstance(trial_budget, bool):
@@ -133,7 +135,10 @@ def match_trial_budget(
     """
     counts = _trial_counts(subjects)
     budget, reference, mean = _resolve_budget(
-        counts, subject_numbers, reference_numbers, trial_budget
+        counts,
+        subject_numbers=subject_numbers,
+        reference_numbers=reference_numbers,
+        trial_budget=trial_budget,
     )
     result, rows = {}, []
     for mouse, sessions in subjects.items():

@@ -11,7 +11,7 @@ def _as_count(n):
     return max(0, int(n))
 
 
-def _split_sorted(revs_sorted, first_n, last_n):
+def _split_sorted(revs_sorted, *, first_n, last_n):
     """``(early, late)`` slices of an ordered, non-empty reversal list."""
     n = len(revs_sorted)
     if first_n is None and last_n is None:
@@ -29,12 +29,12 @@ def _split_sorted(revs_sorted, first_n, last_n):
     return revs_sorted[:early_end], revs_sorted[late_start:]
 
 
-def _split_subject(revs, first_n, last_n):
+def _split_subject(revs, *, first_n, last_n):
     """``(early, late)`` for one subject's reversals; both empty if it has none."""
     if not revs:
         return [], []
     revs_sorted = sorted(revs, key=lambda r: r.get("good_reversal_number", 0))
-    return _split_sorted(revs_sorted, first_n, last_n)
+    return _split_sorted(revs_sorted, first_n=first_n, last_n=last_n)
 
 
 def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=None):
@@ -68,5 +68,5 @@ def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=Non
     """
     early, late = {}, {}
     for subj, revs in good_reversal_info.items():
-        early[subj], late[subj] = _split_subject(revs, first_n, last_n)
+        early[subj], late[subj] = _split_subject(revs, first_n=first_n, last_n=last_n)
     return early, late

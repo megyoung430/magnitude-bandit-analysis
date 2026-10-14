@@ -1,9 +1,9 @@
 from copy import deepcopy
 
 import pytest
-from test_reversal_boundaries import session, snapshot
 
 from src.behavior_analysis.matched_trial_budget import match_trial_budget
+from tests.test_reversal_boundaries import session, snapshot
 
 
 def recorded(n, good=None, bad=None, **extra):
