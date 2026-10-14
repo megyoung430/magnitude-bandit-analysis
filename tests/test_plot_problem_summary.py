@@ -506,6 +506,12 @@ def test_rank_jitter_consumes_three_draws_per_mouse_in_order(drawn):
     assert same_random_state(after, np.random.get_state())
 
 
+def test_rank_figure_with_unusable_counts_raises_before_any_figure_is_made(drawn):
+    with pytest.raises(AttributeError):
+        pps.plot_rank_proportions_average_without_blocks([1, 2])
+    assert plt.get_fignums() == [] and drawn.figures == []
+
+
 def test_rank_figure_saves_pdf_then_png(drawn, tmp_path):
     pps.plot_rank_proportions_average_without_blocks(rank_counts(), save_path=tmp_path / "r" / "x")
     assert [name for name, _ in drawn.saved] == ["x.pdf", "x.png"]

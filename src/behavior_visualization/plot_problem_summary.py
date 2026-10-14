@@ -727,8 +727,10 @@ def plot_rank_proportions_average_without_blocks(
         save_path: Path for saved figure (suffixes added automatically).
             If ``None``, the figure is shown interactively.
     """
-    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    # Averaged before the figure exists, so unusable counts raise without leaving
+    # an empty figure open.
     per_mouse = mean_rank_proportions_by_subject(rank_counts_by_good_reversal)
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
     plot_rank_proportions_average_panel(per_mouse, ax=ax, pvalues=average_across_mice_pvalues)
     fig.tight_layout()
     _save_or_show(fig, save_path, ("pdf", "png"))
