@@ -1,7 +1,7 @@
 ---
 type: infrastructure
 complexity: simple
-status: in review
+status: done
 ---
 
 # Split the long agent-fitting functions and the pipeline choice section
