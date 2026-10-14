@@ -30,22 +30,22 @@ def make_sequences(n_mice=6, problems=(5, 6, 7), n_trials=5):
 
 class TestSplitRLParameters:
     def test_sticky_fixes_absent_terms_at_zero(self):
-        rates = paper.split_rl_parameters([0.1, 2.0, 0.5], "sticky_rl")
+        rates = paper._split_rl_parameters([0.1, 2.0, 0.5], "sticky_rl")
         assert rates == (0.1, 2.0, 0.5, 0.0, 0.0, 0.0)
 
     def test_released_has_no_bias(self):
-        rates = paper.split_rl_parameters([0.1, 2.0, 0.5, 0.2, 1.5], "released_rl")
+        rates = paper._split_rl_parameters([0.1, 2.0, 0.5, 0.2, 1.5], "released_rl")
         assert rates == (0.1, 2.0, 0.5, 0.0, 0.2, 1.5)
 
     def test_best_uses_all_six_in_order(self):
-        rates = paper.split_rl_parameters([1, 2, 3, 4, 5, 6], "best_rl")
+        rates = paper._split_rl_parameters([1, 2, 3, 4, 5, 6], "best_rl")
         assert list(rates) == [1, 2, 3, 4, 5, 6]
         assert rates.stickiness == 3 and rates.q_init == 6
 
     @pytest.mark.parametrize("model", paper.MODEL_NAMES)
     def test_wrong_length_fails_loudly(self, model):
         with pytest.raises(ValueError):
-            paper.split_rl_parameters([0.1, 0.2], model)
+            paper._split_rl_parameters([0.1, 0.2], model)
 
 
 class TestWeightDecay:
@@ -115,17 +115,17 @@ class TestBackend:
 
 class TestValidation:
     def test_models_accepts_distinct_supported_names(self):
-        paper.validate_models(("sticky_rl", "best_rl"), paper.MODEL_NAMES)
+        paper._validate_models(("sticky_rl", "best_rl"), paper.MODEL_NAMES)
 
     @pytest.mark.parametrize("models", [(), ("sticky_rl", "sticky_rl"), ("sticky_rl", "typo")])
     def test_models_rejects_empty_duplicate_and_unknown(self, models):
         with pytest.raises(ValueError, match="unique supported model names"):
-            paper.validate_models(models, paper.MODEL_NAMES)
+            paper._validate_models(models, paper.MODEL_NAMES)
 
     def test_sizes_accept_zero_budget_and_no_budget(self):
         grid = [dict(optimizer_learning_rate=0.1, batch_size=2)]
-        paper.validate_sweep_sizes(grid, 1, 1, 1, 0)
-        paper.validate_sweep_sizes(grid, 1, 1, 1, None)
+        paper._validate_sweep_sizes(grid, 1, 1, 1, 0)
+        paper._validate_sweep_sizes(grid, 1, 1, 1, None)
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -146,10 +146,10 @@ class TestValidation:
             max_new_runs=None,
         )
         with pytest.raises(ValueError, match="Invalid sweep sizes"):
-            paper.validate_sweep_sizes(**{**args, **kwargs})
+            paper._validate_sweep_sizes(**{**args, **kwargs})
 
     def test_settings_accept_legacy_decay_key_and_hidden_units(self):
-        paper.validate_settings(
+        paper._validate_settings(
             [dict(optimizer_learning_rate=0.1, l2_weight=0.0, batch_size=1, hidden_units=1)]
         )
 
@@ -166,28 +166,28 @@ class TestValidation:
     def test_settings_reject_out_of_range_values(self, bad):
         setting = {**dict(optimizer_learning_rate=0.1, batch_size=2), **bad}
         with pytest.raises(ValueError, match="Invalid optimizer setting"):
-            paper.validate_settings([setting])
+            paper._validate_settings([setting])
 
     def test_settings_missing_required_key_fails_loudly(self):
         with pytest.raises(KeyError):
-            paper.validate_settings([dict(batch_size=2)])
+            paper._validate_settings([dict(batch_size=2)])
 
     def test_sequence_lengths_reject_single_trial_sessions(self):
         short = dict(make_sequences(1)[0], actions=np.array([0]), rewards=np.array([1.0]))
         with pytest.raises(ValueError, match="at least two"):
-            paper.validate_sequence_lengths([*make_sequences(1), short])
-        paper.validate_sequence_lengths([])
+            paper._validate_sequence_lengths([*make_sequences(1), short])
+        paper._validate_sequence_lengths([])
 
 
 class TestSplitSequences:
     def test_mouse_split_by_default(self):
-        parts, identities, details = paper.split_sequences(make_sequences(), 42)
+        parts, identities, details = paper._split_sequences(make_sequences(), 42)
         assert details == dict(split_strategy="mouse", split_problems=None)
         assert sum(map(len, parts.values())) == 18
         assert identities == paper.split_by_mouse(make_sequences(), 42)[1]
 
     def test_problem_split_lists_mice_per_partition(self):
-        parts, identities, details = paper.split_sequences(
+        parts, identities, details = paper._split_sequences(
             make_sequences(), 42, test_problem=6, validation_problem=7
         )
         assert details["split_strategy"] == "pooled_problem"
@@ -196,7 +196,7 @@ class TestSplitSequences:
 
     def test_validation_problem_without_test_problem_fails_loudly(self):
         with pytest.raises(ValueError, match="requires test_problem"):
-            paper.split_sequences(make_sequences(), 42, validation_problem=5)
+            paper._split_sequences(make_sequences(), 42, validation_problem=5)
 
 
 class TestFingerprintSequences:
@@ -237,7 +237,7 @@ class TestManifest:
             versions=dict(jax="0"),
             snapshots=dict(implementation="src"),
         )
-        return paper.build_manifest(**{**args, **overrides})
+        return paper._build_manifest(**{**args, **overrides})
 
     def test_collects_settings_split_data_and_code_identity(self):
         manifest = self.manifest()
@@ -255,38 +255,38 @@ class TestManifest:
         import json
 
         manifest = self.manifest()
-        output = paper.write_manifest(tmp_path / "new" / "root", manifest)
+        output = paper._write_manifest(tmp_path / "new" / "root", manifest)
         text = (output / "manifest.json").read_text()
         assert json.loads(text) == manifest
         assert output.name == hashlib.sha256(text.encode()).hexdigest()[:12]
-        assert paper.write_manifest(tmp_path / "new" / "root", manifest) == output
+        assert paper._write_manifest(tmp_path / "new" / "root", manifest) == output
 
     def test_different_manifests_get_different_directories(self, tmp_path):
-        first = paper.write_manifest(tmp_path, self.manifest())
-        second = paper.write_manifest(tmp_path, self.manifest(data_sha256="other"))
+        first = paper._write_manifest(tmp_path, self.manifest())
+        second = paper._write_manifest(tmp_path, self.manifest(data_sha256="other"))
         assert first != second
 
 
 class TestRunMetadata:
     def test_release_score_pools_trials_not_sessions(self):
         rows = [dict(release_nll=6.0, n_trials=2), dict(release_nll=4.0, n_trials=8)]
-        assert paper.release_score_per_trial(rows) == 1.0
+        assert paper._release_score_per_trial(rows) == 1.0
 
     def test_release_score_of_no_sessions_fails_loudly(self):
         with pytest.raises(ZeroDivisionError):
-            paper.release_score_per_trial([])
+            paper._release_score_per_trial([])
 
     def test_initial_metadata_starts_at_step_zero(self):
-        metadata = paper.initial_metadata(1.5, 2.5)
+        metadata = paper._initial_metadata(1.5, 2.5)
         assert (metadata["step"], metadata["best_step"], metadata["best_validation"]) == (0, 0, 2.5)
         assert metadata["history"] == [
             dict(step=0, validation_cross_entropy=1.5, validation_release_score=2.5)
         ]
 
     def test_improvement_updates_best_and_does_not_mutate_input(self):
-        before = paper.initial_metadata(1.5, 2.5)
+        before = paper._initial_metadata(1.5, 2.5)
         snapshot = repr(before)
-        after, improved = paper.advance_metadata(before, 3, 1.0, 2.0, 0.7)
+        after, improved = paper._advance_metadata(before, 3, 1.0, 2.0, 0.7)
         assert improved
         assert (after["step"], after["best_step"], after["best_validation"]) == (3, 3, 2.0)
         assert after["history"][-1] == dict(
@@ -300,16 +300,16 @@ class TestRunMetadata:
 
     @pytest.mark.parametrize("validation", [2.5, 3.0])
     def test_tie_or_worse_keeps_the_earlier_best(self, validation):
-        before = paper.initial_metadata(1.5, 2.5)
-        after, improved = paper.advance_metadata(before, 2, 1.0, validation, 0.1)
+        before = paper._initial_metadata(1.5, 2.5)
+        after, improved = paper._advance_metadata(before, 2, 1.0, validation, 0.1)
         assert not improved
         assert (after["step"], after["best_step"], after["best_validation"]) == (2, 0, 2.5)
         assert len(after["history"]) == 2
 
     def test_steps_accumulate_across_calls(self):
-        metadata = paper.initial_metadata(1.0, 1.0)
+        metadata = paper._initial_metadata(1.0, 1.0)
         for _ in range(3):
-            metadata, _ = paper.advance_metadata(metadata, 5, 1.0, 1.0, 0.0)
+            metadata, _ = paper._advance_metadata(metadata, 5, 1.0, 1.0, 0.0)
         assert metadata["step"] == 15 and len(metadata["history"]) == 4
 
 
@@ -322,11 +322,11 @@ class TestSelection:
     ]
 
     def test_lowest_validation_wins_within_the_model(self):
-        assert paper.select_winner(self.records, "a")["tag"] == 1
+        assert paper._select_winner(self.records, "a")["tag"] == 1
 
     def test_model_without_records_fails_loudly(self):
         with pytest.raises(ValueError):
-            paper.select_winner(self.records, "c")
+            paper._select_winner(self.records, "c")
 
     def test_sweep_result_is_complete_only_when_all_runs_exist(self, tmp_path):
         details = dict(split_strategy="mouse", split_problems=None)
@@ -343,9 +343,9 @@ class TestRawParameters:
         import jax.numpy as jnp
 
         array = jnp.array([1.0, -2.5, 0.0])
-        np.testing.assert_array_equal(paper.restore_raw(paper.serialize_raw(array)), array)
+        np.testing.assert_array_equal(paper.restore_raw(paper._serialize_raw(array)), array)
         tree = dict(w=jnp.ones((2, 2)), b=jnp.zeros(2))
-        restored = paper.restore_raw(paper.serialize_raw(tree))
+        restored = paper.restore_raw(paper._serialize_raw(tree))
         assert set(restored) == {"w", "b"}
         np.testing.assert_array_equal(restored["w"], tree["w"])
 
@@ -354,22 +354,22 @@ class TestRawParameters:
 
         import jax.numpy as jnp
 
-        json.dumps(paper.serialize_raw(jnp.arange(3.0)), allow_nan=False)
-        json.dumps(paper.serialize_raw(dict(w=jnp.ones((2, 2)))), allow_nan=False)
+        json.dumps(paper._serialize_raw(jnp.arange(3.0)), allow_nan=False)
+        json.dumps(paper._serialize_raw(dict(w=jnp.ones((2, 2)))), allow_nan=False)
 
     def test_initial_parameters_have_model_specific_sizes(self):
         import jax
 
         key = jax.random.PRNGKey(0)
-        sizes = {m: paper.initial_raw_parameters(m, key).shape for m in paper.MODEL_NAMES}
+        sizes = {m: paper._initial_raw_parameters(m, key).shape for m in paper.MODEL_NAMES}
         assert sizes == dict(sticky_rl=(3,), best_rl=(6,), released_rl=(5,))
 
     def test_rl_initial_parameters_share_the_q_init_draw_across_models(self):
         import jax
 
         key = jax.random.PRNGKey(7)
-        best = paper.initial_raw_parameters("best_rl", key)
-        released = paper.initial_raw_parameters("released_rl", key)
+        best = paper._initial_raw_parameters("best_rl", key)
+        released = paper._initial_raw_parameters("released_rl", key)
         assert best[-1] == released[-1]
         np.testing.assert_array_equal(best[:5], [1.0, 1.0, 0.0, 0.0, 0.0])
         np.testing.assert_array_equal(released[:4], [1.0, 1.0, 0.0, 0.0])
@@ -377,17 +377,17 @@ class TestRawParameters:
     def test_neural_models_get_a_parameter_tree(self):
         import jax
 
-        tree = paper.initial_raw_parameters("rl_ann", jax.random.PRNGKey(0), hidden_units=4)
+        tree = paper._initial_raw_parameters("rl_ann", jax.random.PRNGKey(0), hidden_units=4)
         assert isinstance(tree, dict) and tree
 
     def test_summary_names_the_transformed_rl_parameters(self):
-        summary = paper.summarize_parameters(np.zeros(3), "sticky_rl")
+        summary = paper._summarize_parameters(np.zeros(3), "sticky_rl")
         assert list(summary) == paper.PARAMETER_NAMES["sticky_rl"]
         assert summary["learning_rate"] == pytest.approx(0.001 + 0.999 * 0.5)
 
     def test_save_selected_parameters_array_and_dict(self, tmp_path):
-        paper.save_selected_parameters(tmp_path / "a.npz", np.arange(3.0))
-        paper.save_selected_parameters(tmp_path / "d.npz", dict(w=np.ones(2), b=np.zeros(1)))
+        paper._save_selected_parameters(tmp_path / "a.npz", np.arange(3.0))
+        paper._save_selected_parameters(tmp_path / "d.npz", dict(w=np.ones(2), b=np.zeros(1)))
         with np.load(tmp_path / "a.npz") as saved:
             assert list(saved.files) == ["parameters"]
             np.testing.assert_array_equal(saved["parameters"], np.arange(3.0))
@@ -400,7 +400,7 @@ class TestRunLoop:
     def setup_method(self):
         import jax.numpy as jnp
 
-        parts, _, _ = paper.split_sequences(make_sequences(), 0)
+        parts, _, _ = paper._split_sequences(make_sequences(), 0)
         train = tuple(jnp.asarray(x) for x in paper.pack_sequences(parts["train"]))
         self.parts = parts
         self.config = paper._FitConfig(parts, train, fit_seed=1, max_steps=4, validation_every=2)
