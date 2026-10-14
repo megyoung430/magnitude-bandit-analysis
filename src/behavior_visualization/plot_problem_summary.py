@@ -37,7 +37,8 @@ from src.behavior_analysis.rank_proportions_summary import (
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 
 RANK_LABELS = ["Best", "Second", "Third"]
-_SUMMARY_KEYS = ("blocks", "means", "ses", "ns", "per_mouse_blocklens", "mice")
+# Keys checked after blocks, means and ses (which are read, and so checked, first).
+_OTHER_SUMMARY_KEYS = ("ns", "per_mouse_blocklens", "mice")
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -108,11 +109,29 @@ LENGTHS_STYLE = BarStyle(
 )
 
 
+def _read_bar_values(summary: dict) -> tuple[list, np.ndarray, np.ndarray]:
+    """``(blocks, means, ses)`` from *summary*, with means and ses as float arrays.
+
+    Reads in this order, so a summary with several problems reports the same one
+    first: ``blocks`` missing, ``means`` missing or non-numeric, then ``ses``.
+    """
+    blocks = summary["blocks"]
+    means = np.asarray(summary["means"], dtype=float)
+    ses = np.asarray(summary["ses"], dtype=float)
+    return blocks, means, ses
+
+
 def _require_summary_keys(summary: dict) -> None:
-    """Raise ``KeyError`` for the first summary key that is missing, before any figure exists."""
-    for key in _SUMMARY_KEYS:
+    """Raise for a malformed summary before any figure exists.
+
+    The bar values are read first (see :func:`_read_bar_values`), then the keys
+    after them. ``"ns"`` is required although nothing here reads it: summaries
+    always carry it, and a summary without it is a producer bug to surface.
+    """
+    _read_bar_values(summary)
+    for key in _OTHER_SUMMARY_KEYS:
         if key not in summary:
-            raise KeyError(key)
+            raise KeyError(f"summary is missing {key!r}")
 
 
 def _annotation_ceiling(
@@ -157,10 +176,13 @@ def _draw_bars(ax: plt.Axes, blocks: list, means: np.ndarray, ses: np.ndarray) -
 
 
 def _label_bar_values(
-    ax: plt.Axes, means: np.ndarray, *, annotate_y: float, value_fmt: str
+    ax: plt.Axes, n_bars: int, means: np.ndarray, *, annotate_y: float, value_fmt: str
 ) -> None:
-    """Write each finite mean at height *annotate_y* above its bar."""
-    for xi, mval in enumerate(means):
+    """Write each finite mean at height *annotate_y* above its bar.
+
+    One label per block (*n_bars*), so means beyond the blocks get none.
+    """
+    for xi, mval in zip(range(n_bars), means, strict=False):
         if np.isfinite(mval):
             ax.text(
                 xi,
@@ -237,19 +259,18 @@ def plot_problem_bars(
             error (1 if every bar is NaN).
         style: Number format, legend and spacing choices.
     """
-    blocks = summary["blocks"]
-    means = np.asarray(summary["means"], dtype=float)
-    ses = np.asarray(summary["ses"], dtype=float)
+    blocks, means, ses = _read_bar_values(summary)
     colors = _mouse_color_map(summary["mice"])
     # Everything above is read before the figure exists, so a malformed summary
     # raises without leaving an empty figure open.
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 4.8))
 
-    # Bars first: matplotlib rejects means/ses that do not match the blocks.
+    # Bars first: matplotlib rejects means/ses that do not match the blocks, except
+    # that a single block broadcasts to any number of means (stacked bars).
     _draw_bars(ax, blocks, means, ses)
     finite_top, annotate_y = _annotation_ceiling(means, ses, annotate_y=annotate_y)
-    _label_bar_values(ax, means, annotate_y=annotate_y, value_fmt=style.value_fmt)
+    _label_bar_values(ax, len(blocks), means, annotate_y=annotate_y, value_fmt=style.value_fmt)
     _draw_mouse_lines(ax, summary, colors, jitter=jitter, style=style)
     _despine(ax)
     ax.set_xticks(np.arange(len(blocks)))

@@ -93,6 +93,7 @@ def visible(fig):
 
 
 def title_pad_points(ax):
+    # Reads matplotlib's private titleOffsetTrans: the public API has no getter for the pad.
     return ax.titleOffsetTrans.get_matrix()[1, 2] / ax.figure.dpi * 72
 
 
@@ -179,6 +180,28 @@ def test_mouse_lines_are_placed_at_their_problem_index(drawn):
     assert [list(ln.get_ydata()) for ln in lines] == [[2.5, 4.5], [1.5]]
 
 
+@pytest.mark.parametrize("figure_fn", ["plot_metric_by_problem", "plot_problem_lengths"])
+def test_value_labels_clear_bars_below_one_at_the_1_5_floor(drawn, figure_fn):
+    # tops are 0.3 < 1, so the label height is the floor of 1 * 1.5, not 1.5 * top
+    low = {**summary(), "means": [0.1, 0.2, 0.3], "ses": [0.0, 0.0, 0.0]}
+    kwargs = {"title": "T", "ylabel": "Y"} if figure_fn == "plot_metric_by_problem" else {}
+    getattr(pps, figure_fn)(low, **kwargs)
+    (ax,) = drawn.figures[0].axes
+    headroom = 1.02 if figure_fn == "plot_metric_by_problem" else 1.0
+    assert {t.get_position()[1] for t in ax.texts} == {1.5}
+    assert ax.get_ylim()[1] == pytest.approx(1.5 * headroom)
+
+
+@pytest.mark.parametrize("figure_fn", ["plot_metric_by_problem", "plot_problem_lengths"])
+def test_only_the_first_len_blocks_means_get_value_labels(drawn, figure_fn):
+    # one block broadcasts over three means (stacked bars), but only one label is written
+    one_block = {**summary(), "blocks": [1]}
+    kwargs = {"title": "T", "ylabel": "Y"} if figure_fn == "plot_metric_by_problem" else {}
+    getattr(pps, figure_fn)(one_block, **kwargs)
+    (ax,) = drawn.figures[0].axes
+    assert len(ax.patches) == 3 and len(ax.texts) == 1
+
+
 def test_negative_means_are_clipped_by_the_zero_ylim_bottom_known_issue(drawn):
     negative = {**summary(), "means": [-2.0, -1.0, -3.0], "ses": [0.1, 0.1, 0.1]}
     pps.plot_metric_by_problem(negative, title="T", ylabel="Y")
@@ -189,8 +212,17 @@ def test_negative_means_are_clipped_by_the_zero_ylim_bottom_known_issue(drawn):
 def test_missing_summary_key_raises_before_any_figure_is_made(drawn, figure_fn):
     broken = {k: v for k, v in summary().items() if k != "ns"}
     kwargs = {"title": "T", "ylabel": "Y"} if figure_fn == "plot_metric_by_problem" else {}
-    with pytest.raises(KeyError, match="ns"):
+    with pytest.raises(KeyError, match="summary is missing 'ns'"):
         getattr(pps, figure_fn)(broken, **kwargs)
+    assert plt.get_fignums() == [] and drawn.figures == []
+
+
+@pytest.mark.parametrize("figure_fn", ["plot_metric_by_problem", "plot_problem_lengths"])
+def test_non_numeric_means_are_reported_before_a_missing_ns(drawn, figure_fn):
+    broken = {k: v for k, v in summary().items() if k != "ns"}
+    kwargs = {"title": "T", "ylabel": "Y"} if figure_fn == "plot_metric_by_problem" else {}
+    with pytest.raises(ValueError, match="could not convert string to float"):
+        getattr(pps, figure_fn)({**broken, "means": ["a", "b", "c"]}, **kwargs)
     assert plt.get_fignums() == [] and drawn.figures == []
 
 
@@ -399,7 +431,8 @@ def test_blocklen_histogram_panel_empty_says_no_data_and_ignores_xlim():
     _, ax = plt.subplots()
     pps.plot_blocklen_histogram(np.array([]), ax=ax, title="Problem 1", xlim=(0, 5))
     assert [t.get_text() for t in ax.texts] == ["no data"]
-    assert ax.get_xlim() != (0, 5) and ax.get_title() == "Problem 1"
+    assert ax.get_xlim() == (0.0, 1.0)  # the empty-axes default, not the (0, 5) asked for
+    assert ax.get_title() == "Problem 1"
 
 
 def test_blocklen_histogram_panel_draws_stats_and_xlim():
@@ -408,6 +441,14 @@ def test_blocklen_histogram_panel_draws_stats_and_xlim():
     assert ax.get_xlim() == (0, 50) and ax.get_title() == "P"
     assert ax.texts[0].get_text().startswith("n = 3")
     assert len(ax.lines) == 1  # mean line
+
+
+def test_blocklen_histogram_panel_prints_median_sample_sd_and_draws_the_mean_line():
+    _, ax = plt.subplots()
+    pps.plot_blocklen_histogram(np.array([1.0, 2.0, 3.0, 10.0]), ax=ax, title="P")
+    # median 2.5; sd with ddof=1 is sqrt(50 / 3) = 4.08 (ddof=0 would print 3.54)
+    assert ax.texts[0].get_text() == "n = 4\nmedian = 2.50\nsd = 4.08\nmin = 1\nmax = 10"
+    assert list(ax.lines[0].get_xdata()) == [4.0, 4.0]  # the mean, not the median
 
 
 # ---- rank proportions ----
