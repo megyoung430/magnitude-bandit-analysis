@@ -30,8 +30,7 @@ def _trial_belief(choice, believed: dict) -> dict:
     n_seen = len(believed)
     best_mag = ranked[0][1] if n_seen >= 1 else None
     second_mag = ranked[1][1] if n_seen >= 2 else None
-    # an arm that has never been seen has no believed rank; the membership test also
-    # raises TypeError for an unhashable choice, which _rank_label alone would not
+    # an arm that has never been seen has no believed rank
     rank_of_choice = _rank_label(choice, ranked) if choice in believed else None
     tied = best_mag is not None and second_mag is not None and best_mag == second_mag
     return {
