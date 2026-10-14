@@ -6,6 +6,16 @@ status: in review
 
 # Split the long agent-fitting functions and the pipeline choice section
 
+> **WARNING: merging this changes every recovery and cohort cross-validation directory name.**
+> `run_problem_cross_validation` hashes the full text of `cohort_fitting.py` and
+> `run_recovery` hashes the text of `parameter_recovery.py` (plus the runner, design, task,
+> mouse, fit and loss sources) into the manifest; the directory name is a hash of the
+> manifest. Any edit to those files, including this refactor, moves a run to a new folder.
+> Partially-run sweeps and cross-validations started on main will **restart from zero in a
+> new folder rather than resume**; finished results stay readable in the old folder. Every
+> other output file is unchanged. The cache key is deliberately not narrowed here; that is a
+> follow-up (shared `run_store` module plus an explicit `ALGORITHM_VERSION`).
+
 Refactor the long functions below into small, single-purpose functions (principle 4) with identical behaviour.
 
 - **Files:** `src/agents/{cohort_fitting,parameter_recovery,trajectory_viewer}.py`, `src/pipelines/open_field.py`

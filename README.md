@@ -104,6 +104,15 @@ raw `.tsv` file's path, size and modification time and a hash of
 `src/behavior_import/`, so new sessions or import-code changes trigger a fresh
 import automatically. Delete `.cache/` at any time; it only costs a re-import.
 
+### Resumable cohort cross-validation and recovery runs
+
+`run_problem_cross_validation` (`src/agents/cohort_fitting.py`) and `run_recovery`
+(`src/agents/parameter_recovery.py`) save into a folder named by a hash of their
+manifest, which includes the source text of the module. Resuming therefore works only
+while that code is unchanged: **after any edit to those modules (including a refactor
+merge), an interrupted run restarts from zero in a new folder.** Finished results stay
+readable in the old folder.
+
 ## Code organisation
 
 | Module | What it does |
