@@ -7,8 +7,9 @@ rank-proportions panel.
 
 Each panel function draws into an ``ax`` you pass (or a new figure if you
 don't), so it can be one panel of a larger figure. The public ``plot_*``
-figure functions compose those panels and save or show the result. The small
-pure helpers (no matplotlib) hold the numbers each panel draws.
+figure functions compose those panels and save or show the result. The numbers
+each panel draws come from :mod:`src.behavior_analysis.blocklen_distributions`
+and :mod:`src.behavior_analysis.rank_proportions_summary`.
 """
 
 from __future__ import annotations
@@ -21,10 +22,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
+# collect_blocklens and drop_last_problem_per_mouse_raw are re-exported: notebooks
+# import them from this module.
+from src.behavior_analysis.blocklen_distributions import (
+    collect_blocklens,
+    drop_last_problem_per_mouse_raw,
+    pooled_blocklens,
+)
+from src.behavior_analysis.rank_proportions_summary import (
+    RANKS,
+    mean_rank_proportions_by_subject,
+    rank_mean_and_se,
+)
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 
-RANKS = ("best", "second", "third")
 RANK_LABELS = ["Best", "Second", "Third"]
+_SUMMARY_KEYS = ("blocks", "means", "ses", "ns", "per_mouse_blocklens", "mice")
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -52,20 +65,24 @@ def _save_or_show(fig: plt.Figure, base: str | Path | None, formats: tuple[str, 
     plt.close(fig)
 
 
-def mouse_color_map(mice: list) -> dict:
+def _mouse_color_map(mice: list) -> dict:
     """Assign each mouse a colour from ``MOUSE_COLORS``, cycling if there are more mice."""
     return {m: MOUSE_COLORS[i % len(MOUSE_COLORS)] for i, m in enumerate(mice)}
 
 
-def concat_nonempty(arrays: list[np.ndarray]) -> np.ndarray:
-    """Concatenate the non-empty arrays; an empty float array if all are empty."""
-    parts = [a for a in arrays if a.size > 0]
-    return np.concatenate(parts, axis=0) if parts else np.array([])
-
-
-def value_range(values: np.ndarray) -> tuple[float, float] | None:
+def _value_range(values: np.ndarray) -> tuple[float, float] | None:
     """``(min, max)`` of *values*, or ``None`` if there are none."""
     return (np.nanmin(values), np.nanmax(values)) if values.size > 0 else None
+
+
+def _jittered(xs: np.ndarray, *, jitter: float) -> np.ndarray:
+    """*xs* plus uniform noise of half-width *jitter* (unchanged if ``jitter <= 0``).
+
+    Draws from the global ``np.random`` stream, so ``np.random.seed`` makes it repeatable.
+    """
+    if jitter > 0:
+        return xs + np.random.uniform(-jitter, jitter, size=len(xs))
+    return xs
 
 
 # ---------------------------------------------------------------------------
@@ -91,8 +108,15 @@ LENGTHS_STYLE = BarStyle(
 )
 
 
-def annotation_ceiling(
-    means: np.ndarray, ses: np.ndarray, annotate_y: float | None
+def _require_summary_keys(summary: dict) -> None:
+    """Raise ``KeyError`` for the first summary key that is missing, before any figure exists."""
+    for key in _SUMMARY_KEYS:
+        if key not in summary:
+            raise KeyError(key)
+
+
+def _annotation_ceiling(
+    means: np.ndarray, ses: np.ndarray, *, annotate_y: float | None
 ) -> tuple[float, float]:
     """Return ``(top of the tallest bar + error, y for the value labels)``.
 
@@ -106,7 +130,7 @@ def annotation_ceiling(
     return finite_top, annotate_y
 
 
-def mouse_points(blocks: list, by_block: dict) -> tuple[np.ndarray, np.ndarray]:
+def _mouse_points(blocks: list, by_block: dict) -> tuple[np.ndarray, np.ndarray]:
     """x positions (indices into *blocks*) and values for the blocks a mouse has data for."""
     pairs = [(i, by_block[b]) for i, b in enumerate(blocks) if b in by_block]
     xs = np.asarray([i for i, _ in pairs], float)
@@ -114,36 +138,29 @@ def mouse_points(blocks: list, by_block: dict) -> tuple[np.ndarray, np.ndarray]:
     return xs, ys
 
 
-def jittered(xs: np.ndarray, jitter: float) -> np.ndarray:
-    """*xs* plus uniform noise of half-width *jitter* (unchanged if ``jitter <= 0``).
-
-    Draws from the global ``np.random`` stream, so ``np.random.seed`` makes it repeatable.
-    """
-    if jitter > 0:
-        return xs + np.random.uniform(-jitter, jitter, size=len(xs))
-    return xs
-
-
-def default_length_title(ylabel: str, n_mice: int) -> str:
+def _default_length_title(ylabel: str, n_mice: int) -> str:
     return f"{ylabel} per Problem\n(mean ± se across mice | n={n_mice} subjects)"
 
 
-def _draw_bars_with_values(
-    ax: plt.Axes, means: np.ndarray, ses: np.ndarray, annotate_y: float, value_fmt: str
-) -> None:
-    x = np.arange(len(means))
+def _draw_bars(ax: plt.Axes, blocks: list, means: np.ndarray, ses: np.ndarray) -> None:
     ax.bar(
-        x,
+        np.arange(len(blocks)),
         means,
         yerr=ses,
         capsize=6,
         edgecolor="black",
         linewidth=1.5,
         alpha=0.55,
-        color=["#999999"] * len(means),
+        color=["#999999"] * len(blocks),
         zorder=1,
     )
-    for xi, mval in zip(x, means, strict=True):
+
+
+def _label_bar_values(
+    ax: plt.Axes, means: np.ndarray, *, annotate_y: float, value_fmt: str
+) -> None:
+    """Write each finite mean at height *annotate_y* above its bar."""
+    for xi, mval in enumerate(means):
         if np.isfinite(mval):
             ax.text(
                 xi,
@@ -156,21 +173,21 @@ def _draw_bars_with_values(
             )
 
 
-def _draw_mouse_lines(ax: plt.Axes, summary: dict, jitter: float, style: BarStyle) -> None:
+def _draw_mouse_lines(ax: plt.Axes, summary: dict, *, jitter: float, style: BarStyle) -> None:
     """One jittered line per mouse across problems, with a legend entry each.
 
     An explicit loop: the jitter draws from a shared random stream, so the
     mouse order fixes which noise each line gets.
     """
     blocks, per_mouse, mice = summary["blocks"], summary["per_mouse_blocklens"], summary["mice"]
-    colors = mouse_color_map(mice)
+    colors = _mouse_color_map(mice)
     handles = []
     for m in mice:
-        xs, ys = mouse_points(blocks, per_mouse.get(m, {}))
+        xs, ys = _mouse_points(blocks, per_mouse.get(m, {}))
         if xs.size == 0:
             continue
         ax.plot(
-            jittered(xs, jitter),
+            _jittered(xs, jitter=jitter),
             ys,
             color=colors[m],
             linewidth=2.5,
@@ -194,8 +211,8 @@ def _draw_mouse_lines(ax: plt.Axes, summary: dict, jitter: float, style: BarStyl
 
 def plot_problem_bars(
     summary: dict,
-    ax: plt.Axes | None = None,
     *,
+    ax: plt.Axes | None = None,
     ylabel: str,
     title: str,
     jitter: float = 0.06,
@@ -204,12 +221,19 @@ def plot_problem_bars(
 ) -> plt.Axes:
     """Bar chart of a per-problem mean +/- se with one overlay line per mouse.
 
+    The y-axis starts at 0, so bars with negative means are clipped.
+
     Args:
         summary: Summary dict with ``"blocks"``, ``"means"``, ``"ses"`` and
             ``"per_mouse_blocklens"``, ``"mice"``.
         ax: Axes to draw into; a new figure is made if ``None``.
-        annotate_y: Height of the value labels above the bars (default: from
-            :func:`annotation_ceiling`).
+        ylabel: Y-axis label.
+        title: Axes title.
+        jitter: Half-width of the horizontal jitter on the mouse lines
+            (default: 0.06); 0 turns it off and leaves the random stream untouched.
+        annotate_y: Height of the value labels above the bars. Defaults to
+            ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
+            error (1 if every bar is NaN).
         style: Number format, legend and spacing choices.
     """
     if ax is None:
@@ -217,16 +241,19 @@ def plot_problem_bars(
     blocks = summary["blocks"]
     means = np.asarray(summary["means"], dtype=float)
     ses = np.asarray(summary["ses"], dtype=float)
-    finite_top, annotate_y = annotation_ceiling(means, ses, annotate_y)
 
-    _draw_bars_with_values(ax, means, ses, annotate_y, style.value_fmt)
-    _draw_mouse_lines(ax, summary, jitter, style)
+    # Bars first: matplotlib rejects means/ses that do not match the blocks.
+    _draw_bars(ax, blocks, means, ses)
+    finite_top, annotate_y = _annotation_ceiling(means, ses, annotate_y=annotate_y)
+    _label_bar_values(ax, means, annotate_y=annotate_y, value_fmt=style.value_fmt)
+    _draw_mouse_lines(ax, summary, jitter=jitter, style=style)
     _despine(ax)
     ax.set_xticks(np.arange(len(blocks)))
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
     ax.set_xlabel("Problem Number", fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
     ax.set_title(title, pad=style.title_pad)
+    # Known issue: the bottom is fixed at 0, so bars with negative means are clipped.
     ax.set_ylim(0, max(annotate_y, finite_top) * style.ylim_headroom)
     return ax
 
@@ -251,14 +278,16 @@ def plot_metric_by_problem(
         jitter: Horizontal jitter width applied to per-mouse markers
             (default: 0.06).
         annotate_y: Y-position for value annotations above bars.  Defaults to
-            1.5 × the max bar top.
+            ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
+            error (1 if every bar is NaN).
         save_path: If provided, the figure is saved as both ``.pdf`` and
             ``.png`` at this path (suffix added automatically).
     """
+    _require_summary_keys(summary)
     fig, ax = plt.subplots(figsize=(10, 4.8))
     plot_problem_bars(
         summary,
-        ax,
+        ax=ax,
         ylabel=ylabel,
         title=title,
         jitter=jitter,
@@ -280,9 +309,7 @@ def plot_problem_lengths(
 ) -> None:
     """Plot per-problem session counts (or any per-problem metric) as a bar chart.
 
-    This is the unified replacement for the three copies of ``plot_problem_lengths``
-    found in the original ``testing_code.ipynb`` notebook.  Pass ``ylabel`` and
-    ``title`` to customise the axis labels.
+    Pass ``ylabel`` and ``title`` to customise the axis labels.
 
     Args:
         problem_summary: Summary dict as returned by
@@ -291,15 +318,18 @@ def plot_problem_lengths(
         ylabel: Y-axis label (default: ``"Sessions to Complete"``).
         title: Figure title.  Auto-generated from *ylabel* if not provided.
         jitter: Horizontal jitter width for per-mouse markers (default: 0.06).
-        annotate_y: Y-position for value annotations above bars.
+        annotate_y: Y-position for value annotations above bars.  Defaults to
+            ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
+            error (1 if every bar is NaN).
         save_path: If provided, saves ``.pdf`` and ``.png`` at this path.
     """
+    _require_summary_keys(problem_summary)
     if title is None:
-        title = default_length_title(ylabel, len(problem_summary["mice"]))
+        title = _default_length_title(ylabel, len(problem_summary["mice"]))
     fig, ax = plt.subplots(figsize=(10, 4.8))
     plot_problem_bars(
         problem_summary,
-        ax,
+        ax=ax,
         ylabel=ylabel,
         title=title,
         jitter=jitter,
@@ -313,68 +343,6 @@ def plot_problem_lengths(
 # ---------------------------------------------------------------------------
 # Block-length distribution plots
 # ---------------------------------------------------------------------------
-
-
-def collect_blocklens(
-    problem_block_stats: dict,
-) -> tuple[list, list, dict]:
-    """Collect raw block lengths per problem per mouse.
-
-    Args:
-        problem_block_stats: ``{problem: {"block_stats": {...}}}``
-
-    Returns:
-        A three-tuple ``(problems, mice, blocklens_by_problem_mouse)`` where
-        *blocklens_by_problem_mouse* is
-        ``{problem: {mouse: np.ndarray of block lengths}}``.
-    """
-    problems = sorted(problem_block_stats.keys())
-    mice = sorted(
-        {
-            m
-            for p in problems
-            for m in problem_block_stats[p]["block_stats"]["per_mouse_blocklens"].keys()
-        }
-    )
-
-    blocklens_by_problem_mouse: dict = {p: {} for p in problems}
-    for p in problems:
-        per_mouse = problem_block_stats[p]["block_stats"]["per_mouse_blocklens"]
-        for m in mice:
-            block_dict = per_mouse.get(m, {})
-            vals = np.asarray(list(block_dict.values()), dtype=float)
-            blocklens_by_problem_mouse[p][m] = vals[np.isfinite(vals)]
-
-    return problems, mice, blocklens_by_problem_mouse
-
-
-def drop_last_problem_per_mouse_raw(
-    problems: list,
-    mice: list,
-    blocklens_by_problem_mouse: dict,
-) -> tuple[list, list, dict]:
-    """Drop each mouse's last problem from raw block-length data.
-
-    Args:
-        problems: Sorted list of problem numbers.
-        mice: Sorted list of mouse identifiers.
-        blocklens_by_problem_mouse: ``{problem: {mouse: np.ndarray}}``.
-
-    Returns:
-        Updated ``(problems_new, mice_new, data_new)`` with last problems
-        removed.
-    """
-    data = {p: {m: blocklens_by_problem_mouse[p][m].copy() for m in mice} for p in problems}
-
-    for m in mice:
-        ps_with_data = [p for p in problems if data[p].get(m, np.array([])).size > 0]
-        if ps_with_data:
-            data[max(ps_with_data)][m] = np.array([], dtype=float)
-
-    problems_new = [p for p in problems if any(data[p][m].size > 0 for m in mice)]
-    mice_new = [m for m in mice if any(data[p][m].size > 0 for p in problems_new)]
-    data_new = {p: {m: data[p][m] for m in mice_new} for p in problems_new}
-    return problems_new, mice_new, data_new
 
 
 def _auto_hist_bins(x: Any) -> int:
@@ -429,12 +397,7 @@ def _stats_text(vals: Any, show_n: bool = True) -> str:
     return "\n".join(lines)
 
 
-def pooled_blocklens(data: dict, problem: Any, mice: list) -> np.ndarray:
-    """All mice's block lengths for one *problem*, concatenated."""
-    return concat_nonempty([data[problem][m] for m in mice])
-
-
-def pooled_title(problem: Any, pooled: np.ndarray, n_mice_with_data: int) -> str:
+def _pooled_title(problem: Any, pooled: np.ndarray, *, n_mice_with_data: int) -> str:
     """Panel title for a pooled histogram; bare when the problem has no data."""
     if pooled.size == 0:
         return f"Problem {problem}"
@@ -443,8 +406,8 @@ def pooled_title(problem: Any, pooled: np.ndarray, n_mice_with_data: int) -> str
 
 def plot_blocklen_histogram(
     vals: np.ndarray,
-    ax: plt.Axes | None = None,
     *,
+    ax: plt.Axes | None = None,
     title: str,
     xlim: tuple[float, float] | None = None,
 ) -> plt.Axes:
@@ -490,9 +453,13 @@ def plot_blocklen_histogram(
 
 
 def _histogram_grid(
-    n_panels: int, ncols: int, sharex: bool, sharey: bool
+    n_panels: int, *, ncols: int, sharex: bool, sharey: bool
 ) -> tuple[plt.Figure, np.ndarray]:
-    """A grid of at least *n_panels* axes (flattened); the unused ones are switched off."""
+    """A grid of at least *n_panels* axes (flattened); the unused ones are switched off.
+
+    Known issue: with no panels the grid has zero rows and matplotlib raises
+    "Number of rows must be a positive integer, not 0".
+    """
     nrows = int(ceil(n_panels / ncols))
     fig, axes = plt.subplots(
         nrows, ncols, figsize=(3.6 * ncols, 2.8 * nrows), sharex=sharex, sharey=sharey
@@ -503,7 +470,7 @@ def _histogram_grid(
     return fig, axes
 
 
-def _label_histogram_figure(fig: plt.Figure, suptitle: str, ylabel: str) -> None:
+def _label_histogram_figure(fig: plt.Figure, *, suptitle: str, ylabel: str) -> None:
     fig.suptitle(suptitle, y=1.02, fontsize=14)
     fig.supxlabel("Block length", fontsize=12)
     fig.supylabel(ylabel, fontsize=12)
@@ -514,11 +481,13 @@ def _mouse_histogram_figure(
     data: dict, mouse: Any, problems: list, *, ncols: int, sharex: bool, sharey: bool
 ) -> plt.Figure:
     """One mouse's block-length histogram per problem, on a shared x-range."""
-    fig, axes = _histogram_grid(len(problems), ncols, sharex, sharey)
-    xlim = value_range(concat_nonempty([data[p][mouse] for p in problems]))
+    fig, axes = _histogram_grid(len(problems), ncols=ncols, sharex=sharex, sharey=sharey)
+    xlim = _value_range(pooled_blocklens(data, problems, [mouse]))
     for ax, p in zip(axes, problems, strict=False):
-        plot_blocklen_histogram(data[p][mouse], ax, title=f"Problem {p}", xlim=xlim)
-    _label_histogram_figure(fig, f"Block Length Distributions — Mouse {mouse}", "Count")
+        plot_blocklen_histogram(data[p][mouse], ax=ax, title=f"Problem {p}", xlim=xlim)
+    _label_histogram_figure(
+        fig, suptitle=f"Block Length Distributions — Mouse {mouse}", ylabel="Count"
+    )
     return fig
 
 
@@ -526,13 +495,16 @@ def _pooled_histogram_figure(
     data: dict, problems: list, mice: list, *, ncols: int, sharex: bool, sharey: bool
 ) -> plt.Figure:
     """Block-length histogram per problem pooled over mice, on a shared x-range."""
-    fig, axes = _histogram_grid(len(problems), ncols, sharex, sharey)
-    xlim = value_range(concat_nonempty([data[p][m] for p in problems for m in mice]))
+    fig, axes = _histogram_grid(len(problems), ncols=ncols, sharex=sharex, sharey=sharey)
+    xlim = _value_range(pooled_blocklens(data, problems, mice))
     for ax, p in zip(axes, problems, strict=False):
-        pooled = pooled_blocklens(data, p, mice)
+        pooled = pooled_blocklens(data, [p], mice)
         n_mice = sum(data[p][m].size > 0 for m in mice)
-        plot_blocklen_histogram(pooled, ax, title=pooled_title(p, pooled, n_mice), xlim=xlim)
-    _label_histogram_figure(fig, "Block Length Distributions — Pooled Across Mice", "Counts")
+        title = _pooled_title(p, pooled, n_mice_with_data=n_mice)
+        plot_blocklen_histogram(pooled, ax=ax, title=title, xlim=xlim)
+    _label_histogram_figure(
+        fig, suptitle="Block Length Distributions — Pooled Across Mice", ylabel="Counts"
+    )
     return fig
 
 
@@ -546,6 +518,8 @@ def plot_distributions_per_mouse(
     save_dir: str | Path | None = None,
 ) -> None:
     """Plot block-length distributions per problem, one figure per mouse.
+
+    If ``drop_last_problem`` leaves no mouse with data, nothing is drawn.
 
     Args:
         problem_block_stats: ``{problem: {"block_stats": {...}}}``
@@ -578,6 +552,11 @@ def plot_distributions_per_problem_all_mice(
 ) -> None:
     """Plot block-length distributions per problem, pooling all mice.
 
+    Known issue: if ``drop_last_problem`` leaves no problem with data, matplotlib
+    raises "Number of rows must be a positive integer, not 0" (see
+    :func:`_histogram_grid`), whereas :func:`plot_distributions_per_mouse` draws
+    nothing.
+
     Args:
         problem_block_stats: ``{problem: {"block_stats": {...}}}``
         drop_last_problem: If ``True``, exclude each mouse's last problem
@@ -601,46 +580,14 @@ def plot_distributions_per_problem_all_mice(
 # ---------------------------------------------------------------------------
 
 
-def mean_rank_proportions_by_subject(rank_counts_by_good_reversal: dict) -> dict:
-    """Each subject's mean best/second/third proportion over its reversals.
-
-    Subjects with no reversals are left out; a reversal missing a proportion
-    counts as NaN, which the mean skips.
-
-    Args:
-        rank_counts_by_good_reversal: ``{subject: list[reversal_dict]}`` with
-            ``"best_prop"``, ``"second_prop"``, ``"third_prop"`` in each dict.
-
-    Returns:
-        ``{subject: {"best": float, "second": float, "third": float}}``.
-    """
-    return {
-        subj: {
-            rank: np.nanmean([r.get(f"{rank}_prop", float("nan")) for r in rows]) for rank in RANKS
-        }
-        for subj, rows in rank_counts_by_good_reversal.items()
-        if rows
-    }
-
-
-def rank_mean_and_se(per_mouse: dict) -> tuple[list[float], list[float]]:
-    """Across-mouse mean and standard error for each rank (NaNs skipped in the mean and sd)."""
-    columns = [[v[rank] for v in per_mouse.values()] for rank in RANKS]
-    means = [np.nanmean(col) for col in columns]
-    ses = [np.nanstd(col, ddof=1) / np.sqrt(len(per_mouse)) for col in columns]
-    return means, ses
-
-
-def pvalue_annotations(
-    pvalues: dict | None, finite_x: list[float]
-) -> list[tuple[float, float, str]]:
+def pvalue_annotations(pvalues: dict | None, finite_x: list[int]) -> list[tuple[int, float, str]]:
     """``(x, y, text)`` for each available pairwise p-value label.
 
     Labels are anchored on the *finite_x* bar positions (those with a finite
     mean), by position in that list.
     """
     pvalues = pvalues or {}
-    # (key, label, index into finite_x, y); a label needs that many finite bars
+    # (key, label, index into finite_x, y); a label needs more than idx finite bars
     specs = [
         ("best_vs_second", "p(Best vs Second)", 0, 0.75),
         ("best_vs_third", "p(Best vs Third)", 2, 0.25),
@@ -654,7 +601,7 @@ def pvalue_annotations(
 
 
 def _draw_rank_bars(
-    ax: plt.Axes, means: list[float], ses: list[float], pvalues: dict | None
+    ax: plt.Axes, means: list[float], ses: list[float], *, pvalues: dict | None
 ) -> None:
     """Grey bars with value labels, plus the p-value labels."""
     x = np.arange(len(RANK_LABELS))
@@ -673,59 +620,61 @@ def _draw_rank_bars(
     finite_x = [xi for xi, m in zip(x, means, strict=True) if np.isfinite(m)]
     for xi in finite_x:
         ax.text(xi, 1.05, f"{means[xi]:.2f}", ha="center", va="bottom", fontsize=12)
-    # Known quirk, kept as is: a label is anchored on the i-th *finite* bar, so when an
-    # earlier rank's mean is NaN it lands on a different rank than its text names.
+    # Known issue: a label is anchored on the i-th *finite* bar, so when an earlier
+    # rank's mean is NaN it lands on a different rank than its text names.
     for xi, y, text in pvalue_annotations(pvalues, finite_x):
         ax.text(xi, y, text, ha="center", va="bottom", fontsize=12)
 
 
-def _draw_rank_mouse_lines(ax: plt.Axes, per_mouse: dict, jitter: float) -> None:
+def _draw_rank_mouse_lines(ax: plt.Axes, per_mouse: dict, *, jitter: float) -> None:
     """One jittered line per mouse across the three ranks, with a legend entry each.
 
     An explicit loop: the jitter draws from a shared random stream, so the
     mouse order fixes which noise each line gets.
     """
     x = np.arange(len(RANK_LABELS))
+    colors = _mouse_color_map(list(per_mouse))
     handles = []
-    for i, (subj, v) in enumerate(per_mouse.items()):
-        c = MOUSE_COLORS[i % len(MOUSE_COLORS)]
+    for subj, v in per_mouse.items():
         ax.plot(
-            jittered(x, jitter),
+            _jittered(x, jitter=jitter),
             [v[rank] for rank in RANKS],
-            color=c,
+            color=colors[subj],
             linewidth=2.5,
             marker="o",
             alpha=0.9,
             markersize=6,
         )
-        handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", label=subj))
+        handles.append(Line2D([0], [0], color=colors[subj], lw=2.5, marker="o", label=subj))
     ax.legend(handles=handles, fontsize=10, loc="upper right")
 
 
 def plot_rank_proportions_average_panel(
     per_mouse: dict,
-    means: list[float],
-    ses: list[float],
-    ax: plt.Axes | None = None,
     *,
+    ax: plt.Axes | None = None,
     pvalues: dict | None = None,
     jitter: float = 0.03,
 ) -> plt.Axes:
     """Mean best/second/third proportion bars with one jittered line per mouse.
 
+    The bars are the across-mouse mean and standard error from
+    :func:`src.behavior_analysis.rank_proportions_summary.rank_mean_and_se`,
+    which documents a known issue with the error bars.
+
     Args:
         per_mouse: ``{subject: {"best", "second", "third"}}`` from
-            :func:`mean_rank_proportions_by_subject`.
-        means, ses: Across-mouse mean and se per rank, from :func:`rank_mean_and_se`.
+            :func:`src.behavior_analysis.rank_proportions_summary.mean_rank_proportions_by_subject`.
         ax: Axes to draw into; a new figure is made if ``None``.
         pvalues: Optional ``"best_vs_second"``, ``"best_vs_third"``,
             ``"second_vs_third"`` p-values to print on the panel.
         jitter: Half-width of the horizontal jitter on the mouse lines.
     """
+    means, ses = rank_mean_and_se(per_mouse)
     if ax is None:
         _, ax = plt.subplots(figsize=(7, 5.5))
-    _draw_rank_bars(ax, means, ses, pvalues)
-    _draw_rank_mouse_lines(ax, per_mouse, jitter)
+    _draw_rank_bars(ax, means, ses, pvalues=pvalues)
+    _draw_rank_mouse_lines(ax, per_mouse, jitter=jitter)
     ax.set_title("Average Across Mice", pad=14)
     ax.set_xticks(np.arange(len(RANK_LABELS)))
     ax.set_xticklabels(RANK_LABELS)
@@ -757,12 +706,8 @@ def plot_rank_proportions_average_without_blocks(
         save_path: Path for saved figure (suffixes added automatically).
             If ``None``, the figure is shown interactively.
     """
-    per_mouse = mean_rank_proportions_by_subject(rank_counts_by_good_reversal)
-    means, ses = rank_mean_and_se(per_mouse)
-
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
-    plot_rank_proportions_average_panel(
-        per_mouse, means, ses, ax, pvalues=average_across_mice_pvalues
-    )
+    per_mouse = mean_rank_proportions_by_subject(rank_counts_by_good_reversal)
+    plot_rank_proportions_average_panel(per_mouse, ax=ax, pvalues=average_across_mice_pvalues)
     fig.tight_layout()
     _save_or_show(fig, save_path, ("pdf", "png"))
