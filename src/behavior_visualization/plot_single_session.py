@@ -273,11 +273,14 @@ def _draw_session(
     plot_choices_by_tower(choices_by, towers, N=N, ax=ax3)
     plot_choices_by_rank(latest_rank_counts(session_data), ax=ax4)
     _style_spines((ax1, ax2, ax3, ax4))
-    # The twin axis and the shared-x EMA panel can make tight_layout warn
-    # "This figure includes Axes that are not compatible with tight_layout";
-    # the layout it produces is still what we want, so hide that UserWarning.
+    # The GridSpecs set hspace/wspace explicitly, which tight_layout reports as
+    # "This figure includes Axes that are not compatible with tight_layout"
+    # (with or without the twin axis). tight_layout then recomputes the spacing
+    # itself and the result is what we want, so hide that one UserWarning.
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
+        warnings.filterwarnings(
+            "ignore", message=".*not compatible with tight_layout", category=UserWarning
+        )
         fig.tight_layout()
     return fig
 
