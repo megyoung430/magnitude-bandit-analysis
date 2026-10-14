@@ -161,3 +161,28 @@ def test_recording_without_a_run_start_row_raises(tmp_path):
     path.write_text("time\ttype\tsubtype\tcontent\n0.0\tinfo\tsubject_id\tM1\n")
     with pytest.raises(IndexError):
         import_data(tmp_path)
+
+
+def test_problem_number_stays_1_even_when_the_choice_towers_change(tmp_path):
+    # Known issue: the problem counter compares dict keys, which never differ, so it
+    # never increments. This pins the current behaviour; fixing the counter must update it.
+    first = {"curr_choice_tows": ["A1", "B1", "C1"], "curr_initiation_tow": "B2"}
+    second = {"curr_choice_tows": ["A2", "B2", "C2"], "curr_initiation_tow": "B1"}
+    write_tsv(session_dir(tmp_path), "M1-2026-01-01-100000.tsv", run_start=first)
+    write_tsv(
+        session_dir(tmp_path, session="ses-2_date-20260102"),
+        "M1-2026-01-02-100000.tsv",
+        run_start=second,
+    )
+    sessions = import_data(tmp_path)["M1"]
+    assert sessions["ses-1_date-20260101"]["choice_towers"] == {"A1", "B1", "C1"}
+    assert sessions["ses-2_date-20260102"]["choice_towers"] == {"A2", "B2", "C2"}
+    assert [s["problem"] for s in sessions.values()] == [1, 1]
+
+
+def test_recording_outside_any_session_folder_raises(tmp_path):
+    # Known issue: group_by_subj_and_ses documents only unparseable subjects as skipped;
+    # a missing session folder makes create_session_key raise instead.
+    write_tsv(tmp_path / "sub-01_id-M1", "M1-2026-01-01-100000.tsv")
+    with pytest.raises(AttributeError):
+        import_data(tmp_path)

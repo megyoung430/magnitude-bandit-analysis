@@ -43,7 +43,8 @@ def test_chosen_arm_rank_among_seen_arms():
 
 
 def test_ties_are_flagged_and_broken_by_arm_name():
-    offers = [{"A": 3, "B": 3, "C": 0}] * 4
+    # B is listed first, so only the arm-name tie-break (not insertion order) puts A ahead
+    offers = [{"B": 3, "A": 3, "C": 0}] * 4
     trials = compute_believed_value(["B", "A", "B", "A"], offers)
     assert [t["tied"] for t in trials] == [False, False, True, True]
     assert [t["believed_chosen_rank"] for t in trials][2:] == ["second", "best"]
