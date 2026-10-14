@@ -134,13 +134,17 @@ def test_update_hold_resets_changed_arms_and_increments_others():
 
 def test_advance_arms_respects_min_hold():
     cur = np.array([0, 3])
-    nxt = advance_arms(np.random.default_rng(0), cur, np.array([1, 1]), spec(pud=0.5, min_hold=5))
+    nxt = advance_arms(
+        np.random.default_rng(0), cur=cur, hold=np.array([1, 1]), chain=spec(pud=0.5, min_hold=5)
+    )
     np.testing.assert_array_equal(nxt, cur)
 
 
 def test_advance_arms_moves_when_hold_is_satisfied():
     cur = np.array([1, 2])
-    nxt = advance_arms(np.random.default_rng(0), cur, np.array([9, 9]), spec(pud=0.5))
+    nxt = advance_arms(
+        np.random.default_rng(0), cur=cur, hold=np.array([9, 9]), chain=spec(pud=0.5)
+    )
     assert (nxt != cur).all()
     assert ((0 <= nxt) & (nxt < 4)).all()
 
@@ -204,13 +208,13 @@ def test_swap_arm_roles_keeps_known_defect_when_inactive_arm_wins_argmax():
 
 
 def test_first_other_active_arm_skips_the_best_arm():
-    assert first_other_active_arm(1, [1, 0], old_inactive=2) == 0
-    assert first_other_active_arm(0, [1, 0], old_inactive=2) == 1
+    assert first_other_active_arm(1, active_arms=[1, 0], old_inactive=2) == 0
+    assert first_other_active_arm(0, active_arms=[1, 0], old_inactive=2) == 1
 
 
 def test_first_other_active_arm_falls_back_when_active_entries_are_duplicated():
-    assert first_other_active_arm(2, [2, 2], old_inactive=0) == 1
-    assert first_other_active_arm(2, [2, 2], old_inactive=1) == 0
+    assert first_other_active_arm(2, active_arms=[2, 2], old_inactive=0) == 1
+    assert first_other_active_arm(2, active_arms=[2, 2], old_inactive=1) == 0
 
 
 def test_build_arm_values_swaps_roles_after_each_boundary():
@@ -241,7 +245,7 @@ def test_best_run_lengths_cover_the_session():
 def test_session_metrics_summarise_gap_and_runs():
     gap = np.array([1.0, 2.0, 3.0, 0.0])
     best = np.array([0, 0, 1, 1])
-    assert session_metrics(gap, best) == (1.5, 0.5, 2.0, 0.0)
+    assert session_metrics(best_minus_second=gap, best_arm_series=best) == (1.5, 0.5, 2.0, 0.0)
 
 
 def test_build_session_has_expected_keys_and_block_counts():
@@ -287,7 +291,7 @@ def fake_result(gap, ge2, run_mean, run_std, switches):
 
 def test_summarize_sweep_cell_averages_over_simulations():
     results = [fake_result(1, 0.5, 10, 2, [1, 2]), fake_result(3, 0.5, 20, 4, [3])]
-    assert summarize_sweep_cell(results, True) == (2.0, 0.5, 15.0, 3.0, 2.0)
+    assert summarize_sweep_cell(results, include_switches=True) == (2.0, 0.5, 15.0, 3.0, 2.0)
 
 
 def test_mean_left_to_right_does_not_compensate_rounding():
@@ -297,7 +301,7 @@ def test_mean_left_to_right_does_not_compensate_rounding():
 
 def test_summarize_sweep_cell_skips_switches_when_not_requested():
     results = [(1.0, 0.0, 5.0, 1.0), (3.0, 1.0, 7.0, 1.0)]
-    assert summarize_sweep_cell(results, False) == (2.0, 0.5, 6.0, 1.0)
+    assert summarize_sweep_cell(results, include_switches=False) == (2.0, 0.5, 6.0, 1.0)
 
 
 def test_sweep_output_shapes_and_switch_option():

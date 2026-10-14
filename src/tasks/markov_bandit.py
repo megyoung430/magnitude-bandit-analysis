@@ -131,7 +131,7 @@ def step_in_direction(*, cur: int, direction: int, other_state: int, chain: Chai
 
 
 def advance_arms(
-    rng: np.random.Generator, cur: np.ndarray, hold: np.ndarray, chain: ChainSpec
+    rng: np.random.Generator, *, cur: np.ndarray, hold: np.ndarray, chain: ChainSpec
 ) -> np.ndarray:
     """Next state of both arms, visiting them in random order.
 
@@ -216,7 +216,7 @@ def sample_two_markov_bandits(
 
     # Sequential: each step reads the previous state and the dwell counts.
     for t in range(T - 1):
-        nxt = advance_arms(rng, state_vals[t], hold, chain)
+        nxt = advance_arms(rng, cur=state_vals[t], hold=hold, chain=chain)
         if enforce_distinct and nxt[0] == nxt[1]:
             nxt = resolve_collision(nxt, n_states)
         state_vals[t + 1] = nxt
@@ -266,7 +266,7 @@ def draw_block_boundaries(
     return boundaries[boundaries < T]
 
 
-def first_other_active_arm(best_arm: int, active_arms: list[int], old_inactive: int) -> int:
+def first_other_active_arm(best_arm: int, *, active_arms: list[int], old_inactive: int) -> int:
     """First active arm that is not *best_arm*.
 
     If every active entry is *best_arm* (a duplicated entry, reachable only after
@@ -303,7 +303,9 @@ def swap_arm_roles(
     # returns (2, [2, 0], {0: 0, 2: 0}). Later swaps can then raise KeyError.
     # Behaviour is kept so seeded results do not change.
     inherited_stream = arm_to_stream.get(best_arm, 0)
-    other_active = first_other_active_arm(best_arm, active_arms, old_inactive)
+    other_active = first_other_active_arm(
+        best_arm, active_arms=active_arms, old_inactive=old_inactive
+    )
     return (
         best_arm,
         [old_inactive, other_active],
@@ -348,7 +350,7 @@ def best_run_lengths(best_arm_series: np.ndarray) -> np.ndarray:
 
 
 def session_metrics(
-    best_minus_second: np.ndarray, best_arm_series: np.ndarray
+    *, best_minus_second: np.ndarray, best_arm_series: np.ndarray
 ) -> tuple[float, float, float, float]:
     """Summary of a session.
 
@@ -438,7 +440,7 @@ def simulate_3armed_blockswaps_markov(
 
     best_minus_second = gap_best_minus_second(vals3)
     best_arm_series = np.argmax(vals3, axis=1)
-    metrics = session_metrics(best_minus_second, best_arm_series)
+    metrics = session_metrics(best_minus_second=best_minus_second, best_arm_series=best_arm_series)
     if not return_session:
         return metrics
 
@@ -467,7 +469,7 @@ def mean_left_to_right(values: Iterable[float]) -> float:
     return reduce(operator.add, values, 0.0) / len(values)
 
 
-def summarize_sweep_cell(results: list[tuple], include_switches: bool) -> tuple[float, ...]:
+def summarize_sweep_cell(results: list[tuple], *, include_switches: bool) -> tuple[float, ...]:
     """Average the simulations of one (max_block_len, pud) cell.
 
     Args:
@@ -543,7 +545,7 @@ def sweep_markov_metrics(
                 simulate(pud=float(pud), max_block_len=int(mbl), min_block_len=int(mbl) - 10)
                 for _ in range(n_sims)
             ]
-            cell = summarize_sweep_cell(results, include_switches)
+            cell = summarize_sweep_cell(results, include_switches=include_switches)
             for heatmap, value in zip(heatmaps, cell, strict=True):
                 heatmap[i, j] = value
             print(f"Done pud={pud:.4f}, max_block_len={mbl}")
