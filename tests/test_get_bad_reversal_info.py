@@ -175,6 +175,13 @@ def test_choice_slices_drop_indices_past_the_end_of_each_array():
     assert out[1]["choices_by_tower"]["A"] == {"pre": [1, 1], "post": [1, 1, 1]}
 
 
+def test_towers_come_from_the_reward_data_even_when_choices_name_more_towers():
+    choices = {t: [1] * 10 for t in ("A", "B", "C", "D")}
+    out = get_bad_reversal_info(one_subject(make_session(BAD, choices=choices)))["mouse"]
+    assert out[0]["towers"] == ["A", "B", "C"]
+    assert list(out[0]["choices_by_tower"]) == ["A", "B", "C", "D"]
+
+
 def test_towers_without_reward_data_are_skipped_with_a_message(capsys):
     session = make_session(BAD)
     session["reward_magnitudes_by_tower"] = {}
