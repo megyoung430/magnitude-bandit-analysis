@@ -39,7 +39,7 @@ def columns(labels, row):
 
 
 def test_design_labels_follow_column_layout():
-    labels = g._design_labels(["c1", "c2", "c3"], ["i1", "i2", "i3"], n_lags=2)
+    labels = g._design_labels(["c1", "c2", "c3"], interaction_terms=["i1", "i2", "i3"], n_lags=2)
     assert labels == (
         ["Bias"]
         + ["c1 t-1", "c2 t-1", "c3 t-1", "c1 t-2", "c2 t-2", "c3 t-2"]

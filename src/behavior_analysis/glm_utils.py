@@ -32,7 +32,7 @@ def make_arm_mapping(tower_keys: Any) -> dict[str, str]:
     return {k: f"Arm{i + 1}" for i, k in enumerate(keys_sorted)}
 
 
-def remap_tower_dict_to_arms(d: dict, mapping: dict[str, str]) -> dict[str, Any]:
+def remap_tower_dict_to_arms(d: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
     """Remap a ``{tower: data}`` dict to ``{ArmN: data}`` using a mapping.
 
     Args:
@@ -46,8 +46,8 @@ def remap_tower_dict_to_arms(d: dict, mapping: dict[str, str]) -> dict[str, Any]
 
 
 def get_chosen_reward_per_trial(
-    choices_by_tower: dict,
-    reward_magnitudes_by_tower: dict,
+    choices_by_tower: dict[str, list[int]],
+    reward_magnitudes_by_tower: dict[str, list[float]],
 ) -> list[float]:
     """Extract the reward magnitude of the chosen tower at each trial.
 
@@ -107,9 +107,12 @@ def _n_design_cols(n_lags: int) -> int:
 
 
 def _design_labels(
-    choice_terms: list[str], interaction_terms: list[str], *, n_lags: int
+    choice_terms: list[str], *, interaction_terms: list[str], n_lags: int
 ) -> list[str]:
     """Column labels in design-matrix order: bias, choices, rewards, interactions.
+
+    ``interaction_terms`` is keyword-only: the two term lists have the same
+    shape, and swapping them would silently mislabel the columns.
 
     Choice and interaction terms repeat once per lag (lag-major), the reward
     term has a single column per lag.
@@ -195,10 +198,10 @@ def _design_matrix(
 
 
 def _designs_by_subject(
-    merged_data: dict,
+    merged_data: dict[str, dict[str, Any]],
     *,
-    design_fn: Callable[[dict], tuple[np.ndarray, np.ndarray]],
-) -> tuple[dict, dict]:
+    design_fn: Callable[[dict[str, Any]], tuple[np.ndarray, np.ndarray]],
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """Apply ``design_fn(subject_data) -> (regressors, true_choices)`` to every subject.
 
     Returns ``({subject: regressors}, {subject: true_choices})``.
@@ -212,14 +215,18 @@ def _designs_by_subject(
 def _arm_labels(n_lags: int) -> list[str]:
     arms = [f"Arm{a}" for a in range(1, _N_ARMS + 1)]
     return _design_labels(
-        [f"Choice {a}" for a in arms], [f"Chx Rew {a}" for a in arms], n_lags=n_lags
+        [f"Choice {a}" for a in arms],
+        interaction_terms=[f"Chx Rew {a}" for a in arms],
+        n_lags=n_lags,
     )
 
 
 def _rank_labels(n_lags: int) -> list[str]:
     ranks = [r.capitalize() for r in _RANK_NAMES]
     return _design_labels(
-        [f"Chose {r}" for r in ranks], [f"{r}*Reward" for r in ranks], n_lags=n_lags
+        [f"Chose {r}" for r in ranks],
+        interaction_terms=[f"{r}*Reward" for r in ranks],
+        n_lags=n_lags,
     )
 
 
@@ -228,19 +235,23 @@ def _rank_labels(n_lags: int) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _check_three_arms(choices_by_arm: dict, n_towers: int) -> None:
-    """Read the first kept trial's choices, failing for a tower count other than three.
+def _raise_unless_three_arms(choices_by_arm: dict[str, list[int]], *, n_towers: int) -> None:
+    """Fail for a tower count other than three, by assigning three choices into ``n_towers`` slots.
 
-    Known issue: only exactly three towers are supported and this is not
-    checked up front. Fewer towers fail with ``KeyError('Arm3')`` (or
-    ``'Arm2'``), more with numpy's "could not broadcast input array" error,
-    both raised by the row assignment below.
+    The assignment below is the check, not scratch work: its result is unused,
+    but it is what raises. Fewer towers fail with ``KeyError('Arm3')`` (or
+    ``'Arm2'``) while the three arm choices are looked up; more fail with
+    numpy's "could not broadcast input array" ``ValueError``. Removing it would
+    let a 4th or later tower silently drop out of the design matrix.
+
+    Known issue: the check is implicit and its message does not name the cause;
+    the exception types and messages are kept as they have always been.
     """
     first_row = np.zeros(n_towers)
     first_row[:] = [choices_by_arm[f"Arm{a}"][1] for a in range(1, _N_ARMS + 1)]
 
 
-def _choice_rows(series: list[list], n_trials: int) -> list[list]:
+def _choice_rows(series: list[list[int]], *, n_trials: int) -> list[list[int]]:
     """The first ``n_trials`` choices of every arm series, one row per trial.
 
     Raises ``IndexError`` if a series is shorter than ``n_trials``.
@@ -248,7 +259,9 @@ def _choice_rows(series: list[list], n_trials: int) -> list[list]:
     return [[s[t] for s in series] for t in range(n_trials)]
 
 
-def _arm_design_for_subject(subject_data: dict, *, n_lags: int) -> tuple[np.ndarray, np.ndarray]:
+def _arm_design_for_subject(
+    subject_data: dict[str, Any], *, n_lags: int
+) -> tuple[np.ndarray, np.ndarray]:
     """Full-width regressors and true choices (first trial dropped) for one subject.
 
     Known issue: a choice series shorter than ``trial`` raises ``IndexError``,
@@ -266,25 +279,25 @@ def _arm_design_for_subject(subject_data: dict, *, n_lags: int) -> tuple[np.ndar
         return np.zeros((0, _n_design_cols(n_lags))), np.zeros((0, n_towers))
 
     choices_by_arm = remap_tower_dict_to_arms(choices_by_tower, make_arm_mapping(choices_by_tower))
-    _check_three_arms(choices_by_arm, n_towers)
+    _raise_unless_three_arms(choices_by_arm, n_towers=n_towers)
     series = [choices_by_arm[f"Arm{a}"] for a in range(1, _N_ARMS + 1)]
 
     # Rewards are checked for the trials that have choices before a short choice
     # series is reported, so errors surface in trial order.
     readable = min(n_trials, *map(len, series))
     rewards, interactions = _history_terms(
-        _choice_rows(series, readable), chosen_rewards, n_lags=n_lags
+        _choice_rows(series, n_trials=readable), chosen_rewards, n_lags=n_lags
     )
-    choices = np.array(_choice_rows(series, n_trials), dtype=float)
+    choices = np.array(_choice_rows(series, n_trials=n_trials), dtype=float)
     x = _design_matrix(choices, rewards, interactions, n_lags=n_lags, fill=0.0)
     return x[1:], choices[1:]
 
 
 def format_glm_input(
-    data: dict,
+    data: dict[str, Any],
     n_lags: int = 4,
     drop_redundant_cols: bool = True,
-) -> tuple[dict, dict, list[str]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]:
     """Build GLM design matrices and true-choice arrays for all subjects.
 
     Constructs a regressor matrix per subject containing a bias term,
@@ -341,7 +354,7 @@ def format_glm_input(
 # ---------------------------------------------------------------------------
 
 
-def _ranks_from_magnitudes(magnitudes: dict) -> dict:
+def _ranks_from_magnitudes(magnitudes: dict[str, float]) -> dict[str, str]:
     """Map tower -> "best"/"second"/"third" by descending magnitude.
 
     Ties are broken deterministically by tower key (lexicographic); any tower
@@ -382,20 +395,24 @@ def _get_believed_rank_at_trial(
     return result
 
 
-def _chosen_tower_per_trial(choices_by_tower: dict, towers: list, *, n_trials: int) -> list:
+def _chosen_tower_per_trial(
+    choices_by_tower: dict[str, list[int]], towers: list[str], *, n_trials: int
+) -> list[str | None]:
     """The chosen tower at each trial, or ``None`` unless exactly one was chosen."""
     chosen = [[t for t in towers if choices_by_tower[t][i] == 1] for i in range(n_trials)]
     return [c[0] if len(c) == 1 else None for c in chosen]
 
 
 def _reward_magnitudes_per_trial(
-    reward_magnitudes_by_tower: dict, towers: list, *, n_trials: int
-) -> list[dict]:
+    reward_magnitudes_by_tower: dict[str, list[float]], towers: list[str], *, n_trials: int
+) -> list[dict[str, float]]:
     """``{tower: magnitude}`` for each trial."""
     return [{t: reward_magnitudes_by_tower[t][i] for t in towers} for i in range(n_trials)]
 
 
-def _chosen_rewards(reward_magnitudes_by_tower: dict, chosen_towers: list) -> list:
+def _chosen_rewards(
+    reward_magnitudes_by_tower: dict[str, list[float]], chosen_towers: list[str | None]
+) -> list[float | None]:
     """Reward magnitude of the chosen tower at each trial (NaN when none was chosen).
 
     A list of the original values: a missing (``None``) reward is left for
@@ -407,7 +424,9 @@ def _chosen_rewards(reward_magnitudes_by_tower: dict, chosen_towers: list) -> li
     ]
 
 
-def _chose_rank_indicators(chosen_towers: list, ranks_per_trial: list) -> list[list]:
+def _chose_rank_indicators(
+    chosen_towers: list[str | None], ranks_per_trial: list[dict[str, str] | None]
+) -> list[list[float]]:
     """One row per trial: one-hot of the chosen rank [best, second, third].
 
     Rows are all NaN where no single tower was chosen or no rank is available.
@@ -430,7 +449,7 @@ def _complete_history_rows(regressors: np.ndarray) -> np.ndarray:
 
 
 def _rank_design_for_subject(
-    subject_data: dict, *, use_believed: bool, n_lags: int
+    subject_data: dict[str, Any], *, use_believed: bool, n_lags: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """Full-width regressors and rank-ordered true choices for one subject.
 
@@ -466,11 +485,11 @@ def _rank_design_for_subject(
 
 
 def format_glm_input_by_rank(
-    data: dict,
+    data: dict[str, Any],
     use_believed: bool = False,
     n_lags: int = 4,
     drop_redundant_cols: bool = True,
-) -> tuple[dict, dict, list[str]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]:
     """Build rank-ordered GLM design matrices for all subjects.
 
     Like :func:`format_glm_input` but arms are ordered by rank (best,
