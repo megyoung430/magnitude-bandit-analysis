@@ -41,6 +41,17 @@ Behaviour-preserving refactor, test-first (principle 7):
 - Commit on your branch in your worktree only, small commits, messages per principle 10. Set
   `status: in review` in this file in your final commit.
 
+## Fixed regression: the sweep divisor
+
+`sweep_markov_metrics` divides each accumulated sum by `n_sims`, so `n_sims=0` raises ZeroDivisionError ("float division by
+zero") and a negative `n_sims` runs no simulations and returns `-0.0` heatmaps (with `include_switches=True` the switch mean
+then raises "division by zero", from `0 / 0` blocks). `summarize_sweep_cell(results, *, n_sims, include_switches)` and
+`mean_left_to_right(values, *, count=None)` take `n_sims` as the divisor again, still adding left to right. Golden tests
+cover n_sims in {-3, -1} (negative-zero heatmaps, ZeroDivisionError with switches), n_sims=0, and a cell whose `n_sims`
+differs from `len(results)`. An exact comparison against main (raw bytes, dtype, global RNG state, Generator state, stdout,
+exception type and message) is identical for n_sims in {-3, -2, -1, 0, 1, 3, 11} with and without switches,
+`collect_markov_run_stats` with n_sims in {-1, 0, 1, 3}, and 20 seeds of the sweep, run stats and simulation.
+
 ## Remaining differences from main (error paths only)
 Return values, generator and global RNG state, printed lines and exception types and messages match main on every
 compared input. One difference remains in the matplotlib state left behind when `plot_example_session_markov` raises:
