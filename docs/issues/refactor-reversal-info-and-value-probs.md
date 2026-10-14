@@ -1,7 +1,7 @@
 ---
 type: infrastructure
 complexity: simple
-status: in review
+status: done
 ---
 
 # Split get_bad_reversal_info and accumulate_choice_probs
