@@ -19,8 +19,9 @@ def event_indices_from_cumulative(counter, N=None):
             elements before processing (default: ``None``).
 
     Returns:
-        List of trial indices (1-based) where the counter value increases
-        relative to the previous trial.
+        List of 0-based trial indices where the counter value increases
+        relative to the previous trial, i.e. the index of the first trial
+        after each increment.
     """
     if counter is None:
         return []
@@ -42,6 +43,11 @@ def reversal_event_indices(session_data, N):
 
     Returns:
         ``(good_idx, bad_idx, block_idx)``, each a list of trial indices.
+
+    Known limitations (kept so the figure matches the original):
+    any boundary-event ``kind`` other than ``"good"`` is treated as a bad
+    reversal, and event indices are not checked against *N*, so an event
+    beyond the last trial still gets a line, which stretches the x-axis.
     """
     good_idx = event_indices_from_cumulative(session_data.get("good_reversals"), N=N)
     bad_idx = event_indices_from_cumulative(session_data.get("bad_reversals"), N=N)
@@ -58,6 +64,10 @@ def chosen_magnitudes(mags_by, choices_by, towers, N):
 
     Trials without a recorded choice are NaN. If several towers are flagged on
     one trial, the first in *towers* order wins.
+
+    Only a flag of exactly 1 counts as a choice, whereas
+    :func:`choice_counts_by_tower` sums the raw values, so a flag of 2 is
+    counted twice there but is not a choice here.
     """
     return np.array(
         [
@@ -76,12 +86,21 @@ def chosen_magnitudes(mags_by, choices_by, towers, N):
 
 
 def choice_counts_by_tower(choices_by, towers, N):
-    """Number of choices of each tower over the first *N* trials (NaN counts as 0)."""
+    """Number of choices of each tower over the first *N* trials (NaN counts as 0).
+
+    Sums the raw flag values (a 2 counts twice); see :func:`chosen_magnitudes`
+    for the stricter ``== 1`` rule used for the dots on the magnitude panel.
+    """
     return [int(np.nansum(np.asarray(choices_by[t][:N], dtype=float))) for t in towers]
 
 
 def has_ema_traces(session_data, ema_keys):
     """True when any of *ema_keys* holds at least one non-``None`` value.
+
+    This decides whether the figure gets an EMA panel. The panel then plots
+    every key that is *present* (even if its value is ``None``), so one key
+    with data next to another set to ``None`` passes this check and then
+    fails inside matplotlib ("x and y must have same first dimension").
 
     Written with ``in`` and ``[]`` rather than ``.get`` so that a non-mapping
     *session_data* raises ``TypeError`` (as the original single function did),
@@ -120,7 +139,11 @@ def validate_choice_probabilities(probabilities_by_tower, towers, N):
 
 
 def latest_rank_counts(session_data):
-    """The final cumulative ``{rank: count}`` dict, or ``None`` if unavailable."""
+    """The final cumulative ``{rank: count}`` dict, or ``None`` if unavailable.
+
+    A last entry that is not a dict (malformed data) also gives ``None``, which
+    the figure shows as "No rank data" instead of raising.
+    """
     history = session_data.get("rank_counts")
     if not history:
         return None
@@ -140,5 +163,7 @@ def ordered_rank_counts(rank_counts):
 
 def percent_of_total(counts):
     """Each count as a percentage of the total (an all-zero total counts as 1)."""
+    # An all-zero panel (no choices, or all-zero rank counts) should label its
+    # bars "0%" rather than divide by zero.
     total = max(int(np.sum(counts)), 1)
     return [100.0 * c / total for c in counts]

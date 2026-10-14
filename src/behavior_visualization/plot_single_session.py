@@ -16,7 +16,7 @@ import src.behavior_visualization.plot_style  # noqa: F401  # applies rcParams
 from src.behavior_analysis.single_session import (
     choice_counts_by_tower,
     chosen_magnitudes,
-    event_indices_from_cumulative,  # noqa: F401  # re-exported for existing callers
+    event_indices_from_cumulative,  # noqa: F401  # kept importable here; it was part of this module's public API
     has_ema_traces,
     latest_rank_counts,
     ordered_rank_counts,
@@ -76,7 +76,8 @@ def plot_magnitudes_and_choices(mags_by, choices_by, towers, reversals, title=No
     ax = _ensure_ax(ax)
     N = len(mags_by[towers[0]])
     x = np.arange(N)
-    # Towers beyond the palette length are not drawn.
+    # Towers beyond the palette length (3) are not drawn, though their choices
+    # still count in the bar chart.
     for tower, color in zip(towers, TOWER_COLORS, strict=False):
         ax.plot(
             x, np.asarray(mags_by[tower], dtype=float), linewidth=2.5, color=color, label=f"{tower}"
@@ -208,7 +209,11 @@ def _style_spines(axes):
 def _draw_session(
     session_data, mag_key, choice_key, ema_keys, title, choice_probabilities_by_tower
 ):
-    """Build the four-panel figure for one session and return it."""
+    """Build the four-panel figure for one session and return it.
+
+    The figure is created before the inputs are fully validated, so an error
+    raised afterwards (e.g. invalid probabilities) leaves it open in pyplot.
+    """
     has_ema = has_ema_traces(session_data, ema_keys)
     mags_by = session_data[mag_key]
     choices_by = session_data[choice_key]
@@ -266,6 +271,23 @@ def plot_single_session(
             by physical tower, aligned to session trials; dashed lines on a right axis.
         save_path: Base path (without extension) for saving ``.pdf`` and
             ``.png`` output.  If ``None``, the figure is shown interactively.
+
+    Raises:
+        KeyError: if *mag_key* or *choice_key* is missing from *session_data*.
+        TypeError: if *session_data* is not a mapping.
+        ValueError: if *choice_probabilities_by_tower* does not use the
+            session's tower labels, or is not finite, within [0, 1], aligned
+            to every trial and normalized on each trial; also from matplotlib
+            when one EMA key holds data and another is ``None``.
+
+    Notes:
+        ``session_data["reversal_boundary_events"]`` (optional) is a list of
+        ``{"kind": "good" | "bad", "index": int}`` dicts that add reversal lines
+        the cumulative ``good_reversals`` / ``bad_reversals`` counters did not
+        mark; any kind other than ``"good"`` is drawn as a bad reversal.
+
+        The figure is closed on success but left open in pyplot when an error
+        is raised while drawing or saving it.
     """
     fig = _draw_session(
         session_data, mag_key, choice_key, ema_keys, title, choice_probabilities_by_tower
