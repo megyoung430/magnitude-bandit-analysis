@@ -48,7 +48,7 @@ from src.behavior_visualization.plot_rank_proportions import plot_rank_proportio
 from src.behavior_visualization.plot_single_session import plot_single_session
 
 VALUE_BASIS_LABELS = {"true": "True Value", "believed": "Believed Value"}
-CHOICE_PROBS_NAME = "Choice Probabilities Around Good Reversals"
+_CHOICE_PROBS_NAME = "Choice Probabilities Around Good Reversals"
 
 
 class ChoiceProbabilitySettings(BaseModel):
@@ -155,7 +155,7 @@ def _plot_all_reversals(subjects_trials, out_dir: Path, s: ChoiceProbabilitySett
     early, late = split_good_reversals_early_late(windows, first_n=2)
     for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
         _plot_with_reversal_axis(
-            *_choice_probs(w, s), w, idx, out_dir / f"{CHOICE_PROBS_NAME}{suffix}", only_good=True
+            *_choice_probs(w, s), w, idx, out_dir / f"{_CHOICE_PROBS_NAME}{suffix}", only_good=True
         )
 
 
@@ -170,7 +170,7 @@ def _plot_skipping_initial_trials(subjects_trials, out_dir: Path, s: ChoiceProba
             across,
             add_cumulative_axis=False,
             skip_n_trials_after_reversal=s.skip_n_trials_after_reversal,
-            save_path=out_dir / f"{CHOICE_PROBS_NAME}, Skipping Initial Trials{suffix}",
+            save_path=out_dir / f"{_CHOICE_PROBS_NAME}, Skipping Initial Trials{suffix}",
         )
 
 
@@ -189,7 +189,7 @@ def _plot_moving_average(subjects_trials, out_dir: Path, s: ChoiceProbabilitySet
             *_choice_probs(w, s, smooth=True),
             w,
             idx,
-            out_dir / f"{CHOICE_PROBS_NAME} (Moving Average){suffix}",
+            out_dir / f"{_CHOICE_PROBS_NAME} (Moving Average){suffix}",
             only_good=True,
         )
 
@@ -209,7 +209,7 @@ def _plot_remove_bad(subjects_trials, out_dir: Path, s: ChoiceProbabilitySetting
             *_choice_probs(w, s, smooth=True),
             w,
             idx,
-            out_dir / f"{CHOICE_PROBS_NAME} (Remove Bad){suffix}",
+            out_dir / f"{_CHOICE_PROBS_NAME} (Remove Bad){suffix}",
             only_good=False,
         )
 

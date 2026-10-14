@@ -18,7 +18,7 @@ from src.tasks.drifting_bandit import DriftingBanditTask
 
 NAMES = ["learning_rate", "beta", "alpha"]
 # A bound is "hit" when the recovered value lies within this distance of it.
-AT_BOUND_ATOL = 1e-4
+_AT_BOUND_ATOL = 1e-4
 
 
 def recovery_design(config):
@@ -56,14 +56,16 @@ def recovery_design(config):
 # ---------------------------------------------------------------------------
 
 
-def _write_json_atomically(path: Path, payload, *, indent: int | None = None) -> None:
+def _write_json_atomically(path: Path, payload, *, indent: int) -> None:
     """Write via a temporary file so an interrupted run never leaves a partial file."""
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, indent=indent, allow_nan=False))
     temporary.replace(path)
 
 
-def _build_manifest(config: dict, bounds: list, fit_function: Callable, loss_function: Callable):
+def _build_manifest(
+    config: dict, *, bounds: list, fit_function: Callable, loss_function: Callable
+) -> dict:
     """Config, bounds and the source of everything that determines the results.
 
     The whole module text is hashed, so editing a helper or a module constant (such as the
@@ -128,7 +130,7 @@ def _simulate_session(row: dict, config: dict) -> tuple[dict, np.ndarray, np.nda
     return params, np.asarray(actions), np.asarray(rewards), task.arm_history
 
 
-def _save_session_data(path: Path, actions, rewards, arm_history) -> None:
+def _save_session_data(path: Path, *, actions, rewards, arm_history) -> None:
     """Save the synthetic session atomically."""
     with path.with_suffix(".tmp").open("wb") as handle:
         np.savez_compressed(
@@ -140,14 +142,14 @@ def _save_session_data(path: Path, actions, rewards, arm_history) -> None:
 def _at_bound(value: float, limits) -> bool:
     # Known issue: a None limit (an unbounded side) raises TypeError here, unlike the
     # cohort fits, which skip None limits.
-    return bool(any(np.isclose(value, b, atol=AT_BOUND_ATOL, rtol=0) for b in limits))
+    return bool(any(np.isclose(value, b, atol=_AT_BOUND_ATOL, rtol=0) for b in limits))
 
 
 def _fit_session(
     row: dict,
+    *,
     fit_function: Callable,
     bounds: list,
-    *,
     actions,
     rewards,
     num_arms: int,
@@ -179,12 +181,26 @@ def _fit_session(
 
 
 def _recover_one_run(
-    row: dict, config: dict, fit_function: Callable, loss_function: Callable, bounds: list, output
+    row: dict,
+    *,
+    config: dict,
+    fit_function: Callable,
+    loss_function: Callable,
+    bounds: list,
+    output: Path,
 ) -> None:
-    """Simulate, save and fit one design row, adding the results to *row* in place."""
+    """Recover one design row's parameters, adding the results to *row* in place.
+
+    Simulates the session, saves it, scores the true parameters and fits.
+    """
     params, actions, rewards, arm_history = _simulate_session(row, config)
     num_arms = len(config["initial_arms"])
-    _save_session_data(output / f"session_{row['run_id']}.npz", actions, rewards, arm_history)
+    _save_session_data(
+        output / f"session_{row['run_id']}.npz",
+        actions=actions,
+        rewards=rewards,
+        arm_history=arm_history,
+    )
     row["true_loss"] = float(
         loss_function([params[name] for name in NAMES], actions, rewards, num_arms)
     )
@@ -192,8 +208,8 @@ def _recover_one_run(
     fit_started = time.perf_counter()
     _fit_session(
         row,
-        fit_function,
-        bounds,
+        fit_function=fit_function,
+        bounds=bounds,
         actions=actions,
         rewards=rewards,
         num_arms=num_arms,
@@ -215,7 +231,9 @@ def run_recovery(config, fit_function, loss_function, bounds, output_root, max_n
     design = recovery_design(config)
     if design.empty or design.run_id.duplicated().any():
         raise ValueError("Design must contain unique, nonempty conditions.")
-    manifest = _build_manifest(config, bounds, fit_function, loss_function)
+    manifest = _build_manifest(
+        config, bounds=bounds, fit_function=fit_function, loss_function=loss_function
+    )
     output = _create_experiment_dir(output_root, manifest, design)
     checkpoint = output / "results.json"
     rows = json.loads(checkpoint.read_text()) if checkpoint.exists() else []
@@ -229,7 +247,14 @@ def run_recovery(config, fit_function, loss_function, bounds, output_root, max_n
     started = time.perf_counter()
     with _preserved_global_rng():
         for count, row in enumerate(pending.to_dict("records"), 1):
-            _recover_one_run(row, config, fit_function, loss_function, bounds, output)
+            _recover_one_run(
+                row,
+                config=config,
+                fit_function=fit_function,
+                loss_function=loss_function,
+                bounds=bounds,
+                output=output,
+            )
             rows.append(row)
             _write_json_atomically(checkpoint, rows, indent=2)
             elapsed = time.perf_counter() - started

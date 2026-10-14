@@ -249,7 +249,9 @@ class _TrajectoryViewer:
             self._clear_output(wait=True)
             # Exceptions inside a widget callback never reach the notebook cell, so they
             # are printed into the output area instead.
-            # Known issue: the broad except also turns programming errors into text.
+            # Known issue: the broad except also catches the first draw (which runs in the
+            # cell, where errors would show normally) and turns programming errors into
+            # one line of text with no traceback.
             try:
                 self._show_selected_session()
             except Exception as exc:
@@ -258,6 +260,9 @@ class _TrajectoryViewer:
     def change_session(self, change=None) -> None:
         if self._updating or self.session.value is None:
             return
+        # Known issue: _updating is reset without try/finally, so an exception in between
+        # (for example window.max = 0 for an empty session) leaves it True and every later
+        # redraw returns early. The same holds in change_subject.
         self._updating = True
         total = len(self.eligible[self.session.value][0]["actions"])
         self.window.value = (1, 1)
@@ -281,8 +286,9 @@ class _TrajectoryViewer:
 def trajectory_viewer(results, sequences):
     """Return linked subject/session dropdowns and a held-out trajectory plot."""
     widgets = _import_ipywidgets()
+    # IPython is imported first so a missing IPython is reported before a missing matplotlib.
+    from IPython.display import clear_output, display  # noqa: I001
     import matplotlib.pyplot as plt
-    from IPython.display import clear_output, display
 
     eligible = held_out_sessions(results, sequences)
     if not eligible:

@@ -19,7 +19,7 @@ from src.behavior_analysis.problem_utils import session_sort_key
 
 PARAMETER_NAMES = ["learning_rate", "beta", "alpha"]
 DEFAULT_BOUNDS = [(0.001, 1.0), (0.01, 10.0), (0.0, 3.0)]
-AUDIT_COLUMNS = [
+_AUDIT_COLUMNS = [
     "mouse",
     "problem",
     "session",
@@ -31,7 +31,7 @@ AUDIT_COLUMNS = [
     "towers",
 ]
 # A bound is "hit" when the fitted value lies within this distance of it.
-AT_BOUND_ATOL = 1e-4
+_AT_BOUND_ATOL = 1e-4
 
 
 def _validated_session_arrays(data: dict, choices: list) -> tuple[list, np.ndarray, np.ndarray]:
@@ -100,7 +100,7 @@ def prepare_cohort_sequences(problems, problem_numbers=range(5, 12)):
                 except (TypeError, ValueError) as error:
                     row["reason"] = str(error)
                 audit.append(row)
-    return sequences, pd.DataFrame(audit, columns=AUDIT_COLUMNS)
+    return sequences, pd.DataFrame(audit, columns=_AUDIT_COLUMNS)
 
 
 def sequence_log_probabilities(params, sequence, return_gradient=False):
@@ -314,12 +314,13 @@ def _fold_seed(seed: int, fold_key: str) -> int:
 
 def _at_bound(value: float, limits) -> bool:
     return bool(
-        any(np.isclose(value, b, atol=AT_BOUND_ATOL, rtol=0) for b in limits if b is not None)
+        any(np.isclose(value, b, atol=_AT_BOUND_ATOL, rtol=0) for b in limits if b is not None)
     )
 
 
 def _fold_row_skeleton(
     mouse: str,
+    *,
     held_out: int,
     problem_numbers: list[int],
     training: list[dict],
@@ -373,6 +374,9 @@ def _score_held_out(
                 cross_entropy=float(losses.mean()),
             )
         )
+        # Known issue: zip truncates to the shorter of actions and rewards, so a hand-built
+        # session with fewer rewards than actions loses its trailing trials from the
+        # predictions (prepare_cohort_sequences guarantees equal lengths).
         for t, (action, reward, loss) in enumerate(
             zip(actions, s["rewards"], losses, strict=False)
         ):
@@ -397,13 +401,12 @@ def _record_fit_metrics(
     """Fill the fold row's training/test loss, parameters and at-bound flags in place."""
     params = fit["parameters"]
     row["train_cross_entropy"] = fit["loss"]
-    row.update(
-        test_cross_entropy=float(nll / row["n_test_trials"]),
-        uniform_cross_entropy=float(np.log(3)),
-    )
+    row["test_cross_entropy"] = float(nll / row["n_test_trials"])
     row["improvement_over_uniform"] = row["uniform_cross_entropy"] - row["test_cross_entropy"]
     # Known issue: zip truncates to the shortest of names, parameters and bounds, so a
-    # wrong-length bounds list drops parameters silently instead of raising.
+    # bounds list shorter than the parameters drops them silently instead of raising. The
+    # best_rl and released_rl models check their bounds length up front; sticky_rl never
+    # validates it.
     for name, value, limits in zip(parameter_names, params, bounds, strict=False):
         row[name] = float(value)
         row[f"at_bound_{name}"] = _at_bound(value, limits)
@@ -453,13 +456,13 @@ def _fit_and_score_fold(
     fit, starts = spec.fit_function(training, settings.bounds, settings.n_starts, fold_seed)
     row = _fold_row_skeleton(
         mouse,
-        held_out,
-        settings.problem_numbers,
-        training,
-        validation,
-        fit,
-        starts,
-        spec.parameter_names,
+        held_out=held_out,
+        problem_numbers=settings.problem_numbers,
+        training=training,
+        validation=validation,
+        fit=fit,
+        starts=starts,
+        parameter_names=spec.parameter_names,
     )
     fold_sessions = []
     if fit is not None:
@@ -487,6 +490,8 @@ def _run_fold(
     fold_file = output / f"fold_{fold_key}.json"
     if fold_file.exists():
         saved = json.loads(fold_file.read_text())
+        # Known issue: fit_succeeded is True here even when the saved fold's fit failed
+        # (saved["fold"]["success"] is False); callers do not read it for loaded folds.
         return _FoldResult(saved["fold"], saved["sessions"], loaded=True, fit_succeeded=True)
     row, fold_sessions, saved, fit_succeeded = _fit_and_score_fold(
         mouse, mouse_sequences, held_out, settings=settings, output=output, fold_key=fold_key
