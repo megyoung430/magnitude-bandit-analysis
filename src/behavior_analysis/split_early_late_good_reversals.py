@@ -6,6 +6,37 @@ experienced).
 """
 
 
+def _as_count(n):
+    """*n* as a non-negative int (negative counts mean zero)."""
+    return max(0, int(n))
+
+
+def _split_sorted(revs_sorted, *, first_n, last_n):
+    """``(early, late)`` slices of an ordered, non-empty reversal list."""
+    n = len(revs_sorted)
+    if first_n is None and last_n is None:
+        mid = n // 2
+        return revs_sorted[:mid], revs_sorted[mid:]
+
+    if first_n is not None:
+        first_n = _as_count(first_n)
+    if last_n is not None:
+        last_n = _as_count(last_n)
+    # A split that is not given is the remainder of the one that is, so the
+    # two cut points coincide; given both, the windows may overlap or leave a gap.
+    early_end = min(first_n, n) if first_n is not None else max(0, n - last_n)
+    late_start = max(0, n - last_n) if last_n is not None else min(first_n, n)
+    return revs_sorted[:early_end], revs_sorted[late_start:]
+
+
+def _split_subject(revs, *, first_n, last_n):
+    """``(early, late)`` for one subject's reversals; both empty if it has none."""
+    if not revs:
+        return [], []
+    revs_sorted = sorted(revs, key=lambda r: r.get("good_reversal_number", 0))
+    return _split_sorted(revs_sorted, first_n=first_n, last_n=last_n)
+
+
 def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=None):
     """Split good-reversal windows into early and late subsets per subject.
 
@@ -36,46 +67,6 @@ def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=Non
         ``{subject: list[reversal_dict]}`` dict.
     """
     early, late = {}, {}
-
     for subj, revs in good_reversal_info.items():
-        if not revs:
-            early[subj] = []
-            late[subj] = []
-            continue
-
-        revs_sorted = sorted(revs, key=lambda r: r.get("good_reversal_number", 0))
-        n = len(revs_sorted)
-
-        # Default: split into halves
-        if first_n is None and last_n is None:
-            mid = n // 2
-            early[subj] = revs_sorted[:mid]
-            late[subj] = revs_sorted[mid:]
-            continue
-
-        # Custom: first_n / last_n
-        early_revs = revs_sorted[:]
-        late_revs = revs_sorted[:]
-
-        if first_n is not None:
-            first_n = max(0, int(first_n))
-            early_revs = revs_sorted[:min(first_n, n)]
-        else:
-            early_revs = []  # if not specified, define it by remainder below
-
-        if last_n is not None:
-            last_n = max(0, int(last_n))
-            late_revs = revs_sorted[max(0, n - last_n):]
-        else:
-            late_revs = []  # if not specified, define it by remainder below
-
-        # If only one of first_n/last_n specified, define the other as "remainder"
-        if first_n is not None and last_n is None:
-            late_revs = revs_sorted[min(first_n, n):]
-        if first_n is None and last_n is not None:
-            early_revs = revs_sorted[:max(0, n - last_n)]
-
-        early[subj] = early_revs
-        late[subj] = late_revs
-
+        early[subj], late[subj] = _split_subject(revs, first_n=first_n, last_n=last_n)
     return early, late

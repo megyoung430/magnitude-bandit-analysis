@@ -1,22 +1,54 @@
 from copy import deepcopy
+from itertools import pairwise
 
-def fix_grid_maze_cohort_02_problems(subjects_trials_by_problem, fix_subjects=None, start_problem=2, in_place=False):
+DEFAULT_FIX_SUBJECTS = ("MY_04_R", "MY_05_R")
+
+
+def _problems_to_shift(problems, prob_keys, subject, start_problem):
+    """Problems at or after *start_problem* in which *subject* has data, ascending.
+
+    *prob_keys* is already sorted, so the result is too.
+    """
+    # problems.get(p, {}): a problem removed while fixing an earlier subject has no data left
+    with_subject = [p for p in prob_keys if subject in problems.get(p, {})]
+    return [p for p in with_subject if p >= start_problem]
+
+
+def _shift_subject_down(problems, subject, shift_from):
+    """Move *subject*'s data one problem earlier and drop the last problem.
+
+    Each problem in *shift_from* takes the data of the next one; the last problem
+    then loses the subject, and is removed from *problems* if no subject is left.
+    """
+    for problem, next_problem in pairwise(shift_from):
+        problems[problem][subject] = problems[next_problem][subject]
+
+    last_problem = shift_from[-1]
+    del problems[last_problem][subject]
+    if isinstance(problems[last_problem], dict) and not problems[last_problem]:
+        del problems[last_problem]
+
+
+def fix_grid_maze_cohort_02_problems(
+    subjects_trials_by_problem, fix_subjects=None, start_problem=2, in_place=False
+):
     """
     For specified subjects:
-      - problem start_problem gets replaced by start_problem+1
-      - problem start_problem+1 gets replaced by start_problem+2
+      - problem start_problem gets replaced by the next problem the subject has data in
+      - that problem gets replaced by the one after it
       - ...
       - last problem for that subject is removed
 
-    Example (start_problem=2):
+    Example (start_problem=2, subject has data in every problem):
       P2 <- P3, P3 <- P4, ..., Plast removed
+    A problem the subject has no data in is skipped over, not shifted.
 
     Parameters
     ----------
     subjects_trials_by_problem : dict
         problems[problem][subject][session] = session_data
     fix_subjects : list[str]
-        subjects to fix (default: ["MY_04_R", "MY_05_R"])
+        subjects to fix (default: DEFAULT_FIX_SUBJECTS)
     start_problem : int
         first problem to shift (default 2)
     in_place : bool
@@ -27,41 +59,18 @@ def fix_grid_maze_cohort_02_problems(subjects_trials_by_problem, fix_subjects=No
     dict
         fixed structure (same type as input keys/values)
     """
+    # Known issue: a bare string for fix_subjects is iterated character by character, so it
+    # fixes single-character subject names (normally none) instead of raising.
     if fix_subjects is None:
-        fix_subjects = ["MY_04_R", "MY_05_R"]
+        fix_subjects = DEFAULT_FIX_SUBJECTS
 
     problems = subjects_trials_by_problem if in_place else deepcopy(subjects_trials_by_problem)
+    prob_keys = sorted(problems.keys())  # raises TypeError for mixed key types
 
-    # sort problem keys numerically if possible
-    prob_keys = sorted(problems.keys())
-
-    for subj in fix_subjects:
-        # find which problem numbers this subject actually exists in
-        subj_probs = [p for p in prob_keys if subj in problems.get(p, {})]
-        if not subj_probs:
-            continue
-
-        # only shift starting at start_problem
-        shift_from = [p for p in subj_probs if p >= start_problem]
-        if len(shift_from) <= 1:
-            # nothing to shift (need at least start_problem and a "next" one)
-            continue
-
-        shift_from_sorted = sorted(shift_from)
-
-        # perform: p <- next_p for all but the last
-        for i in range(len(shift_from_sorted) - 1):
-            p = shift_from_sorted[i]
-            p_next = shift_from_sorted[i + 1]
-            problems.setdefault(p, {})
-            problems[p][subj] = problems[p_next][subj]
-
-        # delete subject from last problem
-        last_p = shift_from_sorted[-1]
-        if subj in problems.get(last_p, {}):
-            del problems[last_p][subj]
-            # optional cleanup: remove empty problem dict
-            if isinstance(problems.get(last_p, None), dict) and len(problems[last_p]) == 0:
-                del problems[last_p]
+    for subject in fix_subjects:
+        shift_from = _problems_to_shift(problems, prob_keys, subject, start_problem)
+        # need the start problem and a later one to take its data
+        if len(shift_from) > 1:
+            _shift_subject_down(problems, subject, shift_from)
 
     return problems
