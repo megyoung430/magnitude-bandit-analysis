@@ -1,3 +1,5 @@
+import warnings
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -16,6 +18,9 @@ from src.behavior_visualization.plot_rank_proportions import (
     plot_rank_proportions_by_mouse,
 )
 
+RANKS = ("best", "second", "third")
+LABEL_Y = 1.05  # height at which the bar means are written
+
 
 def make_row(best, second, third):
     total = best + second + third
@@ -24,9 +29,9 @@ def make_row(best, second, third):
         "second": second,
         "third": third,
         "total": total,
-        "best_prop": best / total,
-        "second_prop": second / total,
-        "third_prop": third / total,
+        "best_prop": best / total if total else np.nan,
+        "second_prop": second / total if total else np.nan,
+        "third_prop": third / total if total else np.nan,
     }
 
 
@@ -45,6 +50,17 @@ def close_figures():
     plt.close("all")
 
 
+@pytest.fixture
+def shown_figures(monkeypatch):
+    """Figures that were shown (shown figures are closed right after)."""
+    figs = []
+    monkeypatch.setattr(plt, "show", lambda: figs.append(plt.gcf()))
+    return figs
+
+
+# ---- what a drawn axis contains -------------------------------------------------
+
+
 def data_lines(ax):
     # error-bar caps and stems are lines too; the data lines are the marked ones
     return [line for line in ax.lines if line.get_marker() == "o"]
@@ -52,6 +68,54 @@ def data_lines(ax):
 
 def bar_heights(ax):
     return [p.get_height() for p in ax.patches]
+
+
+def error_bar_lengths(ax):
+    """Half-length of each error bar (the SE), read from the drawn error-bar caps."""
+    # caps sit at mean - se and mean + se, and keep NaN errors as NaN (stem segments drop them)
+    lower, upper = (cap.get_ydata() for cap in ax.containers[0].lines[1])
+    return list((upper - lower) / 2)
+
+
+def mean_labels(ax):
+    """``[((x, y), text)]`` of the bar-mean labels, in drawing order."""
+    return [(t.get_position(), t.get_text()) for t in ax.texts if t.get_position()[1] == LABEL_Y]
+
+
+def pvalue_labels(ax):
+    """``{text: (x, y)}`` of the p-value annotations."""
+    return {t.get_text(): t.get_position() for t in ax.texts if t.get_position()[1] != LABEL_Y}
+
+
+def tick_labels(ax):
+    return [t.get_text() for t in ax.get_xticklabels()]
+
+
+def legend_texts(ax):
+    return [t.get_text() for t in ax.get_legend().get_texts()]
+
+
+# ---- independent expectations ---------------------------------------------------
+
+
+def props(rows, rank):
+    return [r[f"{rank}_prop"] for r in rows]
+
+
+def mean_and_se(values_by_rank):
+    """Mean and SE across units, from ``{rank: [value per unit]}``."""
+    means = [np.mean(values_by_rank[rank]) for rank in RANKS]
+    ses = [
+        np.std(values_by_rank[rank], ddof=1) / np.sqrt(len(values_by_rank[rank])) for rank in RANKS
+    ]
+    return means, ses
+
+
+def pooled(rows, rank):
+    return sum(r[rank] for r in rows) / sum(r["total"] for r in rows)
+
+
+# ---- panels draw into a given ax -------------------------------------------------
 
 
 def test_panels_draw_into_given_ax_without_new_figure(counts):
@@ -69,66 +133,271 @@ def test_panels_create_a_figure_when_no_ax_is_given(counts):
     assert ax.figure.number in plt.get_fignums()
 
 
-def test_average_across_mice_bars_are_mouse_means(counts):
+def test_panels_take_flags_by_keyword_only(counts):
+    with pytest.raises(TypeError):
+        plot_average_across_mice(counts, None)
+    with pytest.raises(TypeError):
+        plot_mouse_panel("m1", counts["m1"], True)
+    with pytest.raises(TypeError):
+        plot_block_panel(counts, 0, None)
+    with pytest.raises(TypeError):
+        plot_average_across_blocks(counts, None)
+
+
+# ---- average across mice ---------------------------------------------------------
+
+
+def test_average_across_mice_bars_and_errors_use_every_row_of_every_mouse(counts):
     ax = plot_average_across_mice(counts)
-    expected_best = np.mean(
-        [
-            np.mean([0.6, 0.2, 1 / 3]),
-            np.mean([0.4, 0.1, 9 / 11, 1 / 3]),
-            np.mean([1 / 3, 0.3, 1 / 3]),
-        ]
-    )
-    assert bar_heights(ax)[0] == pytest.approx(expected_best)
+    mouse_means = {rank: [np.mean(props(rows, rank)) for rows in counts.values()] for rank in RANKS}
+    means, ses = mean_and_se(mouse_means)
+    assert bar_heights(ax) == pytest.approx(means)
+    assert error_bar_lengths(ax) == pytest.approx(ses)
     assert [line.get_label() for line in ax.get_legend().get_lines()] == ["m1", "m2", "m3"]
 
 
-def test_average_across_mice_annotates_pvalues_only_when_given(counts):
-    pvalues = {"best_vs_second": 0.012, "best_vs_third": 0.0004, "second_vs_third": 0.5}
-    texts = [t.get_text() for t in plot_average_across_mice(counts, pvalues).texts]
-    assert "p(Best vs Second):\n0.012" in texts
-    assert "p(Best vs Third):\n0.000" in texts
-    assert "p(Second vs Third):\n0.500" in texts
-    assert len(plot_average_across_mice(counts).texts) == 3
+def test_average_across_mice_pooled_bars_use_each_mouses_pooled_proportion(counts):
+    ax = plot_average_across_mice(counts, pool_trials_within_subject=True)
+    mouse_pooled = {rank: [pooled(rows, rank) for rows in counts.values()] for rank in RANKS}
+    means, ses = mean_and_se(mouse_pooled)
+    assert bar_heights(ax) == pytest.approx(means)
+    assert error_bar_lengths(ax) == pytest.approx(ses)
+    assert ax.get_title() == "Pooled Trials Within Mouse"
+
+
+def test_average_across_mice_lines_are_one_per_mouse_in_rank_order(counts):
+    ax = plot_average_across_mice(counts)
+    ys = [list(line.get_ydata()) for line in data_lines(ax)]
+    expected = [[np.mean(props(rows, rank)) for rank in RANKS] for rows in counts.values()]
+    assert np.array(ys) == pytest.approx(np.array(expected))
 
 
 def test_average_across_mice_title_names_the_aggregation(counts):
     assert plot_average_across_mice(counts).get_title() == "Average Across Mice"
-    pooled = plot_average_across_mice(counts, pool_trials_within_subject=True)
-    assert pooled.get_title() == "Pooled Trials Within Mouse"
+
+
+def test_mean_labels_are_two_decimals_above_each_bar():
+    exact = {
+        "a": [make_row(2, 1, 1), make_row(1, 1, 2)],
+        "b": [make_row(2, 1, 1), make_row(1, 1, 2)],
+    }
+    ax = plot_average_across_mice(exact)
+    # a and b are identical, each with block means (0.375, 0.25, 0.375)
+    assert mean_labels(ax) == [
+        ((0, LABEL_Y), "0.38"),
+        ((1, LABEL_Y), "0.25"),
+        ((2, LABEL_Y), "0.38"),
+    ]
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_average_across_mice_skips_the_label_of_a_nan_bar():
+    nan_second = [{**make_row(3, 2, 1), "second_prop": np.nan} for _ in range(2)]
+    ax = plot_average_across_mice({"a": nan_second, "b": nan_second})
+    assert np.isnan(bar_heights(ax)[1])
+    assert [pos for pos, _ in mean_labels(ax)] == [(0, LABEL_Y), (2, LABEL_Y)]
+
+
+def test_pvalues_are_written_on_the_bars_at_fixed_positions(counts):
+    pvalues = {"best_vs_second": 0.012, "best_vs_third": 0.0004, "second_vs_third": 0.5}
+    ax = plot_average_across_mice(counts, pvalues=pvalues)
+    assert pvalue_labels(ax) == {
+        "p(Best vs Second):\n0.012": (0, 0.75),
+        "p(Best vs Third):\n0.000": (2, 0.25),
+        "p(Second vs Third):\n0.500": (1, 0.5),
+    }
+
+
+def test_pvalues_missing_none_or_empty_are_not_written(counts):
+    assert pvalue_labels(plot_average_across_mice(counts)) == {}
+    assert pvalue_labels(plot_average_across_mice(counts, pvalues={})) == {}
+    partial = {"best_vs_second": None, "second_vs_third": 0.2}
+    assert pvalue_labels(plot_average_across_mice(counts, pvalues=partial)) == {
+        "p(Second vs Third):\n0.200": (1, 0.5)
+    }
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_known_defect_pvalue_with_a_nan_bar_raises_index_error():
+    """Characterises a known defect: p-values are placed by index into the labelled bars."""
+    nan_second = [{**make_row(3, 2, 1), "second_prop": np.nan} for _ in range(2)]
+    counts = {"a": nan_second, "b": nan_second}
+    with pytest.raises(IndexError):
+        plot_average_across_mice(counts, pvalues={"best_vs_third": 0.5})
+    # without p-values the same data draws fine
+    plot_average_across_mice(counts)
+
+
+# ---- average across blocks -------------------------------------------------------
+
+
+def test_average_across_blocks_bars_exclude_each_mouses_last_row(counts):
+    ax = plot_average_across_blocks(counts)
+    # block b averages the mice that have a row b before their last row
+    block_units = {
+        rank: [
+            np.mean([props(rows, rank)[b] for rows in counts.values() if b < len(rows) - 1])
+            for b in range(3)
+        ]
+        for rank in RANKS
+    }
+    means, ses = mean_and_se(block_units)
+    assert bar_heights(ax) == pytest.approx(means)
+    assert error_bar_lengths(ax) == pytest.approx(ses)
+    assert mean_labels(ax) == [((i, LABEL_Y), f"{m:.2f}") for i, m in enumerate(means)]
 
 
 def test_average_across_blocks_has_one_line_per_block(counts):
     ax = plot_average_across_blocks(counts)
     assert len(data_lines(ax)) == 3
-    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["Block 1", "Block 2", "Block 3"]
+    assert legend_texts(ax) == ["Block 1", "Block 2", "Block 3"]
+
+
+# ---- one mouse -------------------------------------------------------------------
+
+
+def test_mouse_panel_bars_and_errors_are_the_mean_and_se_across_rows(counts):
+    rows = counts["m2"][:-1]
+    ax = plot_mouse_panel("m2", rows)
+    means, ses = mean_and_se({rank: props(rows, rank) for rank in RANKS})
+    assert bar_heights(ax) == pytest.approx(means)
+    assert error_bar_lengths(ax) == pytest.approx(ses)
+    assert mean_labels(ax) == [((i, LABEL_Y), f"{m:.2f}") for i, m in enumerate(means)]
+
+
+def test_mouse_panel_pooled_bars_are_pooled_but_errors_stay_unpooled(counts):
+    rows = counts["m2"]
+    ax = plot_mouse_panel("m2", rows, pool_trials_within_subject=True)
+    _, unpooled_ses = mean_and_se({rank: props(rows, rank) for rank in RANKS})
+    assert bar_heights(ax) == pytest.approx([pooled(rows, rank) for rank in RANKS])
+    assert error_bar_lengths(ax) == pytest.approx(unpooled_ses)
+    unpooled = plot_mouse_panel("m2", rows)
+    assert bar_heights(unpooled) != pytest.approx(bar_heights(ax))
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_mouse_panel_labels_a_nan_mean_as_nan():
+    rows = [make_row(0, 0, 0), make_row(0, 0, 0)]
+    ax = plot_mouse_panel("silent", rows, pool_trials_within_subject=True)
+    assert [text for _, text in mean_labels(ax)] == ["nan", "nan", "nan"]
+    assert np.isnan(bar_heights(ax)).all()
 
 
 def test_mouse_panel_draws_one_line_per_row_and_labels_blocks(counts):
     ax = plot_mouse_panel("m2", counts["m2"][:-1])
     assert len(data_lines(ax)) == 3
+    assert legend_texts(ax) == ["Block 1", "Block 2", "Block 3"]
     assert ax.get_title() == "m2"
     assert ax.get_ylabel() == "Proportion of Choices"
     assert plot_mouse_panel("m2", counts["m2"][:-1], show_ylabel=False).get_ylabel() == ""
 
 
-def test_block_panel_legend_reports_trial_counts(counts):
+def test_mouse_panel_single_row_has_nan_error_bars(counts):
+    ax = plot_mouse_panel("m1", counts["m1"][:1])
+    assert np.isnan(error_bar_lengths(ax)).all()
+    assert bar_heights(ax) == pytest.approx([props(counts["m1"][:1], rank)[0] for rank in RANKS])
+
+
+# ---- one block -------------------------------------------------------------------
+
+
+def test_block_panel_bars_average_the_mice_before_their_last_row(counts):
     ax = plot_block_panel(counts, 1)
     assert ax.get_title() == "Block 2"
-    assert [t.get_text() for t in ax.get_legend().get_texts()] == [
-        "m1 (n=10 trials)",
-        "m2 (n=10 trials)",
-        "m3 (n=10 trials)",
-    ]
-    # bars average the subjects' rows for this block, excluding each subject's last row
-    assert bar_heights(ax)[0] == pytest.approx(np.mean([0.2, 0.1, 0.3]))
+    assert legend_texts(ax) == ["m1 (n=10 trials)", "m2 (n=10 trials)", "m3 (n=10 trials)"]
+    means, ses = mean_and_se(
+        {rank: [props(rows, rank)[1] for rows in counts.values()] for rank in RANKS}
+    )
+    assert bar_heights(ax) == pytest.approx(means)
+    assert error_bar_lengths(ax) == pytest.approx(ses)
+    assert mean_labels(ax) == [((i, LABEL_Y), f"{m:.2f}") for i, m in enumerate(means)]
+
+
+def test_block_panel_at_a_mouses_last_index_draws_its_line_but_not_its_bar(counts):
+    # index 2 is the last row of m1 and m3, but not of m2
+    ax = plot_block_panel(counts, 2)
+    assert legend_texts(ax) == ["m1 (n=3 trials)", "m2 (n=11 trials)", "m3 (n=3 trials)"]
+    assert len(data_lines(ax)) == 3
+    only_m2 = counts["m2"][2]
+    assert bar_heights(ax) == pytest.approx([only_m2[f"{rank}_prop"] for rank in RANKS])
+    assert np.isnan(error_bar_lengths(ax)).all()
+
+
+def test_block_panel_at_the_longest_mouses_last_index_has_no_bars(counts):
+    ax = plot_block_panel(counts, 3)
+    assert legend_texts(ax) == ["m2 (n=3 trials)"]
+    assert np.isnan(bar_heights(ax)).all()
+    assert mean_labels(ax) == []
+
+
+def test_block_panel_without_total_labels_lines_with_the_subject_only(counts):
+    bare = {
+        s: [{k: v for k, v in r.items() if k != "total"} for r in rows]
+        for s, rows in counts.items()
+    }
+    assert legend_texts(plot_block_panel(bare, 0)) == ["m1", "m2", "m3"]
+
+
+# ---- shared axis styling ---------------------------------------------------------
+
+
+@pytest.fixture(params=["mice", "blocks", "mouse", "block"])
+def any_panel(request, counts):
+    return {
+        "mice": lambda: plot_average_across_mice(counts),
+        "blocks": lambda: plot_average_across_blocks(counts),
+        "mouse": lambda: plot_mouse_panel("m1", counts["m1"][:-1]),
+        "block": lambda: plot_block_panel(counts, 0),
+    }[request.param]()
+
+
+def test_every_panel_has_rank_ticks_and_fixed_y_limits(any_panel):
+    assert list(any_panel.get_xticks()) == [0, 1, 2]
+    assert tick_labels(any_panel) == ["Best", "Second", "Third"]
+    assert any_panel.get_ylim() == (0.0, 1.07)
+    assert not any_panel.spines["top"].get_visible()
+    assert not any_panel.spines["right"].get_visible()
+
+
+# ---- figures: saving and showing -------------------------------------------------
 
 
 def test_save_path_writes_pdf_and_png_and_creates_directories(counts, tmp_path):
     base = tmp_path / "nested" / "RP"
+    # the by-mouse figure is drawn first and creates the folder the average figure needs
     plot_rank_proportions(counts, save_path=str(base))
     for view in ("by Mouse", "by Block", "by Average"):
         assert (tmp_path / "nested" / f"RP {view}.pdf").exists()
         assert (tmp_path / "nested" / f"RP {view}.png").exists()
+    assert plt.get_fignums() == []
+
+
+@pytest.mark.parametrize("figure", [plot_rank_proportions_by_mouse, plot_rank_proportions_by_block])
+def test_by_mouse_and_by_block_create_missing_folders_and_accept_a_path(figure, counts, tmp_path):
+    figure(counts, save_path=tmp_path / "a" / "b" / "RP")
+    assert (tmp_path / "a" / "b" / "RP.pdf").exists()
+    assert (tmp_path / "a" / "b" / "RP.png").exists()
+    assert plt.get_fignums() == []
+
+
+def test_average_figure_does_not_create_missing_folders(counts, tmp_path):
+    """Characterises the average figure's save behaviour: no mkdir, str only."""
+    with pytest.raises(FileNotFoundError):
+        plot_rank_proportions_average(counts, save_path=str(tmp_path / "missing" / "RP"))
+    assert not (tmp_path / "missing").exists()
+    assert len(plt.get_fignums()) == 1  # left open by the failure
+
+
+def test_average_figure_save_path_must_be_a_str(counts, tmp_path):
+    """Characterises the average figure's save behaviour: a Path raises TypeError."""
+    with pytest.raises(TypeError):
+        plot_rank_proportions_average(counts, save_path=tmp_path / "RP")
+    assert len(plt.get_fignums()) == 1
+
+
+def test_average_figure_saves_to_an_existing_folder(counts, tmp_path):
+    plot_rank_proportions_average(counts, save_path=str(tmp_path / "RP"))
+    assert (tmp_path / "RP.pdf").exists() and (tmp_path / "RP.png").exists()
     assert plt.get_fignums() == []
 
 
@@ -148,10 +417,148 @@ def test_by_block_without_blocks_warns_and_draws_nothing(capsys):
     assert plt.get_fignums() == []
 
 
-def test_by_mouse_turns_off_unused_axes(counts, monkeypatch):
-    figs = []
-    monkeypatch.setattr(plt, "show", lambda: figs.append(plt.gcf()))
+def test_by_mouse_turns_off_unused_axes_and_labels_only_the_first_column(counts, shown_figures):
     plot_rank_proportions_by_mouse(counts)
-    axes = figs[0].axes
+    axes = shown_figures[0].axes
     assert len(axes) == 4  # 2 rows x ceil(3 / 2) columns
     assert [ax.axison for ax in axes] == [True, True, True, False]
+    assert [ax.get_ylabel() for ax in axes[:3]] == [
+        "Proportion of Choices",
+        "",
+        "Proportion of Choices",
+    ]
+    assert [ax.get_title() for ax in axes[:3]] == ["m1", "m2", "m3"]
+
+
+def test_by_mouse_turns_off_the_axis_of_a_mouse_with_no_blocks(shown_figures):
+    only_summary = {"a": [make_row(1, 1, 1)], "b": [make_row(1, 1, 1), make_row(2, 1, 1)]}
+    plot_rank_proportions_by_mouse(only_summary)
+    assert [ax.axison for ax in shown_figures[0].axes] == [False, True]
+
+
+def test_by_mouse_draws_each_mouse_without_its_last_row(counts, shown_figures):
+    plot_rank_proportions_by_mouse(counts)
+    axes = shown_figures[0].axes
+    assert [len(data_lines(ax)) for ax in axes[:3]] == [2, 3, 2]
+    means, _ = mean_and_se({rank: props(counts["m1"][:-1], rank) for rank in RANKS})
+    assert bar_heights(axes[0]) == pytest.approx(means)
+
+
+def test_by_block_draws_one_panel_per_block_before_the_longest_last_row(counts, shown_figures):
+    plot_rank_proportions_by_block(counts)
+    axes = shown_figures[0].axes
+    assert len(axes) == 4  # 2 rows x ceil(3 / 2) columns
+    assert [ax.get_title() for ax in axes[:3]] == ["Block 1", "Block 2", "Block 3"]
+    assert [ax.axison for ax in axes] == [True, True, True, False]
+    assert [ax.get_ylabel() for ax in axes[:3]] == [
+        "Proportion of Choices",
+        "",
+        "Proportion of Choices",
+    ]
+
+
+def test_dispatcher_passes_pooling_to_the_by_mouse_figure(counts, shown_figures):
+    plot_rank_proportions(counts, by_block=False, average=False, pool_trials_within_subject=True)
+    pooled_axes = shown_figures[0].axes
+    plot_rank_proportions(counts, by_block=False, average=False)
+    unpooled_axes = shown_figures[1].axes
+    # pooling keeps every row, so m1 draws all 3 lines instead of 2
+    assert len(data_lines(pooled_axes[0])) == 3
+    assert len(data_lines(unpooled_axes[0])) == 2
+    assert bar_heights(pooled_axes[0]) == pytest.approx([pooled(counts["m1"], r) for r in RANKS])
+
+
+def test_dispatcher_passes_pooling_and_pvalues_to_the_average_figure(counts, shown_figures):
+    pvalues = {"best_vs_second": 0.2}
+    plot_rank_proportions(
+        counts,
+        average_across_mice_pvalues=pvalues,
+        by_mouse=False,
+        by_block=False,
+        pool_trials_within_subject=True,
+    )
+    left = shown_figures[0].axes[0]
+    assert left.get_title() == "Pooled Trials Within Mouse"
+    assert pvalue_labels(left) == {"p(Best vs Second):\n0.200": (0, 0.75)}
+
+
+def test_dispatcher_flags_choose_the_figures(counts, shown_figures):
+    plot_rank_proportions(counts, by_mouse=False, average=False)
+    assert len(shown_figures) == 1 and shown_figures[0].axes[0].get_title() == "Block 1"
+    plot_rank_proportions(counts, by_mouse=False, by_block=False, average=False)
+    assert len(shown_figures) == 1
+
+
+# ---- warnings --------------------------------------------------------------------
+
+
+def messages(record):
+    return [str(w.message) for w in record]
+
+
+def test_average_figure_of_one_mouse_warns_about_degrees_of_freedom(counts, shown_figures):
+    with pytest.warns(RuntimeWarning, match="Degrees of freedom <= 0"):
+        plot_rank_proportions_average({"m1": counts["m1"]})
+
+
+def test_average_figure_of_no_data_warns_about_empty_slices(shown_figures):
+    with pytest.warns(RuntimeWarning) as record:
+        plot_rank_proportions_average({})
+    assert "Mean of empty slice" in messages(record)
+    assert "Degrees of freedom <= 0 for slice." in messages(record)
+
+
+def test_figures_of_several_mice_do_not_warn(counts, shown_figures):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plot_rank_proportions_by_mouse(counts, pool_trials_within_subject=True)
+        plot_rank_proportions_by_mouse(counts)
+        plot_rank_proportions_by_block(counts)
+        plot_rank_proportions_average(counts)
+
+
+def test_block_panel_with_a_single_mouse_does_not_warn(counts):
+    # one unit: the SE is NaN without numpy's degrees-of-freedom warning
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plot_block_panel(counts, 2)
+        plot_mouse_panel("m1", counts["m1"][:1])
+
+
+def test_pooled_mouse_panel_does_not_average_proportions_it_discards():
+    # pooled bars come from the counts, so an all-NaN proportion column must not
+    # trigger a mean-of-empty-slice warning; only the error bar's own SE warns
+    rows = [
+        {**make_row(3, 2, 1), "second_prop": np.nan},
+        {**make_row(1, 2, 3), "second_prop": np.nan},
+    ]
+    with pytest.warns(RuntimeWarning) as record:
+        plot_mouse_panel("m", rows, pool_trials_within_subject=True)
+    assert messages(record) == ["Degrees of freedom <= 0 for slice."]
+
+
+# ---- star import -----------------------------------------------------------------
+
+
+def test_star_import_exposes_plot_functions_but_not_drawing_constants():
+    namespace = {}
+    exec("from src.behavior_visualization.plot_rank_proportions import *", namespace)
+    public = {name for name in namespace if not name.startswith("__")}
+    assert {
+        "plot_rank_proportions",
+        "plot_rank_proportions_average",
+        "plot_rank_proportions_by_mouse",
+        "plot_rank_proportions_by_block",
+        "BLOCK_COLORS",
+        "MOUSE_COLORS",
+        "np",
+        "plt",
+        "Path",
+        "math",
+        "Line2D",
+    } <= public
+    # a notebook's own `X` (e.g. a design matrix) must not be overwritten
+    assert (
+        not {"X", "RANK_LABELS", "BAR_WIDTH", "Y_LIMITS", "BAR_STYLE", "MOUSE_LINES", "RANKS"}
+        & public
+    )
