@@ -212,7 +212,7 @@ def cumulative_removal_series(
         cumulative, frac = total_removal_curves(windows, x, exclude_anchor=True)
         return {"total": frac if fraction else cumulative}
     if good_idx is None or bad_idx is None:
-        raise ValueError("Good/bad mode (use_total is falsy) needs both good_idx and bad_idx.")
+        raise ValueError("For mode='goodbad', provide all_good_idx and all_bad_idx.")
     cum_good, cum_bad, frac_good, frac_bad = good_bad_removal_curves(
         windows, good_idx, bad_idx, x, exclude_anchor=True
     )

@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import pytest
 
@@ -9,6 +11,8 @@ from src.behavior_analysis.cumulative_reversal_removal import (
     post_window_steps,
     total_removal_curves,
 )
+
+GOODBAD_MESSAGE = "For mode='goodbad', provide all_good_idx and all_bad_idx."
 
 
 def windows(**anchors):
@@ -164,9 +168,9 @@ def test_cumulative_removal_series_fraction_or_counts():
 
 def test_cumulative_removal_series_good_bad_mode_requires_both_index_dicts():
     wins = windows(A=[10])
-    with pytest.raises(ValueError, match="good_idx and bad_idx"):
+    with pytest.raises(ValueError, match=re.escape(GOODBAD_MESSAGE)):
         cumulative_removal_series(wins, {"A": [10]}, None, X, use_total=False, fraction=True)
-    with pytest.raises(ValueError, match="good_idx and bad_idx"):
+    with pytest.raises(ValueError, match=re.escape(GOODBAD_MESSAGE)):
         cumulative_removal_series(wins, None, {"A": [10]}, X, use_total=None, fraction=True)
 
 

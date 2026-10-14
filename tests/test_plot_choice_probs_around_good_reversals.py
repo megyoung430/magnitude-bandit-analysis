@@ -1,3 +1,5 @@
+import re
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -21,6 +23,7 @@ WINDOWS = {"A": [{"reversal_idx": 10}, {"reversal_idx": 20}], "B": [{"reversal_i
 GOOD = {"A": [10], "B": [4]}
 BAD = {"A": [20]}
 SERIES = {"good": np.where(X >= 0, 0.2, np.nan), "bad": np.where(X >= 0, 0.1, np.nan)}
+GOODBAD_MESSAGE = "For mode='goodbad', provide all_good_idx and all_bad_idx."
 TITLE = "Good Reversal-Aligned Choices\n(mean ± se across subjects | n=2 subjects, n=3 reversals)\n"
 
 
@@ -295,7 +298,7 @@ def test_add_cumulative_rev_axis_fraction_or_counts(across, shown, plot_fraction
 
 
 def test_good_bad_cumulative_axis_without_indices_fails_loudly(across):
-    with pytest.raises(ValueError, match="good_idx and bad_idx"):
+    with pytest.raises(ValueError, match=re.escape(GOODBAD_MESSAGE)):
         plot_choice_probs_around_good_reversals(X, across, windows_for_cumulative_axis=WINDOWS)
 
 
