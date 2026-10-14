@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,19 @@ def init_matrix(fill=np.nan):
     )
 
 
+class _Contribution(NamedTuple):
+    """One countable trial: its cell and how much it adds to each numerator.
+
+    Named fields keep ``best_value`` and ``second_value`` from being swapped silently.
+    """
+
+    best_value: float
+    second_value: float
+    best_share: float
+    second_share: float
+
+
+# ``frozen`` only blocks reassigning the fields: the DataFrames are updated in place.
 @dataclass(frozen=True)
 class _MouseCounts:
     """Per-cell trial counts (best value x second value) for one mouse.
@@ -40,7 +54,7 @@ def _in_value_grid(b, s):
 
 
 def _true_contribution(reward_magnitudes, chosen_rank):
-    """``(b, s, best_share, second_share)`` for one trial binned by true magnitudes.
+    """A :class:`_Contribution` for one trial binned by true magnitudes.
 
     Returns ``None`` when the trial does not belong in any cell: fewer than two arms,
     an unrecognised chosen rank, or magnitudes outside the grid.
@@ -53,11 +67,11 @@ def _true_contribution(reward_magnitudes, chosen_rank):
         return None
     if not _in_value_grid(b, s):
         return None
-    return b, s, float(chosen_rank == "best"), float(chosen_rank == "second")
+    return _Contribution(b, s, float(chosen_rank == "best"), float(chosen_rank == "second"))
 
 
 def _believed_contribution(trial):
-    """``(b, s, best_share, second_share)`` for one trial from ``compute_believed_value``.
+    """A :class:`_Contribution` for one trial from ``compute_believed_value``.
 
     Returns ``None`` when fewer than two arms have been seen, the chosen arm has no
     believed rank, or the believed magnitudes are outside the grid. A tie between the
@@ -75,8 +89,8 @@ def _believed_contribution(trial):
         return None
     if trial["tied"]:
         share = 0.5 if chosen_rank in ("best", "second") else 0.0
-        return b, s, share, share
-    return b, s, float(chosen_rank == "best"), float(chosen_rank == "second")
+        return _Contribution(b, s, share, share)
+    return _Contribution(b, s, float(chosen_rank == "best"), float(chosen_rank == "second"))
 
 
 def _session_trial_lists(sess):
@@ -87,6 +101,8 @@ def _session_trial_lists(sess):
     tv_list = sess.get("trial_variables", [])
     if not tv_list:
         return None
+    # Known issue: only the first element is read, so in a session merged from several
+    # recording files the trials of every later file are silently ignored.
     tv = tv_list[0]
     reward_magnitudes = tv.get("reward_magnitudes", [])
     chosen_ranks = tv.get("chosen_rank", [])
@@ -101,7 +117,7 @@ def _session_trial_lists(sess):
 
 
 def _session_contributions(sess, *, use_believed):
-    """Yield ``(b, s, best_share, second_share)`` for every countable trial of a session."""
+    """Yield a :class:`_Contribution` for every countable trial of a session."""
     trial_lists = _session_trial_lists(sess)
     if trial_lists is None:
         return
@@ -116,20 +132,21 @@ def _session_contributions(sess, *, use_believed):
             yield contribution
 
 
-def _add_contribution(counts, b, s, best_share, second_share):
+def _add_contribution(counts, contribution):
     """Add one trial to the cell ``(b, s)``; zero shares leave their numerator untouched."""
+    b, s = contribution.best_value, contribution.second_value
     counts.denom.loc[b, s] += 1.0
-    if best_share:
-        counts.num_best.loc[b, s] += best_share
-    if second_share:
-        counts.num_second.loc[b, s] += second_share
+    if contribution.best_share:
+        counts.num_best.loc[b, s] += contribution.best_share
+    if contribution.second_share:
+        counts.num_second.loc[b, s] += contribution.second_share
 
 
 def _count_mouse_sessions(counts, sessions_dict, *, use_believed):
     """Accumulate every session of one mouse into *counts* (in place)."""
     for sess in sessions_dict.values():
         for contribution in _session_contributions(sess, use_believed=use_believed):
-            _add_contribution(counts, *contribution)
+            _add_contribution(counts, contribution)
 
 
 def _count_mice(subject_trials_by_value_problem, *, use_believed):
@@ -153,6 +170,7 @@ def _nanmean_matrices(prob_dict):
     """Cell-wise nanmean across mice, so every mouse contributes equally per cell."""
     if not prob_dict:
         return init_matrix(fill=np.nan)
+    # Cells empty for every mouse give NaN; numpy warns "Mean of empty slice" for them.
     stack = np.stack([df.to_numpy(dtype=float) for df in prob_dict.values()], axis=0)
     ref = next(iter(prob_dict.values()))
     return pd.DataFrame(np.nanmean(stack, axis=0), index=ref.index, columns=ref.columns)
@@ -162,8 +180,9 @@ def accumulate_choice_probs(subject_trials_by_value_problem, use_believed=False)
     """
     subject_trials_by_value_problem[problem][subject_id][session_id] = session_data
 
-    session_data["trial_variables"] is a list with a single element: a dict of
-    parallel lists, one value per trial. Keys include:
+    session_data["trial_variables"] is a list with one dict per recording file, of which
+    only the first is read (see the known issue in ``_session_trial_lists``). The dict
+    holds parallel lists, one value per trial. Keys include:
       - "reward_magnitudes" : list[dict]  — arm->magnitude per trial
       - "chosen_rank"       : list[str]   — "best"/"second"/"third" per trial
       - "choice"            : list[str]   — chosen arm label per trial

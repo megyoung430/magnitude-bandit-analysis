@@ -25,6 +25,8 @@ class _SubjectSeries:
 
     @classmethod
     def from_merged(cls, d):
+        # Known issue: a ``None`` ``blocks`` value is passed through (only the tower and
+        # choice fields are coerced with ``or``), so it raises ``TypeError`` at ``len``.
         return cls(
             bad=d.get("bad_reversals", []),
             blocks=d.get("blocks", []),
@@ -40,7 +42,7 @@ def _list_towers(series):
     return list(by_tower.keys())
 
 
-def _find_boundaries(series, include_first_block):
+def _find_bad_boundaries(series, *, include_first_block):
     """Trial indices where the bad-reversal counter increments, optionally led by trial 0."""
     boundaries = find_increment_indices(series.bad)
     # The first block counts as a boundary only when the counter starts at 0.
@@ -79,7 +81,7 @@ def _window_indices(boundaries, k, n_trials, *, pre, post):
     return list(range(max(0, idx - pre), idx)), list(range(idx, post_end))
 
 
-def _slice_choices(choices, pre_idx, post_idx):
+def _slice_choices(choices, *, pre_idx, post_idx):
     """Cut each one-hot choice array into pre/post windows, dropping indices past its end."""
     return {
         key: {
@@ -118,7 +120,7 @@ def _skip_message(subj, idx, series, towers, *, required_reward_pattern):
     return None
 
 
-def _build_reversal(series, towers, idx, pre_idx, post_idx):
+def _build_reversal(series, towers, idx, *, pre_idx, post_idx):
     """Assemble the reversal dict for the boundary at trial *idx* (see the public docstring).
 
     Only called for boundaries that passed :func:`_skip_message`, so every tower's
@@ -135,8 +137,12 @@ def _build_reversal(series, towers, idx, pre_idx, post_idx):
         "trial_window_idx": {"pre": pre_idx, "post": post_idx},
         "reward_magnitudes_by_tower_before": {t: series.reward_by_tower[t][before] for t in towers},
         "reward_magnitudes_by_tower_after": _rewards_at(series.reward_by_tower, towers, idx),
-        "choices_by_tower": _slice_choices(series.choices_by_tower, pre_idx, post_idx),
-        "choices_by_rank": _slice_choices(series.choices_by_rank, pre_idx, post_idx),
+        "choices_by_tower": _slice_choices(
+            series.choices_by_tower, pre_idx=pre_idx, post_idx=post_idx
+        ),
+        "choices_by_rank": _slice_choices(
+            series.choices_by_rank, pre_idx=pre_idx, post_idx=post_idx
+        ),
     }
 
 
@@ -154,7 +160,7 @@ def _subject_reversals(subj, series, *, pre, post, include_first_block, required
         print(f"[WARN] {subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower")
         return []
 
-    boundaries = _find_boundaries(series, include_first_block)
+    boundaries = _find_bad_boundaries(series, include_first_block=include_first_block)
     reversals = []
     for k, idx in enumerate(boundaries):
         message = _skip_message(
@@ -163,10 +169,10 @@ def _subject_reversals(subj, series, *, pre, post, include_first_block, required
         if message is not None:
             print(message)
             continue
-        # Windows are computed from the full boundary list, so a kept reversal's
-        # post-window still stops at a neighbouring boundary that was skipped.
+        # Windows are computed from the full boundary list, so with ``post=None`` a kept
+        # reversal's post-window still stops at a neighbouring boundary that was skipped.
         pre_idx, post_idx = _window_indices(boundaries, k, n_trials, pre=pre, post=post)
-        reversals.append(_build_reversal(series, towers, idx, pre_idx, post_idx))
+        reversals.append(_build_reversal(series, towers, idx, pre_idx=pre_idx, post_idx=post_idx))
     return reversals
 
 
