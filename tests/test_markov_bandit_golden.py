@@ -942,6 +942,29 @@ def test_sweep_markov_metrics_with_many_simulations_matches_golden():
         np.testing.assert_array_equal(got, np.array(expected))
 
 
+# The sweep divides by the requested n_sims, not by the number of simulations run.
+@pytest.mark.parametrize("n_sims", [-3, -1])
+def test_sweep_with_negative_n_sims_gives_negative_zero_heatmaps(n_sims):
+    heatmaps = sweep_markov_metrics(**{**SWEEP_KWARGS, "n_sims": n_sims})
+    assert len(heatmaps) == 4
+    for heatmap in heatmaps:
+        assert heatmap.shape == (2, 2)
+        assert np.all(heatmap == 0.0)
+        assert np.all(np.signbit(heatmap))
+
+
+@pytest.mark.parametrize("n_sims", [-3, -1])
+def test_sweep_with_negative_n_sims_and_switches_divides_zero_blocks(n_sims):
+    with pytest.raises(ZeroDivisionError, match="^division by zero$"):
+        sweep_markov_metrics(include_switches=True, **{**SWEEP_KWARGS, "n_sims": n_sims})
+
+
+@pytest.mark.parametrize("include_switches", [False, True])
+def test_sweep_with_zero_n_sims_raises(include_switches):
+    with pytest.raises(ZeroDivisionError, match="^float division by zero$"):
+        sweep_markov_metrics(include_switches=include_switches, **{**SWEEP_KWARGS, "n_sims": 0})
+
+
 # Block lengths of exactly 20 put a boundary at trial 40 == T, which is dropped:
 # a boundary must fall strictly inside the session.
 @pytest.mark.parametrize("seed", [0, 1])

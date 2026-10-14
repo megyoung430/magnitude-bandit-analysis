@@ -291,7 +291,13 @@ def fake_result(gap, ge2, run_mean, run_std, switches):
 
 def test_summarize_sweep_cell_averages_over_simulations():
     results = [fake_result(1, 0.5, 10, 2, [1, 2]), fake_result(3, 0.5, 20, 4, [3])]
-    assert summarize_sweep_cell(results, include_switches=True) == (2.0, 0.5, 15.0, 3.0, 2.0)
+    assert summarize_sweep_cell(results, n_sims=2, include_switches=True) == (
+        2.0,
+        0.5,
+        15.0,
+        3.0,
+        2.0,
+    )
 
 
 def test_mean_left_to_right_does_not_compensate_rounding():
@@ -301,7 +307,18 @@ def test_mean_left_to_right_does_not_compensate_rounding():
 
 def test_summarize_sweep_cell_skips_switches_when_not_requested():
     results = [(1.0, 0.0, 5.0, 1.0), (3.0, 1.0, 7.0, 1.0)]
-    assert summarize_sweep_cell(results, include_switches=False) == (2.0, 0.5, 6.0, 1.0)
+    assert summarize_sweep_cell(results, n_sims=2, include_switches=False) == (2.0, 0.5, 6.0, 1.0)
+
+
+def test_summarize_sweep_cell_divides_by_n_sims_not_by_the_result_count():
+    results = [(1.0, 0.0, 5.0, 1.0), (3.0, 1.0, 7.0, 1.0)]
+    assert summarize_sweep_cell(results, n_sims=4, include_switches=False) == (1.0, 0.25, 3.0, 0.5)
+
+
+def test_mean_left_to_right_count_is_the_divisor():
+    assert mean_left_to_right([1.0, 2.0], count=4) == 0.75
+    with pytest.raises(ZeroDivisionError):
+        mean_left_to_right([1.0], count=0)
 
 
 def test_sweep_output_shapes_and_switch_option():

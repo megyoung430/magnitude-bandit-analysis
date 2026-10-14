@@ -459,30 +459,39 @@ def simulate_3armed_blockswaps_markov(
 # ---------------------------------------------------------------------------
 
 
-def mean_left_to_right(values: Iterable[float]) -> float:
+def mean_left_to_right(values: Iterable[float], *, count: int | None = None) -> float:
     """Mean of *values*, added one at a time in order.
 
     Python's built-in ``sum`` compensates rounding error from version 3.12 on,
     which would change the last bit of a heatmap cell between interpreters.
     Plain left-to-right addition gives the same result everywhere.
+
+    Args:
+        values: Numbers to average.
+        count: Divisor; defaults to the number of *values*. The sweep passes its
+            ``n_sims``, so 0 raises ZeroDivisionError and a negative value gives -0.0.
     """
     values = list(values)
-    return reduce(operator.add, values, 0.0) / len(values)
+    return reduce(operator.add, values, 0.0) / (len(values) if count is None else count)
 
 
-def summarize_sweep_cell(results: list[tuple], *, include_switches: bool) -> tuple[float, ...]:
+def summarize_sweep_cell(
+    results: list[tuple], *, n_sims: int, include_switches: bool
+) -> tuple[float, ...]:
     """Average the simulations of one (max_block_len, pud) cell.
 
     Args:
         results: One :func:`simulate_3armed_blockswaps_markov` return per
             simulation; with a session dict last when *include_switches*.
+        n_sims: Number of simulations requested for the cell; the divisor of the
+            four means. 0 raises ZeroDivisionError and a negative value gives -0.0.
         include_switches: Also pool the best/second switches per observed block.
 
     Returns:
         ``(gap_mean, gap_ge2, run_mean, run_std)``, followed by ``switch_mean``
         when *include_switches* is True.
     """
-    means = tuple(mean_left_to_right(r[k] for r in results) for k in range(4))
+    means = tuple(mean_left_to_right((r[k] for r in results), count=n_sims) for k in range(4))
     if not include_switches:
         return means
     counts = [r[4]["best_second_switches_per_block"] for r in results]
@@ -546,7 +555,7 @@ def sweep_markov_metrics(
                 simulate(pud=float(pud), max_block_len=int(mbl), min_block_len=int(mbl) - 10)
                 for _ in range(n_sims)
             ]
-            cell = summarize_sweep_cell(results, include_switches=include_switches)
+            cell = summarize_sweep_cell(results, n_sims=n_sims, include_switches=include_switches)
             for heatmap, value in zip(heatmaps, cell, strict=True):
                 heatmap[i, j] = value
             print(f"Done pud={pud:.4f}, max_block_len={mbl}")
