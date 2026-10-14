@@ -95,6 +95,10 @@ def test_history_terms_do_not_read_rewards_without_lags():
     g._history_terms(ONE_HOT, [None, None, None], n_lags=0)
 
 
+def test_history_terms_do_not_read_rewards_with_negative_lags():
+    g._history_terms(ONE_HOT, [None, None, None], n_lags=-1)
+
+
 def test_history_terms_raise_when_rewards_are_too_short():
     with pytest.raises(IndexError):
         g._history_terms(ONE_HOT, [2.0], n_lags=1)
@@ -198,6 +202,16 @@ def test_format_glm_input_labels_omit_arm3_even_when_columns_are_kept():
 def test_format_glm_input_session_with_one_trial_is_empty():
     x, y, _ = g.format_glm_input(constant_subjects(["A"]), n_lags=2)
     assert x["m"].shape == (0, 1 + 5 * 2) and y["m"].shape == (0, 3)
+
+
+def test_format_glm_input_negative_lags_mean_bias_only():
+    # Negative lags behave like zero lags, even with missing rewards or too few trials.
+    data = constant_subjects(["A", "B", "C", "A"])
+    data["m"]["ses-1"]["reward_magnitudes_by_tower"]["A"][0] = None
+    x, y, labels = g.format_glm_input(data, n_lags=-1)
+    assert labels == ["Bias"] and x["m"].tolist() == [[1.0]] * 3 and y["m"].shape == (3, 3)
+    x, y, _ = g.format_glm_input(constant_subjects(["A"]), n_lags=-1)
+    assert x["m"].shape == (0, 1) and y["m"].shape == (0, 3)
 
 
 def test_format_glm_input_missing_history_before_the_first_trial_is_zero():

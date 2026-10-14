@@ -99,8 +99,11 @@ _RANK_REDUNDANT = ("Chose Third", "Third*Reward")
 
 
 def _n_design_cols(n_lags: int) -> int:
-    """Width of the full design matrix: bias, then 3 choices + 1 reward + 3 interactions per lag."""
-    return 1 + (2 * _N_ARMS + 1) * n_lags
+    """Width of the full design matrix: bias, then 3 choices + 1 reward + 3 interactions per lag.
+
+    A negative ``n_lags`` has no lags, like zero: the matrix is the bias alone.
+    """
+    return 1 + (2 * _N_ARMS + 1) * max(n_lags, 0)
 
 
 def _design_labels(
@@ -140,7 +143,7 @@ def _history_terms(
 
     The last trial is never part of any row's history, so its reward is neither
     read nor multiplied (a missing last reward is harmless) and its entries are
-    NaN padding. Without lags no history is read at all.
+    NaN padding. Without lags (``n_lags <= 0``) no history is read at all.
 
     The products are formed element-wise on the original objects, not on a float
     array: a missing reward (``None``) must raise ``TypeError`` here rather than
@@ -150,7 +153,7 @@ def _history_terms(
     n_trials = len(choice_rows)
     reward_col = np.full(n_trials, np.nan)
     interactions = np.full((n_trials, _N_ARMS), np.nan)
-    if n_lags == 0:
+    if n_lags <= 0:
         return reward_col, interactions
 
     n_history = max(n_trials - 1, 0)
