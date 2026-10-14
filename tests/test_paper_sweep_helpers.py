@@ -30,17 +30,17 @@ def make_sequences(n_mice=6, problems=(5, 6, 7), n_trials=5):
 
 class TestSplitRLParameters:
     def test_sticky_fixes_absent_terms_at_zero(self):
-        rates = paper._split_rl_parameters([0.1, 2.0, 0.5], "sticky_rl")
-        assert rates == (0.1, 2.0, 0.5, 0.0, 0.0, 0.0)
+        params = paper._split_rl_parameters([0.1, 2.0, 0.5], "sticky_rl")
+        assert params == (0.1, 2.0, 0.5, 0.0, 0.0, 0.0)
 
     def test_released_has_no_bias(self):
-        rates = paper._split_rl_parameters([0.1, 2.0, 0.5, 0.2, 1.5], "released_rl")
-        assert rates == (0.1, 2.0, 0.5, 0.0, 0.2, 1.5)
+        params = paper._split_rl_parameters([0.1, 2.0, 0.5, 0.2, 1.5], "released_rl")
+        assert params == (0.1, 2.0, 0.5, 0.0, 0.2, 1.5)
 
     def test_best_uses_all_six_in_order(self):
-        rates = paper._split_rl_parameters([1, 2, 3, 4, 5, 6], "best_rl")
-        assert list(rates) == [1, 2, 3, 4, 5, 6]
-        assert rates.stickiness == 3 and rates.q_init == 6
+        params = paper._split_rl_parameters([1, 2, 3, 4, 5, 6], "best_rl")
+        assert list(params) == [1, 2, 3, 4, 5, 6]
+        assert params.stickiness == 3 and params.q_init == 6
 
     @pytest.mark.parametrize("model", paper.MODEL_NAMES)
     def test_wrong_length_fails_loudly(self, model):
@@ -124,8 +124,12 @@ class TestValidation:
 
     def test_sizes_accept_zero_budget_and_no_budget(self):
         grid = [dict(optimizer_learning_rate=0.1, batch_size=2)]
-        paper._validate_sweep_sizes(grid, 1, 1, 1, 0)
-        paper._validate_sweep_sizes(grid, 1, 1, 1, None)
+        paper._validate_sweep_sizes(
+            grid, n_seeds=1, max_steps=1, validation_every=1, max_new_runs=0
+        )
+        paper._validate_sweep_sizes(
+            grid, n_seeds=1, max_steps=1, validation_every=1, max_new_runs=None
+        )
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -277,16 +281,18 @@ class TestRunMetadata:
             paper._release_score_per_trial([])
 
     def test_initial_metadata_starts_at_step_zero(self):
-        metadata = paper._initial_metadata(1.5, 2.5)
+        metadata = paper._initial_metadata(1.5, validation_score=2.5)
         assert (metadata["step"], metadata["best_step"], metadata["best_validation"]) == (0, 0, 2.5)
         assert metadata["history"] == [
             dict(step=0, validation_cross_entropy=1.5, validation_release_score=2.5)
         ]
 
     def test_improvement_updates_best_and_does_not_mutate_input(self):
-        before = paper._initial_metadata(1.5, 2.5)
+        before = paper._initial_metadata(1.5, validation_score=2.5)
         snapshot = repr(before)
-        after, improved = paper._advance_metadata(before, 3, 1.0, 2.0, 0.7)
+        after, improved = paper._advance_metadata(
+            before, steps=3, validation_ce=1.0, validation_score=2.0, train_loss=0.7
+        )
         assert improved
         assert (after["step"], after["best_step"], after["best_validation"]) == (3, 3, 2.0)
         assert after["history"][-1] == dict(
@@ -300,16 +306,20 @@ class TestRunMetadata:
 
     @pytest.mark.parametrize("validation", [2.5, 3.0])
     def test_tie_or_worse_keeps_the_earlier_best(self, validation):
-        before = paper._initial_metadata(1.5, 2.5)
-        after, improved = paper._advance_metadata(before, 2, 1.0, validation, 0.1)
+        before = paper._initial_metadata(1.5, validation_score=2.5)
+        after, improved = paper._advance_metadata(
+            before, steps=2, validation_ce=1.0, validation_score=validation, train_loss=0.1
+        )
         assert not improved
         assert (after["step"], after["best_step"], after["best_validation"]) == (2, 0, 2.5)
         assert len(after["history"]) == 2
 
     def test_steps_accumulate_across_calls(self):
-        metadata = paper._initial_metadata(1.0, 1.0)
+        metadata = paper._initial_metadata(1.0, validation_score=1.0)
         for _ in range(3):
-            metadata, _ = paper._advance_metadata(metadata, 5, 1.0, 1.0, 0.0)
+            metadata, _ = paper._advance_metadata(
+                metadata, steps=5, validation_ce=1.0, validation_score=1.0, train_loss=0.0
+            )
         assert metadata["step"] == 15 and len(metadata["history"]) == 4
 
 
@@ -329,9 +339,15 @@ class TestSelection:
             paper._select_winner(self.records, "c")
 
     def test_sweep_result_is_complete_only_when_all_runs_exist(self, tmp_path):
-        details = dict(split_strategy="mouse", split_problems=None)
-        complete = paper._sweep_result([1, 2], 2, tmp_path, {"train": []}, details, [], [])
-        partial = paper._sweep_result([1, 2], 3, tmp_path, {"train": []}, details, [], [])
+        common = dict(
+            output=tmp_path,
+            identities={"train": []},
+            split_details=dict(split_strategy="mouse", split_problems=None),
+            selected=[],
+            test_sessions=[],
+        )
+        complete = paper._sweep_result([1, 2], 2, **common)
+        partial = paper._sweep_result([1, 2], 3, **common)
         assert complete["complete"] and not partial["complete"]
         assert partial["completed_runs"] == 2 and partial["expected_runs"] == 3
         assert partial["output_dir"] == str(tmp_path)
@@ -403,62 +419,77 @@ class TestRunLoop:
         parts, _, _ = paper._split_sequences(make_sequences(), 0)
         train = tuple(jnp.asarray(x) for x in paper.pack_sequences(parts["train"]))
         self.parts = parts
-        self.config = paper._FitConfig(parts, train, fit_seed=1, max_steps=4, validation_every=2)
+        self.config = paper._FitConfig(
+            validation_sequences=parts["validation"],
+            train_arrays=train,
+            fit_seed=1,
+            max_steps=4,
+            validation_every=2,
+        )
         self.setting = dict(optimizer_learning_rate=0.01, weight_decay=0.0, batch_size=2)
 
-    def backend(self):
+    def trainer(self):
         stats, _, make_trainer = paper.make_backend("sticky_rl")
-        return (stats, *make_trainer(self.setting))
+        optimizer, chunk = make_trainer(self.setting)
+        return paper._Trainer(stats, optimizer, chunk)
+
+    def fit(self, trainer, checkpoint):
+        return paper._fit_run(
+            "run-x",
+            "sticky_rl",
+            setting=self.setting,
+            repeat=0,
+            trainer=trainer,
+            config=self.config,
+            checkpoint=checkpoint,
+        )
 
     def test_nonfinite_objective_stops_without_writing_a_checkpoint(self, tmp_path):
-        stats, optimizer, _ = self.backend()
-
         def diverging_chunk(raw, state, key, *rest):
             return (raw, state, key), np.float64("nan")
 
         checkpoint = tmp_path / "run.npz"
+        trainer = self.trainer()._replace(chunk=diverging_chunk)
         with pytest.raises(FloatingPointError, match="run-x: nonfinite objective"):
-            paper._fit_run(
-                "run-x",
-                "sticky_rl",
-                self.setting,
-                0,
-                (stats, optimizer, diverging_chunk),
-                self.config,
-                checkpoint,
-            )
+            self.fit(trainer, checkpoint)
         assert not checkpoint.exists()
 
     def test_finished_checkpoint_is_resumed_without_more_training(self, tmp_path):
-        backend = self.backend()
+        trainer = self.trainer()
         checkpoint = tmp_path / "run.npz"
-        args = ("r", "sticky_rl", self.setting, 0)
-        best_raw, metadata = paper._fit_run(*args, backend, self.config, checkpoint)
+        best_raw, metadata = self.fit(trainer, checkpoint)
         assert metadata["step"] == 4 and len(metadata["history"]) == 3
 
         def forbidden_chunk(*args):
             raise AssertionError("a finished run must not train again")
 
-        stats, optimizer, _ = backend
-        resumed_raw, resumed = paper._fit_run(
-            *args, (stats, optimizer, forbidden_chunk), self.config, checkpoint
-        )
+        resumed_raw, resumed = self.fit(trainer._replace(chunk=forbidden_chunk), checkpoint)
         assert resumed == metadata
         np.testing.assert_array_equal(resumed_raw, best_raw)
+
+    def sweep(self, grid, n_seeds, output, max_new_runs):
+        return paper._sweep_fits(
+            ("sticky_rl",),
+            grid,
+            n_seeds=n_seeds,
+            config=self.config,
+            output=output,
+            max_new_runs=max_new_runs,
+        )
 
     def test_budget_of_zero_trains_nothing_and_returns_finished_runs(self, tmp_path):
         import json
 
         grid = [self.setting]
-        assert paper._sweep_fits(("sticky_rl",), grid, 2, self.config, tmp_path, 0) == []
+        assert self.sweep(grid, 2, tmp_path, 0) == []
         done = dict(model="sticky_rl", marker="from disk")
         (tmp_path / "sticky_rl_setting-00_seed-01.json").write_text(json.dumps(done))
-        records = paper._sweep_fits(("sticky_rl",), grid, 2, self.config, tmp_path, 0)
+        records = self.sweep(grid, 2, tmp_path, 0)
         assert records == [done]
         assert not list(tmp_path.glob("*.npz"))
 
     def test_budget_limits_new_fits(self, tmp_path):
-        records = paper._sweep_fits(("sticky_rl",), [self.setting], 3, self.config, tmp_path, 1)
+        records = self.sweep([self.setting], 3, tmp_path, 1)
         assert [r["repeat"] for r in records] == [0]
         assert (tmp_path / "sticky_rl_setting-00_seed-00.json").exists()
         assert not (tmp_path / "sticky_rl_setting-00_seed-01.json").exists()
@@ -466,6 +497,34 @@ class TestRunLoop:
 
     def test_batch_size_is_capped_at_the_number_of_training_sessions(self, tmp_path):
         big = dict(self.setting, batch_size=10_000)
-        records = paper._sweep_fits(("sticky_rl",), [big], 1, self.config, tmp_path, None)
+        records = self.sweep([big], 1, tmp_path, None)
         assert records[0]["effective_batch_size"] == len(self.parts["train"])
         assert records[0]["setting"]["batch_size"] == 10_000
+
+
+class TestFitConfig:
+    def test_holds_no_test_partition(self):
+        import dataclasses
+
+        names = {f.name for f in dataclasses.fields(paper._FitConfig)}
+        assert names == {
+            "validation_sequences",
+            "train_arrays",
+            "fit_seed",
+            "max_steps",
+            "validation_every",
+        }
+
+    def test_fields_are_keyword_only_and_frozen(self):
+        with pytest.raises(TypeError):
+            paper._FitConfig([], (), 1, 2, 3)
+        config = paper._FitConfig(
+            validation_sequences=[],
+            train_arrays=(np.zeros((4, 2)),),
+            fit_seed=1,
+            max_steps=2,
+            validation_every=1,
+        )
+        assert config.n_train_sessions == 4
+        with pytest.raises(AttributeError):
+            config.fit_seed = 2

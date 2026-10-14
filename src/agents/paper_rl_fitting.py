@@ -364,15 +364,31 @@ _NEURAL_INITIALIZATION = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _FitConfig:
-    """What every run in one sweep shares: data partitions and the training schedule."""
+    """What every run in one sweep shares: training and validation data and the schedule.
 
-    parts: dict
+    The test partition is deliberately absent, so nothing that trains or selects can
+    reach it.
+    """
+
+    validation_sequences: list
     train_arrays: tuple
     fit_seed: int
     max_steps: int
     validation_every: int
+
+    @property
+    def n_train_sessions(self):
+        return self.train_arrays[0].shape[0]
+
+
+class _Trainer(NamedTuple):
+    """The jitted statistics, the optimizer and the jitted training chunk of one setting."""
+
+    stats: Any
+    optimizer: Any
+    chunk: Any
 
 
 def _validate_models(models, supported):
@@ -381,7 +397,7 @@ def _validate_models(models, supported):
         raise ValueError("Need unique supported model names.")
 
 
-def _validate_sweep_sizes(grid, n_seeds, max_steps, validation_every, max_new_runs):
+def _validate_sweep_sizes(grid, *, n_seeds, max_steps, validation_every, max_new_runs):
     """Require a nonempty grid and positive counts; ``max_new_runs=None`` means no budget."""
     if (
         not grid
@@ -503,23 +519,23 @@ def _release_score_per_trial(rows):
     return sum(r["release_nll"] for r in rows) / sum(r["n_trials"] for r in rows)
 
 
-def _initial_metadata(validation_ce, validation):
+def _initial_metadata(validation_ce, *, validation_score):
     """Run history at step zero, before any optimization."""
     return dict(
         step=0,
         best_step=0,
-        best_validation=validation,
+        best_validation=validation_score,
         history=[
             dict(
                 step=0,
                 validation_cross_entropy=validation_ce,
-                validation_release_score=validation,
+                validation_release_score=validation_score,
             )
         ],
     )
 
 
-def _advance_metadata(metadata, steps, validation_ce, validation, train_loss):
+def _advance_metadata(metadata, *, steps, validation_ce, validation_score, train_loss):
     """Metadata after ``steps`` more optimizer steps, and whether validation improved.
 
     Only a strictly lower validation score replaces the best iterate, so ties keep
@@ -529,13 +545,13 @@ def _advance_metadata(metadata, steps, validation_ce, validation, train_loss):
     entry = dict(
         step=step,
         validation_cross_entropy=validation_ce,
-        validation_release_score=validation,
+        validation_release_score=validation_score,
         last_batch_objective=train_loss,
     )
     updated = dict(metadata, step=step, history=[*metadata["history"], entry])
-    improved = validation < metadata["best_validation"]
+    improved = validation_score < metadata["best_validation"]
     if improved:
-        updated.update(best_step=step, best_validation=validation)
+        updated.update(best_step=step, best_validation=validation_score)
     return updated, improved
 
 
@@ -565,17 +581,17 @@ def _load_checkpoint(checkpoint, raw, state):
 
 def _score_validation(raw, model, stats, config):
     """Validation cross-entropy per trial and released-loss score per trial."""
-    validation_ce, rows = score_sequences(raw, config.parts["validation"], model, stats)
+    validation_ce, rows = score_sequences(raw, config.validation_sequences, model, stats)
     return validation_ce, _release_score_per_trial(rows)
 
 
-def _fit_run(run_id, model, setting, repeat, backend, config, checkpoint):
+def _fit_run(run_id, model, *, setting, repeat, trainer, config, checkpoint):
     """Train one (model, setting, seed) run, resuming from ``checkpoint`` when present.
 
     Returns the best-validation raw parameters and the run metadata.
     """
     jax, _, _ = dependencies()
-    stats, optimizer, chunk = backend
+    stats, optimizer, chunk = trainer
     # Matched initialization seeds across models: the stream depends only on ``repeat``.
     init_key, sample_key = jax.random.split(jax.random.PRNGKey(config.fit_seed + repeat))
     raw = _initial_raw_parameters(model, init_key, _hidden_units(setting))
@@ -583,26 +599,32 @@ def _fit_run(run_id, model, setting, repeat, backend, config, checkpoint):
     if checkpoint.exists():
         raw, best_raw, sample_key, state, metadata = _load_checkpoint(checkpoint, raw, state)
     else:
-        best_raw, metadata = raw, _initial_metadata(*_score_validation(raw, model, stats, config))
+        validation_ce, validation_score = _score_validation(raw, model, stats, config)
+        best_raw = raw
+        metadata = _initial_metadata(validation_ce, validation_score=validation_score)
     while metadata["step"] < config.max_steps:
         steps = min(config.validation_every, config.max_steps - metadata["step"])
         (raw, state, sample_key), train_loss = chunk(
             raw, state, sample_key, *config.train_arrays, steps
         )
-        validation_ce, validation = _score_validation(raw, model, stats, config)
-        if not np.isfinite(validation) or not np.isfinite(float(train_loss)):
+        validation_ce, validation_score = _score_validation(raw, model, stats, config)
+        if not np.isfinite(validation_score) or not np.isfinite(float(train_loss)):
             raise FloatingPointError(
                 f"{run_id}: nonfinite objective; last finite checkpoint retained."
             )
         metadata, improved = _advance_metadata(
-            metadata, steps, validation_ce, validation, float(train_loss)
+            metadata,
+            steps=steps,
+            validation_ce=validation_ce,
+            validation_score=validation_score,
+            train_loss=float(train_loss),
         )
         if improved:
             best_raw = raw
         _save_checkpoint(checkpoint, raw, state, sample_key, best_raw, metadata)
         print(
             f"{run_id}: {metadata['step']:,}/{config.max_steps:,} steps; "
-            f"validation release score {validation:.5f}",
+            f"validation release score {validation_score:.5f}",
             flush=True,
         )
     return best_raw, metadata
@@ -616,7 +638,7 @@ def _serialize_raw(raw):
 
 
 def restore_raw(serialized):
-    """Inverse of :func:`serialize_raw`, as JAX arrays."""
+    """Inverse of :func:`_serialize_raw`, as JAX arrays."""
     _, jnp, _ = dependencies()
     if isinstance(serialized, dict):
         return {k: jnp.asarray(v) for k, v in serialized.items()}
@@ -633,7 +655,7 @@ def _summarize_parameters(best_raw, model):
     return neural_bandit.parameter_summary(best_raw, model)
 
 
-def _run_record(model, setting_index, setting, repeat, effective_batch_size, best_raw, metadata):
+def _run_record(model, setting_index, *, setting, repeat, effective_batch_size, best_raw, metadata):
     return dict(
         model=model,
         setting_index=setting_index,
@@ -646,15 +668,16 @@ def _run_record(model, setting_index, setting, repeat, effective_batch_size, bes
     )
 
 
-def _sweep_fits(models, grid, n_seeds, config, output, max_new_runs):
+def _sweep_fits(models, grid, *, n_seeds, config, output, max_new_runs):
     """Load finished runs and fit missing ones, at most ``max_new_runs`` new fits."""
     records, completed_now = [], 0
     for model in models:
         for setting_index, setting in enumerate(grid):
             stats, _, make_trainer = make_backend(model, hidden_units=_hidden_units(setting))
             # The batch cannot exceed the number of training sessions.
-            batch_size = min(setting["batch_size"], len(config.parts["train"]))
+            batch_size = min(setting["batch_size"], config.n_train_sessions)
             optimizer, chunk = make_trainer(dict(setting, batch_size=batch_size))
+            trainer = _Trainer(stats, optimizer, chunk)
             for repeat in range(n_seeds):
                 run_id = f"{model}_setting-{setting_index:02d}_seed-{repeat:02d}"
                 done_file, checkpoint = output / f"{run_id}.json", output / f"{run_id}.npz"
@@ -664,10 +687,22 @@ def _sweep_fits(models, grid, n_seeds, config, output, max_new_runs):
                 if max_new_runs is not None and completed_now >= max_new_runs:
                     continue
                 best_raw, metadata = _fit_run(
-                    run_id, model, setting, repeat, (stats, optimizer, chunk), config, checkpoint
+                    run_id,
+                    model,
+                    setting=setting,
+                    repeat=repeat,
+                    trainer=trainer,
+                    config=config,
+                    checkpoint=checkpoint,
                 )
                 record = _run_record(
-                    model, setting_index, setting, repeat, batch_size, best_raw, metadata
+                    model,
+                    setting_index,
+                    setting=setting,
+                    repeat=repeat,
+                    effective_batch_size=batch_size,
+                    best_raw=best_raw,
+                    metadata=metadata,
                 )
                 done_file.write_text(json.dumps(record, indent=2, allow_nan=False))
                 records.append(record)
@@ -689,20 +724,23 @@ def _save_selected_parameters(path, best_raw):
             np.savez(file, parameters=np.asarray(best_raw))
 
 
-def _score_winner(model, winner, parts, output):
+def _selected_parameters_name(model):
+    """File name under which a model's winning raw parameters are saved."""
+    return f"{model}_selected_parameters.npz"
+
+
+def _score_winner(model, winner, parts):
     """Score a validation-selected winner on held-out data; returns its summary and test rows."""
     best_raw = restore_raw(winner["best_raw"])
     validation_ce, _ = score_sequences(best_raw, parts["validation"], model)
     test_ce, rows = score_sequences(best_raw, parts["test"], model)
-    winner_file = output / f"{model}_selected_parameters.npz"
-    _save_selected_parameters(winner_file, best_raw)
     selected = dict(
         model=model,
         setting=winner["setting"],
         repeat=winner["repeat"],
         selected_step=winner["best_step"],
         parameters=winner["parameters"],
-        parameters_file=winner_file.name,
+        parameters_file=_selected_parameters_name(model),
         validation_cross_entropy=validation_ce,
         validation_release_score=winner["best_validation"],
         test_cross_entropy=test_ce,
@@ -713,15 +751,7 @@ def _score_winner(model, winner, parts, output):
     return selected, [dict(model=model, **r) for r in rows]
 
 
-def _select_and_score(models, records, parts, output):
-    """Pick each model's winner on validation alone, then score it on the test partition."""
-    scored = [_score_winner(m, _select_winner(records, m), parts, output) for m in models]
-    selected = [summary for summary, _ in scored]
-    test_sessions = [row for _, rows in scored for row in rows]
-    return selected, test_sessions
-
-
-def _sweep_result(records, expected, output, identities, split_details, selected, test_sessions):
+def _sweep_result(records, expected, *, output, identities, split_details, selected, test_sessions):
     return dict(
         complete=len(records) == expected,
         completed_runs=len(records),
@@ -740,12 +770,22 @@ def _library_versions():
     return dict(jax=jax.__version__, optax=optax.__version__, numpy=np.__version__)
 
 
-def _finish_sweep(models, records, parts, output, identities, split_details):
-    """Select winners, score them on test data and write ``results.json``."""
-    selected, test_sessions = _select_and_score(models, records, parts, output)
-    expected_runs = len(records)
+def _finish_sweep(models, records, *, expected, parts, output, identities, split_details):
+    """Pick each winner on validation alone, score it on test, then write the outputs."""
+    winners = {model: _select_winner(records, model) for model in models}
+    scored = [_score_winner(model, winners[model], parts) for model in models]
+    for model, winner in winners.items():
+        _save_selected_parameters(
+            output / _selected_parameters_name(model), restore_raw(winner["best_raw"])
+        )
     result = _sweep_result(
-        records, expected_runs, output, identities, split_details, selected, test_sessions
+        records,
+        expected,
+        output=output,
+        identities=identities,
+        split_details=split_details,
+        selected=[summary for summary, _ in scored],
+        test_sessions=[row for _, rows in scored for row in rows],
     )
     (output / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
     return result
@@ -779,13 +819,20 @@ def run_paper_sweep(
     _validate_models(models, (*MODEL_NAMES, *neural_bandit.NEURAL_MODELS))
     if grid is None:
         grid = FULL_GRID
-    _validate_sweep_sizes(grid, n_seeds, max_steps, validation_every, max_new_runs)
+    _validate_sweep_sizes(
+        grid,
+        n_seeds=n_seeds,
+        max_steps=max_steps,
+        validation_every=validation_every,
+        max_new_runs=max_new_runs,
+    )
     _validate_settings(grid)
     _validate_sequence_lengths(sequences)
     parts, identities, split_details = _split_sequences(
         sequences, split_seed, test_problem, validation_problem
     )
-    # Only training and validation histories enter training/selection functions.
+    # Only the training arrays and validation sequences enter ``config``; the test
+    # partition is first used by ``_finish_sweep``, after every run has finished.
     train_arrays = tuple(jnp.asarray(x) for x in pack_sequences(parts["train"]))
     settings = dict(
         profile=profile,
@@ -806,12 +853,36 @@ def run_paper_sweep(
         _read_source_snapshots(models),
     )
     output = _write_manifest(output_root, manifest)
-    config = _FitConfig(parts, train_arrays, fit_seed, max_steps, validation_every)
-    records = _sweep_fits(models, grid, n_seeds, config, output, max_new_runs)
+    config = _FitConfig(
+        validation_sequences=parts["validation"],
+        train_arrays=train_arrays,
+        fit_seed=fit_seed,
+        max_steps=max_steps,
+        validation_every=validation_every,
+    )
+    records = _sweep_fits(
+        models, grid, n_seeds=n_seeds, config=config, output=output, max_new_runs=max_new_runs
+    )
     expected = len(models) * len(grid) * n_seeds
     if len(records) != expected:
-        return _sweep_result(records, expected, output, identities, split_details, [], [])
-    return _finish_sweep(models, records, parts, output, identities, split_details)
+        return _sweep_result(
+            records,
+            expected,
+            output=output,
+            identities=identities,
+            split_details=split_details,
+            selected=[],
+            test_sessions=[],
+        )
+    return _finish_sweep(
+        models,
+        records,
+        expected=expected,
+        parts=parts,
+        output=output,
+        identities=identities,
+        split_details=split_details,
+    )
 
 
 def run_problem_sweep(sequences, output_root, test_problems=None, max_new_runs=None, **kwargs):
