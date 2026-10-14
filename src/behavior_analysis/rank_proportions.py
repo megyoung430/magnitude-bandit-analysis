@@ -18,8 +18,14 @@ import numpy as np
 
 RANKS = ("best", "second", "third")
 
+RankRow = dict  # one count dict: best/second/third, total and the *_prop values
+RankCounts = dict[str, list[dict]]  # {subject: one count dict per block}
+Unit = dict[str, float]  # {rank: value} for one mouse or block
 
-def subject_rank_proportions(rows, *, pool_trials_within_subject=False):
+
+def subject_rank_proportions(
+    rows: list[RankRow], *, pool_trials_within_subject: bool = False
+) -> Unit:
     """Return one proportion per rank while keeping the subject as the unit.
 
     Pooled, each rank's count is summed over rows and divided by the summed
@@ -34,7 +40,7 @@ def subject_rank_proportions(rows, *, pool_trials_within_subject=False):
     return {rank: np.nanmean([r.get(f"{rank}_prop", np.nan) for r in rows]) for rank in RANKS}
 
 
-def standard_error(values):
+def standard_error(values: list[float]) -> float:
     """Standard error of the mean, ``nanstd(ddof=1) / sqrt(len(values))``.
 
     Known issue: NaNs are left out of the spread but still count towards n, so
@@ -45,7 +51,7 @@ def standard_error(values):
     return np.nanstd(values, ddof=1) / np.sqrt(len(values))
 
 
-def mean_by_rank(units, *, guard_empty):
+def mean_by_rank(units: list[Unit], *, guard_empty: bool) -> list[float]:
     """Mean per rank (best, second, third) across *units*.
 
     With *guard_empty* an empty *units* gives NaN silently; without it numpy
@@ -57,7 +63,7 @@ def mean_by_rank(units, *, guard_empty):
     return [np.nanmean([u[rank] for u in units]) for rank in RANKS]
 
 
-def se_by_rank(units, *, guard_single):
+def se_by_rank(units: list[Unit], *, guard_single: bool) -> list[float]:
     """Standard error per rank across *units* (see :func:`standard_error`).
 
     With *guard_single* fewer than two units give NaN silently; without it numpy
@@ -69,19 +75,21 @@ def se_by_rank(units, *, guard_single):
     return [standard_error([u[rank] for u in units]) for rank in RANKS]
 
 
-def row_props(row, *, strict=False):
+def row_props(row: RankRow, *, strict: bool = False) -> list[float]:
     """The three ``*_prop`` values of a count row; *strict* raises on a missing key."""
     if strict:
         return [row[f"{rank}_prop"] for rank in RANKS]
     return [row.get(f"{rank}_prop", np.nan) for rank in RANKS]
 
 
-def prop_units(rows):
+def prop_units(rows: list[RankRow]) -> list[Unit]:
     """One ``{rank: proportion}`` unit per count row."""
     return [dict(zip(RANKS, row_props(row), strict=True)) for row in rows]
 
 
-def block_rows_for_subject(rows, *, pool_trials_within_subject=False):
+def block_rows_for_subject(
+    rows: list[RankRow], *, pool_trials_within_subject: bool = False
+) -> list[RankRow]:
     """The rows of one subject that count as its blocks.
 
     The last row is dropped unless trials are pooled, as if it were a summary
@@ -91,7 +99,9 @@ def block_rows_for_subject(rows, *, pool_trials_within_subject=False):
     return rows if pool_trials_within_subject else rows[:-1]
 
 
-def proportions_by_mouse(counts, *, pool_trials_within_subject=False):
+def proportions_by_mouse(
+    counts: RankCounts, *, pool_trials_within_subject: bool = False
+) -> dict[str, Unit]:
     """``{subject: {rank: proportion}}`` for subjects that have any rows (all rows used)."""
     return {
         subject: subject_rank_proportions(
@@ -102,7 +112,7 @@ def proportions_by_mouse(counts, *, pool_trials_within_subject=False):
     }
 
 
-def rows_in_block(counts, block_idx):
+def rows_in_block(counts: RankCounts, block_idx: int) -> list[RankRow]:
     """Each subject's row for *block_idx*, leaving out every subject's last row.
 
     Known issue: same dropped last real block as :func:`block_rows_for_subject`.
@@ -110,7 +120,7 @@ def rows_in_block(counts, block_idx):
     return [rows[block_idx] for rows in counts.values() if block_idx < len(rows) - 1]
 
 
-def proportions_by_block(counts):
+def proportions_by_block(counts: RankCounts) -> list[Unit]:
     """One ``{rank: proportion}`` unit per block, averaged over the subjects that have it.
 
     Known issue: raises ``ValueError: max() arg is an empty sequence`` when
@@ -126,6 +136,6 @@ def proportions_by_block(counts):
     ]
 
 
-def n_blocks_excluding_last(counts):
+def n_blocks_excluding_last(counts: RankCounts) -> int:
     """The longest subject list minus its last row (0 if there are no rows)."""
     return max((max(0, len(rows) - 1) for rows in counts.values()), default=0)

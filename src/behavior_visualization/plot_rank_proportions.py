@@ -51,8 +51,6 @@ BLOCK_COLORS = [
     "#FF7F00",
 ]
 
-_RankCounts = dict[str, list[dict]]
-
 
 def plot_rank_proportions(
     rank_counts_by_good_reversal,
@@ -219,7 +217,7 @@ def _save_or_show(fig, save_path, *, create_folders):
 
 
 def plot_average_across_mice(
-    rank_counts: _RankCounts,
+    rank_counts: _summary.RankCounts,
     *,
     pvalues: dict | None = None,
     pool_trials_within_subject: bool = False,
@@ -264,7 +262,9 @@ def plot_average_across_mice(
     return ax
 
 
-def plot_average_across_blocks(rank_counts: _RankCounts, *, ax: plt.Axes | None = None) -> plt.Axes:
+def plot_average_across_blocks(
+    rank_counts: _summary.RankCounts, *, ax: plt.Axes | None = None
+) -> plt.Axes:
     """Bars (mean ± SE across blocks) with one coloured line per block.
 
     Each subject's last row is left out (known issue: it is a real block, see
@@ -294,7 +294,7 @@ def plot_average_across_blocks(rank_counts: _RankCounts, *, ax: plt.Axes | None 
 
 def plot_mouse_panel(
     subject: str,
-    rows: list[dict],
+    rows: list[_summary.RankRow],
     *,
     pool_trials_within_subject: bool = False,
     ax: plt.Axes | None = None,
@@ -345,7 +345,7 @@ def _block_legend_label(subject, row):
 
 
 def plot_block_panel(
-    rank_counts: _RankCounts,
+    rank_counts: _summary.RankCounts,
     block_idx: int,
     *,
     ax: plt.Axes | None = None,
