@@ -50,13 +50,16 @@ raises `ZeroDivisionError` (both pinned by tests).
 Return values, generator and global RNG state, printed lines, warnings and exception
 types and messages match main on every compared input, including inputs with several
 invalid arguments (the seed is validated before `sig` and `max_block_len`, as on
-main). One difference remains in the matplotlib state left behind when
+main). Two differences remain in the matplotlib state left behind when
 `plot_example_session_gp` raises:
 
 - `T=0` with `use_raw=True`: both versions raise the same `ValueError` from
   `np.nanmax` of the empty session, but main has already drawn the three (empty) arm
   lines and set the x-limits on a figure that stays open, while the refactor raises
   while computing `y_max`, before any figure is created.
+- A non-numeric `clip` upper bound (e.g. `clip=(1, 5, None)`): both versions raise the
+  same `TypeError`, but main leaves a drawn figure open, while the refactor raises
+  while computing `y_axis_max`, before any figure is created.
 
 Behaviour kept from main (see the comments in `swap_arm_roles` and
 `sweep_gp_metrics`): non-positive reward values can let the inactive arm win the
