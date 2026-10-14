@@ -242,7 +242,7 @@ def test_best_run_lengths_cover_the_session():
     np.testing.assert_array_equal(best_run_lengths(np.array([2])), [1])
 
 
-def test_session_metrics_summarise_gap_and_runs():
+def test_session_metrics_summarize_gap_and_runs():
     gap = np.array([1.0, 2.0, 3.0, 0.0])
     best = np.array([0, 0, 1, 1])
     assert session_metrics(best_minus_second=gap, best_arm_series=best) == (1.5, 0.5, 2.0, 0.0)

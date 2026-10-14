@@ -6,7 +6,7 @@ status: in review
 
 <!-- status: todo | in progress | in review | done | blocked | awaiting your confirmation -->
 
-# Split markov_bandit simulations into simulate / summarise / plot
+# Split markov_bandit simulations into simulate / summarize / plot
 
 Refactor the long functions in `src/tasks/markov_bandit.py` to follow the delab coding principles without changing behaviour.
 
@@ -40,3 +40,15 @@ Behaviour-preserving refactor, test-first (principle 7):
 - `uv run --no-sync pytest -q` passes in your worktree.
 - Commit on your branch in your worktree only, small commits, messages per principle 10. Set
   `status: in review` in this file in your final commit.
+
+## Remaining differences from main (error paths only)
+Return values, generator and global RNG state, printed lines and exception types and messages match main on every
+compared input. One difference remains in the matplotlib state left behind when `plot_example_session_markov` raises:
+
+- `val_list=[1, 2, "3"]`: both versions raise the same error, but main has already drawn the three arm lines into a
+  figure that stays open, while the refactor raises at `max(val_list)` before any figure is created and leaves no
+  figure open. Accepted by the reviewer; the code is not contorted to reproduce it.
+
+Behaviour kept from main (see the comments in `swap_arm_roles` and `sweep_markov_metrics`): non-positive reward
+values can let the inactive arm win the argmax at a block boundary (a later `KeyError`), and `max_block_len <= 10`
+gives non-positive block lengths without validation.
