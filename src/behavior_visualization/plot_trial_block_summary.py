@@ -1,5 +1,7 @@
 """Six cohort plots of observed session and block trial counts."""
 
+from collections.abc import Iterator
+from itertools import chain
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -13,7 +15,12 @@ from src.behavior_analysis.trial_count_summaries import (
     mice_by_subject_number,
     summarize_trials_by_problem,
 )
-from src.behavior_visualization.plot_helpers import mouse_color_map, save_png_and_pdf
+from src.behavior_visualization.plot_helpers import (
+    FigureOutput,
+    TableOutput,
+    mouse_color_map,
+    write_outputs,
+)
 
 _SUBJECT_GROUPS = ("sub-01–04", "sub-05–08")
 _ALL_MICE = ("All mice",)
@@ -152,32 +159,32 @@ def _problem_figure(
 # ---------------------------------------------------------------------------
 
 
-def _plot_unit(
+def _unit_outputs(
     unit: str,
     table: pd.DataFrame,
     mice: list[str],
     colors: dict,
-    save_dir: Path,
     *,
-    show: bool,
     split_subject_groups: bool,
-) -> list[Path]:
-    """Write the CSVs and save the three figures (distributions, over time, by problem)."""
-    table.to_csv(save_dir / f"{unit}_trial_counts.csv", index=False)
+) -> Iterator[TableOutput | FigureOutput]:
+    """The tables and the three figures (distributions, over time, by problem) for *unit*.
+
+    Yields in the order they are written. Each figure is built only when the consumer
+    asks for it, after the previous output has been saved and closed.
+    """
     title = f"Trials per {unit}"
-    paths = []
+    yield TableOutput(f"{unit}_trial_counts.csv", table)
     fig = _distribution_figure(table, unit, mice, colors, split_subject_groups)
-    paths += save_png_and_pdf(fig, save_dir, f"{title} - distributions", show=show)
-    fig = _over_time_figure(table, unit, colors)
-    paths += save_png_and_pdf(fig, save_dir, f"{title} - over time", show=show)
+    yield FigureOutput(f"{title} - distributions", fig)
+    yield FigureOutput(f"{title} - over time", _over_time_figure(table, unit, colors))
 
     per_mouse = mean_trials_by_problem_and_mouse(table)
     summary = summarize_trials_by_problem(per_mouse)
-    summary.to_csv(save_dir / f"{unit}_trials_by_problem_summary.csv")
-    per_mouse.to_csv(save_dir / f"{unit}_trials_by_problem_per_mouse.csv", index=False)
-    fig = _problem_figure(per_mouse, summary, unit, colors)
-    paths += save_png_and_pdf(fig, save_dir, f"{title} - across problems", show=show)
-    return paths
+    yield TableOutput(f"{unit}_trials_by_problem_summary.csv", summary, index=True)
+    yield TableOutput(f"{unit}_trials_by_problem_per_mouse.csv", per_mouse)
+    yield FigureOutput(
+        f"{title} - across problems", _problem_figure(per_mouse, summary, unit, colors)
+    )
 
 
 def plot_trial_block_summaries(
@@ -203,15 +210,8 @@ def plot_trial_block_summaries(
             raise ValueError(f"No {unit} observations available for the selected problems")
     mice = mice_by_subject_number(sessions, blocks)
     colors = mouse_color_map(mice)
-    paths = []
-    for unit, table in tables.items():
-        paths += _plot_unit(
-            unit,
-            table,
-            mice,
-            colors,
-            save_dir,
-            show=show,
-            split_subject_groups=split_subject_groups,
-        )
-    return paths
+    outputs = chain.from_iterable(
+        _unit_outputs(unit, table, mice, colors, split_subject_groups=split_subject_groups)
+        for unit, table in tables.items()
+    )
+    return write_outputs(outputs, save_dir, show=show)

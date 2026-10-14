@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 
 from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
 from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_good_reversal
+from src.behavior_analysis.get_total_reversals import get_total_reversals
 from src.behavior_analysis.matched_trial_budget import match_trial_budget
 from src.behavior_analysis.trial_block_summary import build_trial_block_tables
 
@@ -66,6 +69,34 @@ def rank_record(label: str, problem, mouse: str, eligible_trials: int, values: l
 def reversal_record(label: str, problem, mouse: str, totals: dict) -> dict:
     """CSV row for one mouse's reversal totals; *totals* keys become columns."""
     return dict(cohort=label, problem=problem, mouse=mouse, **totals)
+
+
+class RankCell(NamedTuple):
+    """One mouse's pooled rank proportions in a cohort-by-problem cell, with its CSV row."""
+
+    proportions: list[float]
+    record: dict
+
+
+class ReversalCell(NamedTuple):
+    """One mouse's ``[good, bad, all]`` reversal counts in a cell, with its CSV row."""
+
+    values: list[float]
+    record: dict
+
+
+def mouse_rank_cell(label: str, problem, mouse: str, rows: list[dict]) -> RankCell | None:
+    """Rank cell from a mouse's per-reversal rank counts; ``None`` without eligible trials."""
+    n, proportions = rank_proportions(rows)
+    if proportions is None:
+        return None
+    return RankCell(proportions, rank_record(label, problem, mouse, n, proportions))
+
+
+def mouse_reversal_cell(label: str, problem, mouse: str, sessions: dict) -> ReversalCell:
+    """Reversal cell for one mouse from its ``{session_key: session}`` data."""
+    totals = get_total_reversals(sessions)
+    return ReversalCell(reversal_values(totals), reversal_record(label, problem, mouse, totals))
 
 
 def mean_and_sem(values: list[list[float]]) -> tuple[np.ndarray, np.ndarray] | None:

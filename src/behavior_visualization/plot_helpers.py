@@ -2,8 +2,10 @@
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 
@@ -45,9 +47,44 @@ def save_or_show(
     plt.close(fig)
 
 
-def save_png_and_pdf(
-    fig: plt.Figure, directory: Path, name: str, *, show: bool, dpi: int = 180
+class TableOutput(NamedTuple):
+    """A table to write as ``<directory>/<filename>`` (CSV)."""
+
+    filename: str
+    frame: pd.DataFrame
+    index: bool = False
+
+
+class FigureOutput(NamedTuple):
+    """A finished figure to save as ``<directory>/<name>.png`` and ``.pdf``."""
+
+    name: str
+    figure: plt.Figure
+
+
+def write_outputs(
+    outputs: Iterable[TableOutput | FigureOutput], directory: Path, *, show: bool
 ) -> list[Path]:
+    """Write tables and save figures in the order *outputs* yields them.
+
+    *outputs* is consumed lazily: each figure is saved and closed before the next
+    output is built, so the builders do no file I/O and this is the only place that
+    touches the disk. A builder that raises part-way leaves the files written so far
+    and its own unfinished figure open.
+
+    Returns:
+        The saved figure paths, PNG then PDF for each figure.
+    """
+    paths: list[Path] = []
+    for output in outputs:
+        if isinstance(output, TableOutput):
+            output.frame.to_csv(directory / output.filename, index=output.index)
+        else:
+            paths += _save_figure(output.figure, directory, output.name, show=show)
+    return paths
+
+
+def _save_figure(fig: plt.Figure, directory: Path, name: str, *, show: bool) -> list[Path]:
     """Tight-layout *fig*, save ``<directory>/<name>.png`` and ``.pdf``, then close it.
 
     Returns the two saved paths (PNG first). With ``show`` the figure is also
@@ -57,7 +94,7 @@ def save_png_and_pdf(
     paths = []
     for extension in ("png", "pdf"):
         path = directory / f"{name}.{extension}"
-        fig.savefig(path, dpi=dpi, bbox_inches="tight")
+        fig.savefig(path, dpi=180, bbox_inches="tight")
         paths.append(path)
     if show:
         plt.show()
