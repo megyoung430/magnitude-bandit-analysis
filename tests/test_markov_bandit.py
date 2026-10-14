@@ -14,15 +14,15 @@ from src.tasks.markov_bandit import (
     ChainSpec,
     advance_arms,
     best_run_lengths,
+    build_arm_values,
     build_session,
-    build_vals3,
     draw_block_boundaries,
     draw_initial_states,
-    example_session_title,
     first_other_active_arm,
-    gap_series,
+    format_session_title,
+    gap_best_minus_second,
     mean_left_to_right,
-    plot_session_values,
+    plot_session_panel,
     resolve_collision,
     sample_direction,
     sample_two_markov_bandits,
@@ -88,25 +88,28 @@ def test_sample_direction_follows_transition_probabilities(r, expected):
 
 
 def test_step_in_direction_stay_and_simple_move():
-    assert step_in_direction(1, 0, 2, spec()) == 1
-    assert step_in_direction(1, 1, 0, spec()) == 2
+    assert step_in_direction(cur=1, direction=0, other_state=2, chain=spec()) == 1
+    assert step_in_direction(cur=1, direction=1, other_state=0, chain=spec()) == 2
 
 
 def test_step_skips_the_other_arms_state():
-    assert step_in_direction(1, 1, 2, spec()) == 3
+    assert step_in_direction(cur=1, direction=1, other_state=2, chain=spec()) == 3
 
 
 def test_step_reverses_at_the_edge():
-    assert step_in_direction(3, 1, 0, spec()) == 2
+    assert step_in_direction(cur=3, direction=1, other_state=0, chain=spec()) == 2
 
 
 def test_step_ignores_other_arm_when_not_distinct():
-    assert step_in_direction(1, 1, 2, spec(enforce_distinct=False)) == 2
+    assert (
+        step_in_direction(cur=1, direction=1, other_state=2, chain=spec(enforce_distinct=False))
+        == 2
+    )
 
 
 def test_step_raises_when_both_directions_blocked():
     with pytest.raises(RuntimeError, match="collision"):
-        step_in_direction(0, 1, 1, spec(n_states=2))
+        step_in_direction(cur=0, direction=1, other_state=1, chain=spec(n_states=2))
 
 
 def test_resolve_collision_moves_arm_zero_up_or_down():
@@ -126,7 +129,7 @@ def test_resolve_collision_raises_with_one_state():
 
 
 def test_update_hold_resets_changed_arms_and_increments_others():
-    hold = update_hold(np.array([3, 4]), prev=np.array([1, 2]), new=np.array([1, 3]))
+    hold = update_hold(hold=np.array([3, 4]), prev=np.array([1, 2]), new=np.array([1, 3]))
     np.testing.assert_array_equal(hold, [4, 1])
 
 
@@ -175,7 +178,9 @@ def test_sampling_rejects_bad_arguments():
 
 
 def test_block_boundaries_are_increasing_and_inside_session():
-    b = draw_block_boundaries(np.random.default_rng(0), 100, 10, 20, 1000)
+    b = draw_block_boundaries(
+        np.random.default_rng(0), T=100, min_block_len=10, max_block_len=20, n_blocks_draw=1000
+    )
     assert (np.diff(b) > 0).all()
     assert b.max() < 100
     assert b.min() >= 10
@@ -200,24 +205,24 @@ def test_first_other_active_arm_falls_back_when_active_entries_are_duplicated():
     assert first_other_active_arm(2, [2, 2], old_inactive=1) == 0
 
 
-def test_build_vals3_swaps_roles_after_each_boundary():
+def test_build_arm_values_swaps_roles_after_each_boundary():
     streams = np.array([[1, 2], [1, 2], [1, 3], [1, 3], [1, 4], [1, 4]])
-    vals3 = build_vals3(streams, np.array([3]))
+    vals3 = build_arm_values(streams, np.array([3]))
     expected = np.array(
         [[1, 2, 0], [1, 2, 0], [1, 3, 0], [1, 0, 3], [1, 0, 4], [1, 0, 4]], dtype=float
     )
     np.testing.assert_array_equal(vals3, expected)
 
 
-def test_build_vals3_without_boundaries_leaves_third_arm_inactive():
+def test_build_arm_values_without_boundaries_leaves_third_arm_inactive():
     streams = np.array([[1, 2], [2, 1], [3, 1]])
-    vals3 = build_vals3(streams, np.array([], dtype=int))
+    vals3 = build_arm_values(streams, np.array([], dtype=int))
     np.testing.assert_array_equal(vals3, np.c_[streams, np.zeros(3)])
 
 
-def test_gap_series_is_best_minus_second():
+def test_gap_best_minus_second_is_best_minus_second():
     vals3 = np.array([[1.0, 4.0, 0.0], [2.0, 2.0, 0.0]])
-    np.testing.assert_array_equal(gap_series(vals3), [3.0, 0.0])
+    np.testing.assert_array_equal(gap_best_minus_second(vals3), [3.0, 0.0])
 
 
 def test_best_run_lengths_cover_the_session():
@@ -233,7 +238,12 @@ def test_session_metrics_summarise_gap_and_runs():
 
 def test_build_session_has_expected_keys_and_block_counts():
     vals3 = np.array([[2.0, 1.0, 0.0], [1.0, 2.0, 0.0], [2.0, 1.0, 0.0], [1.0, 2.0, 0.0]])
-    session = build_session(vals3, np.array([2]), np.argmax(vals3, axis=1), gap_series(vals3))
+    session = build_session(
+        vals3=vals3,
+        boundaries=np.array([2]),
+        best_arm_series=np.argmax(vals3, axis=1),
+        best_minus_second=gap_best_minus_second(vals3),
+    )
     assert set(session) == {
         "vals3",
         "boundaries",
@@ -297,24 +307,28 @@ def test_sweep_output_shapes_and_switch_option():
 
 
 def test_example_session_is_seeded():
-    m1, s1 = simulate_example_session(0.1, 30, (1, 2, 3, 4), 60, seed=2)
-    m2, s2 = simulate_example_session(0.1, 30, (1, 2, 3, 4), 60, seed=2)
+    m1, s1 = simulate_example_session(
+        pud=0.1, max_block_len=30, val_list=(1, 2, 3, 4), T=60, seed=2
+    )
+    m2, s2 = simulate_example_session(
+        pud=0.1, max_block_len=30, val_list=(1, 2, 3, 4), T=60, seed=2
+    )
     assert m1 == m2
     np.testing.assert_array_equal(s1["vals3"], s2["vals3"])
 
 
 def test_example_title_uses_custom_title_or_metrics():
     metrics = (1.0, 0.25, 12.0, 3.0)
-    assert example_session_title(0.1, 30, metrics, "mine") == "mine"
-    default = example_session_title(0.1, 30, metrics, None)
+    assert format_session_title(metrics, pud=0.1, max_block_len=30, title="mine") == "mine"
+    default = format_session_title(metrics, pud=0.1, max_block_len=30)
     assert "pud=0.100" in default and "run_std=3.00" in default
 
 
-def test_plot_session_values_draws_into_given_axes():
+def test_plot_session_panel_draws_into_given_axes():
     vals3 = np.tile(np.array([1.0, 2.0, 0.0]), (10, 1))
     fig, ax = plt.subplots()
     n_figs = len(plt.get_fignums())
-    out = plot_session_values(vals3, np.array([4, 7]), 4, "t", choices=np.zeros(10, int), ax=ax)
+    out = plot_session_panel(vals3, np.array([4, 7]), y_max=4, choices=np.zeros(10, int), ax=ax)
     assert out is ax
     assert len(plt.get_fignums()) == n_figs
     assert len(ax.lines) == 3 + 2
@@ -328,9 +342,9 @@ def test_plot_session_values_draws_into_given_axes():
     plt.close(fig)
 
 
-def test_plot_session_values_creates_figure_only_without_axes():
+def test_plot_session_panel_creates_figure_only_without_axes():
     plt.close("all")
-    ax = plot_session_values(np.ones((5, 3)), np.array([], dtype=int), 4, "t")
+    ax = plot_session_panel(np.ones((5, 3)), np.array([], dtype=int), y_max=4)
     assert len(plt.get_fignums()) == 1
     assert ax.figure is plt.gcf()
     plt.close("all")

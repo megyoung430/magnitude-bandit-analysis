@@ -88,7 +88,7 @@ def draw_initial_states(
     return rng.integers(0, n_states, size=2)
 
 
-def sample_direction(rng: np.random.Generator, pud: float, pstay: float) -> int:
+def sample_direction(rng: np.random.Generator, *, pud: float, pstay: float) -> int:
     """Sample -1 (down), 0 (stay), or +1 (up) using the Markov transition probabilities."""
     r = rng.random()
     if r < pud:
@@ -98,7 +98,9 @@ def sample_direction(rng: np.random.Generator, pud: float, pstay: float) -> int:
     return 1
 
 
-def _first_free_state(cur: int, direction: int, other_state: int, chain: ChainSpec) -> int | None:
+def _first_free_state(
+    *, cur: int, direction: int, other_state: int, chain: ChainSpec
+) -> int | None:
     """First state reached walking from *cur* along *direction* that the other arm does not occupy.
 
     Returns ``None`` if the walk leaves the state range first.
@@ -111,7 +113,7 @@ def _first_free_state(cur: int, direction: int, other_state: int, chain: ChainSp
     return None
 
 
-def step_in_direction(cur: int, direction: int, other_state: int, chain: ChainSpec) -> int:
+def step_in_direction(*, cur: int, direction: int, other_state: int, chain: ChainSpec) -> int:
     """Move *cur* in *direction*, skipping *other_state* if needed.
 
     If the move runs off the end of the state range, the opposite direction is
@@ -123,7 +125,7 @@ def step_in_direction(cur: int, direction: int, other_state: int, chain: ChainSp
     if direction == 0:
         return cur
     for step in (direction, -direction):
-        s = _first_free_state(cur, step, other_state, chain)
+        s = _first_free_state(cur=cur, direction=step, other_state=other_state, chain=chain)
         if s is not None:
             return s
     raise RuntimeError("Could not resolve collision; val_list may be too small.")
@@ -142,8 +144,10 @@ def advance_arms(
         if hold[arm] < chain.min_hold:
             continue
         other_state = nxt[1 - arm]
-        direction = sample_direction(rng, chain.pud, chain.pstay)
-        nxt[arm] = step_in_direction(cur[arm], direction, other_state, chain)
+        direction = sample_direction(rng, pud=chain.pud, pstay=chain.pstay)
+        nxt[arm] = step_in_direction(
+            cur=cur[arm], direction=direction, other_state=other_state, chain=chain
+        )
     return nxt
 
 
@@ -163,7 +167,7 @@ def resolve_collision(nxt: np.ndarray, n_states: int) -> np.ndarray:
     return fixed
 
 
-def update_hold(hold: np.ndarray, prev: np.ndarray, new: np.ndarray) -> np.ndarray:
+def update_hold(*, hold: np.ndarray, prev: np.ndarray, new: np.ndarray) -> np.ndarray:
     """Dwell counts after a step: reset to 1 for arms that changed, else +1."""
     return np.where(new != prev, 1, hold + 1)
 
@@ -218,7 +222,7 @@ def sample_two_markov_bandits(
         if enforce_distinct and nxt[0] == nxt[1]:
             nxt = resolve_collision(nxt, n_states)
         state_vals[t + 1] = nxt
-        hold = update_hold(hold, state_vals[t], nxt)
+        hold = update_hold(hold=hold, prev=state_vals[t], new=nxt)
 
     return val_list[state_vals]
 
@@ -248,6 +252,7 @@ def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.
 
 def draw_block_boundaries(
     rng: np.random.Generator,
+    *,
     T: int,
     min_block_len: int,
     max_block_len: int,
@@ -304,7 +309,7 @@ def swap_arm_roles(
     )
 
 
-def build_vals3(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
+def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
     """Per-trial reward of the three arms, shape ``(T, 3)``.
 
     Two arms are active and read the two *streams*; the third is inactive and
@@ -328,7 +333,7 @@ def build_vals3(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
     return vals3
 
 
-def gap_series(vals3: np.ndarray) -> np.ndarray:
+def gap_best_minus_second(vals3: np.ndarray) -> np.ndarray:
     """Per-trial value of the best arm minus the second-best arm."""
     sorted_vals = np.sort(vals3, axis=1)
     return sorted_vals[:, -1] - sorted_vals[:, -2]
@@ -359,6 +364,7 @@ def session_metrics(
 
 
 def build_session(
+    *,
     vals3: np.ndarray,
     boundaries: np.ndarray,
     best_arm_series: np.ndarray,
@@ -419,16 +425,27 @@ def simulate_3armed_blockswaps_markov(
         min_hold=min_hold,
         enforce_distinct=enforce_distinct,
     )
-    boundaries = draw_block_boundaries(rng, T, min_block_len, max_block_len, n_blocks_draw)
-    vals3 = build_vals3(streams, boundaries)
+    boundaries = draw_block_boundaries(
+        rng,
+        T=T,
+        min_block_len=min_block_len,
+        max_block_len=max_block_len,
+        n_blocks_draw=n_blocks_draw,
+    )
+    vals3 = build_arm_values(streams, boundaries)
 
-    best_minus_second = gap_series(vals3)
+    best_minus_second = gap_best_minus_second(vals3)
     best_arm_series = np.argmax(vals3, axis=1)
     metrics = session_metrics(best_minus_second, best_arm_series)
     if not return_session:
         return metrics
 
-    session = build_session(vals3, boundaries, best_arm_series, best_minus_second)
+    session = build_session(
+        vals3=vals3,
+        boundaries=boundaries,
+        best_arm_series=best_arm_series,
+        best_minus_second=best_minus_second,
+    )
     return (*metrics, session)
 
 
@@ -618,6 +635,7 @@ def plot_switch_heatmap(
 
 
 def simulate_example_session(
+    *,
     pud: float,
     max_block_len: int,
     val_list: tuple | list,
@@ -643,8 +661,8 @@ def simulate_example_session(
     return tuple(metrics), session
 
 
-def example_session_title(
-    pud: float, max_block_len: int, metrics: tuple[float, ...], title: str | None
+def format_session_title(
+    metrics: tuple[float, ...], *, pud: float, max_block_len: int, title: str | None = None
 ) -> str:
     """*title* if given, otherwise a summary of the parameters and session metrics."""
     gap_mean, gap_ge2, run_mean, run_std = metrics
@@ -655,23 +673,27 @@ def example_session_title(
     )
 
 
-def plot_session_values(
+def plot_session_panel(
     vals3: np.ndarray,
     boundaries: np.ndarray,
+    *,
     y_max: float,
-    title: str,
     choices: np.ndarray | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
     """Draw the three arms' rewards over trials, with block boundaries and choices.
 
+    The caller sets the title, so the panel can sit in a larger figure.
+
     Args:
         vals3: ``(T, 3)`` reward of each arm per trial.
         boundaries: Trial indices where blocks end.
         y_max: Largest reward value; sets the y-limit.
-        title: Axes title.
         choices: Optional ``(T,)`` int array of chosen arm indices (0–2).
         ax: Axes to draw into; a new figure is created if ``None``.
+
+    Returns:
+        The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
@@ -696,7 +718,6 @@ def plot_session_values(
     ax.set_ylabel("Reward Magnitude")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.set_title(title)
     ax.legend(loc="upper left")
     return ax
 
@@ -724,14 +745,16 @@ def plot_example_session_markov(
     Returns:
         The session dict from :func:`simulate_3armed_blockswaps_markov`.
     """
-    metrics, session = simulate_example_session(pud, max_block_len, val_list, T, seed)
-    plot_session_values(
+    metrics, session = simulate_example_session(
+        pud=pud, max_block_len=max_block_len, val_list=val_list, T=T, seed=seed
+    )
+    ax = plot_session_panel(
         session["vals3"],
         session["boundaries"],
-        max(val_list),
-        example_session_title(pud, max_block_len, metrics, title),
+        y_max=max(val_list),
         choices=choices,
     )
+    ax.set_title(format_session_title(metrics, pud=pud, max_block_len=max_block_len, title=title))
     plt.show()
     return session
 
