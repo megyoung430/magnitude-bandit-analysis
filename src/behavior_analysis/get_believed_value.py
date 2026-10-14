@@ -77,7 +77,9 @@ def compute_believed_value(choices, reward_magnitudes):
         choice = choices[i]
         results.append(_trial_belief(choice, _believed_magnitudes(rm, last_seen)))
 
-        # Update last_seen AFTER recording
+        # Update last_seen AFTER recording.
+        # Known issue: the truthiness test also skips arms named 0 or "", so such an
+        # arm would never count as seen; arm names are non-empty strings in practice.
         if choice and choice in rm:
             last_seen[choice] = rm[choice]
 

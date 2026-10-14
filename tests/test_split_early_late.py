@@ -64,8 +64,8 @@ def test_counts_beyond_the_list_are_clipped():
 
 def test_zero_and_negative_counts_mean_none():
     assert split(reversals(1, 2), first_n=0) == ([], [1, 2])
-    assert split(reversals(1, 2), first_n=-3) == ([], [1, 2])
-    assert split(reversals(1, 2), last_n=-3) == ([1, 2], [])
+    assert split(reversals(1, 2, 3, 4, 5), first_n=-2) == ([], [1, 2, 3, 4, 5])
+    assert split(reversals(1, 2, 3, 4, 5), last_n=-2) == ([1, 2, 3, 4, 5], [])
     assert split(reversals(1, 2), last_n=0) == ([1, 2], [])
 
 

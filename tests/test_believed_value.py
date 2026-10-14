@@ -34,11 +34,12 @@ def test_only_arms_chosen_before_are_seen_and_ranked():
 
 
 def test_chosen_arm_rank_among_seen_arms():
-    offers = [{"A": 4, "B": 3, "C": 1, "D": 2}] * 8
+    offers = [{"A": 1, "B": 4, "C": 2, "D": 3}] * 8
     ranks = beliefs(list("ABCDABCD"), offers, "believed_chosen_rank")
     assert ranks[:4] == [None] * 4  # each arm is unseen when first chosen
-    # believed order is A (4), B (3), D (2), C (1); the fourth place is still labelled "third"
-    assert ranks[4:] == ["best", "second", "third", "third"]
+    # believed order is B (4), D (3), C (2), A (1): rank follows value, not arm name,
+    # and the fourth place is still labelled "third"
+    assert ranks[4:] == ["third", "best", "third", "second"]
 
 
 def test_ties_are_flagged_and_broken_by_arm_name():
@@ -80,3 +81,9 @@ def test_one_result_per_offer_and_extra_choices_are_ignored():
 def test_fewer_choices_than_offers_raises():
     with pytest.raises(IndexError):
         compute_believed_value(["A"], [{"A": 1}, {"A": 2}])
+
+
+def test_an_empty_choice_is_never_recorded_as_seen():
+    # "" stands for no choice, even if an offer happens to contain that key
+    offers = [{"": 3, "A": 1}] * 3
+    assert beliefs(["", "A", "A"], offers, "n_seen") == [0, 0, 1]
