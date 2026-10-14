@@ -421,21 +421,26 @@ def _truncate_reversal_at_bad(
         out["post_len_after_removal"] = None
         return out
 
-    # bad_idx > reversal_idx, so cut_len >= 1 whether or not the bad trial is kept.
     cut_len = (bad_idx - reversal_idx) + (1 if include_bad_trial else 0)
     out["removed_bad_idx"] = bad_idx
     out["post_len_after_removal"] = cut_len
-    _truncate_post(out, cut_len)
+    # Integer indices always give cut_len >= 1, but a non-integer bad index less than one
+    # trial after the reversal (with the bad trial excluded) gives a fraction below 1.
+    # That cut is recorded above, yet there is no whole trial to slice at, so the window
+    # is left as is.
+    if cut_len >= 1:
+        _truncate_post(out, cut_len)
     return out
 
 
 def _report_removal(subj: str, reversal: dict) -> None:
     """Print one line if *reversal*'s post window was actually cut."""
-    if reversal["post_len_after_removal"] is not None:
+    cut_len = reversal["post_len_after_removal"]
+    if cut_len is not None and cut_len >= 1:
         print(
             f"[REMOVE] {subj} good@{reversal['reversal_idx']}: "
             f"cut post at bad@{reversal['removed_bad_idx']} "
-            f"(kept {reversal['post_len_after_removal']} post trials)"
+            f"(kept {cut_len} post trials)"
         )
 
 

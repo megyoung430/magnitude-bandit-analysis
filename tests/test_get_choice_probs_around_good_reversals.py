@@ -448,6 +448,22 @@ def test_remove_trials_after_bad_rev_bad_right_after_the_reversal():
     assert post_lengths(cut["m1"][0]) == (1, 1, 1)
 
 
+@pytest.mark.parametrize("bad_idx", [10.5, 10.2])
+def test_remove_trials_after_bad_rev_fractional_bad_index_before_the_next_trial_leaves_the_window_whole(
+    bad_idx, capsys
+):
+    # A bad index less than one trial after the reversal gives a cut length below 1 when
+    # the bad trial is excluded: the cut is recorded but the window is not sliced or reported.
+    windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
+    (rev,) = remove_trials_after_bad_rev(
+        windows, {"m1": [10]}, {"m1": [bad_idx]}, include_bad_trial=False
+    )["m1"]
+    assert rev["removed_bad_idx"] == bad_idx
+    assert rev["post_len_after_removal"] == pytest.approx(bad_idx - 10)
+    assert post_lengths(rev) == (8, 8, 8)
+    assert capsys.readouterr().out == ""
+
+
 def test_remove_trials_after_bad_rev_uses_the_first_bad_of_unsorted_indices():
     windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
     (rev,) = remove_trials_after_bad_rev(windows, {"m1": [10]}, {"m1": [16, 12, 14]})["m1"]
