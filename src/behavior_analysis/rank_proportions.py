@@ -1,10 +1,17 @@
-"""Pure summaries of arm-rank choice proportions, ready to plot.
+"""Pure summaries of arm-rank choice proportions: per-subject and per-block means and errors.
 
 Input is ``{subject: list[rank_count_dict]}`` as built by
 :func:`src.behavior_analysis.get_rank_counts_by_good_reversal.get_rank_counts_by_good_reversal`:
 one dict per block with ``best/second/third`` counts, ``total`` and the matching
 ``*_prop`` proportions. A "unit" below is ``{rank: value}`` for one mouse or one
-block; the bars in the plots are the mean and standard error across units.
+block; the summaries are the mean and standard error across units.
+
+Known issue (shared by :func:`block_rows_for_subject`, :func:`rows_in_block`,
+:func:`proportions_by_block` and :func:`n_blocks_excluding_last`): these helpers
+treat each subject's last row as a "summary" entry and leave it out, but
+``get_rank_counts_by_good_reversal`` appends no summary row. Every subject's last
+real block is therefore missing from them, whereas :func:`proportions_by_mouse`
+uses all rows.
 """
 
 import numpy as np
@@ -12,8 +19,13 @@ import numpy as np
 RANKS = ("best", "second", "third")
 
 
-def subject_rank_proportions(rows, pool_trials_within_subject=False):
-    """Return one proportion per rank while keeping the subject as the unit."""
+def subject_rank_proportions(rows, *, pool_trials_within_subject=False):
+    """Return one proportion per rank while keeping the subject as the unit.
+
+    Pooled, each rank's count is summed over rows and divided by the summed
+    ``total`` (NaN if there are no trials); unpooled, it is the mean of the
+    rows' ``*_prop`` values (NaN rows ignored).
+    """
     if pool_trials_within_subject:
         total = sum(r.get("total", 0) for r in rows)
         if total <= 0:
@@ -23,21 +35,38 @@ def subject_rank_proportions(rows, pool_trials_within_subject=False):
 
 
 def standard_error(values):
-    """Standard error of the mean; NaN for fewer than two values.
+    """Standard error of the mean, ``nanstd(ddof=1) / sqrt(len(values))``.
 
-    NaNs are left out of the spread but still count towards n, so a unit with
-    no data widens the denominator.
+    Known issue: NaNs are left out of the spread but still count towards n, so
+    a unit with no data widens the denominator and the error is understated.
+    With fewer than two non-NaN values numpy returns NaN and emits a
+    ``RuntimeWarning``.
     """
-    if len(values) < 2:
-        return np.nan
     return np.nanstd(values, ddof=1) / np.sqrt(len(values))
 
 
-def mean_and_se_by_rank(units):
-    """Mean and standard error per rank (best, second, third) across *units*."""
-    means = [np.nanmean([u[rank] for u in units]) if units else np.nan for rank in RANKS]
-    ses = [standard_error([u[rank] for u in units]) for rank in RANKS]
-    return means, ses
+def mean_by_rank(units, *, guard_empty):
+    """Mean per rank (best, second, third) across *units*.
+
+    With *guard_empty* an empty *units* gives NaN silently; without it numpy
+    emits its ``Mean of empty slice`` warning. The figures differ in which of
+    the two they want, so callers choose.
+    """
+    if guard_empty and not units:
+        return [np.nan] * len(RANKS)
+    return [np.nanmean([u[rank] for u in units]) for rank in RANKS]
+
+
+def se_by_rank(units, *, guard_single):
+    """Standard error per rank across *units* (see :func:`standard_error`).
+
+    With *guard_single* fewer than two units give NaN silently; without it numpy
+    emits its ``Degrees of freedom <= 0`` warning. The figures differ in which
+    of the two they want, so callers choose.
+    """
+    if guard_single and len(units) < 2:
+        return [np.nan] * len(RANKS)
+    return [standard_error([u[rank] for u in units]) for rank in RANKS]
 
 
 def row_props(row, *, strict=False):
@@ -52,37 +81,42 @@ def prop_units(rows):
     return [dict(zip(RANKS, row_props(row), strict=True)) for row in rows]
 
 
-def mouse_block_rows(rows, pool_trials_within_subject=False):
-    """Rows drawn as block lines for one mouse.
+def block_rows_for_subject(rows, *, pool_trials_within_subject=False):
+    """The rows of one subject that count as its blocks.
 
-    The last row is dropped unless trials are pooled, matching the "last entry
-    is a summary" convention of the plots' docstrings. Note that
-    ``get_rank_counts_by_good_reversal`` appends no summary entry, so this
-    drops a real block.
+    The last row is dropped unless trials are pooled, as if it were a summary
+    entry. Known issue: ``get_rank_counts_by_good_reversal`` appends no summary
+    entry, so this drops a real block.
     """
     return rows if pool_trials_within_subject else rows[:-1]
 
 
-def proportions_by_mouse(counts, pool_trials_within_subject=False):
-    """``{subject: {rank: proportion}}`` for subjects that have any rows."""
+def proportions_by_mouse(counts, *, pool_trials_within_subject=False):
+    """``{subject: {rank: proportion}}`` for subjects that have any rows (all rows used)."""
     return {
-        subject: subject_rank_proportions(rows, pool_trials_within_subject)
+        subject: subject_rank_proportions(
+            rows, pool_trials_within_subject=pool_trials_within_subject
+        )
         for subject, rows in counts.items()
         if rows
     }
 
 
 def rows_in_block(counts, block_idx):
-    """Each subject's row for *block_idx*, excluding every subject's last row.
+    """Each subject's row for *block_idx*, leaving out every subject's last row.
 
-    Same convention (and caveat) as :func:`mouse_block_rows`.
+    Known issue: same dropped last real block as :func:`block_rows_for_subject`.
     """
     return [rows[block_idx] for rows in counts.values() if block_idx < len(rows) - 1]
 
 
 def proportions_by_block(counts):
-    """One ``{rank: proportion}`` unit per block, averaged over the subjects that have it."""
-    # max() raises ValueError when counts has subjects but every list is empty
+    """One ``{rank: proportion}`` unit per block, averaged over the subjects that have it.
+
+    Known issue: raises ``ValueError: max() arg is an empty sequence`` when
+    *counts* has subjects but every list is empty. Also leaves out each
+    subject's last row (see :func:`rows_in_block`).
+    """
     n_blocks = max((len(v) - 1) for v in counts.values() if len(v) > 0) if counts else 0
     block_rows = (rows_in_block(counts, b) for b in range(n_blocks))
     return [
@@ -92,6 +126,6 @@ def proportions_by_block(counts):
     ]
 
 
-def n_plotted_blocks(counts):
-    """Number of block panels: the longest subject list minus its last row."""
+def n_blocks_excluding_last(counts):
+    """The longest subject list minus its last row (0 if there are no rows)."""
     return max((max(0, len(rows) - 1) for rows in counts.values()), default=0)

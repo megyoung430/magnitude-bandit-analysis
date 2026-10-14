@@ -2,14 +2,15 @@ import numpy as np
 import pytest
 
 from src.behavior_analysis.rank_proportions import (
-    mean_and_se_by_rank,
-    mouse_block_rows,
-    n_plotted_blocks,
+    block_rows_for_subject,
+    mean_by_rank,
+    n_blocks_excluding_last,
     prop_units,
     proportions_by_block,
     proportions_by_mouse,
     row_props,
     rows_in_block,
+    se_by_rank,
     standard_error,
     subject_rank_proportions,
 )
@@ -57,30 +58,51 @@ def test_subject_rank_proportions_pooled_without_trials_is_nan():
     assert all(np.isnan(v) for v in props.values())
 
 
-def test_standard_error_needs_two_values():
-    assert np.isnan(standard_error([0.5]))
-    assert np.isnan(standard_error([]))
+def test_standard_error_of_two_values():
     assert standard_error([1.0, 3.0]) == pytest.approx(np.sqrt(2) / np.sqrt(2))
 
 
-def test_standard_error_ignores_nan_in_spread_but_not_in_n():
-    # n counts every unit, including the NaN one
+def test_standard_error_of_fewer_than_two_values_is_nan_with_a_warning():
+    with pytest.warns(RuntimeWarning, match="Degrees of freedom <= 0"):
+        assert np.isnan(standard_error([0.5]))
+    with pytest.warns(RuntimeWarning):
+        assert np.isnan(standard_error([]))
+
+
+def test_known_defect_standard_error_counts_nan_units_in_n():
+    """Characterises a known defect: the NaN unit widens the denominator (SE understated)."""
     assert standard_error([1.0, 3.0, np.nan]) == pytest.approx(np.sqrt(2) / np.sqrt(3))
 
 
-def test_mean_and_se_by_rank():
-    units = [
-        {"best": 0.2, "second": 0.5, "third": 0.3},
-        {"best": 0.6, "second": 0.3, "third": 0.1},
-    ]
-    means, ses = mean_and_se_by_rank(units)
-    assert means == pytest.approx([0.4, 0.4, 0.2])
-    assert ses == pytest.approx([0.2, 0.1, 0.1])
+UNITS = [
+    {"best": 0.2, "second": 0.5, "third": 0.3},
+    {"best": 0.6, "second": 0.3, "third": 0.1},
+]
 
 
-def test_mean_and_se_by_rank_without_units_is_nan():
-    means, ses = mean_and_se_by_rank([])
-    assert np.isnan(means).all() and np.isnan(ses).all()
+def test_mean_by_rank():
+    assert mean_by_rank(UNITS, guard_empty=True) == pytest.approx([0.4, 0.4, 0.2])
+    assert mean_by_rank(UNITS, guard_empty=False) == pytest.approx([0.4, 0.4, 0.2])
+
+
+def test_mean_by_rank_of_no_units_is_nan_and_warns_only_unguarded(recwarn):
+    assert np.isnan(mean_by_rank([], guard_empty=True)).all()
+    assert len(recwarn) == 0
+    with pytest.warns(RuntimeWarning, match="Mean of empty slice"):
+        assert np.isnan(mean_by_rank([], guard_empty=False)).all()
+
+
+def test_se_by_rank():
+    assert se_by_rank(UNITS, guard_single=True) == pytest.approx([0.2, 0.1, 0.1])
+    assert se_by_rank(UNITS, guard_single=False) == pytest.approx([0.2, 0.1, 0.1])
+
+
+@pytest.mark.parametrize("units", [[], UNITS[:1]])
+def test_se_by_rank_of_fewer_than_two_units_is_nan_and_warns_only_unguarded(units, recwarn):
+    assert np.isnan(se_by_rank(units, guard_single=True)).all()
+    assert len(recwarn) == 0
+    with pytest.warns(RuntimeWarning):
+        assert np.isnan(se_by_rank(units, guard_single=False)).all()
 
 
 def test_row_props_defaults_missing_to_nan_unless_strict():
@@ -94,10 +116,11 @@ def test_prop_units_follow_rows():
     assert units == [{"best": 0.25, "second": 0.25, "third": 0.5}]
 
 
-def test_mouse_block_rows_drops_last_row_unless_pooled():
+def test_known_defect_block_rows_drop_the_last_real_block_unless_pooled():
+    """Characterises a known defect: the last row is dropped as a "summary" that does not exist."""
     rows = [make_row(1, 0, 0), make_row(0, 1, 0), make_row(0, 0, 1)]
-    assert mouse_block_rows(rows, pool_trials_within_subject=False) == rows[:-1]
-    assert mouse_block_rows(rows, pool_trials_within_subject=True) == rows
+    assert block_rows_for_subject(rows) == rows[:-1]
+    assert block_rows_for_subject(rows, pool_trials_within_subject=True) == rows
 
 
 def test_proportions_by_mouse_skips_subjects_without_rows(counts):
@@ -107,7 +130,7 @@ def test_proportions_by_mouse_skips_subjects_without_rows(counts):
     assert per_mouse["m3"]["best"] == 1.0
 
 
-def test_rows_in_block_excludes_each_subjects_last_row(counts):
+def test_known_defect_rows_in_block_exclude_each_subjects_last_real_row(counts):
     assert rows_in_block(counts, 0) == [counts["m1"][0], counts["m2"][0]]
     assert rows_in_block(counts, 2) == [counts["m2"][2]]
     assert rows_in_block(counts, 3) == []
@@ -126,13 +149,16 @@ def test_proportions_by_block_of_empty_counts_is_empty():
     assert proportions_by_block({}) == []
 
 
-def test_proportions_by_block_fails_when_every_subject_is_empty():
-    # the block count is the max over non-empty subjects; with none it is undefined
-    with pytest.raises(ValueError):
+def test_known_defect_proportions_by_block_fails_when_every_subject_is_empty():
+    """Characterises a known defect: max() of no non-empty subjects, not an empty result.
+
+    The message is Python-version dependent ("arg is an empty sequence" before 3.13).
+    """
+    with pytest.raises(ValueError, match=r"max\(\)"):
         proportions_by_block({"a": [], "b": []})
 
 
-def test_n_plotted_blocks(counts):
-    assert n_plotted_blocks(counts) == 3
-    assert n_plotted_blocks({"a": [], "b": [make_row(1, 0, 0)]}) == 0
-    assert n_plotted_blocks({}) == 0
+def test_n_blocks_excluding_last(counts):
+    assert n_blocks_excluding_last(counts) == 3
+    assert n_blocks_excluding_last({"a": [], "b": [make_row(1, 0, 0)]}) == 0
+    assert n_blocks_excluding_last({}) == 0
