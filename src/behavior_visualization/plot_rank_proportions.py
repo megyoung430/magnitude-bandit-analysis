@@ -19,6 +19,7 @@ and the imports below are public; every other module-level name starts with ``_`
 """
 
 import math
+from collections.abc import Hashable
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -192,12 +193,12 @@ def _annotate_pvalues(ax, labelled_x, pvalues):
 
 
 def _save_or_show(fig, save_path, *, create_folders):
-    """Save ``<save_path>.pdf/.png`` or show the figure; always close *fig*.
+    """Save ``<save_path>.pdf/.png`` or show the figure, then close *fig*.
 
     With *create_folders* the folder is created and *save_path* may be a
     ``Path``. Without it the suffixes are appended to *save_path* as given, so
-    the folder must exist and *save_path* must be a ``str`` (anything else
-    raises, leaving *fig* open).
+    the folder must exist and *save_path* must be a ``str``. If saving raises,
+    *fig* is left open.
     """
     if save_path:
         if create_folders:
@@ -293,7 +294,7 @@ def plot_average_across_blocks(
 
 
 def plot_mouse_panel(
-    subject: str,
+    subject: Hashable,
     rows: list[_summary.RankRow],
     *,
     pool_trials_within_subject: bool = False,
@@ -413,7 +414,7 @@ def plot_rank_proportions_average(
       understated when some units have no data.
     - If a bar's mean is not finite and p-values are given, ``IndexError``.
     - If every subject's list is empty (but there are subjects),
-      ``ValueError: max() arg is an empty sequence``, with the figure left open.
+      ``ValueError`` raised from ``max()``, with the figure left open.
     - Single-mouse or empty data emit numpy ``RuntimeWarning``s (degrees of
       freedom, empty slice).
     - ``save_path`` must be a ``str`` in an existing folder (``Path`` raises
@@ -539,7 +540,7 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
             rank_counts_by_good_reversal,
             block_idx,
             ax=axes[block_idx],
-            show_ylabel=block_idx % ncols == 0,
+            show_ylabel=axes[block_idx].get_subplotspec().is_first_col(),
         )
     for ax in axes[n_blocks:]:
         ax.axis("off")

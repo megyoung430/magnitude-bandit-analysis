@@ -14,12 +14,14 @@ real block is therefore missing from them, whereas :func:`proportions_by_mouse`
 uses all rows.
 """
 
+from collections.abc import Hashable
+
 import numpy as np
 
 RANKS = ("best", "second", "third")
 
-RankRow = dict  # one count dict: best/second/third, total and the *_prop values
-RankCounts = dict[str, list[dict]]  # {subject: one count dict per block}
+RankRow = dict[str, float]  # one count dict: best/second/third, total and the *_prop values
+RankCounts = dict[Hashable, list[RankRow]]  # {subject (name or id): one count dict per block}
 Unit = dict[str, float]  # {rank: value} for one mouse or block
 
 
@@ -55,8 +57,9 @@ def mean_by_rank(units: list[Unit], *, guard_empty: bool) -> list[float]:
     """Mean per rank (best, second, third) across *units*.
 
     With *guard_empty* an empty *units* gives NaN silently; without it numpy
-    emits its ``Mean of empty slice`` warning. The figures differ in which of
-    the two they want, so callers choose.
+    emits a ``RuntimeWarning``. The figures that warned before still warn,
+    because the warning is the only sign that an across-mice SE is NaN, so
+    callers choose per figure.
     """
     if guard_empty and not units:
         return [np.nan] * len(RANKS)
@@ -67,8 +70,9 @@ def se_by_rank(units: list[Unit], *, guard_single: bool) -> list[float]:
     """Standard error per rank across *units* (see :func:`standard_error`).
 
     With *guard_single* fewer than two units give NaN silently; without it numpy
-    emits its ``Degrees of freedom <= 0`` warning. The figures differ in which
-    of the two they want, so callers choose.
+    emits a ``RuntimeWarning``. The figures that warned before still warn,
+    because the warning is the only sign that an across-mice SE is NaN, so
+    callers choose per figure.
     """
     if guard_single and len(units) < 2:
         return [np.nan] * len(RANKS)
@@ -101,7 +105,7 @@ def block_rows_for_subject(
 
 def proportions_by_mouse(
     counts: RankCounts, *, pool_trials_within_subject: bool = False
-) -> dict[str, Unit]:
+) -> dict[Hashable, Unit]:
     """``{subject: {rank: proportion}}`` for subjects that have any rows (all rows used)."""
     return {
         subject: subject_rank_proportions(
@@ -123,7 +127,7 @@ def rows_in_block(counts: RankCounts, block_idx: int) -> list[RankRow]:
 def proportions_by_block(counts: RankCounts) -> list[Unit]:
     """One ``{rank: proportion}`` unit per block, averaged over the subjects that have it.
 
-    Known issue: raises ``ValueError: max() arg is an empty sequence`` when
+    Known issue: raises ``ValueError`` (from ``max()``) when
     *counts* has subjects but every list is empty. Also leaves out each
     subject's last row (see :func:`rows_in_block`).
     """
