@@ -21,7 +21,7 @@ from src.behavior_visualization.plot_rank_proportions import (
     plot_rank_proportions_by_mouse,
 )
 from src.behavior_visualization.plot_style import MOUSE_COLORS
-from tests.conftest import RANKS, make_row
+from tests.rank_rows import RANKS, make_row
 
 LABEL_Y = 1.05  # height at which the bar means are written
 

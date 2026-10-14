@@ -14,7 +14,7 @@ from src.behavior_analysis.rank_proportions import (
     standard_error,
     subject_rank_proportions,
 )
-from tests.conftest import make_row
+from tests.rank_rows import make_row
 
 
 @pytest.fixture
