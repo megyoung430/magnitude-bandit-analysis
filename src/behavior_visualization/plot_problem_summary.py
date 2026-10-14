@@ -173,16 +173,17 @@ def _label_bar_values(
             )
 
 
-def _draw_mouse_lines(ax: plt.Axes, summary: dict, *, jitter: float, style: BarStyle) -> None:
+def _draw_mouse_lines(
+    ax: plt.Axes, summary: dict, colors: dict, *, jitter: float, style: BarStyle
+) -> None:
     """One jittered line per mouse across problems, with a legend entry each.
 
     An explicit loop: the jitter draws from a shared random stream, so the
     mouse order fixes which noise each line gets.
     """
-    blocks, per_mouse, mice = summary["blocks"], summary["per_mouse_blocklens"], summary["mice"]
-    colors = _mouse_color_map(mice)
+    blocks, per_mouse = summary["blocks"], summary["per_mouse_blocklens"]
     handles = []
-    for m in mice:
+    for m in summary["mice"]:
         xs, ys = _mouse_points(blocks, per_mouse.get(m, {}))
         if xs.size == 0:
             continue
@@ -236,17 +237,20 @@ def plot_problem_bars(
             error (1 if every bar is NaN).
         style: Number format, legend and spacing choices.
     """
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 4.8))
     blocks = summary["blocks"]
     means = np.asarray(summary["means"], dtype=float)
     ses = np.asarray(summary["ses"], dtype=float)
+    colors = _mouse_color_map(summary["mice"])
+    # Everything above is read before the figure exists, so a malformed summary
+    # raises without leaving an empty figure open.
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 4.8))
 
     # Bars first: matplotlib rejects means/ses that do not match the blocks.
     _draw_bars(ax, blocks, means, ses)
     finite_top, annotate_y = _annotation_ceiling(means, ses, annotate_y=annotate_y)
     _label_bar_values(ax, means, annotate_y=annotate_y, value_fmt=style.value_fmt)
-    _draw_mouse_lines(ax, summary, jitter=jitter, style=style)
+    _draw_mouse_lines(ax, summary, colors, jitter=jitter, style=style)
     _despine(ax)
     ax.set_xticks(np.arange(len(blocks)))
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
@@ -284,18 +288,16 @@ def plot_metric_by_problem(
             ``.png`` at this path (suffix added automatically).
     """
     _require_summary_keys(summary)
-    fig, ax = plt.subplots(figsize=(10, 4.8))
-    plot_problem_bars(
+    ax = plot_problem_bars(
         summary,
-        ax=ax,
         ylabel=ylabel,
         title=title,
         jitter=jitter,
         annotate_y=annotate_y,
         style=METRIC_STYLE,
     )
-    fig.tight_layout()
-    _save_or_show(fig, save_path, ("pdf", "png"))
+    ax.figure.tight_layout()
+    _save_or_show(ax.figure, save_path, ("pdf", "png"))
 
 
 def plot_problem_lengths(
@@ -326,18 +328,16 @@ def plot_problem_lengths(
     _require_summary_keys(problem_summary)
     if title is None:
         title = _default_length_title(ylabel, len(problem_summary["mice"]))
-    fig, ax = plt.subplots(figsize=(10, 4.8))
-    plot_problem_bars(
+    ax = plot_problem_bars(
         problem_summary,
-        ax=ax,
         ylabel=ylabel,
         title=title,
         jitter=jitter,
         annotate_y=annotate_y,
         style=LENGTHS_STYLE,
     )
-    fig.tight_layout()
-    _save_or_show(fig, save_path, ("pdf", "png"))
+    ax.figure.tight_layout()
+    _save_or_show(ax.figure, save_path, ("pdf", "png"))
 
 
 # ---------------------------------------------------------------------------

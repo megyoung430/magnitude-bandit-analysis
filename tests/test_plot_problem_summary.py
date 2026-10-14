@@ -194,6 +194,14 @@ def test_missing_summary_key_raises_before_any_figure_is_made(drawn, figure_fn):
     assert plt.get_fignums() == [] and drawn.figures == []
 
 
+def test_unusable_summary_values_raise_before_any_figure_is_made(drawn):
+    with pytest.raises(ValueError):
+        pps.plot_metric_by_problem({**summary(), "means": ["a", "b", "c"]}, title="T", ylabel="Y")
+    with pytest.raises(TypeError):  # a mouse label that cannot key the colour map
+        pps.plot_problem_lengths({**summary(), "mice": [["A"]]})
+    assert plt.get_fignums() == [] and drawn.figures == []
+
+
 def test_jitter_draws_from_the_global_random_stream_in_mouse_order(drawn):
     np.random.seed(7)
     pps.plot_metric_by_problem(summary(), title="T", ylabel="Y", jitter=0.1)
