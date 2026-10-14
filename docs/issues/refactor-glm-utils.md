@@ -41,3 +41,27 @@ Behaviour-preserving refactor, test-first (principle 7):
 - Commit on your branch in your worktree only, small commits, messages per principle 10. Set
   `status: in review` in this file in your final commit.
 
+
+## Outcome
+
+`format_glm_input` and `format_glm_input_by_rank` are split into small pure helpers (design labels, lag shifting,
+history terms, design matrix, per-subject designs) with keyword-only options. Behaviour is identical to `main`
+(d7e85d6), including on malformed input: the same exception type and message, and the same returned bytes, dtypes,
+shapes, labels and dict key order. This was checked by running both implementations over 6,540 calls (a real sample
+session, multi-session subjects with keys `ses-10`/`ses-2`/`ses-3`, 0/1/2/3-trial sessions, ties, `None`/NaN rewards
+on chosen and unchosen towers, reward lists shorter or longer than `trial`, short choice series, 1-5 towers,
+`n_lags` 0/1/2/4/10, both `drop_redundant_cols`, both `use_believed`) and comparing raw results exactly.
+
+Behaviour deliberately kept from `main` (documented in the docstrings, not fixed):
+- Only subjects with exactly three towers are supported and this is not checked up front: two towers raise
+  `KeyError('Arm3')`, four or more raise numpy's "could not broadcast input array" `ValueError`.
+- A `None` reward on a chosen tower raises `TypeError` when it enters a lag (`n_lags >= 1`); it is never turned
+  into NaN. A missing last-trial reward, or any reward with `n_lags=0`, is ignored.
+- A choice series shorter than `trial` raises `IndexError`; a reward list one shorter than `trial` is accepted
+  and, in a session that is not last, shifts every later session's rewards one trial earlier after merging.
+- Sessions are concatenated before the design is built, so lags (and the believed-rank state of
+  `format_glm_input_by_rank`) cross session boundaries.
+- `format_glm_input_by_rank` keeps rows whose own outcome is NaN (no single chosen tower, or `n_lags=0` with
+  `use_believed`); only incomplete history drops a row.
+- `format_glm_input` returns `col_labels` without the `Arm3` columns even when `drop_redundant_cols=False`
+  keeps them.
