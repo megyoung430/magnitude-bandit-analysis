@@ -1,7 +1,7 @@
 ---
 type: infrastructure
 complexity: simple
-status: in review
+status: done
 ---
 
 # Split the remaining long analysis and import functions
