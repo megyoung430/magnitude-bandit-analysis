@@ -41,3 +41,40 @@ Behaviour-preserving refactor, test-first (principle 7):
 - Commit on your branch in your worktree only, small commits, messages per principle 10. Set
   `status: in review` in this file in your final commit.
 
+
+## Review follow-up
+
+- The pure analysis helpers moved to `src/behavior_analysis/blocklen_distributions.py`
+  (`collect_blocklens`, `drop_last_problem_per_mouse_raw`, `pooled_blocklens`) and
+  `src/behavior_analysis/rank_proportions_summary.py` (`mean_rank_proportions_by_subject`,
+  `rank_mean_and_se`). `collect_blocklens` and `drop_last_problem_per_mouse_raw` are still
+  importable from `plot_problem_summary`, which `scripts/to_integrate/testing_code.ipynb` uses.
+- Tests go through the public figure functions; the private helpers are not called directly.
+
+## Known issues (behaviour kept, not fixed)
+
+- `rank_mean_and_se` divides the standard deviation (which skips NaN mice) by `sqrt(len(per_mouse))`
+  (which counts them), so the SE is understated when any mouse is NaN, and NaN for a single mouse.
+- With `drop_last_problem=True` leaving nothing, `plot_distributions_per_problem_all_mice` raises
+  matplotlib's "Number of rows must be a positive integer, not 0", while
+  `plot_distributions_per_mouse` silently draws nothing.
+- Bar charts fix the y-axis bottom at 0, so bars with negative means are clipped.
+- The rank p-value labels anchor on the i-th finite bar, so with an earlier NaN mean a label sits on
+  a different rank than its text names.
+- `testing_code.ipynb` calls the distribution plots with `drop_last_problem_per_mouse=`, which is not
+  a parameter of either function (it is `drop_last_problem`); unchanged from before the refactor.
+
+## Differences from the original on malformed input
+
+Equal to the original, including the random state, warnings, exceptions, files and open figures,
+for everything the repo's producers generate. Three malformed-input differences remain:
+
+- `plot_problem_lengths`: the original wrote value labels for `zip(x, means, ns)`, so a `"ns"` shorter
+  than `"means"` produced fewer labels; the labels now follow `"means"` only. The producers always
+  return `ns` as long as `blocks`.
+- `plot_rank_proportions_average_without_blocks` with `average_across_mice_pvalues` that is not a
+  dict (e.g. a list): the same `AttributeError`, but the figure left open by the failure has more of
+  the panel drawn than before (the original failed straight after the bars).
+- `plot_rank_proportions_average_without_blocks` with `rank_counts_by_good_reversal` that is not a
+  dict (e.g. a list): the `AttributeError` message names `items` instead of `keys`, and a figure is
+  left open (the original failed before creating one).
