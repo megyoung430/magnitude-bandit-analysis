@@ -48,6 +48,7 @@ from src.behavior_visualization.plot_rank_proportions import plot_rank_proportio
 from src.behavior_visualization.plot_single_session import plot_single_session
 
 VALUE_BASIS_LABELS = {"true": "True Value", "believed": "Believed Value"}
+CHOICE_PROBS_NAME = "Choice Probabilities Around Good Reversals"
 
 
 class ChoiceProbabilitySettings(BaseModel):
@@ -148,67 +149,81 @@ def _drop_after_bad(windows, idx):
     return remove_trials_after_bad_rev(windows, *idx, include_bad_trial=True)
 
 
+def _plot_all_reversals(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
+    """Raw choice probabilities: all good reversals, then the first two and the later ones."""
+    windows, idx = _windows_and_indices(subjects_trials, s)
+    early, late = split_good_reversals_early_late(windows, first_n=2)
+    for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
+        _plot_with_reversal_axis(
+            *_choice_probs(w, s), w, idx, out_dir / f"{CHOICE_PROBS_NAME}{suffix}", only_good=True
+        )
+
+
+def _plot_skipping_initial_trials(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
+    """Choice probabilities that skip the first trials after each reversal."""
+    windows, _ = _windows_and_indices(subjects_trials, s)
+    early, late = split_good_reversals_early_late(windows, first_n=2)
+    for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
+        x, across = _choice_probs(w, s, skip=True)
+        plot_choice_probs_around_good_reversals(
+            x,
+            across,
+            add_cumulative_axis=False,
+            skip_n_trials_after_reversal=s.skip_n_trials_after_reversal,
+            save_path=out_dir / f"{CHOICE_PROBS_NAME}, Skipping Initial Trials{suffix}",
+        )
+
+
+def _plot_moving_average(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
+    """Moving-average choice probabilities, optionally split by half and by first two."""
+    windows, idx = _windows_and_indices(subjects_trials, s)
+    families = [("", windows)]
+    if s.split_by_half:
+        first, second = split_good_reversals_early_late(windows)
+        families += [(" (First Half)", first), (" (Second Half)", second)]
+    if s.split_by_first_two:
+        early, late = split_good_reversals_early_late(windows, first_n=2)
+        families += [(" (Early)", early), (" (Late)", late)]
+    for suffix, w in families:
+        _plot_with_reversal_axis(
+            *_choice_probs(w, s, smooth=True),
+            w,
+            idx,
+            out_dir / f"{CHOICE_PROBS_NAME} (Moving Average){suffix}",
+            only_good=True,
+        )
+
+
+def _plot_remove_bad(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
+    """Moving-average choice probabilities with the trials after a bad reversal removed."""
+    windows, idx = _windows_and_indices(subjects_trials, s)
+    windows = _drop_after_bad(windows, idx)
+    early, late = split_good_reversals_early_late(windows, first_n=2)
+    families = [
+        ("", windows),
+        (" (Early)", _drop_after_bad(early, idx)),
+        (" (Late)", _drop_after_bad(late, idx)),
+    ]
+    for suffix, w in families:
+        _plot_with_reversal_axis(
+            *_choice_probs(w, s, smooth=True),
+            w,
+            idx,
+            out_dir / f"{CHOICE_PROBS_NAME} (Remove Bad){suffix}",
+            only_good=False,
+        )
+
+
 def run_choice_probability_analysis(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
     """All enabled choice-probability figures for one problem, saved in *out_dir*."""
-    name = "Choice Probabilities Around Good Reversals"
-
     if s.run_all:
-        windows, idx = _windows_and_indices(subjects_trials, s)
-        early, late = split_good_reversals_early_late(windows, first_n=2)
-        for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
-            _plot_with_reversal_axis(
-                *_choice_probs(w, s), w, idx, out_dir / f"{name}{suffix}", only_good=True
-            )
-
+        _plot_all_reversals(subjects_trials, out_dir, s)
     if s.skip:
-        windows, _ = _windows_and_indices(subjects_trials, s)
-        early, late = split_good_reversals_early_late(windows, first_n=2)
-        for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
-            x, across = _choice_probs(w, s, skip=True)
-            plot_choice_probs_around_good_reversals(
-                x,
-                across,
-                add_cumulative_axis=False,
-                skip_n_trials_after_reversal=s.skip_n_trials_after_reversal,
-                save_path=out_dir / f"{name}, Skipping Initial Trials{suffix}",
-            )
-
+        _plot_skipping_initial_trials(subjects_trials, out_dir, s)
     if s.moving_avg:
-        windows, idx = _windows_and_indices(subjects_trials, s)
-        families = [("", windows)]
-        if s.split_by_half:
-            first, second = split_good_reversals_early_late(windows)
-            families += [(" (First Half)", first), (" (Second Half)", second)]
-        if s.split_by_first_two:
-            early, late = split_good_reversals_early_late(windows, first_n=2)
-            families += [(" (Early)", early), (" (Late)", late)]
-        for suffix, w in families:
-            _plot_with_reversal_axis(
-                *_choice_probs(w, s, smooth=True),
-                w,
-                idx,
-                out_dir / f"{name} (Moving Average){suffix}",
-                only_good=True,
-            )
-
+        _plot_moving_average(subjects_trials, out_dir, s)
     if s.remove_bad:
-        windows, idx = _windows_and_indices(subjects_trials, s)
-        windows = _drop_after_bad(windows, idx)
-        early, late = split_good_reversals_early_late(windows, first_n=2)
-        families = [
-            ("", windows),
-            (" (Early)", _drop_after_bad(early, idx)),
-            (" (Late)", _drop_after_bad(late, idx)),
-        ]
-        for suffix, w in families:
-            _plot_with_reversal_axis(
-                *_choice_probs(w, s, smooth=True),
-                w,
-                idx,
-                out_dir / f"{name} (Remove Bad){suffix}",
-                only_good=False,
-            )
-
+        _plot_remove_bad(subjects_trials, out_dir, s)
     if s.split_by_best_change and s.moving_avg:
         _run_best_change(subjects_trials, out_dir, s)
 
@@ -236,7 +251,7 @@ def _run_best_change(subjects_trials, out_dir: Path, s: ChoiceProbabilitySetting
 
     if not s.remove_bad:
         return
-    # The full-problem "(Remove Bad)" figures use best2/best3 without
+    # Known issue: the full-problem "(Remove Bad)" figures use best2/best3 without
     # remove_trials_after_bad_rev; only the early/late splits are filtered.
     families = [(" (Best->Second) (Remove Bad)", best2), (" (Best->Third) (Remove Bad)", best3)]
     if s.split_by_best_change_and_half:
