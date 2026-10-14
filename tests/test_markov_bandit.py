@@ -19,7 +19,9 @@ from src.tasks.markov_bandit import (
     draw_block_boundaries,
     draw_initial_states,
     example_session_title,
+    first_other_active_arm,
     gap_series,
+    mean_left_to_right,
     plot_session_values,
     resolve_collision,
     sample_direction,
@@ -28,7 +30,7 @@ from src.tasks.markov_bandit import (
     simulate_3armed_blockswaps_markov,
     simulate_example_session,
     step_in_direction,
-    summarise_sweep_cell,
+    summarize_sweep_cell,
     swap_arm_roles,
     sweep_markov_metrics,
     update_hold,
@@ -188,6 +190,16 @@ def test_swap_arm_roles_hands_best_arm_stream_to_old_inactive_arm():
     assert stream == {0: 0, 2: 1}
 
 
+def test_first_other_active_arm_skips_the_best_arm():
+    assert first_other_active_arm(1, [1, 0], old_inactive=2) == 0
+    assert first_other_active_arm(0, [1, 0], old_inactive=2) == 1
+
+
+def test_first_other_active_arm_falls_back_when_active_entries_are_duplicated():
+    assert first_other_active_arm(2, [2, 2], old_inactive=0) == 1
+    assert first_other_active_arm(2, [2, 2], old_inactive=1) == 0
+
+
 def test_build_vals3_swaps_roles_after_each_boundary():
     streams = np.array([[1, 2], [1, 2], [1, 3], [1, 3], [1, 4], [1, 4]])
     vals3 = build_vals3(streams, np.array([3]))
@@ -255,14 +267,19 @@ def fake_result(gap, ge2, run_mean, run_std, switches):
     return gap, ge2, run_mean, run_std, {"best_second_switches_per_block": np.array(switches)}
 
 
-def test_summarise_sweep_cell_averages_over_simulations():
+def test_summarize_sweep_cell_averages_over_simulations():
     results = [fake_result(1, 0.5, 10, 2, [1, 2]), fake_result(3, 0.5, 20, 4, [3])]
-    assert summarise_sweep_cell(results, True) == (2.0, 0.5, 15.0, 3.0, 2.0)
+    assert summarize_sweep_cell(results, True) == (2.0, 0.5, 15.0, 3.0, 2.0)
 
 
-def test_summarise_sweep_cell_skips_switches_when_not_requested():
+def test_mean_left_to_right_does_not_compensate_rounding():
+    # Built-in sum() returns 1.0 here on Python >= 3.12; plain addition loses the 1.0.
+    assert mean_left_to_right([1e16, 1.0, -1e16]) == 0.0
+
+
+def test_summarize_sweep_cell_skips_switches_when_not_requested():
     results = [(1.0, 0.0, 5.0, 1.0), (3.0, 1.0, 7.0, 1.0)]
-    assert summarise_sweep_cell(results, False) == (2.0, 0.5, 6.0, 1.0, 0.0)
+    assert summarize_sweep_cell(results, False) == (2.0, 0.5, 6.0, 1.0)
 
 
 def test_sweep_output_shapes_and_switch_option():

@@ -9,7 +9,11 @@ The public entry points are thin compositions of small pure helpers:
 - :func:`sample_two_markov_bandits` — two Markov reward streams.
 - :func:`simulate_3armed_blockswaps_markov` — streams -> 3-armed session -> metrics.
 - :func:`sweep_markov_metrics` — metric heatmaps over (max_block_len, pud).
+- :func:`plot_heatmaps_pair_1` — gap-metric heatmaps from a sweep.
+- :func:`plot_heatmaps_pair_2` — run-length heatmaps from a sweep.
+- :func:`plot_switch_heatmap` — best/second switch heatmap from a sweep.
 - :func:`plot_example_session_markov` — simulate one session and draw it.
+- :func:`collect_markov_run_stats` — mean and std of best-run length per pud.
 
 Simulations consume the random generator in a fixed order, so a seeded
 generator reproduces a session exactly.
@@ -17,11 +21,25 @@ generator reproduces a session exactly.
 
 from __future__ import annotations
 
+import operator
+from collections.abc import Iterable
 from dataclasses import dataclass
-from functools import partial
+from functools import partial, reduce
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+__all__ = [
+    "collect_markov_run_stats",
+    "count_best_second_switches",
+    "plot_example_session_markov",
+    "plot_heatmaps_pair_1",
+    "plot_heatmaps_pair_2",
+    "plot_switch_heatmap",
+    "sample_two_markov_bandits",
+    "simulate_3armed_blockswaps_markov",
+    "sweep_markov_metrics",
+]
 
 # ---------------------------------------------------------------------------
 # Two Markov reward streams
@@ -245,6 +263,19 @@ def draw_block_boundaries(
     return boundaries[boundaries < T]
 
 
+def first_other_active_arm(best_arm: int, active_arms: list[int], old_inactive: int) -> int:
+    """First active arm that is not *best_arm*.
+
+    If every active entry is *best_arm* (a duplicated entry, reachable only after
+    an inactive arm won the argmax), the first arm other than *best_arm* and
+    *old_inactive* is used instead; one always exists among three arms.
+    """
+    candidates = [a for a in active_arms if a != best_arm]
+    if not candidates:
+        candidates = [a for a in range(3) if a != best_arm and a != old_inactive]
+    return candidates[0]
+
+
 def swap_arm_roles(
     row: np.ndarray,
     inactive_arm: int,
@@ -265,7 +296,7 @@ def swap_arm_roles(
     # An inactive best arm (possible only when val_list has non-positive values)
     # has no stream entry and falls back to stream 0.
     inherited_stream = arm_to_stream.get(best_arm, 0)
-    other_active = next(a for a in active_arms if a != best_arm)
+    other_active = first_other_active_arm(best_arm, active_arms, old_inactive)
     return (
         best_arm,
         [old_inactive, other_active],
@@ -406,7 +437,18 @@ def simulate_3armed_blockswaps_markov(
 # ---------------------------------------------------------------------------
 
 
-def summarise_sweep_cell(results: list[tuple], include_switches: bool) -> tuple[float, ...]:
+def mean_left_to_right(values: Iterable[float]) -> float:
+    """Mean of *values*, added one at a time in order.
+
+    Python's built-in ``sum`` compensates rounding error from version 3.12 on,
+    which would change the last bit of a heatmap cell between interpreters.
+    Plain left-to-right addition gives the same result everywhere.
+    """
+    values = list(values)
+    return reduce(operator.add, values, 0.0) / len(values)
+
+
+def summarize_sweep_cell(results: list[tuple], include_switches: bool) -> tuple[float, ...]:
     """Average the simulations of one (max_block_len, pud) cell.
 
     Args:
@@ -415,14 +457,12 @@ def summarise_sweep_cell(results: list[tuple], include_switches: bool) -> tuple[
         include_switches: Also pool the best/second switches per observed block.
 
     Returns:
-        ``(gap_mean, gap_ge2, run_mean, run_std, switch_mean)``; ``switch_mean``
-        is 0.0 when *include_switches* is False.
+        ``(gap_mean, gap_ge2, run_mean, run_std)``, followed by ``switch_mean``
+        when *include_switches* is True.
     """
-    n_sims = len(results)
-    # Left-to-right float sums keep the result independent of numpy's pairwise summation.
-    means = tuple(sum((r[k] for r in results), 0.0) / n_sims for k in range(4))
+    means = tuple(mean_left_to_right(r[k] for r in results) for k in range(4))
     if not include_switches:
-        return (*means, 0.0)
+        return means
     counts = [r[4]["best_second_switches_per_block"] for r in results]
     return (*means, sum(int(c.sum()) for c in counts) / sum(len(c) for c in counts))
 
@@ -472,7 +512,8 @@ def sweep_markov_metrics(
         enforce_distinct=enforce_distinct,
         return_session=include_switches,
     )
-    heatmaps = np.zeros((5, len(max_block_lens), len(pud_values)))
+    shape = (len(max_block_lens), len(pud_values))
+    heatmaps = [np.zeros(shape) for _ in range(5 if include_switches else 4)]
 
     # One shared rng drawn in row-major cell order: the cells are not independent.
     # min_block_len = max_block_len - 10 is non-positive for max_block_len <= 10, which
@@ -483,10 +524,12 @@ def sweep_markov_metrics(
                 simulate(pud=float(pud), max_block_len=int(mbl), min_block_len=int(mbl) - 10)
                 for _ in range(n_sims)
             ]
-            heatmaps[:, i, j] = summarise_sweep_cell(results, include_switches)
+            cell = summarize_sweep_cell(results, include_switches)
+            for heatmap, value in zip(heatmaps, cell, strict=True):
+                heatmap[i, j] = value
             print(f"Done pud={pud:.4f}, max_block_len={mbl}")
 
-    return tuple(heatmaps[: 5 if include_switches else 4])
+    return tuple(heatmaps)
 
 
 # ---------------------------------------------------------------------------
