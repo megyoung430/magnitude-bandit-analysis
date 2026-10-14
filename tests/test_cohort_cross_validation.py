@@ -120,6 +120,22 @@ def test_output_directory_changes_with_data_and_settings(sequences, spy, tmp_pat
     assert run(extra, tmp_path)[3] == base
 
 
+def test_output_directory_changes_with_a_module_constant(
+    sequences, spy, tmp_path, edit_module_text
+):
+    base = run(sequences, tmp_path)[3]
+    edit_module_text(cohort_fitting, "ATOL = 1e-4", "ATOL = 1e-3")
+    assert run(sequences, tmp_path)[3] != base
+
+
+@pytest.mark.parametrize(("learning_rate", "expected"), [(0.00105, True), (0.00115, False)])
+def test_at_bound_tolerance_edges(sequences, spy, tmp_path, learning_rate, expected):
+    # 0.001 is the lower learning-rate bound: 5e-5 away is hit, 1.5e-4 away is not
+    spy.fit = dict(parameters=[learning_rate, 2.0, 0.5], loss=0.8)
+    results = run(sequences, tmp_path)[0]
+    assert (results.at_bound_learning_rate == expected).all()
+
+
 def test_eligibility_table_and_fold_loop(sequences, spy, tmp_path, capsys):
     results, sessions, eligibility, output = run(sequences, tmp_path)
     assert eligibility.to_dict("records") == [

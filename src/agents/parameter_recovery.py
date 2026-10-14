@@ -63,23 +63,11 @@ def _write_json_atomically(path: Path, payload, *, indent: int | None = None) ->
     temporary.replace(path)
 
 
-def _helper_sources() -> str:
-    """Source of the helpers run_recovery delegates to, so editing them changes the manifest."""
-    helpers = (
-        _preserved_global_rng,
-        _simulate_session,
-        _save_session_data,
-        _fit_session,
-        _recover_one_run,
-        _at_bound,
-        _write_json_atomically,
-        _progress_line,
-    )
-    return "".join(inspect.getsource(helper) for helper in helpers)
-
-
 def _build_manifest(config: dict, bounds: list, fit_function: Callable, loss_function: Callable):
-    """Config, bounds and the source of every function that determines the results.
+    """Config, bounds and the source of everything that determines the results.
+
+    The whole module text is hashed, so editing a helper or a module constant (such as the
+    at-bound tolerance) starts a new experiment instead of resuming stale checkpoints.
 
     Known issue: inspect.getsource needs plain functions, so a callable object passed as
     fit_function or loss_function raises TypeError.
@@ -91,7 +79,7 @@ def _build_manifest(config: dict, bounds: list, fit_function: Callable, loss_fun
             "task": inspect.getsource(DriftingBanditTask),
             "mouse": inspect.getsource(QLearningMouse),
             "runner": inspect.getsource(run_recovery),
-            "helpers": _helper_sources(),
+            "module": Path(__file__).read_text(),
             "design": inspect.getsource(recovery_design),
             "fit": inspect.getsource(fit_function),
             "loss": inspect.getsource(loss_function),

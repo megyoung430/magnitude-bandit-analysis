@@ -7,12 +7,14 @@ the sweep orchestration: seeding, checkpointing, resume, failure handling and la
 import hashlib
 import json
 import random
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from src.agents import parameter_recovery
 from src.agents.parameter_recovery import (
     NAMES,
     recovery_design,
@@ -115,8 +117,8 @@ def test_run_writes_layout_and_complete_results(tmp_path):
     assert output.name == hashlib.sha256(manifest_text.encode()).hexdigest()[:12]
     manifest = json.loads(manifest_text)
     assert manifest["config"] == make_config() and manifest["bounds"] == [list(b) for b in BOUNDS]
-    assert {"task", "mouse", "runner", "design", "fit", "loss"} <= set(manifest["code"])
-    assert "RecordingFit" not in manifest["code"]["fit"]  # source of the fit's __call__ only
+    assert {"task", "mouse", "runner", "module", "design", "fit", "loss"} <= set(manifest["code"])
+    assert manifest["code"]["module"] == Path(parameter_recovery.__file__).read_text()
     pd.testing.assert_frame_equal(pd.read_csv(output / "design.csv"), design)
     saved = json.loads((output / "results.json").read_text())
     assert [r["run_id"] for r in saved] == design.run_id.tolist()
@@ -221,6 +223,20 @@ def test_directory_changes_with_config_bounds_and_code(tmp_path):
         return 0.0
 
     assert run(tmp_path, loss=other_loss)[1] != base
+
+
+def test_directory_changes_with_a_module_constant(tmp_path, edit_module_text):
+    base = run(tmp_path)[1]
+    edit_module_text(parameter_recovery, "ATOL = 1e-4", "ATOL = 1e-3")
+    assert run(tmp_path)[1] != base
+
+
+def test_at_bound_tolerance_edges(tmp_path):
+    # 0.001 is the lower learning-rate bound: 5e-5 away is hit, 1.5e-4 away is not
+    for name, estimate, expected in [("inside", 0.00105, True), ("outside", 0.00115, False)]:
+        fit = make_fit(estimates=dict(learning_rate=estimate, beta=5.0, alpha=1.0))
+        results, _ = run(tmp_path / name, fit)
+        assert (results.at_bound_learning_rate == expected).all()
 
 
 def test_runtime_error_is_a_visible_failed_row_and_not_retried(tmp_path):
