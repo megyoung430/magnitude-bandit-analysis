@@ -250,6 +250,15 @@ def test_average_across_blocks_bars_exclude_each_mouses_last_row(counts):
 def test_average_across_blocks_has_one_line_per_block(counts):
     ax = plot_average_across_blocks(counts)
     assert len(data_lines(ax)) == 3
+    expected = [
+        [
+            np.mean([props(rows, rank)[b] for rows in counts.values() if b < len(rows) - 1])
+            for rank in RANKS
+        ]
+        for b in range(3)
+    ]
+    ys = [list(line.get_ydata()) for line in data_lines(ax)]
+    assert np.array(ys) == pytest.approx(np.array(expected))
     assert legend_texts(ax) == ["Block 1", "Block 2", "Block 3"]
 
 
@@ -292,6 +301,13 @@ def test_mouse_panel_draws_one_line_per_row_and_labels_blocks(counts):
     assert plot_mouse_panel("m2", counts["m2"][:-1], show_ylabel=False).get_ylabel() == ""
 
 
+def test_mouse_panel_lines_are_the_rows_proportions_in_rank_order(counts):
+    rows = counts["m2"][:-1]
+    ax = plot_mouse_panel("m2", rows)
+    ys = [list(line.get_ydata()) for line in data_lines(ax)]
+    assert np.array(ys) == pytest.approx(np.array([[r[f"{k}_prop"] for k in RANKS] for r in rows]))
+
+
 def test_mouse_panel_single_row_has_nan_error_bars(counts):
     ax = plot_mouse_panel("m1", counts["m1"][:1])
     assert np.isnan(error_bar_lengths(ax)).all()
@@ -328,6 +344,13 @@ def test_block_panel_at_the_longest_mouses_last_index_has_no_bars(counts):
     assert legend_texts(ax) == ["m2 (n=3 trials)"]
     assert np.isnan(bar_heights(ax)).all()
     assert mean_labels(ax) == []
+
+
+def test_block_panel_lines_are_each_mouses_proportions_at_that_block(counts):
+    ax = plot_block_panel(counts, 1)
+    ys = [list(line.get_ydata()) for line in data_lines(ax)]
+    expected = [[props(rows, rank)[1] for rank in RANKS] for rows in counts.values()]
+    assert np.array(ys) == pytest.approx(np.array(expected))
 
 
 def test_block_panel_without_total_labels_lines_with_the_subject_only(counts):
@@ -517,11 +540,12 @@ def test_figures_of_several_mice_do_not_warn(counts, shown_figures):
         plot_rank_proportions_average(counts)
 
 
-def test_block_panel_with_a_single_mouse_does_not_warn(counts):
-    # one unit: the SE is NaN without numpy's degrees-of-freedom warning
+def test_block_panel_with_one_or_no_units_does_not_warn(counts):
+    # fewer than two units: the SE is NaN, and with none the mean is NaN, both silently
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         plot_block_panel(counts, 2)
+        plot_block_panel(counts, 3)
         plot_mouse_panel("m1", counts["m1"][:1])
 
 
