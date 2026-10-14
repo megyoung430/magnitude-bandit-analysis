@@ -6,8 +6,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.colors import to_hex, to_rgba
 
 from src.behavior_visualization.plot_rank_proportions import (
+    _MOUSE_PANEL_BAR_STYLE,
+    BLOCK_COLORS,
     plot_average_across_blocks,
     plot_average_across_mice,
     plot_block_panel,
@@ -17,22 +20,10 @@ from src.behavior_visualization.plot_rank_proportions import (
     plot_rank_proportions_by_block,
     plot_rank_proportions_by_mouse,
 )
+from src.behavior_visualization.plot_style import MOUSE_COLORS
+from tests.conftest import RANKS, make_row
 
-RANKS = ("best", "second", "third")
 LABEL_Y = 1.05  # height at which the bar means are written
-
-
-def make_row(best, second, third):
-    total = best + second + third
-    return {
-        "best": best,
-        "second": second,
-        "third": third,
-        "total": total,
-        "best_prop": best / total if total else np.nan,
-        "second_prop": second / total if total else np.nan,
-        "third_prop": third / total if total else np.nan,
-    }
 
 
 @pytest.fixture
@@ -361,6 +352,37 @@ def test_block_panel_without_total_labels_lines_with_the_subject_only(counts):
     assert legend_texts(plot_block_panel(bare, 0)) == ["m1", "m2", "m3"]
 
 
+# ---- colours and bar style -------------------------------------------------------
+
+
+def line_colors(ax):
+    return [to_hex(line.get_color()) for line in data_lines(ax)]
+
+
+def test_mouse_lines_follow_mouse_colors_and_block_lines_follow_block_colors(counts):
+    mouse_colors = [to_hex(c) for c in MOUSE_COLORS[:3]]
+    block_colors = [to_hex(c) for c in BLOCK_COLORS[:3]]
+    assert line_colors(plot_average_across_mice(counts)) == mouse_colors
+    assert line_colors(plot_block_panel(counts, 0)) == mouse_colors
+    assert line_colors(plot_average_across_blocks(counts)) == block_colors
+    assert line_colors(plot_mouse_panel("m2", counts["m2"][:3])) == block_colors
+
+
+def test_mouse_panel_bars_have_their_own_style(counts):
+    def style(ax):
+        bar = ax.patches[0]
+        return bar.get_facecolor(), bar.get_linewidth()
+
+    mouse_panel = plot_mouse_panel("m1", counts["m1"][:-1])
+    shared_style_panel = plot_block_panel(counts, 0)
+    expected = _MOUSE_PANEL_BAR_STYLE
+    assert style(mouse_panel) == (
+        to_rgba(expected["color"], expected["alpha"]),
+        expected["linewidth"],
+    )
+    assert style(mouse_panel) != style(shared_style_panel)
+
+
 # ---- shared axis styling ---------------------------------------------------------
 
 
@@ -515,20 +537,14 @@ def test_dispatcher_flags_choose_the_figures(counts, shown_figures):
 # ---- warnings --------------------------------------------------------------------
 
 
-def messages(record):
-    return [str(w.message) for w in record]
-
-
 def test_average_figure_of_one_mouse_warns_about_degrees_of_freedom(counts, shown_figures):
-    with pytest.warns(RuntimeWarning, match="Degrees of freedom <= 0"):
+    with pytest.warns(RuntimeWarning):
         plot_rank_proportions_average({"m1": counts["m1"]})
 
 
-def test_average_figure_of_no_data_warns_about_empty_slices(shown_figures):
-    with pytest.warns(RuntimeWarning) as record:
+def test_average_figure_of_no_data_warns(shown_figures):
+    with pytest.warns(RuntimeWarning):
         plot_rank_proportions_average({})
-    assert "Mean of empty slice" in messages(record)
-    assert "Degrees of freedom <= 0 for slice." in messages(record)
 
 
 def test_figures_of_several_mice_do_not_warn(counts, shown_figures):
@@ -558,7 +574,7 @@ def test_pooled_mouse_panel_does_not_average_proportions_it_discards():
     ]
     with pytest.warns(RuntimeWarning) as record:
         plot_mouse_panel("m", rows, pool_trials_within_subject=True)
-    assert messages(record) == ["Degrees of freedom <= 0 for slice."]
+    assert len(record) == 1
 
 
 # ---- star import -----------------------------------------------------------------

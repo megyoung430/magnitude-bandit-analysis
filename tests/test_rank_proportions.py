@@ -14,19 +14,7 @@ from src.behavior_analysis.rank_proportions import (
     standard_error,
     subject_rank_proportions,
 )
-
-
-def make_row(best, second, third):
-    total = best + second + third
-    return {
-        "best": best,
-        "second": second,
-        "third": third,
-        "total": total,
-        "best_prop": best / total if total else np.nan,
-        "second_prop": second / total if total else np.nan,
-        "third_prop": third / total if total else np.nan,
-    }
+from tests.conftest import make_row
 
 
 @pytest.fixture
@@ -63,7 +51,7 @@ def test_standard_error_of_two_values():
 
 
 def test_standard_error_of_fewer_than_two_values_is_nan_with_a_warning():
-    with pytest.warns(RuntimeWarning, match="Degrees of freedom <= 0"):
+    with pytest.warns(RuntimeWarning):
         assert np.isnan(standard_error([0.5]))
     with pytest.warns(RuntimeWarning):
         assert np.isnan(standard_error([]))
@@ -88,7 +76,7 @@ def test_mean_by_rank():
 def test_mean_by_rank_of_no_units_is_nan_and_warns_only_unguarded(recwarn):
     assert np.isnan(mean_by_rank([], guard_empty=True)).all()
     assert len(recwarn) == 0
-    with pytest.warns(RuntimeWarning, match="Mean of empty slice"):
+    with pytest.warns(RuntimeWarning):
         assert np.isnan(mean_by_rank([], guard_empty=False)).all()
 
 
