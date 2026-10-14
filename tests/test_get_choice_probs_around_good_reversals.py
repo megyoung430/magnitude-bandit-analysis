@@ -341,6 +341,19 @@ def test_apply_moving_average_custom_keys_and_missing_keys():
     assert across["num_subjects"] == 1
 
 
+def test_apply_moving_average_drops_subjects_carrying_only_some_of_the_keys():
+    # "Usable" means every requested curve is present: a subject with just a, b would
+    # otherwise fail on the missing c instead of being dropped.
+    x = np.array([-1, 0])
+    full = {"a": np.array([0.5, 0.5]), "b": np.array([0.5, 0.5]), "c": np.array([0.0, 0.0])}
+    per_subject = {"full": full, "partial": {"a": full["a"], "b": full["b"]}}
+    _, smoothed, across = apply_moving_average_to_choice_probs(
+        x, per_subject, moving_avg_window=1, use_keys=("a", "b", "c"), out_keys=("p", "q", "r")
+    )
+    assert set(smoothed) == {"full"}
+    assert across["num_subjects"] == 1
+
+
 def test_apply_moving_average_chained_keys_read_the_already_smoothed_value():
     # out_keys[1] ("c") is also use_keys[2], so the third curve is smoothed from the
     # value just written to "c": q = smooth(smooth(b)), not smooth(b).
