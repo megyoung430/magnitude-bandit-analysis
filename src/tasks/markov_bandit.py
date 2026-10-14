@@ -53,30 +53,29 @@ class ChainSpec:
     Attributes:
         n_states: Number of discrete reward states.
         pud: Probability of moving down (and, separately, up) by one step.
-        pstay: Probability of staying, ``1 - 2 * pud``.
         min_hold: Steps an arm must stay in a state before it may change.
         enforce_distinct: Keep the two arms in different states.
+
+    Raises:
+        ValueError: If distinctness cannot be satisfied with *n_states*, or if
+            *pud* exceeds 0.5 (the stay probability would be negative).
     """
 
     n_states: int
     pud: float
-    pstay: float
     min_hold: int
     enforce_distinct: bool
 
+    def __post_init__(self) -> None:
+        if self.enforce_distinct and self.n_states < 2:
+            raise ValueError("Need at least 2 states in val_list to enforce distinctness.")
+        if self.pstay < 0:
+            raise ValueError("pud must be ≤ 0.5")
 
-def validate_chain_args(n_states: int, pud: float, enforce_distinct: bool) -> float:
-    """Check the chain parameters and return the stay probability ``1 - 2 * pud``.
-
-    Raises:
-        ValueError: If distinctness cannot be satisfied or *pud* exceeds 0.5.
-    """
-    if enforce_distinct and n_states < 2:
-        raise ValueError("Need at least 2 states in val_list to enforce distinctness.")
-    pstay = 1 - 2 * pud
-    if pstay < 0:
-        raise ValueError("pud must be ≤ 0.5")
-    return pstay
+    @property
+    def pstay(self) -> float:
+        """Probability of staying in the current state, ``1 - 2 * pud``."""
+        return 1 - 2 * self.pud
 
 
 def draw_initial_states(
@@ -209,8 +208,7 @@ def sample_two_markov_bandits(
 
     val_list = np.array(val_list)
     n_states = len(val_list)
-    pstay = validate_chain_args(n_states, pud, enforce_distinct)
-    chain = ChainSpec(n_states, pud, pstay, min_hold, enforce_distinct)
+    chain = ChainSpec(n_states, pud, min_hold, enforce_distinct)
 
     state_vals = np.zeros((T, 2), dtype=int)
     state_vals[0] = draw_initial_states(rng, n_states, enforce_distinct)

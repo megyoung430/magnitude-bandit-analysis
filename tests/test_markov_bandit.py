@@ -34,7 +34,6 @@ from src.tasks.markov_bandit import (
     swap_arm_roles,
     sweep_markov_metrics,
     update_hold,
-    validate_chain_args,
 )
 
 
@@ -49,25 +48,25 @@ class FixedRandom:
 
 
 def spec(n_states=4, pud=0.2, min_hold=1, enforce_distinct=True) -> ChainSpec:
-    return ChainSpec(n_states, pud, 1 - 2 * pud, min_hold, enforce_distinct)
+    return ChainSpec(n_states, pud, min_hold, enforce_distinct)
 
 
 # --- chain set-up ------------------------------------------------------------
 
 
-def test_validate_returns_stay_probability():
-    assert validate_chain_args(4, 0.2, True) == pytest.approx(0.6)
+def test_chain_spec_derives_stay_probability():
+    assert spec(pud=0.2).pstay == pytest.approx(0.6)
 
 
-def test_validate_rejects_large_pud():
+def test_chain_spec_rejects_large_pud():
     with pytest.raises(ValueError, match="pud"):
-        validate_chain_args(4, 0.6, True)
+        spec(pud=0.6)
 
 
-def test_validate_rejects_single_state_only_when_distinct():
+def test_chain_spec_rejects_single_state_only_when_distinct():
     with pytest.raises(ValueError, match="2 states"):
-        validate_chain_args(1, 0.1, True)
-    validate_chain_args(1, 0.1, False)
+        spec(n_states=1)
+    spec(n_states=1, enforce_distinct=False)
 
 
 @pytest.mark.parametrize("distinct", [True, False])
