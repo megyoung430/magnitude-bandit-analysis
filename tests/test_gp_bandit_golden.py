@@ -591,6 +591,17 @@ GOLDEN = {
 }
 
 
+# Latent GP values pass through np.linalg.cholesky and a matrix product, whose last
+# bits depend on which OpenBLAS kernel the CPU selects (about 1e-11 relative between
+# kernels). Floats derived from them are compared to this relative tolerance; integer
+# outputs, signs, key order and generator states stay exact.
+BLAS_RTOL = 1e-9
+
+
+def assert_blas_close(got, want) -> None:
+    np.testing.assert_allclose(got, want, rtol=BLAS_RTOL, atol=0)
+
+
 def generator_state(rng: np.random.Generator) -> tuple:
     state = rng.bit_generator.state
     return (state["state"]["state"], state["state"]["inc"], state["has_uint32"], state["uinteger"])
@@ -602,7 +613,7 @@ def test_sample_two_gp_bandits_matches_golden(seed):
     gp_int, gp_raw = sample_two_gp_bandits(10, 4.0, rng=rng)
     expected_int, expected_raw, state = GOLDEN["sample"][seed]
     np.testing.assert_array_equal(gp_int, np.array(expected_int))
-    np.testing.assert_array_equal(gp_raw, np.array(expected_raw))
+    assert_blas_close(gp_raw, np.array(expected_raw))
     assert gp_int.dtype == np.int64 and gp_raw.dtype == np.float64
     assert generator_state(rng) == state
 
@@ -621,15 +632,20 @@ def test_simulate_3armed_blockswaps_gp_matches_golden(seed, use_raw):
         return_session=True,
     )
     expected_metrics, expected_session, state = GOLDEN["sim"][(seed, use_raw)]
-    assert metrics == expected_metrics
+    assert metrics == pytest.approx(expected_metrics, rel=BLAS_RTOL, abs=0)
     # Key order is part of the contract: callers may unpack the dict in order.
     assert list(session) == list(expected_session)
     for key, expected in expected_session.items():
-        # Compare bytes and dtype: assert_array_equal would accept -0.0 for the
+        # Compare dtype and signs too: assert_allclose would accept -0.0 for the
         # inactive arm's +0.0 and a float32 copy of a float64 array.
         want = np.array(expected)
-        assert session[key].dtype == want.dtype, key
-        assert session[key].tobytes() == want.tobytes(), key
+        got = session[key]
+        assert got.dtype == want.dtype, key
+        if np.issubdtype(want.dtype, np.floating):
+            assert_blas_close(got, want)
+            np.testing.assert_array_equal(np.signbit(got), np.signbit(want), err_msg=key)
+        else:
+            assert got.tobytes() == want.tobytes(), key
     assert generator_state(rng) == state
 
 
@@ -653,7 +669,7 @@ def test_sweep_gp_metrics_matches_golden(n_sims, capsys):
 def test_sweep_gp_metrics_with_raw_values_matches_golden():
     heatmaps = sweep_gp_metrics(n_sims=3, use_raw=True, **SWEEP_KWARGS)
     for got, want in zip(heatmaps, GOLDEN["sweep_raw"], strict=True):
-        np.testing.assert_array_equal(got, np.array(want))
+        assert_blas_close(got, np.array(want))
 
 
 def test_sweep_returns_independent_arrays():
@@ -724,7 +740,7 @@ def test_plot_example_session_gp_with_raw_values_labels_latent_axis(monkeypatch)
     ax = plt.gcf().axes[0]
     expected = GOLDEN["plot_raw"]
     assert ax.get_ylabel() == expected["ylabel"]
-    assert ax.get_ylim() == expected["ylim"]
+    assert ax.get_ylim() == pytest.approx(expected["ylim"], rel=BLAS_RTOL, abs=0)
     assert ax.get_title() == expected["title"]
     plt.close("all")
 
