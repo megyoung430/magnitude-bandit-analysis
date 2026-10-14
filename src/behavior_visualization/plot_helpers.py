@@ -8,9 +8,14 @@ import matplotlib.pyplot as plt
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 
 
+def palette_color(index: int) -> str:
+    """Palette colour for the *index*-th item, cycling past the end of the palette."""
+    return MOUSE_COLORS[index % len(MOUSE_COLORS)]
+
+
 def mouse_color_map(mice: Iterable[str]) -> dict[str, str]:
     """Map each mouse to a palette colour, cycling when there are more mice than colours."""
-    return {m: MOUSE_COLORS[i % len(MOUSE_COLORS)] for i, m in enumerate(mice)}
+    return {m: palette_color(i) for i, m in enumerate(mice)}
 
 
 def despine(ax: plt.Axes) -> None:

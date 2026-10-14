@@ -6,12 +6,7 @@ import numpy as np
 import pytest
 from matplotlib.container import ErrorbarContainer
 
-from src.behavior_analysis.block_length_points import (
-    annotation_height,
-    mouse_points,
-    tallest_bar,
-    y_upper_limit,
-)
+from src.behavior_visualization import plot_task_statistics as ts
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from src.behavior_visualization.plot_task_statistics import plot_block_lengths
 from tests.plot_capture import capture_figures
@@ -47,30 +42,30 @@ def mouse_lines(ax):
     return [ln for ln in ax.lines if ln.get_marker() == "o"]
 
 
-# ---------------------------------------------------------------- analysis
+# ---------------------------------------------------------------- layout geometry
 
 
 def test_tallest_bar_is_max_of_median_plus_se_and_one_without_bars():
-    assert tallest_bar(np.array([10.0, 20.0]), np.array([1.0, 5.0])) == 25.0
-    assert tallest_bar(np.array([]), np.array([])) == 1.0
+    assert ts._tallest_bar(np.array([10.0, 20.0]), np.array([1.0, 5.0])) == 25.0
+    assert ts._tallest_bar(np.array([]), np.array([])) == 1.0
 
 
 def test_annotation_height_is_five_percent_above_tallest_bar_but_at_least_one():
     meds, ses = np.array([10.0, 20.0]), np.array([1.0, 5.0])
-    assert annotation_height(meds, ses) == pytest.approx(25.0 * 1.05)
-    assert annotation_height(np.array([0.1]), np.array([0.1])) == pytest.approx(1.05)
+    assert ts._annotation_height(meds, ses) == pytest.approx(25.0 * 1.05)
+    assert ts._annotation_height(np.array([0.1]), np.array([0.1])) == pytest.approx(1.05)
 
 
 def test_y_upper_limit_fits_labels_and_bars():
     meds, ses = np.array([10.0]), np.array([2.0])
-    assert y_upper_limit(50.0, meds, ses) == pytest.approx(50.0 * 1.08)
-    assert y_upper_limit(5.0, meds, ses) == pytest.approx(12.0 * 1.08)
+    assert ts._y_upper_limit(50.0, meds, ses) == pytest.approx(50.0 * 1.08)
+    assert ts._y_upper_limit(5.0, meds, ses) == pytest.approx(12.0 * 1.08)
 
 
 def test_mouse_points_keep_block_order_and_skip_missing_blocks():
-    xs, ys = mouse_points({3: 30.0, 1: 8.0}, [1, 2, 3])
+    xs, ys = ts._mouse_points({3: 30.0, 1: 8.0}, [1, 2, 3])
     assert xs.tolist() == [0.0, 2.0] and ys.tolist() == [8.0, 30.0]
-    xs, ys = mouse_points({}, [1, 2])
+    xs, ys = ts._mouse_points({}, [1, 2])
     assert len(xs) == 0 and len(ys) == 0
 
 

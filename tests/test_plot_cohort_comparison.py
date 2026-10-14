@@ -9,11 +9,11 @@ from matplotlib.container import ErrorbarContainer
 
 from src.behavior_analysis.cohort_comparison_stats import (
     cap_problem_two,
-    label_height,
     mean_and_sem,
     rank_proportions,
     reversal_values,
 )
+from src.behavior_visualization import plot_cohort_comparison as pcc
 from src.behavior_visualization.plot_cohort_comparison import plot_cohort_comparison
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from tests.plot_capture import capture_figures
@@ -77,8 +77,8 @@ def test_sem_denominator_counts_only_finite_mice():
 
 
 def test_label_height_sits_just_above_the_error_bar():
-    assert label_height(0.5, 0.25) == pytest.approx(0.785)
-    assert label_height(0.5, np.nan) == pytest.approx(0.535)
+    assert pcc._label_height(0.5, 0.25) == pytest.approx(0.785)
+    assert pcc._label_height(0.5, np.nan) == pytest.approx(0.535)
 
 
 def test_problem_two_cap_reports_each_mouse_of_each_cohort():

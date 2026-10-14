@@ -12,7 +12,6 @@ from src.behavior_analysis.cohort_comparison_stats import (
     cap_problem_two,
     cohort_tables,
     good_reversal_rank_counts,
-    label_height,
     mean_and_sem,
     rank_proportions,
     rank_record,
@@ -26,21 +25,19 @@ from src.behavior_analysis.trial_count_summaries import (
     mean_trials_by_problem_and_mouse,
     summarize_trials_by_problem,
 )
-from src.behavior_visualization.plot_helpers import save_png_and_pdf
-from src.behavior_visualization.plot_style import MOUSE_COLORS
+from src.behavior_visualization.plot_helpers import palette_color, save_png_and_pdf
 
 _RANK_NAMES = ("Best", "Second", "Third")
 _REVERSAL_NAMES = ("Good", "Bad", "All")
 _CATEGORIES = range(3)
 
+# Known issue: panels colour mice by their position k within the panel (palette_color(k)),
+# so the same mouse can get a different colour in another panel or problem.
 
-def _mouse_color(k: int) -> str:
-    """Palette colour for the k-th mouse of a panel.
 
-    Known issue: k counts mice within one panel, so the same mouse can get a
-    different colour in another panel or problem.
-    """
-    return MOUSE_COLORS[k % len(MOUSE_COLORS)]
+def _label_height(value: float, error: float) -> float:
+    """Height for a mean's text label: just above the top of its error bar."""
+    return value + (error if np.isfinite(error) else 0) + 0.035
 
 
 def _comparison_grid(labels: list[str], rows, title: str) -> tuple[plt.Figure, np.ndarray]:
@@ -68,7 +65,7 @@ def _plot_distribution_panel(ax: plt.Axes, t: pd.DataFrame, unit: str) -> None:
     """Faint per-mouse ECDFs under a bold pooled ECDF."""
     for k, (_, rows) in enumerate(t.groupby("mouse")):
         x, y = ecdf(rows.trials.to_numpy())
-        ax.step(x, y, where="post", alpha=0.35, color=_mouse_color(k))
+        ax.step(x, y, where="post", alpha=0.35, color=palette_color(k))
     x, y = ecdf(t.trials.to_numpy())
     ax.step(
         x, y, where="post", color="black", lw=2, label=f"{t.mouse.nunique()} mice; {len(t)} {unit}s"
@@ -91,7 +88,7 @@ def _plot_over_time_panel(
             ".-",
             alpha=0.8,
             label=mouse,
-            color=_mouse_color(k),
+            color=palette_color(k),
         )
     ax.set(
         xlabel="Days since first observed session in this problem",
@@ -109,7 +106,7 @@ def _plot_across_problems_panel(
     mouse count is looked up.
     """
     for k, (mouse, rows) in enumerate(per_mouse.groupby("mouse")):
-        ax.plot(rows.problem, rows.trials, "o-", alpha=0.45, label=mouse, color=_mouse_color(k))
+        ax.plot(rows.problem, rows.trials, "o-", alpha=0.45, label=mouse, color=palette_color(k))
     means = summarize_trials_by_problem(per_mouse)
     ax.errorbar(
         means.index,
@@ -168,7 +165,12 @@ def _annotate_means(ax: plt.Axes, mean: np.ndarray, sem: np.ndarray) -> None:
     for x, value, error in zip(_CATEGORIES, mean, sem, strict=True):
         if np.isfinite(value):
             ax.text(
-                x, label_height(value, error), f"{value:.2f}", ha="center", va="bottom", fontsize=11
+                x,
+                _label_height(value, error),
+                f"{value:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=11,
             )
 
 
@@ -200,7 +202,7 @@ def _draw_cell(subjects: dict, label: str, problem, rank_ax: plt.Axes, rev_ax: p
     counts = good_reversal_rank_counts(subjects)
     rank_values, rev_values, rank_records, rev_records = [], [], [], []
     for k, mouse in enumerate(sorted(subjects)):
-        color = _mouse_color(k)
+        color = palette_color(k)
         n, proportions = rank_proportions(counts[mouse])
         if proportions is not None:
             rank_values.append(proportions)

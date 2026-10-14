@@ -85,11 +85,6 @@ def mean_and_sem(values: list[list[float]]) -> tuple[np.ndarray, np.ndarray] | N
     return mean, sem
 
 
-def label_height(value: float, error: float) -> float:
-    """Height for a mean's text label: just above the top of its error bar."""
-    return value + (error if np.isfinite(error) else 0) + 0.035
-
-
 def cap_problem_two(
     cohorts: dict, subject_numbers: dict, labels: list[str], trial_budget: int
 ) -> tuple[dict, list[dict]]:

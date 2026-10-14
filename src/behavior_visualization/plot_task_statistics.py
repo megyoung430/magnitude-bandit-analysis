@@ -13,14 +13,53 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
-from src.behavior_analysis.block_length_points import (
-    annotation_height,
-    mouse_points,
-    y_upper_limit,
-)
 from src.behavior_visualization.plot_helpers import despine, mouse_color_map, save_or_show
 
 _BAR_COLOR = "#999999"
+
+
+# ---------------------------------------------------------------------------
+# Layout geometry (pure functions of the summary arrays)
+# ---------------------------------------------------------------------------
+
+
+def _tallest_bar(meds: np.ndarray, ses: np.ndarray) -> float:
+    """Top of the highest error bar, ``max(median + SE)``; 1.0 when there are no bars.
+
+    Known issue: when every median + SE is NaN the result is NaN, which makes the
+    figure's y-limits invalid and plotting raises.
+    """
+    return float(np.nanmax(meds + ses)) if meds.size else 1.0
+
+
+def _annotation_height(meds: np.ndarray, ses: np.ndarray) -> float:
+    """Default y for the bar-value labels: 5% above the tallest error bar (at least 1)."""
+    return max(_tallest_bar(meds, ses), 1.0) * 1.05
+
+
+def _y_upper_limit(annotate_y: float, meds: np.ndarray, ses: np.ndarray) -> float:
+    """Upper y-limit that fits both the labels at *annotate_y* and the tallest bar."""
+    return max(annotate_y, _tallest_bar(meds, ses)) * 1.08
+
+
+def _mouse_points(blocklens: dict, blocks: list) -> tuple[np.ndarray, np.ndarray]:
+    """Positions (index into *blocks*) and lengths of the blocks one mouse has data for.
+
+    Args:
+        blocklens: ``{block_number: length}`` for one mouse.
+        blocks: All block numbers, in plotting order.
+    """
+    positions, lengths = [], []
+    for position, block in enumerate(blocks):
+        if block in blocklens:
+            positions.append(position)
+            lengths.append(blocklens[block])
+    return np.asarray(positions, float), np.asarray(lengths, float)
+
+
+# ---------------------------------------------------------------------------
+# Drawing
+# ---------------------------------------------------------------------------
 
 
 def _plot_median_bars(
@@ -60,7 +99,7 @@ def _plot_mouse_lines(
     handles = []
     for m in mice:
         c = mouse_to_color[m]
-        xs, ys = mouse_points(per_mouse_blocklens[m], blocks)
+        xs, ys = _mouse_points(per_mouse_blocklens[m], blocks)
         if len(xs) == 0:
             continue
         if jitter > 0:
@@ -113,12 +152,12 @@ def plot_block_length_panel(
     x = np.arange(len(blocks))
     _plot_median_bars(ax, x, meds, ses, len(blocks))
     if annotate_y is None:
-        annotate_y = annotation_height(meds, ses)
+        annotate_y = _annotation_height(meds, ses)
     _annotate_medians(ax, x, meds, annotate_y)
     handles = _plot_mouse_lines(ax, per_mouse_blocklens, mice, mouse_to_color, blocks, jitter)
     ax.legend(handles=handles, fontsize=10, loc="upper right")
     _style_axes(ax, x, blocks, len(mice))
-    ax.set_ylim(0, y_upper_limit(annotate_y, meds, ses))
+    ax.set_ylim(0, _y_upper_limit(annotate_y, meds, ses))
     return ax
 
 
