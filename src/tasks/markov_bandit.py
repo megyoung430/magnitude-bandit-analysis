@@ -682,10 +682,12 @@ def plot_session_panel(
     y_max: float,
     choices: np.ndarray | None = None,
     ax: plt.Axes | None = None,
+    legend: bool = True,
 ) -> plt.Axes:
     """Draw the three arms' rewards over trials, with block boundaries and choices.
 
-    The caller sets the title, so the panel can sit in a larger figure.
+    The caller sets the title, so the panel can sit in a larger figure. A caller
+    that must set the title first passes ``legend=False`` and adds the legend itself.
 
     Args:
         vals3: ``(T, 3)`` reward of each arm per trial.
@@ -693,6 +695,7 @@ def plot_session_panel(
         y_max: Largest reward value; sets the y-limit.
         choices: Optional ``(T,)`` int array of chosen arm indices (0–2).
         ax: Axes to draw into; a new figure is created if ``None``.
+        legend: Add the legend (default: True).
 
     Returns:
         The axes drawn into.
@@ -720,7 +723,8 @@ def plot_session_panel(
     ax.set_ylabel("Reward Magnitude")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(loc="upper left")
+    if legend:
+        ax.legend(loc="upper left")
     return ax
 
 
@@ -755,8 +759,12 @@ def plot_example_session_markov(
         session["boundaries"],
         y_max=max(val_list),
         choices=choices,
+        legend=False,
     )
+    # Formatting the title validates pud, so it comes before the legend: a bad pud
+    # fails without a legend on the figure.
     ax.set_title(format_session_title(metrics, pud=pud, max_block_len=max_block_len, title=title))
+    ax.legend(loc="upper left")
     plt.show()
     return session
 

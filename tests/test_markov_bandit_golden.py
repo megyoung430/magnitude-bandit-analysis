@@ -559,3 +559,15 @@ def test_plot_example_session_markov_draws_expected_figure(monkeypatch):
     assert labels[:3] == ["Arm 0", "Arm 1", "Arm 2"]
     assert ("Block" in labels) == (n_boundaries > 0)
     plt.close("all")
+
+
+def test_plot_example_session_markov_bad_pud_fails_before_the_legend(monkeypatch):
+    # The title is formatted from pud after the traces are drawn and before the legend.
+    plt.close("all")
+    monkeypatch.setattr(plt, "show", lambda: None)
+    with pytest.raises(ValueError, match="Unknown format code 'f'"):
+        plot_example_session_markov(pud="0.2", max_block_len=20, T=60, seed=0)
+    (ax,) = plt.gcf().axes
+    assert len(ax.lines) >= 3
+    assert ax.get_legend() is None
+    plt.close("all")
