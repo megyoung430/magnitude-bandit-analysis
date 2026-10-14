@@ -8,8 +8,11 @@ from matplotlib.container import ErrorbarContainer
 
 from src.behavior_visualization import plot_task_statistics as ts
 from src.behavior_visualization.plot_style import MOUSE_COLORS
-from src.behavior_visualization.plot_task_statistics import plot_block_lengths
-from tests.plot_capture import capture_figures
+from src.behavior_visualization.plot_task_statistics import (
+    plot_block_length_panel,
+    plot_block_lengths,
+)
+from tests.plot_capture import cap_size, capture_figures, title_pad_points, was_tight_laid_out
 
 
 def summary(**overrides):
@@ -161,3 +164,26 @@ def test_no_blocks_gives_an_empty_chart_with_unit_scale(capture):
     empty = summary(blocks=[], meds=np.array([]), ses=np.array([]), per_mouse_blocklens={}, mice=[])
     _, ax = draw(capture, empty)
     assert len(ax.patches) == 0 and ax.get_ylim() == (0, pytest.approx(1.05 * 1.08))
+
+
+def test_layout_is_tightened_and_padding_and_caps_are_kept(capture):
+    fig, ax = draw(capture, jitter=0)
+    assert was_tight_laid_out(fig)
+    assert title_pad_points(ax) == pytest.approx(20)
+    (bars,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
+    assert cap_size(bars) == 6
+
+
+def test_panel_draws_into_the_given_axes_without_opening_a_figure(capture):
+    fig, axes = plt.subplots(1, 2)
+    ax = plot_block_length_panel(summary(), jitter=0, ax=axes[0])
+    assert ax is axes[0]
+    assert plt.get_fignums() == [fig.number] and len(fig.axes) == 2
+    assert len(axes[0].patches) == 3 and len(axes[1].patches) == 0
+    assert capture.shown == [] and capture.saved == []
+
+
+def test_panel_creates_a_10_by_4_8_figure_when_no_axes_are_given(capture):
+    ax = plot_block_length_panel(summary(), jitter=0)
+    assert plt.get_fignums() == [ax.figure.number]
+    assert tuple(ax.figure.get_size_inches()) == (10, 4.8)

@@ -8,10 +8,17 @@ import pytest
 from src.behavior_analysis.average_choice_probs import average_across_problem_curves
 from src.behavior_visualization import plot_averaged_choice_probs as module
 from src.behavior_visualization.plot_averaged_choice_probs import (
+    fraction_removed_by_problem,
     plot_choice_probs_with_fraction_removed_axis,
+    plot_choice_probs_with_fraction_removed_panel,
 )
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
-from tests.plot_capture import capture_figures, lines_by_label
+from tests.plot_capture import (
+    capture_figures,
+    lines_by_label,
+    title_pad_points,
+    was_tight_laid_out,
+)
 
 X = np.array([-1.0, 0.0, 1.0])
 NAN = np.nan
@@ -215,3 +222,86 @@ def test_save_path_writes_pdf_then_png_and_creates_parent(capture, tmp_path):
 
 def test_average_is_reexported_from_the_plotting_module():
     assert module.average_across_problem_curves is average_across_problem_curves
+
+
+def test_layout_is_tightened_and_title_and_label_padding_are_kept(capture):
+    fig, left, right = draw(capture)
+    assert was_tight_laid_out(fig)
+    assert title_pad_points(left) == pytest.approx(20)
+    assert right.yaxis.labelpad == 15
+
+
+def test_panel_draws_into_the_given_axes_without_opening_a_figure(capture):
+    fig, axes = plt.subplots(1, 2)
+    left = plot_choice_probs_with_fraction_removed_panel(AX, ACROSS, FRAC, ax=axes[0])
+    assert left is axes[0]
+    assert plt.get_fignums() == [fig.number] and len(fig.axes) == 3  # two panels + the twin axis
+    assert len(axes[1].lines) == 0  # the neighbouring panel is untouched
+    assert [t.get_text() for t in left.get_legend().get_texts()][-1] == "Total Rev"
+    assert capture.shown == [] and capture.saved == []
+
+
+def test_panel_creates_a_10_by_6_figure_when_no_axes_are_given(capture):
+    left = plot_choice_probs_with_fraction_removed_panel(AX, ACROSS, FRAC)
+    assert plt.get_fignums() == [left.figure.number]
+    assert tuple(left.figure.get_size_inches()) == (10, 6)
+
+
+# ---------------------------------------------------------------- fraction_removed_by_problem
+
+FX = np.array([-1.0, 0.0, 1.0, 2.0, 3.0, 4.0])
+
+
+# Offsets before the reversal are NaN in every problem, so the cross-problem mean warns.
+ignore_nan_offsets = pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+
+
+def windows(*reversal_indices):
+    """Windows of one subject whose reversals happen at the given trial indices."""
+    return {"m": [{"reversal_idx": g} for g in reversal_indices]}
+
+
+def removed(windows_dict, **kwargs):
+    curves = {p: {"across": {}} for p in windows_dict}
+    return fraction_removed_by_problem(windows_dict, curves, FX, **kwargs)
+
+
+@ignore_nan_offsets
+def test_fraction_removed_is_the_mean_of_per_problem_step_curves():
+    # Problem 1: next reversal after 10 is 2 trials away, after 12 it is 8 (beyond FX);
+    # problem 2: 4 trials away for 1 of 2 anchors; problem 3: never within FX.
+    frac, used = removed({3: windows(10, 30), 1: windows(10, 12, 20), 2: windows(10, 14)})
+    assert used == [1, 2, 3]  # problems are visited in sorted order
+    expected = [NAN, 0, 0, 1 / 9, 1 / 9, (1 / 3 + 1 / 2) / 3]
+    np.testing.assert_allclose(frac, expected)  # a median would give 0 at offsets 2 and 3
+
+
+@ignore_nan_offsets
+def test_fraction_removed_weights_each_problem_equally_whatever_its_anchor_count():
+    # Offset 2: problem 1 removes 1 of 2 anchors, problem 2 removes 3 of 5. The mean of the
+    # two fractions is 0.55; pooling the anchors would give 4/7.
+    frac, _ = removed({1: windows(10, 12), 2: windows(10, 12, 100, 101, 102)})
+    np.testing.assert_allclose(frac[3], (1 / 2 + 3 / 5) / 2)
+
+
+@ignore_nan_offsets
+def test_fraction_removed_exclude_anchor_flag_is_forwarded():
+    # Counting the anchor itself as its own next reversal removes every anchor at offset 0.
+    frac, _ = removed({1: windows(10, 12)}, exclude_anchor=False)
+    np.testing.assert_allclose(frac[1:], [1, 1, 1, 1, 1])
+    frac, _ = removed({1: windows(10, 12)})
+    np.testing.assert_allclose(frac[1:], [0, 0, 1 / 2, 1 / 2, 1 / 2])
+
+
+@ignore_nan_offsets
+def test_fraction_removed_skips_problems_without_curves_or_windows():
+    curves = {1: {"across": {}}, 3: {"across": {}}}
+    windows_dict = {1: windows(10, 12), 2: windows(10, 12), 3: {}}
+    frac, used = fraction_removed_by_problem(windows_dict, curves, FX)
+    assert used == [1]
+    np.testing.assert_allclose(frac[3], 1 / 2)
+
+
+def test_fraction_removed_is_all_nan_when_no_problem_contributes():
+    frac, used = fraction_removed_by_problem({1: {}}, {1: {"across": {}}}, FX)
+    assert used == [] and np.isnan(frac).all() and frac.shape == FX.shape

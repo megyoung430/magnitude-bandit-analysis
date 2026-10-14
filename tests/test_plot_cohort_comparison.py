@@ -10,6 +10,8 @@ from matplotlib.container import ErrorbarContainer
 from src.behavior_analysis.cohort_comparison_stats import (
     cap_problem_two,
     mean_and_sem,
+    mouse_rank_cell,
+    mouse_reversal_cell,
     rank_proportions,
     reversal_values,
 )
@@ -17,16 +19,16 @@ from src.behavior_visualization import plot_cohort_comparison as pcc
 from src.behavior_visualization.plot_cohort_comparison import plot_cohort_comparison
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from tests.plot_capture import capture_figures
-from tests.plot_fixtures import make_mouse
+from tests.plot_fixtures import make_mouse, make_session, session_key
 
 COHORTS = {
     "cohort-A": {
         1: {"a1": make_mouse(2), "a2": make_mouse(1, pick=1)},
-        2: {"a1": make_mouse(2), "a2": make_mouse(2, pick=1)},
+        2: {"a1": make_mouse(2, first_day=11), "a2": make_mouse(2, pick=1, first_day=11)},
     },
     "cohort-B": {
         1: {"b1": make_mouse(1), "b2": make_mouse(1)},
-        2: {"b1": make_mouse(1, pick=2), "b2": make_mouse(2)},
+        2: {"b1": make_mouse(1, pick=2, first_day=11), "b2": make_mouse(2, first_day=11)},
     },
 }
 NUMBERS = {"cohort-A": {"a1": 1, "a2": 2}, "cohort-B": {"b1": 5, "b2": 6}}
@@ -44,6 +46,39 @@ def test_rank_proportions_pool_trials_within_a_mouse():
     ]
     assert rank_proportions(rows) == (8, [0.25, 0.375, 0.375])
     assert rank_proportions([{"best": 0, "second": 0, "third": 0, "total": 0}]) == (0, None)
+
+
+def test_mouse_rank_cell_pairs_proportions_with_their_csv_row():
+    rows = [{"best": 2, "second": 1, "third": 1, "total": 4}]
+    cell = mouse_rank_cell("cohort-A", 1, "a1", rows)
+    assert cell.proportions == [0.5, 0.25, 0.25]
+    assert cell.record == dict(
+        cohort="cohort-A",
+        problem=1,
+        mouse="a1",
+        eligible_trials=4,
+        best=0.5,
+        second=0.25,
+        third=0.25,
+    )
+    assert (
+        mouse_rank_cell("cohort-A", 1, "a1", [{"best": 0, "second": 0, "third": 0, "total": 0}])
+        is None
+    )
+
+
+def test_mouse_reversal_cell_uses_good_bad_and_all_counts():
+    sessions = make_mouse(2)  # two good reversals per session, no bad ones
+    cell = mouse_reversal_cell("cohort-A", 2, "a1", sessions)
+    assert cell.values == [4, 0, 4]
+    assert cell.record == dict(
+        cohort="cohort-A",
+        problem=2,
+        mouse="a1",
+        total_reversals=4,
+        good_reversals=4,
+        bad_reversals=0,
+    )
 
 
 def test_reversal_values_fill_missing_good_and_bad_with_nan():
@@ -215,6 +250,32 @@ def test_over_time_x_is_days_since_the_mouses_first_session_in_the_problem(run):
     assert a1.get_xlabel() == "Days since first observed session in this problem"
     assert a1.get_ylabel() == "Daily mean trials per session"
     assert a1.get_legend()._ncols == 2 and a1.get_legend().get_texts()[0].get_fontsize() == 8
+
+
+def test_over_time_origin_is_the_first_session_of_the_same_problem(run):
+    fig = run[1]["Trials per session - over time"]
+    problem_two = fig.axes[2]  # cohort-A, problem 2: sessions start ten days after problem 1
+    first, second = problem_two.lines
+    assert first.get_xdata().tolist() == [0, 2] and second.get_xdata().tolist() == [0, 2]
+
+
+def test_block_over_time_counts_days_from_the_first_session_not_the_block_end(
+    monkeypatch, tmp_path
+):
+    # One 40-trial block spans both 24-trial sessions, so it ends on the second session's date
+    # (day 3) while the mouse's first session is day 1.
+    def long_block_mouse():
+        return {session_key(i + 1, 1 + 2 * i): make_session(24, block_len=40) for i in range(2)}
+
+    cohorts = {
+        "cohort-A": {1: {"a1": long_block_mouse()}},
+        "cohort-B": {1: {"b1": long_block_mouse()}},
+    }
+    capture = capture_figures(monkeypatch)
+    plot_cohort_comparison(cohorts, NUMBERS, tmp_path / "x", problems=(1,), trial_budget=None)
+    fig = next(s.figure for s in capture.saved if "block - over time.png" in s.path)
+    (line,) = fig.axes[0].lines
+    assert line.get_xdata().tolist() == [2] and line.get_ydata().tolist() == [48]
 
 
 def test_across_problems_figure_has_one_panel_per_cohort_with_mouse_counts(run):

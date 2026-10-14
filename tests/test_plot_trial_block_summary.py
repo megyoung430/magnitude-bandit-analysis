@@ -17,7 +17,7 @@ from src.behavior_analysis.trial_count_summaries import (
 )
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
-from tests.plot_capture import capture_figures
+from tests.plot_capture import cap_size, capture_figures, was_tight_laid_out
 from tests.plot_fixtures import make_mouse
 
 NUMBERS = {"m1": 1, "m2": 2, "m3": 5}
@@ -27,7 +27,7 @@ PROBLEMS = {
         "m2": make_mouse(3, pick=1, n_trials=16),
         "m3": make_mouse(1),
     },
-    2: {"m1": make_mouse(1), "m2": make_mouse(2, n_trials=16)},
+    2: {"m1": make_mouse(1, first_day=11), "m2": make_mouse(2, n_trials=16, first_day=11)},
 }
 
 
@@ -46,6 +46,21 @@ def run(capture, tables, tmp_path, **kwargs):
     paths = plot_trial_block_summaries(sessions, blocks, tmp_path / "figs", **kwargs)
     figures = {png_stem(s.path): s.figure for s in capture.saved if s.path.endswith(".png")}
     return paths, figures
+
+
+def single_mouse_tables(trials):
+    """Session and block tables of one mouse with the given trial counts, one per day."""
+    table = pd.DataFrame(
+        {
+            "mouse": "m1",
+            "subject_number": 1,
+            "group": "sub-01–04",
+            "problem": 1,
+            "date": pd.date_range("2026-09-01", periods=len(trials)),
+            "trials": trials,
+        }
+    )
+    return table, table.copy()
 
 
 def png_stem(path):
@@ -234,7 +249,12 @@ def test_over_time_plots_daily_means_per_mouse(capture, tables, tmp_path):
     assert ax.get_title() == "Trials per session over time"
     lines = {ln.get_label(): ln for ln in ax.lines}
     assert list(lines) == ["m1", "m2", "m3"]
-    assert lines["m2"].get_ydata().tolist() == [16, 16, 16]
+    assert lines["m2"].get_ydata().tolist() == [16] * 5  # three problem-1 and two problem-2 dates
+    assert pd.to_datetime(lines["m1"].get_xdata()).day.tolist() == [
+        1,
+        3,
+        11,
+    ]  # one point per date, in calendar order
     assert lines["m1"].get_color() == MOUSE_COLORS[0] and lines["m1"].get_alpha() == 0.8
     assert lines["m1"].get_marker() == "." and lines["m1"].get_linestyle() == "-"
     assert ax.get_legend()._ncols == 4
@@ -274,3 +294,52 @@ def test_problem_figure_shows_mouse_means_and_mean_sem_with_mouse_counts(capture
     np.testing.assert_allclose(half_lengths, sem)
     assert ax.get_legend()._ncols == 3
     assert ax.get_legend().get_texts()[0].get_fontsize() == 8
+
+
+# ---------------------------------------------------------------- styling that is easy to lose
+
+
+def test_every_figure_is_tight_laid_out(capture, tables, tmp_path):
+    _, figures = run(capture, tables, tmp_path)
+    assert len(figures) == 6 and all(was_tight_laid_out(fig) for fig in figures.values())
+
+
+def test_mouse_scatter_jitter_is_seeded_so_figures_repeat(capture, tables, tmp_path):
+    _, figures = run(capture, tables, tmp_path)
+    boxes = figures["Trials per session - distributions"].axes[0]
+    scatter = [c for c in boxes.collections if len(c.get_offsets()) > 0]
+    rng = np.random.default_rng(0)  # one generator per figure, drawn in mouse order
+    for position, points in enumerate(scatter, start=1):
+        expected = position + rng.uniform(-0.15, 0.15, len(points.get_offsets()))
+        np.testing.assert_array_equal(points.get_offsets()[:, 0], expected)
+    assert all(list(c.get_sizes()) == [10] for c in scatter)
+
+
+def test_box_plots_hide_outliers_because_every_observation_is_a_point(capture, tmp_path):
+    sessions, blocks = single_mouse_tables([10, 10, 10, 10, 10, 100])
+    _, figures = run(capture, (sessions, blocks), tmp_path)
+    boxes = figures["Trials per session - distributions"].axes[0]
+    assert [ln for ln in boxes.lines if ln.get_marker() == "o"] == []  # no flier markers
+    scatter = [c for c in boxes.collections if len(c.get_offsets()) > 0]
+    assert sorted(scatter[0].get_offsets()[:, 1]) == [10, 10, 10, 10, 10, 100]
+
+
+def test_distribution_panel_widths_follow_the_2_1_1_ratio(capture, tables, tmp_path):
+    _, figures = run(capture, tables, tmp_path)
+    boxes, low, high = figures["Trials per session - distributions"].axes
+    widths = [ax.get_position().width for ax in (boxes, low, high)]
+    assert widths[0] / widths[1] == pytest.approx(2) and widths[1] == pytest.approx(widths[2])
+
+
+def test_over_time_dates_are_rotated_to_fit(capture, tables, tmp_path):
+    _, figures = run(capture, tables, tmp_path)
+    (ax,) = figures["Trials per session - over time"].axes
+    labels = ax.get_xticklabels()
+    assert all(t.get_rotation() == 30 and t.get_ha() == "right" for t in labels)
+
+
+def test_problem_means_use_capped_error_bars(capture, tables, tmp_path):
+    _, figures = run(capture, tables, tmp_path)
+    (ax,) = figures["Trials per session - across problems"].axes
+    (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
+    assert cap_size(errorbar) == 4

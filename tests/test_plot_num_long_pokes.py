@@ -7,9 +7,12 @@ import pytest
 from matplotlib.container import ErrorbarContainer
 
 from src.behavior_analysis.long_pokes_by_session import summarize_pokes_by_session
-from src.behavior_visualization.plot_num_long_pokes import plot_num_pokes_across_mice
+from src.behavior_visualization.plot_num_long_pokes import (
+    plot_num_pokes_across_mice,
+    plot_num_pokes_panel,
+)
 from src.behavior_visualization.plot_style import MOUSE_COLORS
-from tests.plot_capture import capture_figures
+from tests.plot_capture import cap_size, capture_figures, title_pad_points, was_tight_laid_out
 
 S1, S2, S3 = "ses-01_date-20260301", "ses-02_date-20260302", "ses-10_date-20260310"
 NAN = np.nan
@@ -176,3 +179,35 @@ def test_save_path_writes_pdf_and_png_without_creating_directories(capture, tmp_
 def test_empty_input_is_rejected():
     with pytest.raises(ValueError, match="has no mice"):
         plot_num_pokes_across_mice({}, 5)
+
+
+def test_layout_is_tightened_and_padding_and_caps_are_kept(capture):
+    fig = draw(capture)
+    (ax,) = fig.axes
+    assert was_tight_laid_out(fig)
+    assert title_pad_points(ax) == pytest.approx(25)
+    (bars,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
+    assert cap_size(bars) == 6
+
+
+def test_panel_draws_into_the_given_axes_without_opening_a_figure(capture):
+    fig, axes = plt.subplots(1, 2)
+    ax = plot_num_pokes_panel(POKES, 6, ax=axes[1])
+    assert ax is axes[1]
+    assert plt.get_fignums() == [fig.number] and len(fig.axes) == 2
+    assert len(axes[0].patches) == 0 and len(axes[1].patches) == 3
+    assert capture.shown == [] and capture.saved == []
+
+
+def test_panel_creates_a_12_by_5_5_figure_when_no_axes_are_given(capture):
+    ax = plot_num_pokes_panel(POKES, 6)
+    assert plt.get_fignums() == [ax.figure.number]
+    assert tuple(ax.figure.get_size_inches()) == (12, 5.5)
+
+
+def test_panel_jitter_comes_from_the_given_generator(capture):
+    _, ax = plt.subplots()
+    plot_num_pokes_panel(POKES, 6, ax=ax, rng=np.random.Generator(np.random.PCG64(7)))
+    jitter = np.random.Generator(np.random.PCG64(7))
+    for line, xs in zip(mouse_lines(ax), ([0, 1], [0, 2]), strict=True):
+        np.testing.assert_allclose(line.get_xdata(), xs + jitter.uniform(-0.03, 0.03, 2))

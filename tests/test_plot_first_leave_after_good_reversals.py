@@ -9,9 +9,10 @@ from matplotlib.container import ErrorbarContainer
 from src.behavior_analysis.first_leave_fractions import first_leave_fractions
 from src.behavior_visualization.plot_first_leave_after_good_reversals import (
     plot_first_leave_after_good_reversals,
+    plot_first_leave_panel,
 )
 from src.behavior_visualization.plot_style import MOUSE_COLORS
-from tests.plot_capture import capture_figures
+from tests.plot_capture import cap_size, capture_figures, title_pad_points, was_tight_laid_out
 
 MEAN = {"new_best": 0.7, "third": 0.3, "num_reversals": 20}
 SE = {"new_best": 0.1, "third": 0.05}
@@ -142,3 +143,32 @@ def test_files_are_really_written(monkeypatch, tmp_path):
 def test_no_subjects_draws_bars_only(capture):
     _, ax = draw(capture, counts={})
     assert subject_lines(ax) == [] and "n=0 subjects" in ax.get_title()
+
+
+def test_layout_is_tightened_and_padding_and_caps_are_kept(capture):
+    fig, ax = draw(capture)
+    assert was_tight_laid_out(fig)
+    assert title_pad_points(ax) == pytest.approx(20)
+    (bars,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
+    assert cap_size(bars) == 6
+
+
+def test_panel_draws_into_the_given_axes_without_opening_a_figure(capture):
+    fig, axes = plt.subplots(1, 2)
+    ax = plot_first_leave_panel(MEAN, SE, COUNTS, p_value=0.0312, ax=axes[1])
+    assert ax is axes[1]
+    assert plt.get_fignums() == [fig.number] and len(fig.axes) == 2
+    assert len(axes[0].patches) == 0 and len(axes[1].patches) == 2
+    assert "p-value: 0.031" in [t.get_text() for t in ax.texts]
+    assert capture.shown == [] and capture.saved == []
+
+
+def test_panel_creates_a_6_5_by_5_5_figure_when_no_axes_are_given(capture):
+    ax = plot_first_leave_panel(MEAN, SE, COUNTS)
+    assert plt.get_fignums() == [ax.figure.number]
+    assert tuple(ax.figure.get_size_inches()) == (6.5, 5.5)
+
+
+def test_panel_options_after_the_data_must_be_passed_by_keyword(capture):
+    with pytest.raises(TypeError):
+        plot_first_leave_panel(MEAN, SE, COUNTS, 0.03)

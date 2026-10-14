@@ -13,7 +13,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.figure import Figure, SubplotParams  # noqa: E402
 
 
 @dataclass
@@ -57,3 +57,29 @@ def lines_by_label(ax, label):
 
 def line_data(line):
     return list(line.get_xdata()), list(line.get_ydata())
+
+
+def title_pad_points(ax):
+    """Distance in points between the axes' top edge and the title's baseline anchor."""
+    position = ax.title.get_position()
+    shifted = ax.title.get_transform().transform(position)
+    base = ax.transAxes.transform(position)
+    return (shifted[1] - base[1]) * 72 / ax.figure.dpi
+
+
+def was_tight_laid_out(fig):
+    """True if ``fig.tight_layout()`` moved the subplot margins off their defaults."""
+    default = SubplotParams()
+    pars = fig.subplotpars
+    return (pars.left, pars.right, pars.bottom, pars.top) != (
+        default.left,
+        default.right,
+        default.bottom,
+        default.top,
+    )
+
+
+def cap_size(container):
+    """Cap size in points of an error-bar container (bar-with-yerr or errorbar)."""
+    errorbar = getattr(container, "errorbar", container)
+    return errorbar.lines[1][0].get_markersize() / 2

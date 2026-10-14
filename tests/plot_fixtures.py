@@ -42,7 +42,7 @@ def session_key(number, day):
 
 
 def make_mouse(sessions, *, pick=0, n_trials=24, first_day=1):
-    """*sessions* sessions on consecutive odd days starting at *first_day*."""
+    """*sessions* sessions on every other day, starting at day *first_day* of September 2026."""
     return {
         session_key(i + 1, first_day + 2 * i): make_session(n_trials, pick=pick)
         for i in range(sessions)
