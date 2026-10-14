@@ -25,10 +25,6 @@ def one_session(sess, subject="m1", problem=1):
     return {problem: {subject: {"ses-1": sess}}}
 
 
-def cell(df, best, second):
-    return df.loc[best, second]
-
-
 def assert_only_cells(df, expected):
     """Every cell not named in *expected* is NaN; named cells equal their value."""
     full = init_matrix(fill=np.nan)
@@ -150,6 +146,25 @@ def test_overall_is_the_nanmean_over_mice_so_each_mouse_weighs_equally():
     assert_only_cells(best, {(4, 3): 0.5, (2, 1): 1.0})
 
 
+def test_only_the_first_trial_variables_element_is_read():
+    # Known issue pinned: trials from later recording files of a merged session are ignored.
+    mags = {"A": 4, "B": 3, "C": 0}
+    first = session([mags], ["best"])["trial_variables"][0]
+    later = session([mags] * 3, ["third"] * 3)["trial_variables"][0]
+    for use_believed in (False, True):
+        both = accumulate_choice_probs(
+            one_session({"trial_variables": [first, later]}), use_believed
+        )
+        only_first = accumulate_choice_probs(
+            one_session({"trial_variables": [first]}), use_believed
+        )
+        pd.testing.assert_frame_equal(both[2]["m1"], only_first[2]["m1"])
+        pd.testing.assert_frame_equal(both[0], only_first[0])
+    # True binning: the three later "third" choices would dilute P(best) to 1/4.
+    plain = accumulate_choice_probs(one_session({"trial_variables": [first, later]}))
+    assert_only_cells(plain[2]["m1"], {(4, 3): 1.0})
+
+
 def test_input_is_not_mutated():
     mags = {"A": 4, "B": 3, "C": 1}
     data = one_session(session([mags] * 4, ["best", "second", "third", "best"], list("ABCA")))
@@ -192,6 +207,15 @@ def test_tied_believed_values_split_best_and_second_evenly_and_third_counts_in_d
     # Trial 2 has the chosen arm C unseen (skipped); trials 3-5 are in cell (3, 3).
     assert_only_cells(per_best["m1"], {(3, 3): 1 / 3})
     assert_only_cells(per_second["m1"], {(3, 3): 1 / 3})
+
+
+def test_a_choice_of_one_tied_arm_gives_half_to_each_numerator():
+    mags = {"A": 3, "B": 3, "C": 1}
+    # Without the split, the fixed A-before-B ranking would call this choice a plain "best".
+    sess = session([mags] * 4, ["best"] * 4, ["A", "B", "C", "A"])
+    _, _, per_best, per_second = accumulate_choice_probs(one_session(sess), use_believed=True)
+    assert_only_cells(per_best["m1"], {(3, 3): 0.5})
+    assert_only_cells(per_second["m1"], {(3, 3): 0.5})
 
 
 def test_believed_binning_ignores_the_chosen_rank_values_but_not_their_count():

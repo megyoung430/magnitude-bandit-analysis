@@ -86,6 +86,7 @@ def test_reversal_on_the_last_trial_has_a_one_trial_post_window():
     bad = [0, 0, 0, 1]
     only = get_bad_reversal_info(one_subject(make_session(bad)))["mouse"][0]
     assert only["trial_window_idx"] == {"pre": [0, 1, 2], "post": [3]}
+    assert only["block_id"] == 1  # the last entry of ``blocks`` is still reachable
 
 
 def test_include_first_block_prepends_trial_zero_with_matching_before_and_after():
@@ -96,6 +97,7 @@ def test_include_first_block_prepends_trial_zero_with_matching_before_and_after(
     assert [r["reversal_idx"] for r in reversals] == [0, 3, 7]
     assert first["trial_window_idx"] == {"pre": [], "post": [0, 1, 2]}
     assert first["reward_magnitudes_by_tower_before"] == first["reward_magnitudes_by_tower_after"]
+    assert first["bad_reversal_number"] == 0
 
 
 def test_include_first_block_ignored_when_counter_does_not_start_at_zero():
@@ -211,12 +213,19 @@ def test_blocks_length_mismatch_warns_and_block_id_is_none_past_the_end(capsys):
     assert [r["block_id"] for r in out] == [2, None]
 
 
-def test_subject_without_bad_counter_or_trials_gets_an_empty_list():
+def test_all_reversals_of_a_subject_share_one_towers_list():
+    # Known issue pinned: mutating ``towers`` in one record changes all of them.
+    out = get_bad_reversal_info(one_subject(make_session(BAD)))["mouse"]
+    assert out[0]["towers"] is out[1]["towers"]
+
+
+def test_subject_without_bad_counter_or_trials_gets_an_empty_list(capsys):
     no_counter = make_session(BAD)
     del no_counter["bad_reversals"]
     data = {"nocounter": {"ses-1": no_counter}, "empty": {}}
     assert get_bad_reversal_info(data) == {"nocounter": [], "empty": []}
     assert get_bad_reversal_info({}) == {}
+    assert capsys.readouterr().out == ""
 
 
 def test_sessions_are_merged_so_counters_continue_across_them():
