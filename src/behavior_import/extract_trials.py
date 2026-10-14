@@ -1,10 +1,11 @@
 """Extract and process trial-by-trial data from behavioral experiment recordings."""
 
 import re
-import pandas as pd
 from copy import deepcopy
-from collections import defaultdict
 from datetime import datetime
+
+import pandas as pd
+
 from src.behavior_import.import_data import parse_content_json
 from src.behavior_import.reconcile_reversals import reconcile_reversals
 from src.behavior_import.split_recording_configurations import split_recording_configurations
@@ -19,39 +20,35 @@ ALIASES = {
     "bad_reversals": ("num_bad_reversals", "num_bad_rev"),
     "trials_in_block": ("num_trials_in_block", "num_t_in_block"),
     "trials_since_last_reversal": ("num_trials_since_last_reversal", "num_t_since_last_reversal"),
-
     # chosen tower and rank
     "choice": ("chosen_tower", "chosen_tow"),
     "chosen_rank": ("chosen_rank",),
-
     # long pokes
     "num_long_pokes": ("num_long_pokes_before_choice", "num_long_pokes"),
-    "long_pokes": ("long_pokes_before_choice","long_pokes"),
-
+    "long_pokes": ("long_pokes_before_choice", "long_pokes"),
     # reward
     "reward_pulses": ("num_reward_pulses", "num_rew_pulses"),
     "reward_magnitudes": ("current_reward_magnitudes", "curr_rew_mag"),
     "total_reward_amount": ("total_reward_amount", "tot_rew_amt"),
-
     # best arm + available choice towers
     "best_arm": ("best_arm",),
     "choice_towers": ("current_choice_towers", "curr_choice_tows", "c_tows"),
-
     # counts
     "choice_counts": ("choice_counts",),
     "rank_counts": ("rank_counts",),
-
     # moving averages
     "ema_best_arm_choices": ("ema_best_arm_choices", "ema_best_choices"),
     "ema_second_arm_choices": ("ema_second_arm_choices", "ema_second_choices"),
-
     # reversal triggering
     "can_switch": ("can_switch",),
     "num_trials_until_switch": ("num_trials_until_switch", "num_t_switch"),
     "total_num_trials_until_switch": ("total_num_trials_until_switch", "tot_num_t_switch"),
 }
 
-# Sometimes, due to errors, we need to restart the pyControl recording midway through. These are 
+# A recording that logs none of these has no bandit trials (e.g. port finding or pretraining).
+BANDIT_KEYS = ALIASES["reward_magnitudes"] + ALIASES["choice_towers"] + ALIASES["rank_counts"]
+
+# Sometimes, due to errors, we need to restart the pyControl recording midway through. These are
 # variables that should be treated as continuous across such restarts.
 SERIAL_VARS = {"trial"}
 CUMULATIVE_NUMERIC_VARS = {"good_reversals", "bad_reversals", "blocks"}
@@ -59,6 +56,22 @@ CUMULATIVE_DICTLIST_VARS = {"rank_counts", "choice_counts"}
 SPECIAL_VARS = {"trials_in_block"}
 
 TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
+
+# Standard rank labels, best first.
+RANK_KEYS = ("best", "second", "third")
+
+# Rank-label spellings (including space-separated) mapped to the standard labels.
+# unpack_chosen_rank uses a narrower map: no space-separated spellings, no strip/lower.
+RANK_LABEL_MAP = {
+    "second_best": "second",
+    "third_best": "third",
+    "second best": "second",
+    "third best": "third",
+    "best": "best",
+    "second": "second",
+    "third": "third",
+}
+
 
 def extract_trials_grouped_by_problem(data, merge_recurring_problems=False):
     """Extract trial variables and group sessions into problems by choice tower set.
@@ -71,15 +84,145 @@ def extract_trials_grouped_by_problem(data, merge_recurring_problems=False):
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}`` as returned
             by :func:`src.behavior_import.import_data.import_data`.
+        merge_recurring_problems: Passed to :func:`group_sessions_by_problem`. If
+            ``True``, a signature that recurs later reuses its first problem id.
 
     Returns:
         Dict ``{problem_id: {subject: {session_key: session_dict}}}`` where
-        *problem_id* is a 1-based integer that increments each time the choice
-        tower signature changes within a subject.
+        *problem_id* is a 1-based integer that increments each time a new choice
+        tower signature appears within a subject (and, if
+        *merge_recurring_problems* is ``False``, each time the signature
+        changes from the previous session's).
     """
     data = extract_trials(data)
     problems = group_sessions_by_problem(data, merge_recurring_problems=merge_recurring_problems)
     return problems
+
+
+def recording_trial_info(df):
+    """Return the per-trial dicts printed by one recording, in time order.
+
+    Port-finding trials (those that contain ``"num_t_found"``) are dropped.
+    A recording lacking a ``subtype`` column fails here with an ``AttributeError``
+    (the ``""`` default has no ``.isin``). A recording lacking a ``type`` column
+    yields no trials here, without an error; the pipeline then fails later with
+    ``KeyError: 'type'`` in ``reconcile_reversals``.
+    """
+    # Known issue: with no ``type`` column, ``df.get("type", "") == "variable"`` is False, so this
+    # returns [] instead of raising.
+    is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
+    printed = df[is_print].sort_values("time")
+    raw_trial_info = printed["content"].map(parse_content_json).tolist()
+    return [d for d in raw_trial_info if not (isinstance(d, dict) and "num_t_found" in d)]
+
+
+def bandit_trial_info(df, subject, session_key):
+    """Return a recording's trial dicts, or ``[]`` if it is not a bandit recording.
+
+    The cohort directory can also contain port-finding and initiation
+    pretraining. Those print trials but no bandit fields; keeping them would
+    create all-``None`` bandit variables.
+    """
+    trial_info = recording_trial_info(df)
+    if trial_info and not session_has_any_key(trial_info, BANDIT_KEYS):
+        print(
+            "[WARNING] Skipping recording with no bandit trial fields "
+            f"for subject {subject}, session {session_key}"
+        )
+        return []
+    return trial_info
+
+
+def merge_segments(var_name, segments):
+    """Merge one variable's per-recording lists using the rule for that variable."""
+    if var_name in SERIAL_VARS:
+        return concat_serial_numeric(segments)
+    if var_name in CUMULATIVE_NUMERIC_VARS:
+        return concat_cumulative_numeric(segments)
+    if var_name in CUMULATIVE_DICTLIST_VARS:
+        return offset_dict_list_cumulative(segments)
+    if var_name in SPECIAL_VARS:
+        return concat_trials_in_block(segments)
+    return [value for segment in segments if segment for value in segment]
+
+
+def merge_trial_variables(trial_vars_list):
+    """Combine the per-recording ``{variable: list}`` dicts of one session into one."""
+    # Variables come out of a set, so the key order of a merged session depends on PYTHONHASHSEED
+    # and is not reproducible across runs.
+    all_var_names = set().union(*[tv.keys() for tv in trial_vars_list])
+    return {
+        var_name: merge_segments(var_name, [tv.get(var_name, []) for tv in trial_vars_list])
+        for var_name in all_var_names
+    }
+
+
+def session_trial_variables(trial_vars_list, subject, session_key):
+    """Return one ``{variable: list}`` dict for a session, merging its recordings if several."""
+    if len(trial_vars_list) == 1:
+        return trial_vars_list[0]
+    print(f"[INFO] Merging multiple files for subject {subject}, session {session_key}")
+    return merge_trial_variables(trial_vars_list)
+
+
+def add_derived_fields(session_data):
+    """Add the per-tower and per-rank fields derived from the standardised trial variables."""
+    # Known issue: unpack_reward_magnitudes writes ``reward_magnitudes_by_tower`` and
+    # add_reward_magnitude_features then overwrites it (it also includes towers from
+    # ``choice_towers``), so the order of these two steps changes the result.
+    # fill_missing_chosen_rank_from_rank_counts must precede unpack_chosen_rank, which reads
+    # ``chosen_rank``.
+    for step in (
+        unpack_reward_magnitudes,
+        add_reward_magnitude_features,
+        unpack_choices,
+        fill_missing_chosen_rank_from_rank_counts,
+        unpack_chosen_rank,
+    ):
+        session_data = step(session_data)
+    return session_data
+
+
+def drop_unlogged_reversal_vars(session_data):
+    """Remove good/bad reversal counters from sessions that never logged them.
+
+    Downstream code would otherwise try to merge ``int(None)``.
+    """
+    if not session_data.get("has_good", False):
+        session_data.pop("good_reversals", None)
+    if not session_data.get("has_bad", False):
+        session_data.pop("bad_reversals", None)
+    return session_data
+
+
+def extract_session_trials(session_data, subject, session_key):
+    """Attach trial variables and derived fields to one session, in place.
+
+    A session without any bandit trial information gets empty
+    ``"trial_variables"`` and ``"trial_info"`` and a warning.
+    """
+    # A session is one dataframe, or a list of them when the recording was restarted
+    frames = session_data["data"]
+    if isinstance(frames, pd.DataFrame):
+        frames = [frames]
+
+    trial_info_list = [bandit_trial_info(df, subject, session_key) for df in frames]
+    trial_vars_list = [transpose_trials(trial_info, ALIASES) for trial_info in trial_info_list]
+    if not any(trial_info_list):
+        print(f"[WARNING] No trial information found for subject {subject}, session {session_key}")
+        session_data["trial_variables"] = {}
+        session_data["trial_info"] = []
+        return session_data
+
+    # Performance-dependent sessions log good/bad reversal counters
+    flat_trial_info = [d for trial_info in trial_info_list for d in trial_info]
+    session_data["has_good"] = session_has_any_key(flat_trial_info, ALIASES["good_reversals"])
+    session_data["has_bad"] = session_has_any_key(flat_trial_info, ALIASES["bad_reversals"])
+    session_data["trial_variables"] = trial_vars_list
+    session_data["trial_info"] = trial_info_list
+    session_data.update(session_trial_variables(trial_vars_list, subject, session_key))
+    return drop_unlogged_reversal_vars(add_derived_fields(session_data))
+
 
 def extract_trials(data):
     """Parse and attach trial-by-trial variables to every session in *data*.
@@ -110,105 +253,13 @@ def extract_trials(data):
           for debugging.
     """
     data = split_recording_configurations(data)
-
-    # Extract trials across subjects
-    all_subjects = list(data.keys())
-    for current_subject in all_subjects:
-        subject_sessions = data[current_subject]
-
-        # Extract trials across sessions
-        all_sessions = list(subject_sessions.keys())
-        for current_session in all_sessions:
-            df_list = subject_sessions[current_session]["data"]
-            
-            # Check if there are multiple dataframes within a particular session
-            # If not, turn the dataframe into a list of one dataframe for consistency
-            if isinstance(df_list, pd.DataFrame):
-                df_list = [df_list]
-            
-            trial_info_list = []
-            trial_vars_list = []
-            for df in df_list:
-                trials_df = df[(df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))].sort_values("time")
-                raw_trial_info = trials_df["content"].map(parse_content_json).tolist()
-
-                # Drop any trials where mice are finding ports, i.e., ones that contain "num_t_found"
-                trial_info = [
-                    d for d in raw_trial_info
-                    if not (isinstance(d, dict) and "num_t_found" in d)
-                ]
-
-                # The cohort directory can also contain port-finding and
-                # initiation pretraining. These print trials, but no bandit
-                # fields; including them creates all-None bandit variables.
-                bandit_keys = (
-                    ALIASES["reward_magnitudes"] + ALIASES["choice_towers"]
-                    + ALIASES["rank_counts"]
-                )
-                if trial_info and not session_has_any_key(trial_info, bandit_keys):
-                    print(f"[WARNING] Skipping recording with no bandit trial fields for subject {current_subject}, session {current_session}")
-                    trial_info = []
-
-                trial_info_list.append(trial_info)
-                trial_vars = transpose_trials(trial_info, ALIASES)
-                trial_vars_list.append(trial_vars)
-            if not any(trial_info_list):
-                print(f"[WARNING] No trial information found for subject {current_subject}, session {current_session}")
-                data[current_subject][current_session]["trial_variables"] = {}
-                data[current_subject][current_session]["trial_info"] = []
-                continue
-
-            # Check if the session had good or bad reversals (i.e., was performance dependent)
-            flat_trial_info = []
-            for ti in trial_info_list:
-                flat_trial_info.extend(ti)
-            has_good = session_has_any_key(flat_trial_info, ALIASES["good_reversals"])
-            has_bad  = session_has_any_key(flat_trial_info, ALIASES["bad_reversals"])
-            data[current_subject][current_session]["has_good"] = has_good
-            data[current_subject][current_session]["has_bad"] = has_bad
-
-            data[current_subject][current_session]["trial_variables"] = trial_vars_list
-            data[current_subject][current_session]["trial_info"] = trial_info_list
-            if len(trial_vars_list) == 1:
-                for var_name, values in trial_vars_list[0].items():
-                    data[current_subject][current_session][var_name] = values
-            else:
-                print(f"[INFO] Merging multiple files for subject {current_subject}, session {current_session}")
-                combined = {}
-                all_var_names = set().union(*[tv.keys() for tv in trial_vars_list])
-                for var_name in all_var_names:
-                    segments = [tv.get(var_name, []) for tv in trial_vars_list]
-                    if var_name in SERIAL_VARS:
-                        combined[var_name] = concat_serial_numeric(segments)
-                    elif var_name in CUMULATIVE_NUMERIC_VARS:
-                        combined[var_name] = concat_cumulative_numeric(segments)
-                    elif var_name in CUMULATIVE_DICTLIST_VARS:
-                        combined[var_name] = offset_dict_list_cumulative(segments)
-                    elif var_name in SPECIAL_VARS:
-                        combined[var_name] = concat_trials_in_block(segments)
-                    else:
-                        out = []
-                        for seg in segments:
-                            if seg:
-                                out.extend(seg)
-                        combined[var_name] = out
-                for var_name, values in combined.items():
-                    data[current_subject][current_session][var_name] = values
-            data[current_subject][current_session] = unpack_reward_magnitudes(data[current_subject][current_session])
-            data[current_subject][current_session] = add_reward_magnitude_features(data[current_subject][current_session])
-            data[current_subject][current_session] = unpack_choices(data[current_subject][current_session])
-            data[current_subject][current_session] = fill_missing_chosen_rank_from_rank_counts(data[current_subject][current_session])
-            data[current_subject][current_session] = unpack_chosen_rank(data[current_subject][current_session])
-            
-            # If a session never printed good/bad reversal vars, remove them entirely
-            # so downstream code doesn't try to merge int(None).
-            sess = data[current_subject][current_session]
-            if not sess.get("has_good", False):
-                sess.pop("good_reversals", None)
-
-            if not sess.get("has_bad", False):
-                sess.pop("bad_reversals", None)
+    for subject, subject_sessions in data.items():
+        for session_key, session_data in subject_sessions.items():
+            subject_sessions[session_key] = extract_session_trials(
+                session_data, subject, session_key
+            )
     return reconcile_reversals(data)
+
 
 def standardize_variables(dictionary, aliases):
     """Return a copy of *dictionary* with variable names normalised to canonical keys.
@@ -240,6 +291,7 @@ def standardize_variables(dictionary, aliases):
         out[variable] = val
     return out
 
+
 def transpose_trials(trial_dicts, aliases, keep=None):
     """Transpose a list of per-trial dicts into a dict of per-variable lists.
 
@@ -267,6 +319,7 @@ def transpose_trials(trial_dicts, aliases, keep=None):
             out[k].append(canon.get(k))
     return out
 
+
 # --- Data Unpacking Helper Functions ---
 def unpack_reward_magnitudes(session_data):
     """Reformat per-trial reward magnitude dicts into per-tower value lists.
@@ -284,18 +337,17 @@ def unpack_reward_magnitudes(session_data):
     Returns:
         The same *session_data* dict with ``"reward_magnitudes_by_tower"`` added.
     """
-    magnitudes = session_data.get('reward_magnitudes', [])
+    magnitudes = session_data.get("reward_magnitudes", [])
     choice_towers = dict.fromkeys(
-        tower for values in magnitudes if isinstance(values, dict)
-        for tower in values
+        tower for values in magnitudes if isinstance(values, dict) for tower in values
     )
     magnitude_by_tower = {
-        tower: [values.get(tower) if isinstance(values, dict) else None
-                for values in magnitudes]
+        tower: [values.get(tower) if isinstance(values, dict) else None for values in magnitudes]
         for tower in choice_towers
     }
-    session_data['reward_magnitudes_by_tower'] = magnitude_by_tower
+    session_data["reward_magnitudes_by_tower"] = magnitude_by_tower
     return session_data
+
 
 def unpack_choices(session_data):
     """Build per-tower binary choice indicator lists from the raw choice sequence.
@@ -311,17 +363,18 @@ def unpack_choices(session_data):
     Returns:
         The same *session_data* dict with ``"choices_by_tower"`` added.
     """
-    choice_towers = session_data['choice_towers'][0]
+    choice_towers = session_data["choice_towers"][0]
     choices_by_tower = {k: [] for k in choice_towers}
-    for i in range(len(session_data['choice'])):
-        current_choice = session_data['choice'][i]
+    for i in range(len(session_data["choice"])):
+        current_choice = session_data["choice"][i]
         for tower in choice_towers:
             if current_choice == tower:
                 choices_by_tower[tower].append(1)
             else:
                 choices_by_tower[tower].append(0)
-    session_data['choices_by_tower'] = choices_by_tower
+    session_data["choices_by_tower"] = choices_by_tower
     return session_data
+
 
 def unpack_chosen_rank(session_data):
     """Standardise rank labels and build per-rank choice indicator lists.
@@ -368,6 +421,57 @@ def unpack_chosen_rank(session_data):
     session_data["choices_by_rank"] = choices_by_rank
     return session_data
 
+
+def standardize_rank_key(k):
+    """Normalise rank key *k* to ``"best"``, ``"second"``, or ``"third"``.
+
+    Unrecognised strings come back stripped and lower-cased; ``None`` and
+    non-strings are returned unchanged.
+    """
+    if k is None:
+        return k
+    if isinstance(k, str):
+        norm = k.strip().lower()
+        return RANK_LABEL_MAP.get(norm, norm)
+    return k
+
+
+def standardize_rank_counts(counts):
+    """Return *counts* keyed only by ``"best"``/``"second"``/``"third"``.
+
+    Other keys are dropped. A trial whose counts are not a dict yields ``{}``.
+    """
+    if not isinstance(counts, dict):
+        return {}
+    pairs = [(standardize_rank_key(k), v) for k, v in counts.items()]
+    return {k: v for k, v in pairs if k in RANK_KEYS}
+
+
+def infer_rank_from_counts(current, previous, is_first_trial):
+    """Infer the rank chosen on a trial from the change in cumulative rank counts.
+
+    Args:
+        current: Standardised cumulative counts after this trial.
+        previous: Standardised cumulative counts after the previous trial
+            (``{}`` for the first trial).
+        is_first_trial: Whether this is the session's first trial.
+
+    Returns:
+        The one rank whose count went up. On the first trial, if no single
+        rank went up, the rank with the largest count (earliest on ties) as
+        long as that count is positive. ``None`` if the rank is ambiguous.
+    """
+    deltas = {rk: (current.get(rk, 0) or 0) - (previous.get(rk, 0) or 0) for rk in RANK_KEYS}
+    increased = [rk for rk, delta in deltas.items() if delta > 0]
+    if len(increased) == 1:
+        return increased[0]
+    if is_first_trial:
+        top = max(RANK_KEYS, key=lambda rk: current.get(rk, 0) or 0)
+        if (current.get(top, 0) or 0) > 0:
+            return top
+    return None
+
+
 def fill_missing_chosen_rank_from_rank_counts(session_data):
     """Infer missing ``chosen_rank`` entries from ``rank_counts`` increments.
 
@@ -383,70 +487,28 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
 
     Returns:
         The same *session_data* dict with ``"chosen_rank"`` filled in where
-        possible.
+        possible. Left untouched if either key is missing or empty, or if
+        their lengths differ.
     """
     if "chosen_rank" not in session_data or "rank_counts" not in session_data:
         return session_data
 
     chosen = session_data.get("chosen_rank", [])
     rank_counts = session_data.get("rank_counts", [])
-
+    # Known issue: a length mismatch between chosen_rank and rank_counts silently fills nothing.
     if not chosen or not rank_counts or len(chosen) != len(rank_counts):
         return session_data
 
-    key_map = {
-        "second_best": "second",
-        "third_best": "third",
-        "second best": "second",
-        "third best": "third",
-        "best": "best",
-        "second": "second",
-        "third": "third",
-    }
-
-    def standardized_key(k):
-        """Normalise rank key *k* to ``"best"``, ``"second"``, or ``"third"``."""
-        if k is None:
-            return k
-        if isinstance(k, str):
-            return key_map.get(k.strip().lower(), key_map.get(k, k.strip().lower()))
-        return k
-
-    standardized_rank_counts = []
-    for d in rank_counts:
-        if not isinstance(d, dict):
-            standardized_rank_counts.append({})
-            continue
-        dd = {}
-        for k, v in d.items():
-            kk = standardized_key(k)
-            if kk in ("best", "second", "third"):
-                dd[kk] = v
-        standardized_rank_counts.append(dd)
-
-    filled = list(chosen)
-
-    for i in range(len(filled)):
-        if filled[i] is not None:
-            continue
-
-        curr = standardized_rank_counts[i]
-        prev = standardized_rank_counts[i - 1] if i > 0 else {}
-
-        deltas = {rk: (curr.get(rk, 0) or 0) - (prev.get(rk, 0) or 0) for rk in ("best", "second", "third")}
-
-        inc = [rk for rk, dv in deltas.items() if dv > 0]
-        if len(inc) == 1:
-            filled[i] = inc[0]
-        elif i == 0:
-            rk0 = max(("best", "second", "third"), key=lambda rk: curr.get(rk, 0) or 0)
-            if (curr.get(rk0, 0) or 0) > 0:
-                filled[i] = rk0
-        else:
-            pass
-
-    session_data["chosen_rank"] = filled
+    counts = [standardize_rank_counts(d) for d in rank_counts]
+    previous_counts = [{}, *counts[:-1]]
+    session_data["chosen_rank"] = [
+        rank if rank is not None else infer_rank_from_counts(current, previous, i == 0)
+        for i, (rank, current, previous) in enumerate(
+            zip(chosen, counts, previous_counts, strict=True)
+        )
+    ]
     return session_data
+
 
 def session_has_any_key(trial_info, keys):
     """Return ``True`` if any trial dict in *trial_info* contains at least one of *keys*.
@@ -469,6 +531,7 @@ def session_has_any_key(trial_info, keys):
         if isinstance(d, dict) and any(k in d for k in keys):
             return True
     return False
+
 
 # --- Merging Rules for Multiple Files within a Session ---
 def concat_serial_numeric(segments):
@@ -497,6 +560,7 @@ def concat_serial_numeric(segments):
         out.extend([x + offset for x in seg_vals])
         offset = out[-1]  # keep continuity
     return out
+
 
 def concat_cumulative_numeric(segments):
     """Merge cumulative counter segments across recording files.
@@ -540,6 +604,7 @@ def concat_cumulative_numeric(segments):
         prev_last = out[-1]
     return out
 
+
 def add_dicts(a, b):
     """Return a new dict that is the elementwise sum of *a* and *b*.
 
@@ -560,6 +625,7 @@ def add_dicts(a, b):
         for k, v in b.items():
             out[k] = int(out.get(k, 0)) + int(v)
     return out
+
 
 def offset_dict_list_cumulative(segments):
     """Merge cumulative dict-valued counter segments across recording files.
@@ -592,6 +658,7 @@ def offset_dict_list_cumulative(segments):
                 offset = d
                 break
     return out
+
 
 def concat_trials_in_block(segments):
     """Merge per-file within-block trial index sequences across recording files.
@@ -645,6 +712,7 @@ def concat_trials_in_block(segments):
         last_val = out[-1]
     return out
 
+
 # --- Grouping Sessions into Problems Based on Choice Towers ---
 def choice_towers_signature(session_data):
     """Return a hashable signature for the session's set of available choice towers.
@@ -688,6 +756,7 @@ def choice_towers_signature(session_data):
 
     return (towers_part, init_tower)
 
+
 def normalize_tower_token(x):
     """Normalise a single tower token into a sortable, comparable tuple.
 
@@ -730,6 +799,7 @@ def normalize_tower_token(x):
     # Fail fast for unsupported objects so you don't silently create bad grouping.
     raise TypeError(f"Unsupported tower token type: {type(x)!r} (value={x!r})")
 
+
 def permutation_invariant_signature(raw_sig):
     """Canonicalise a tower-set signature to be permutation-invariant.
 
@@ -756,9 +826,12 @@ def permutation_invariant_signature(raw_sig):
     if raw_sig is None:
         return None
 
-    if (isinstance(raw_sig, tuple) and len(raw_sig) == 2
-            and isinstance(raw_sig[0], tuple)
-            and isinstance(raw_sig[1], str)):
+    if (
+        isinstance(raw_sig, tuple)
+        and len(raw_sig) == 2
+        and isinstance(raw_sig[0], tuple)
+        and isinstance(raw_sig[1], str)
+    ):
         towers_norm = tuple(sorted(normalize_tower_token(x) for x in raw_sig[0]))
         init_norm = normalize_tower_token(raw_sig[1])
         return (towers_norm, init_norm)
@@ -776,11 +849,120 @@ def permutation_invariant_signature(raw_sig):
 
     return raw_sig
 
+
+def session_sort_key(session_id):
+    """Sort key putting sessions in chronological order: ``ses-N`` number, then ``date-YYYYMMDD``.
+
+    Keys without a session number or date sort last; the key string breaks ties.
+    """
+    m_ses = re.search(r"ses-(\d+)", session_id)
+    m_date = re.search(r"date-(\d{8})", session_id)
+    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
+    dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
+    return (ses_num, dt, session_id)
+
+
+def problem_signature(session_data):
+    """Return ``(tower signature, has_good)`` identifying a session's problem, or ``None``.
+
+    Sessions with and without performance-dependent reversals count as
+    different problems even when they offer the same towers. ``None`` means
+    the session logged no choice towers.
+    """
+    sig = permutation_invariant_signature(choice_towers_signature(session_data))
+    if sig is None:
+        return None
+    return (sig, bool(session_data.get("has_good", False)))
+
+
+def merged_problem_ordinals(full_sigs):
+    """Number problems so a recurring signature reuses its first ordinal (A, B, A -> 1, 2, 1).
+
+    A ``None`` signature stays on the current problem.
+    """
+    ordinals = []
+    first_ordinal = {}
+    # Each ordinal depends on all earlier signatures, so this is a loop.
+    for full_sig in full_sigs:
+        if full_sig is None:
+            ordinal = max(len(first_ordinal), 1)
+        else:
+            ordinal = first_ordinal.setdefault(full_sig, len(first_ordinal) + 1)
+        ordinals.append(ordinal)
+    return ordinals
+
+
+def consecutive_problem_ordinals(full_sigs):
+    """Number problems so only consecutive equal signatures share one (A, B, A -> 1, 2, 3).
+
+    A ``None`` signature stays on the current problem.
+    """
+    ordinals = []
+    next_ordinal = 1
+    previous = None
+    # Each ordinal depends on all earlier signatures, so this is a loop.
+    for full_sig in full_sigs:
+        if full_sig is None:
+            ordinal = max(next_ordinal - 1, 1)
+        elif full_sig == previous:
+            ordinal = next_ordinal - 1
+        else:
+            ordinal = next_ordinal
+            next_ordinal += 1
+        ordinals.append(ordinal)
+        # Known issue: a None signature also sets `previous`, so ["A", None, "A"] gives
+        # [1, 1, 2]; keeping A's problem across the gap would give [1, 1, 1].
+        previous = full_sig
+    return ordinals
+
+
+def assign_problem_ordinals(full_sigs, merge_recurring_problems):
+    """Number the problems in a subject's chronological sequence of signatures.
+
+    Each new signature gets the next ordinal (1, 2, 3, ...). A ``None``
+    signature stays on the current problem. A signature seen before gets its
+    old ordinal back if *merge_recurring_problems* (A, B, A -> 1, 2, 1);
+    otherwise it only keeps the ordinal when it equals the previous session's
+    signature (A, B, A -> 1, 2, 3).
+
+    Args:
+        full_sigs: Signatures from :func:`problem_signature`, in session order.
+        merge_recurring_problems: Whether a recurring signature rejoins its
+            original problem.
+
+    Returns:
+        List of 1-based ordinals, one per signature.
+    """
+    if merge_recurring_problems:
+        return merged_problem_ordinals(full_sigs)
+    return consecutive_problem_ordinals(full_sigs)
+
+
+def signed_sessions(subject_id, subject_sessions):
+    """Return ``[(session_id, signature)]`` in chronological order.
+
+    Sessions without trial information are skipped with a warning.
+    """
+    signed = []
+    for session_id in sorted(subject_sessions, key=session_sort_key):
+        sess = subject_sessions[session_id]
+        if not sess.get("trial_info"):
+            print(
+                f"[WARNING] Skipping session {session_id} for subject {subject_id} "
+                "due to missing trial information."
+            )
+            continue
+        signed.append((session_id, problem_signature(sess)))
+    return signed
+
+
 def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems=False):
     """Group sessions into numbered problems based on per-subject problem ordinal.
 
-    Within each subject, sessions are sorted chronologically. Each time a new
-    (previously unseen) tower signature appears for that subject, it is assigned
+    Within each subject, sessions are sorted chronologically. The problem key is
+    the tower signature plus ``has_good`` (see :func:`problem_signature`), so
+    sessions with and without performance-dependent reversals are different
+    problems. Each time a new (previously unseen) signature appears for that subject, it is assigned
     the next ordinal (1, 2, 3, ...). If a signature recurs later for the same
     subject, behaviour depends on *merge_recurring_problems*: if ``True``, the
     session is folded back into its original ordinal (A -> B -> A yields
@@ -792,70 +974,98 @@ def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems
             :func:`extract_trials` has been applied.
         copy_sessions: If ``True`` (default), each session dict is deep-copied
             into the output to avoid aliasing the input.
-        merge_recurring_problems: If ``True`` (default), recurring signatures
-            are folded back into their original ordinal.  If ``False``, every
+        merge_recurring_problems: If ``True``, recurring signatures are folded
+            back into their original ordinal.  If ``False`` (default), every
             new occurrence of a signature gets a fresh ordinal.
 
     Returns:
         Dict ``{problem_id: {subject: {session_key: session_dict}}}``.
     """
-
-    def sort_ses_date(session_id: str):
-        m_ses = re.search(r"ses-(\d+)", session_id)
-        m_date = re.search(r"date-(\d{8})", session_id)
-        ses_num = int(m_ses.group(1)) if m_ses else float("inf")
-        dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
-        return (ses_num, dt, session_id)
-
-    problems = defaultdict(lambda: defaultdict(dict))
-
+    problems = {}
     for subject_id, subject_sessions in data.items():
-        sessions_sorted = sorted(subject_sessions.keys(), key=sort_ses_date)
-
-        sig_to_ordinal: dict = {}
-        next_ordinal = 1
-        prev_full_sig = None
-
-        for session_id in sessions_sorted:
+        signed = signed_sessions(subject_id, subject_sessions)
+        ordinals = assign_problem_ordinals([sig for _, sig in signed], merge_recurring_problems)
+        for (session_id, _), ordinal in zip(signed, ordinals, strict=True):
             sess = subject_sessions[session_id]
+            by_subject = problems.setdefault(ordinal, {})
+            by_subject.setdefault(subject_id, {})[session_id] = (
+                deepcopy(sess) if copy_sessions else sess
+            )
+    return problems
 
-            if not sess.get("trial_info"):
-                print(f"[WARNING] Skipping session {session_id} for subject {subject_id} due to missing trial information.")
-                continue
 
-            raw_sig = choice_towers_signature(sess)
-            sig = permutation_invariant_signature(raw_sig)
+# --- Adding Variables to Analyze Value ---
+def available_towers(towers_entry, magnitudes):
+    """Return the tower identifiers on offer in one trial.
 
-            has_good = bool(sess.get("has_good", False))
-            full_sig = (sig, has_good) if sig is not None else None
+    *towers_entry* is that trial's ``choice_towers`` value (dict, list, tuple,
+    set or a single string). Anything else, including ``None``, means the
+    towers were not logged, so the keys of the trial's *magnitudes* dict are
+    used instead.
+    """
+    if towers_entry is not None:
+        if isinstance(towers_entry, dict):
+            return list(towers_entry.keys())
+        if isinstance(towers_entry, (list, tuple, set)):
+            return list(towers_entry)
+        if isinstance(towers_entry, str):
+            return [towers_entry]
+    return list(magnitudes.keys())
 
-            if full_sig is None:
-                # No signature — stay on current problem
-                num_problem = max(next_ordinal - 1, 1)
 
-            elif merge_recurring_problems:
-                # Reuse ordinal if this exact (sig, has_good) was seen before
-                if full_sig in sig_to_ordinal:
-                    num_problem = sig_to_ordinal[full_sig]
-                else:
-                    num_problem = next_ordinal
-                    sig_to_ordinal[full_sig] = num_problem
-                    next_ordinal += 1
+def top_magnitudes(towers, magnitudes, n):
+    """Return the *n* largest magnitudes among *towers*, best first.
 
-            else:
-                # Only increment if signature changed from previous session
-                if full_sig == prev_full_sig:
-                    num_problem = next_ordinal - 1
-                else:
-                    num_problem = next_ordinal
-                    next_ordinal += 1
+    Towers without a magnitude are ignored.
+    """
+    pairs = [(tw, magnitudes.get(tw)) for tw in towers]
+    pairs = [(tw, m) for tw, m in pairs if m is not None]
+    pairs.sort(key=lambda pair: (-pair[1], str(pair[0])))
+    return [m for _, m in pairs[:n]]
 
-            prev_full_sig = full_sig
-            problems[num_problem][subject_id][session_id] = deepcopy(sess) if copy_sessions else sess
 
-    return {p: {s: dict(ss) for s, ss in subj.items()} for p, subj in problems.items()}
+def reward_magnitude_features(mags_seq, choice_seq, towers_seq):
+    """Derive per-trial value features from the logged reward magnitudes.
 
-# --- Adding Variables to Analyze Value --- 
+    Args:
+        mags_seq: Non-empty list with one ``{tower: magnitude}`` dict per trial
+            (other entries count as "no magnitudes logged").
+        choice_seq: Chosen tower per trial. Ignored (treated as all missing)
+            unless it has one entry per trial.
+        towers_seq: Per-trial available towers, or ``None``/shorter than
+            *mags_seq* where the towers must be read from the magnitude dicts.
+
+    Returns:
+        ``(chosen_magnitude, magnitude_by_arm, magnitude_by_rank)``: a list, a
+        ``{tower: list}`` dict and a ``{rank: list}`` dict. Entries are ``None``
+        where nothing was logged.
+    """
+    n = len(mags_seq)
+    mags = [m if isinstance(m, dict) else {} for m in mags_seq]
+    # Known issue: a choice_seq whose length differs from mags_seq silently makes every
+    # chosen magnitude None.
+    if not choice_seq or len(choice_seq) != n:
+        choice_seq = [None] * n
+    # Known issue: a towers_seq shorter than mags_seq is silently padded with None, so the
+    # trials past its end read their towers from the magnitude dicts.
+    entries = towers_seq if towers_seq and isinstance(towers_seq, list) else []
+    entries = (entries + [None] * n)[:n]
+    available = [available_towers(entry, m) for entry, m in zip(entries, mags, strict=True)]
+
+    # dict.fromkeys keeps first-seen order, so the output columns are stable
+    all_towers = list(dict.fromkeys(tw for towers in available for tw in towers))
+    by_arm = {tw: [m.get(tw) for m in mags] for tw in all_towers}
+    chosen = [m[ch] if ch in m else None for ch, m in zip(choice_seq, mags, strict=True)]
+
+    tops = [
+        top_magnitudes(towers, m, len(RANK_KEYS)) for towers, m in zip(available, mags, strict=True)
+    ]
+    by_rank = {
+        rk: [top[i] if i < len(top) else None for top in tops] for i, rk in enumerate(RANK_KEYS)
+    }
+    return chosen, by_arm, by_rank
+
+
 def add_reward_magnitude_features(session_data):
     """Compute and attach reward-magnitude derived features to a session dict.
 
@@ -880,88 +1090,19 @@ def add_reward_magnitude_features(session_data):
           trial; falls back to ``reward_magnitudes[t].keys()`` if absent.
 
     Returns:
-        The same *session_data* dict with the three derived keys added.
+        The same *session_data* dict with the three derived keys added, or
+        unchanged if there are no reward magnitudes.
     """
     mags_seq = session_data.get("reward_magnitudes", [])
-    choice_seq = session_data.get("choice", [])
-    towers_seq = session_data.get("choice_towers", None)
-
     if not mags_seq or not isinstance(mags_seq, list):
         return session_data
 
-    n = len(mags_seq)
-
-    # Make lengths consistent where possible
-    if not choice_seq or len(choice_seq) != n:
-        choice_seq = [None] * n
-
-    # Build per-trial available tower list
-    def towers_for_trial(t):
-        """Return the list of available tower identifiers for trial index *t*."""
-        if towers_seq and isinstance(towers_seq, list) and t < len(towers_seq) and towers_seq[t] is not None:
-            # could be list/tuple/dict/etc
-            x = towers_seq[t]
-            if isinstance(x, dict):
-                return list(x.keys())
-            if isinstance(x, (list, tuple, set)):
-                return list(x)
-            if isinstance(x, str):
-                return [x]
-        d = mags_seq[t]
-        return list(d.keys()) if isinstance(d, dict) else []
-
-    # Union of all towers seen across trials (stable-ish order)
-    all_towers = []
-    seen = set()
-    for t in range(n):
-        for tw in towers_for_trial(t):
-            if tw not in seen:
-                seen.add(tw)
-                all_towers.append(tw)
-
-    # reward_magnitude_by_arm: tower -> per-trial magnitude (None if tower not present)
-    mag_by_arm = {tw: [None] * n for tw in all_towers}
-    for t in range(n):
-        d = mags_seq[t] if isinstance(mags_seq[t], dict) else {}
-        for tw in all_towers:
-            if tw in d:
-                mag_by_arm[tw][t] = d[tw]
-
-    # chosen_magnitude
-    chosen_mag = [None] * n
-    for t in range(n):
-        ch = choice_seq[t]
-        d = mags_seq[t] if isinstance(mags_seq[t], dict) else {}
-        if ch in d:
-            chosen_mag[t] = d[ch]
-
-    # reward_magnitude_by_rank (computed per trial from available towers)
-    rank_keys = ("best", "second", "third")
-    mag_by_rank = {rk: [None] * n for rk in rank_keys}
-
-    for t in range(n):
-        d = mags_seq[t] if isinstance(mags_seq[t], dict) else {}
-        avail = towers_for_trial(t)
-        # Keep only towers that have a magnitude defined
-        pairs = [(tw, d.get(tw, None)) for tw in avail]
-        pairs = [(tw, m) for tw, m in pairs if m is not None]
-
-        if not pairs:
-            continue
-
-        # Sort by magnitude desc; tie-break deterministically by tower token string
-        pairs_sorted = sorted(pairs, key=lambda x: (-x[1], str(x[0])))
-
-        # Assign top-3 magnitudes
-        for i, rk in enumerate(rank_keys):
-            if i < len(pairs_sorted):
-                mag_by_rank[rk][t] = pairs_sorted[i][1]
-
-    session_data["chosen_magnitude"] = chosen_mag
-    session_data["reward_magnitude_by_arm"] = mag_by_arm
-    session_data["reward_magnitude_by_rank"] = mag_by_rank
-
-    # (Optional) keep/alias your older field name if downstream expects it:
-    session_data["reward_magnitudes_by_tower"] = mag_by_arm
-
+    chosen, by_arm, by_rank = reward_magnitude_features(
+        mags_seq, session_data.get("choice", []), session_data.get("choice_towers", None)
+    )
+    session_data["chosen_magnitude"] = chosen
+    session_data["reward_magnitude_by_arm"] = by_arm
+    session_data["reward_magnitude_by_rank"] = by_rank
+    # Downstream code reads the per-tower magnitudes under this older name.
+    session_data["reward_magnitudes_by_tower"] = by_arm
     return session_data
