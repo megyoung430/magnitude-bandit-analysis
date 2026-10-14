@@ -256,9 +256,10 @@ def _make_objective(statistics):
 def _weight_decay(setting):
     """AdamW weight decay of an optimizer setting; ``l2_weight`` is the legacy key.
 
-    Known issues, kept so existing sweeps (and their output directories) stay valid:
-    ``weight_decay`` silently wins when both keys are given, and a setting with
-    neither silently trains without decay instead of failing.
+    Known issues, left as they are because this module preserves fitting behaviour
+    exactly (changing them is a separate piece of work): ``weight_decay`` silently
+    wins when both keys are given, and a setting with neither silently trains
+    without decay instead of failing.
     """
     return setting.get("weight_decay", setting.get("l2_weight", 0.0))
 
@@ -805,10 +806,13 @@ def _library_versions():
 def _finish_sweep(models, records, *, expected, parts, output, identities, split_details):
     """Pick each winner on validation alone, score it on test, then write the outputs."""
     winners = {model: _select_winner(records, model) for model in models}
-    scored = [_score_winner(model, winners[model], parts) for model in models]
-    for model, winner in winners.items():
+    scored = []
+    # Each winner's parameters are saved right after it is scored, so a scoring failure
+    # part-way through leaves the earlier winners' files on disk and writes no results.json.
+    for model in models:
+        scored.append(_score_winner(model, winners[model], parts))
         _save_selected_parameters(
-            output / _selected_parameters_name(model), restore_raw(winner["best_raw"])
+            output / _selected_parameters_name(model), restore_raw(winners[model]["best_raw"])
         )
     result = _sweep_result(
         records,

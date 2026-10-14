@@ -268,3 +268,83 @@ class TestFitGolden:
         assert selected["validation_cross_entropy"] == pytest.approx(1.6172122555585536e-09)
         assert {r["mouse"] for r in result["test_sessions"]} == {s["mouse"] for s in parts["test"]}
         assert len(result["test_sessions"]) == len(parts["test"]) == 3
+
+
+def fail_on_chunk(monkeypatch, fail_at):
+    """Make the ``fail_at``-th training chunk report a nonfinite loss (an interruption)."""
+    real_make_backend = paper.make_backend
+    calls = []
+
+    def make_backend(*args, **kwargs):
+        stats, init, make_trainer = real_make_backend(*args, **kwargs)
+
+        def patched_make_trainer(setting):
+            optimizer, chunk = make_trainer(setting)
+
+            def failing_chunk(*chunk_args):
+                calls.append(1)
+                state, loss = chunk(*chunk_args)
+                return state, (np.float64("nan") if len(calls) == fail_at else loss)
+
+            return optimizer, failing_chunk
+
+        return stats, init, patched_make_trainer
+
+    monkeypatch.setattr(paper, "make_backend", make_backend)
+
+
+class TestResumeAfterValidationGotWorse:
+    """A checkpoint whose best iterate differs from its current iterate must resume exactly."""
+
+    sweep = dict(SWEEP, n_seeds=1, max_steps=7)  # chunks end at steps 2, 4, 6, 7
+
+    def test_resumed_run_keeps_the_best_iterate_not_the_current_one(self, tmp_path, monkeypatch):
+        fail_on_chunk(monkeypatch, fail_at=4)
+        with pytest.raises(FloatingPointError, match="nonfinite objective"):
+            paper.run_paper_sweep(golden_sequences(), tmp_path, **self.sweep)
+        (output,) = tmp_path.iterdir()
+        with np.load(output / "sticky_rl_setting-00_seed-00.npz") as saved:
+            metadata = json.loads(str(saved["metadata"]))
+            current, best = saved["raw_0"], saved["best_0"]
+        # The checkpoint was saved at step 6, after validation got worse than at step 4.
+        assert metadata["step"] == 6 and metadata["best_step"] == 4
+        assert not np.allclose(current, best, rtol=1e-3)
+        np.testing.assert_allclose(
+            best, [1.4447343841365543, 1.9700523145702895, 1.3557122797057446], rtol=RTOL
+        )
+        np.testing.assert_allclose(
+            current, [1.3029058811565277, 1.721064109471238, 1.1768798670042278], rtol=RTOL
+        )
+
+        monkeypatch.undo()
+        result = paper.run_paper_sweep(golden_sequences(), tmp_path, **self.sweep)
+        record = json.loads((output / "sticky_rl_setting-00_seed-00.json").read_text())
+        assert record["best_step"] == 4 and record["step"] == 7
+        np.testing.assert_allclose(record["best_raw"], best, rtol=RTOL)
+        (selected,) = result["selected"]
+        assert selected["selected_step"] == 4
+        assert selected["test_cross_entropy"] == pytest.approx(13.928145226143588, rel=RTOL)
+
+
+class TestScoringFailure:
+    def test_earlier_winners_keep_their_files_and_no_results_are_written(
+        self, tmp_path, monkeypatch
+    ):
+        real_score = paper.score_sequences
+
+        def failing_score(raw, sequences, model, statistics=None, *args, **kwargs):
+            # Only the final held-out scoring omits ``statistics``.
+            if model == "best_rl" and statistics is None:
+                raise RuntimeError("scoring failed")
+            return real_score(raw, sequences, model, statistics, *args, **kwargs)
+
+        monkeypatch.setattr(paper, "score_sequences", failing_score)
+        models = ("sticky_rl", "best_rl", "released_rl")
+        with pytest.raises(RuntimeError, match="scoring failed"):
+            paper.run_paper_sweep(
+                golden_sequences(), tmp_path, **dict(SWEEP, models=models, n_seeds=1)
+            )
+        (output,) = tmp_path.iterdir()
+        written = sorted(p.name for p in output.glob("*_selected_parameters.npz"))
+        assert written == ["sticky_rl_selected_parameters.npz"]
+        assert not (output / "results.json").exists()
