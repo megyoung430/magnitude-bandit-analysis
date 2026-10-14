@@ -103,7 +103,11 @@ def _plot_over_time_panel(
 def _plot_across_problems_panel(
     ax: plt.Axes, per_mouse: pd.DataFrame, problems, label: str, unit: str
 ) -> None:
-    """Per-mouse means by problem (faint) and the mean ± SEM across mice (black)."""
+    """Per-mouse means by problem (faint) and the mean ± SEM across mice (black).
+
+    Known issue: a problem with no data in this cohort raises ``KeyError`` when its
+    mouse count is looked up.
+    """
     for k, (mouse, rows) in enumerate(per_mouse.groupby("mouse")):
         ax.plot(rows.problem, rows.trials, "o-", alpha=0.45, label=mouse, color=_mouse_color(k))
     means = problem_summary(per_mouse)

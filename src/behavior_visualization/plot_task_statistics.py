@@ -52,7 +52,11 @@ def _plot_mouse_lines(
     blocks: list,
     jitter: float,
 ) -> list[Line2D]:
-    """One connected line per mouse over the blocks it has data for; returns legend handles."""
+    """One connected line per mouse over the blocks it has data for; returns legend handles.
+
+    Known issue: the jitter draws from NumPy's global random state, so the x
+    positions differ between runs unless the caller seeds it.
+    """
     handles = []
     for m in mice:
         c = mouse_to_color[m]
@@ -69,6 +73,8 @@ def _plot_mouse_lines(
 
 
 def _style_axes(ax: plt.Axes, x: np.ndarray, blocks: list, n_mice: int) -> None:
+    # Known issue: n_mice counts every mouse in the summary, including those without
+    # data that are not drawn.
     despine(ax)
     ax.set_xticks(x)
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)

@@ -13,7 +13,11 @@ import pandas as pd
 
 
 def mice_by_subject_number(sessions: pd.DataFrame, blocks: pd.DataFrame) -> list[str]:
-    """Mice seen in either table, ordered by subject number (ties keep set order)."""
+    """Mice seen in either table, ordered by subject number (ties keep set order).
+
+    Known issue: a mouse that appears only in *blocks* has no subject number in
+    *sessions*, so this raises a bare ``IndexError``.
+    """
     return sorted(
         set(sessions.mouse) | set(blocks.mouse),
         key=lambda m: int(sessions.loc[sessions.mouse == m, "subject_number"].iloc[0]),

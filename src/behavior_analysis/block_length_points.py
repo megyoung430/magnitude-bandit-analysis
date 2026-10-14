@@ -6,7 +6,11 @@ import numpy as np
 
 
 def tallest_bar(meds: np.ndarray, ses: np.ndarray) -> float:
-    """Top of the highest error bar, ``max(median + SE)``; 1.0 when there are no bars."""
+    """Top of the highest error bar, ``max(median + SE)``; 1.0 when there are no bars.
+
+    Known issue: when every median + SE is NaN the result is NaN, which makes the
+    figure's y-limits invalid and plotting raises.
+    """
     return float(np.nanmax(meds + ses)) if meds.size else 1.0
 
 

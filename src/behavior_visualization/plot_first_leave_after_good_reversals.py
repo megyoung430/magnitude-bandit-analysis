@@ -38,7 +38,11 @@ def _plot_mean_bars(ax: plt.Axes, x: np.ndarray, means: list, errs: list) -> Non
 
 
 def _plot_subject_lines(ax: plt.Axes, per_subject_counts: dict) -> list[Line2D]:
-    """One jittered new-best -> third line per subject with reversals; returns legend handles."""
+    """One jittered new-best -> third line per subject with reversals; returns legend handles.
+
+    Known issue: the jitter draws from NumPy's global random state, so the x
+    positions differ between runs unless the caller seeds it.
+    """
     subjects = list(per_subject_counts.keys())
     handles = []
     for subj in subjects:
@@ -72,6 +76,8 @@ def _plot_subject_lines(ax: plt.Axes, per_subject_counts: dict) -> list[Line2D]:
 
 
 def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int) -> None:
+    # Known issue: n_subjects counts every subject in the input, including those
+    # without reversals that are not drawn.
     despine(ax)
     ax.set_xticks(x)
     ax.set_xticklabels(_LABELS, fontsize=12)

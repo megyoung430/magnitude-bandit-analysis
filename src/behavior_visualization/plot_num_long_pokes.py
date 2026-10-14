@@ -70,6 +70,8 @@ def _plot_mouse_lines(
 
 
 def _style_axes(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_text: float) -> None:
+    # Known issue: the title's subject count includes mice without finite data,
+    # which are not drawn.
     ax.set_xlabel("Session")
     ax.set_ylabel("Non-Choice Long Pokes")
     ax.set_xticks(x)
