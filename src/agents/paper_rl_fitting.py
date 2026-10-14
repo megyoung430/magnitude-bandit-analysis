@@ -805,14 +805,15 @@ def _library_versions():
 
 def _finish_sweep(models, records, *, expected, parts, output, identities, split_details):
     """Pick each winner on validation alone, score it on test, then write the outputs."""
-    winners = {model: _select_winner(records, model) for model in models}
     scored = []
-    # Each winner's parameters are saved right after it is scored, so a scoring failure
-    # part-way through leaves the earlier winners' files on disk and writes no results.json.
+    # Each model's winner is picked, scored and saved before the next model is looked
+    # at, so a selection or scoring failure part-way through leaves the earlier
+    # winners' files on disk and writes no results.json.
     for model in models:
-        scored.append(_score_winner(model, winners[model], parts))
+        winner = _select_winner(records, model)
+        scored.append(_score_winner(model, winner, parts))
         _save_selected_parameters(
-            output / _selected_parameters_name(model), restore_raw(winners[model]["best_raw"])
+            output / _selected_parameters_name(model), restore_raw(winner["best_raw"])
         )
     result = _sweep_result(
         records,
