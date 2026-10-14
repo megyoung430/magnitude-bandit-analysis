@@ -42,14 +42,16 @@ captured from main (outputs, generator state, a tiny sweep, the `KeyError` path,
 example plot).
 
 Differences from the Markov helpers: `mean_left_to_right` and `summarize_sweep_cell`
-take the sweep's `n_sims` as the divisor, so a negative `n_sims` still yields `-0.0`
-and `0` still raises `ZeroDivisionError`, exactly as main's accumulating loop did.
+take the sweep's `n_sims` as the divisor, so a negative `n_sims` yields `-0.0` and `0`
+raises `ZeroDivisionError` (both pinned by tests).
 
 ## Remaining differences from main (error paths only)
 
 Return values, generator and global RNG state, printed lines, warnings and exception
-types and messages match main on every compared input. One difference remains in the
-matplotlib state left behind when `plot_example_session_gp` raises:
+types and messages match main on every compared input, including inputs with several
+invalid arguments (the seed is validated before `sig` and `max_block_len`, as on
+main). One difference remains in the matplotlib state left behind when
+`plot_example_session_gp` raises:
 
 - `T=0` with `use_raw=True`: both versions raise the same `ValueError` from
   `np.nanmax` of the empty session, but main has already drawn the three (empty) arm
