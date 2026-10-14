@@ -3,6 +3,7 @@ import pytest
 
 from src.behavior_analysis.single_session import (
     choice_counts_by_tower,
+    choice_probability_matrix,
     chosen_magnitudes,
     event_indices_from_cumulative,
     has_ema_traces,
@@ -10,7 +11,6 @@ from src.behavior_analysis.single_session import (
     ordered_rank_counts,
     percent_of_total,
     reversal_event_indices,
-    choice_probability_matrix,
 )
 
 TOWERS = ["A1", "B1", "C1"]
