@@ -314,3 +314,39 @@ def test_cumulative_wrappers_return_offsets_first_and_do_not_alias_input():
     assert x_disp.tolist() == x.tolist() and x_disp is not x
     # only anchor 10 -> 20 (+10) is cut within the window; of 3 anchors
     assert cum_total[-1] == 1 and frac_total[-1] == pytest.approx(1 / 3)
+
+
+# --- fine appearance details ------------------------------------------------
+
+
+def test_chance_line_sits_at_one_third_and_se_bands_are_translucent(across):
+    ax = plot_choice_probs(X, across)
+    chance = [ln for ln in ax.lines if ln.get_linestyle() == ":"]
+    assert len(chance) == 1
+    assert list(chance[0].get_ydata()) == pytest.approx([1 / 3, 1 / 3])
+    assert len(ax.collections) == 3
+    assert [c.get_alpha() for c in ax.collections] == [0.2, 0.2, 0.2]
+
+
+@pytest.mark.parametrize(
+    "draw",
+    [
+        plot_choice_probs,
+        lambda x, a: plot_choice_probs_with_removal(x, a, SERIES, fraction=True)[0],
+    ],
+)
+def test_title_padding_and_legend_font_size(across, draw):
+    ax = draw(X, across)
+    pad_in_points = ax.titleOffsetTrans.transform((0, 0))[1] * 72 / ax.figure.dpi
+    assert pad_in_points == pytest.approx(20)
+    assert ax.get_legend().get_texts()[0].get_fontsize() == 10
+
+
+def test_png_is_saved_at_300_dpi(shown, across, tmp_path):
+    from PIL import Image
+
+    plot_choice_probs_around_good_reversals(
+        X, across, add_cumulative_axis=False, save_path=tmp_path / "fig"
+    )
+    with Image.open(tmp_path / "fig.png") as img:
+        assert round(img.info["dpi"][0]) == 300
