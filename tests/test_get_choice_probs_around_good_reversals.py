@@ -462,9 +462,7 @@ def test_remove_trials_after_bad_rev_bad_right_after_the_reversal():
 
 
 @pytest.mark.parametrize("bad_idx", [10.5, 10.2])
-def test_remove_trials_after_bad_rev_fractional_bad_index_before_the_next_trial_leaves_the_window_whole(
-    bad_idx, capsys
-):
+def test_remove_trials_after_bad_rev_fractional_bad_index_leaves_the_window_whole(bad_idx, capsys):
     # A bad index less than one trial after the reversal gives a cut length below 1 when
     # the bad trial is excluded: the cut is recorded but the window is not sliced or reported.
     windows = {"m1": [make_reversal(10, ["A"], ["B"] * 8)]}
