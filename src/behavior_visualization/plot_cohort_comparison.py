@@ -222,7 +222,9 @@ def _draw_cell(
 ) -> tuple[list[dict], list[dict]]:
     """Draw one cohort-by-problem cell onto both axes; returns its CSV records.
 
-    Each mouse's values come from the pure ``mouse_*_cell`` functions; this only draws.
+    Each mouse's values come from the pure ``mouse_*_cell`` functions, called one mouse
+    at a time between draws so that a failure part-way leaves the same partly drawn
+    figure as main.
     """
     counts = good_reversal_rank_counts(subjects)
     rank_values, rev_values, rank_records, rev_records = [], [], [], []

@@ -79,8 +79,10 @@ def write_outputs(
     for output in outputs:
         if isinstance(output, TableOutput):
             output.frame.to_csv(directory / output.filename, index=output.index)
-        else:
+        elif isinstance(output, FigureOutput):
             paths += _save_figure(output.figure, directory, output.name, show=show)
+        else:
+            raise TypeError(f"expected TableOutput or FigureOutput, got {type(output).__name__}")
     return paths
 
 

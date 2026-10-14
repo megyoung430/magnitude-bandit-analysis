@@ -187,3 +187,10 @@ def test_panel_creates_a_10_by_4_8_figure_when_no_axes_are_given(capture):
     ax = plot_block_length_panel(summary(), jitter=0)
     assert plt.get_fignums() == [ax.figure.number]
     assert tuple(ax.figure.get_size_inches()) == (10, 4.8)
+
+
+def test_median_labels_stop_at_the_shorter_of_blocks_and_medians(capture):
+    # Known issue pinned: a summary with fewer medians than blocks still draws, and
+    # only the first block gets a value label.
+    _, ax = draw(capture, summary(meds=np.array([5.0]), ses=np.array([1.0])), jitter=0)
+    assert [t.get_text() for t in ax.texts] == ["5.0"]

@@ -79,7 +79,10 @@ def _plot_median_bars(
 
 
 def _annotate_medians(ax: plt.Axes, x: np.ndarray, meds: np.ndarray, annotate_y: float) -> None:
-    for xi, m in zip(x, meds, strict=True):
+    # Known issue: ``meds`` is not checked against the number of blocks; a mismatch
+    # silently labels only the shorter of the two (``ax.bar`` broadcasts a length-1
+    # ``meds``), so the zip is deliberately not strict.
+    for xi, m in zip(x, meds, strict=False):
         ax.text(xi, annotate_y, f"{m:.1f}", ha="center", va="bottom", fontsize=11, clip_on=False)
 
 

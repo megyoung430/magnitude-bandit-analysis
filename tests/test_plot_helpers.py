@@ -85,3 +85,8 @@ def test_a_failing_builder_keeps_earlier_files_and_leaves_its_figure_open(captur
         write_outputs(outputs(), tmp_path, show=False)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["done.pdf", "done.png", "first.csv"]
     assert len(plt.get_fignums()) == 1
+
+
+def test_an_unknown_output_raises_type_error(tmp_path):
+    with pytest.raises(TypeError, match="TableOutput or FigureOutput"):
+        write_outputs(["not an output"], tmp_path, show=False)
