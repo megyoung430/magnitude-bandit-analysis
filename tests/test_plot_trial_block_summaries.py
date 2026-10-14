@@ -177,6 +177,10 @@ def test_scatter_points_use_each_mouses_colour(capture, tables, tmp_path):
     assert colors == [c.upper() for c in MOUSE_COLORS[:3]]
     assert all(c.get_alpha() == 0.4 for c in scatter)
     assert scatter[0].get_offsets()[:, 1].tolist() == [24, 24, 24]
+    # points are jittered horizontally by at most 0.15 around the box position
+    for position, points in enumerate(scatter, start=1):
+        offsets = np.abs(points.get_offsets()[:, 0] - position)
+        assert offsets.max() <= 0.15 and offsets.max() > 0
 
 
 def test_group_ecdfs_show_each_mouse_and_the_pooled_observations(capture, tables, tmp_path):

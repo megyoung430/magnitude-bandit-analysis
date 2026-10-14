@@ -69,6 +69,13 @@ def test_mean_and_sem_ignore_nan_and_are_zero_for_one_mouse():
     assert mean_and_sem([]) is None
 
 
+def test_sem_denominator_counts_only_finite_mice():
+    mean, sem = mean_and_sem([[1.0, 2.0, 3.0], [3.0, 4.0, 5.0], [np.nan, 6.0, 7.0]])
+    assert mean[0] == 2.0
+    assert sem[0] == pytest.approx(np.std([1.0, 3.0], ddof=1) / np.sqrt(2))
+    assert sem[1] == pytest.approx(np.std([2.0, 4.0, 6.0], ddof=1) / np.sqrt(3))
+
+
 def test_label_height_sits_just_above_the_error_bar():
     assert label_height(0.5, 0.25) == pytest.approx(0.785)
     assert label_height(0.5, np.nan) == pytest.approx(0.535)
