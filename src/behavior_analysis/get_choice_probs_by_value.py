@@ -1,9 +1,14 @@
+from dataclasses import dataclass
+from typing import NamedTuple
+
 import numpy as np
 import pandas as pd
+
 from .get_believed_value import compute_believed_value
 
 BEST_VALS = [2, 3, 4]
 SECOND_VALS = [1, 2, 3]
+
 
 def init_matrix(fill=np.nan):
     return pd.DataFrame(
@@ -12,12 +17,172 @@ def init_matrix(fill=np.nan):
         columns=pd.Index(SECOND_VALS, name="second_value"),
     )
 
+
+class _Contribution(NamedTuple):
+    """One countable trial: its cell and how much it adds to each numerator.
+
+    Named fields keep ``best_value`` and ``second_value`` from being swapped silently.
+    """
+
+    best_value: float
+    second_value: float
+    best_share: float
+    second_share: float
+
+
+# ``frozen`` only blocks reassigning the fields: the DataFrames are updated in place.
+@dataclass(frozen=True)
+class _MouseCounts:
+    """Per-cell trial counts (best value x second value) for one mouse.
+
+    ``denom`` counts the trials in each cell; ``num_best`` and ``num_second`` count how
+    much of that was a best / second choice (fractional when believed values tie).
+    """
+
+    denom: pd.DataFrame
+    num_best: pd.DataFrame
+    num_second: pd.DataFrame
+
+    @classmethod
+    def empty(cls):
+        return cls(init_matrix(fill=0.0), init_matrix(fill=0.0), init_matrix(fill=0.0))
+
+
+def _in_value_grid(b, s):
+    """Whether ``(b, s)`` is one of the matrix cells."""
+    return b in BEST_VALS and s in SECOND_VALS
+
+
+def _true_contribution(reward_magnitudes, chosen_rank):
+    """A :class:`_Contribution` for one trial binned by true magnitudes.
+
+    Returns ``None`` when the trial does not belong in any cell: fewer than two arms,
+    an unrecognised chosen rank, or magnitudes outside the grid.
+    """
+    sorted_arms = sorted(reward_magnitudes.items(), key=lambda x: x[1], reverse=True)
+    if len(sorted_arms) < 2:
+        return None
+    b, s = sorted_arms[0][1], sorted_arms[1][1]
+    if chosen_rank not in ("best", "second", "third"):
+        return None
+    if not _in_value_grid(b, s):
+        return None
+    return _Contribution(b, s, float(chosen_rank == "best"), float(chosen_rank == "second"))
+
+
+def _believed_contribution(trial):
+    """A :class:`_Contribution` for one trial from ``compute_believed_value``.
+
+    Returns ``None`` when fewer than two arms have been seen, the chosen arm has no
+    believed rank, or the believed magnitudes are outside the grid. A tie between the
+    best and second believed arms makes their rank labels arbitrary, so a choice of
+    either tied arm contributes half to each numerator; a third-ranked choice
+    contributes to the denominator only.
+    """
+    b, s = trial["believed_best_mag"], trial["believed_second_mag"]
+    chosen_rank = trial["believed_chosen_rank"]
+    if trial["n_seen"] < 2:
+        return None
+    if chosen_rank is None:
+        return None
+    if not _in_value_grid(b, s):
+        return None
+    if trial["tied"]:
+        share = 0.5 if chosen_rank in ("best", "second") else 0.0
+        return _Contribution(b, s, share, share)
+    return _Contribution(b, s, float(chosen_rank == "best"), float(chosen_rank == "second"))
+
+
+def _session_trial_lists(sess):
+    """``(reward_magnitudes, chosen_ranks, choices)`` cut to a common length, or ``None``.
+
+    ``None`` when the session has no trial variables or no trial common to all three lists.
+    """
+    tv_list = sess.get("trial_variables", [])
+    if not tv_list:
+        return None
+    # Known issue: only the first element is read, so in a session merged from several
+    # recording files the trials of every later file are silently ignored.
+    tv = tv_list[0]
+    reward_magnitudes = tv.get("reward_magnitudes", [])
+    chosen_ranks = tv.get("chosen_rank", [])
+    choices = tv.get("choice", [])
+    # Known issue: the lists are truncated to the shortest of the three even when
+    # ``use_believed`` is set, where ``chosen_rank`` is otherwise unused, so a short or
+    # missing ``chosen_rank`` list silently drops trials from the believed analysis.
+    n = min(len(reward_magnitudes), len(chosen_ranks), len(choices))
+    if n == 0:
+        return None
+    return reward_magnitudes[:n], chosen_ranks[:n], choices[:n]
+
+
+def _session_contributions(sess, *, use_believed):
+    """Yield a :class:`_Contribution` for every countable trial of a session."""
+    trial_lists = _session_trial_lists(sess)
+    if trial_lists is None:
+        return
+    reward_magnitudes, chosen_ranks, choices = trial_lists
+    if use_believed:
+        believed_trials = compute_believed_value(choices, reward_magnitudes)
+        contributions = (_believed_contribution(trial) for trial in believed_trials)
+    else:
+        contributions = map(_true_contribution, reward_magnitudes, chosen_ranks)
+    for contribution in contributions:
+        if contribution is not None:
+            yield contribution
+
+
+def _add_contribution(counts, contribution):
+    """Add one trial to the cell ``(b, s)``; zero shares leave their numerator untouched."""
+    b, s = contribution.best_value, contribution.second_value
+    counts.denom.loc[b, s] += 1.0
+    if contribution.best_share:
+        counts.num_best.loc[b, s] += contribution.best_share
+    if contribution.second_share:
+        counts.num_second.loc[b, s] += contribution.second_share
+
+
+def _count_mouse_sessions(counts, sessions_dict, *, use_believed):
+    """Accumulate every session of one mouse into *counts* (in place)."""
+    for sess in sessions_dict.values():
+        for contribution in _session_contributions(sess, use_believed=use_believed):
+            _add_contribution(counts, contribution)
+
+
+def _count_mice(subject_trials_by_value_problem, *, use_believed):
+    """``{subject_id: _MouseCounts}``, pooling a mouse's sessions across all problems."""
+    counts_by_mouse = {}
+    for subjects_dict in subject_trials_by_value_problem.values():
+        for subject_id, sessions_dict in subjects_dict.items():
+            if subject_id not in counts_by_mouse:
+                counts_by_mouse[subject_id] = _MouseCounts.empty()
+            counts = counts_by_mouse[subject_id]
+            _count_mouse_sessions(counts, sessions_dict, use_believed=use_believed)
+    return counts_by_mouse
+
+
+def _probabilities(numerator, denom):
+    """Numerator / denominator per cell; NaN where a cell has no trials."""
+    return numerator.divide(denom.where(denom > 0))
+
+
+def _nanmean_matrices(prob_dict):
+    """Cell-wise nanmean across mice, so every mouse contributes equally per cell."""
+    if not prob_dict:
+        return init_matrix(fill=np.nan)
+    # Cells empty for every mouse give NaN; numpy warns "Mean of empty slice" for them.
+    stack = np.stack([df.to_numpy(dtype=float) for df in prob_dict.values()], axis=0)
+    ref = next(iter(prob_dict.values()))
+    return pd.DataFrame(np.nanmean(stack, axis=0), index=ref.index, columns=ref.columns)
+
+
 def accumulate_choice_probs(subject_trials_by_value_problem, use_believed=False):
     """
     subject_trials_by_value_problem[problem][subject_id][session_id] = session_data
 
-    session_data["trial_variables"] is a list with a single element: a dict of
-    parallel lists, one value per trial. Keys include:
+    session_data["trial_variables"] is a list with one dict per recording file, of which
+    only the first is read (see the known issue in ``_session_trial_lists``). The dict
+    holds parallel lists, one value per trial. Keys include:
       - "reward_magnitudes" : list[dict]  — arm->magnitude per trial
       - "chosen_rank"       : list[str]   — "best"/"second"/"third" per trial
       - "choice"            : list[str]   — chosen arm label per trial
@@ -40,108 +205,13 @@ def accumulate_choice_probs(subject_trials_by_value_problem, use_believed=False)
     per_mouse_best_prob    : dict[subject_id -> 3x3 DataFrame]
     per_mouse_second_prob  : dict[subject_id -> 3x3 DataFrame]
     """
-    denom_mouse      = {}
-    num_best_mouse   = {}
-    num_second_mouse = {}
-
-    def ensure_mouse(sid):
-        if sid not in denom_mouse:
-            denom_mouse[sid]      = init_matrix(fill=0.0)
-            num_best_mouse[sid]   = init_matrix(fill=0.0)
-            num_second_mouse[sid] = init_matrix(fill=0.0)
-
-    for problem_num, subjects_dict in subject_trials_by_value_problem.items():
-        for subject_id, sessions_dict in subjects_dict.items():
-            ensure_mouse(subject_id)
-
-            for session_id, sess in sessions_dict.items():
-                tv_list = sess.get("trial_variables", [])
-                if not tv_list:
-                    continue
-                tv = tv_list[0]
-
-                reward_magnitudes = tv.get("reward_magnitudes", [])
-                chosen_ranks      = tv.get("chosen_rank", [])
-                choices           = tv.get("choice", [])
-
-                n = min(len(reward_magnitudes), len(chosen_ranks), len(choices))
-                if n == 0:
-                    continue
-
-                if use_believed:
-                    believed_trials = compute_believed_value(
-                        choices[:n], reward_magnitudes[:n]
-                    )
-
-                for i in range(n):
-                    if use_believed:
-                        trial       = believed_trials[i]
-                        b           = trial["believed_best_mag"]
-                        s           = trial["believed_second_mag"]
-                        chosen_rank = trial["believed_chosen_rank"]
-                        tied        = trial["tied"]
-
-                        # need at least 2 seen arms to have a meaningful b/s pair
-                        if trial["n_seen"] < 2:
-                            continue
-                        # chosen arm must have a believed rank
-                        if chosen_rank is None:
-                            continue
-                        if b not in BEST_VALS or s not in SECOND_VALS:
-                            continue
-
-                        if tied:
-                            # rank labels are arbitrary — split contributions evenly
-                            denom_mouse[subject_id].loc[b, s] += 1.0
-                            if chosen_rank in ("best", "second"):
-                                # chosen arm was one of the two tied arms
-                                num_best_mouse[subject_id].loc[b, s]   += 0.5
-                                num_second_mouse[subject_id].loc[b, s] += 0.5
-                            # third: contributes to denom only (0 to numerators)
-                        else:
-                            denom_mouse[subject_id].loc[b, s] += 1.0
-                            if chosen_rank == "best":
-                                num_best_mouse[subject_id].loc[b, s]   += 1.0
-                            elif chosen_rank == "second":
-                                num_second_mouse[subject_id].loc[b, s] += 1.0
-
-                    else:
-                        chosen_rank = chosen_ranks[i]
-                        rm          = reward_magnitudes[i]
-                        sorted_arms = sorted(rm.items(), key=lambda x: x[1], reverse=True)
-                        if len(sorted_arms) < 2:
-                            continue
-                        b = sorted_arms[0][1]
-                        s = sorted_arms[1][1]
-
-                        if chosen_rank not in ("best", "second", "third"):
-                            continue
-                        if b not in BEST_VALS or s not in SECOND_VALS:
-                            continue
-
-                        denom_mouse[subject_id].loc[b, s] += 1.0
-                        if chosen_rank == "best":
-                            num_best_mouse[subject_id].loc[b, s]   += 1.0
-                        elif chosen_rank == "second":
-                            num_second_mouse[subject_id].loc[b, s] += 1.0
-
-    # per-mouse probability matrices
-    per_mouse_best_prob   = {}
-    per_mouse_second_prob = {}
-    for sid in denom_mouse:
-        d = denom_mouse[sid]
-        per_mouse_best_prob[sid]   = num_best_mouse[sid].divide(d.where(d > 0))
-        per_mouse_second_prob[sid] = num_second_mouse[sid].divide(d.where(d > 0))
-
-    # overall = nanmean across mice so every mouse contributes equally per cell
-    def nanmean_matrices(prob_dict):
-        if not prob_dict:
-            return init_matrix(fill=np.nan)
-        stack = np.stack([df.to_numpy(dtype=float) for df in prob_dict.values()], axis=0)
-        ref   = next(iter(prob_dict.values()))
-        return pd.DataFrame(np.nanmean(stack, axis=0), index=ref.index, columns=ref.columns)
-
-    overall_best_prob   = nanmean_matrices(per_mouse_best_prob)
-    overall_second_prob = nanmean_matrices(per_mouse_second_prob)
-
+    counts_by_mouse = _count_mice(subject_trials_by_value_problem, use_believed=use_believed)
+    per_mouse_best_prob = {
+        sid: _probabilities(c.num_best, c.denom) for sid, c in counts_by_mouse.items()
+    }
+    per_mouse_second_prob = {
+        sid: _probabilities(c.num_second, c.denom) for sid, c in counts_by_mouse.items()
+    }
+    overall_best_prob = _nanmean_matrices(per_mouse_best_prob)
+    overall_second_prob = _nanmean_matrices(per_mouse_second_prob)
     return overall_best_prob, overall_second_prob, per_mouse_best_prob, per_mouse_second_prob
