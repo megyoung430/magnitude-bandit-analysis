@@ -9,6 +9,20 @@ status: in review
 
 # Split run_paper_sweep and make_backend in paper_rl_fitting.py
 
+> **WARNING: merging this changes every sweep's output-directory hash.**
+> The manifest embeds the full source of `paper_rl_fitting.py` (`implementation`),
+> and the directory name is a hash of the manifest, so any edit to that file —
+> including this refactor — moves a sweep to a new folder. Partially-run sweeps
+> started before the merge will **restart from zero in a new folder rather than
+> resume**; finished results stay readable in the old folder. This is the existing
+> design and is deliberately not changed here. Follow-up item: a narrower cache key
+> (settings + data fingerprint + library versions + an explicit
+> `FIT_ALGORITHM_VERSION`) so cosmetic edits stop invalidating caches.
+>
+> Known quirks kept as-is and now documented in the code: `_weight_decay` prefers
+> `weight_decay` over the legacy `l2_weight` and silently falls back to 0.0, and the
+> RL objective's `l2_weight` argument is unused (the trainer passes 0.0).
+
 Refactor the long functions below into small, single-purpose functions
 (principle 4), separating analysis from plotting (principles 2–3), with
 identical behaviour.
