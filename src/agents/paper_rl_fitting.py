@@ -27,7 +27,7 @@ FULL_GRID = [
 ]
 
 
-def dependencies():
+def dependencies() -> tuple[Any, Any, Any]:
     try:
         import jax
         import jax.numpy as jnp
@@ -41,7 +41,11 @@ def dependencies():
     return jax, jnp, optax
 
 
-def split_by_mouse(sequences, seed=42, fractions=(0.8, 0.1, 0.1)):
+def split_by_mouse(
+    sequences: list[dict],
+    seed: int = 42,
+    fractions: tuple[float, float, float] = (0.8, 0.1, 0.1),
+) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     """Seeded mouse split: no session of a mouse can cross partitions.
 
     Floor training and validation counts, with at least one mouse per partition.
@@ -63,7 +67,9 @@ def split_by_mouse(sequences, seed=42, fractions=(0.8, 0.1, 0.1)):
     return {part: [s for s in sequences if s["mouse"] in group] for part, group in ids.items()}, ids
 
 
-def split_by_problem(sequences, test_problem, validation_problem=None):
+def split_by_problem(
+    sequences: list[dict], test_problem: int, validation_problem: int | None = None
+) -> tuple[dict[str, list[dict]], dict[str, list[int]]]:
     """Pooled, whole-problem split; numbers are mouse-relative problem indices.
 
     Hold the same index out across mice. By default validation is the next
@@ -92,7 +98,9 @@ def split_by_problem(sequences, test_problem, validation_problem=None):
     return parts, ids
 
 
-def pack_sequences(sequences, max_trials=None, num_arms=3):
+def pack_sequences(
+    sequences: list[dict], max_trials: int | None = None, num_arms: int = 3
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Pad complete sessions; masked trials contribute no loss and no state update."""
     if not sequences:
         raise ValueError("Empty data partition.")
@@ -121,7 +129,7 @@ def pack_sequences(sequences, max_trials=None, num_arms=3):
     return a, r, m
 
 
-def transform_parameters(raw, model):
+def transform_parameters(raw: Any, model: str) -> Any:
     """Transform trainable coordinates; regularization is on these raw coordinates.
 
     Best/published RL: sigmoid rates, ReLU beta, tanh perseverance, free q_init.
@@ -180,19 +188,21 @@ def _split_rl_parameters(params, model):
     if model == "released_rl":
         lr, beta, stickiness, forgetting, q_init = params
         return _RLParameters(lr, beta, stickiness, 0.0, forgetting, q_init)
-    lr, beta, stickiness, bias, forgetting, q_init = params
-    return _RLParameters(lr, beta, stickiness, bias, forgetting, q_init)
+    if model == "best_rl":
+        lr, beta, stickiness, bias, forgetting, q_init = params
+        return _RLParameters(lr, beta, stickiness, bias, forgetting, q_init)
+    raise ValueError("Unknown model.")
 
 
-def _rl_trial(jax, jnp, rates, batch, num_arms, released_loss, skip_first):
+def _make_trial_step(jax, jnp, params, batch, num_arms, released_loss, skip_first):
     """Scan body: score one trial for every session in the batch, then update values."""
     index = jnp.arange(batch)
 
     def trial(carry, inputs):
         q, previous, nll, correct = carry
         action, reward, valid, t = inputs
-        choice_bonus = jax.nn.one_hot(previous, num_arms) * rates.stickiness
-        logits = rates.beta * (q + choice_bonus)
+        choice_bonus = jax.nn.one_hot(previous, num_arms) * params.stickiness
+        logits = params.beta * (q + choice_bonus)
         log_probs = jax.nn.log_softmax(logits, axis=-1)
         chosen = log_probs[index, action]
         adjusted = jnp.logaddexp(jnp.log1p(-1e-5) + chosen, jnp.log(5e-4))
@@ -200,9 +210,9 @@ def _rl_trial(jax, jnp, rates, batch, num_arms, released_loss, skip_first):
         nll += jnp.where(scored, -jnp.where(released_loss, adjusted, chosen), 0.0)
         correct += jnp.where(scored, jnp.argmax(logits, axis=-1) == action, 0.0)
         updated = q.at[index, action].add(
-            rates.learning_rate * (reward - q[index, action]) + rates.bias
+            params.learning_rate * (reward - q[index, action]) + params.bias
         )
-        updated = (1 - rates.forgetting) * updated + rates.forgetting * rates.q_init
+        updated = (1 - params.forgetting) * updated + params.forgetting * params.q_init
         q = jnp.where(valid[:, None], updated, q)
         previous = jnp.where(valid, action, previous)
         return (q, previous, nll, correct), None
@@ -215,15 +225,15 @@ def _make_statistics(jax, jnp, model, num_arms):
 
     @jax.jit
     def statistics(raw, actions, rewards, mask, released_loss=False, skip_first=False):
-        rates = _split_rl_parameters(transform_parameters(raw, model), model)
+        params = _split_rl_parameters(transform_parameters(raw, model), model)
         batch = actions.shape[0]
         initial = (
-            jnp.full((batch, num_arms), rates.q_init),
+            jnp.full((batch, num_arms), params.q_init),
             jnp.full(batch, -1, dtype=actions.dtype),
             jnp.zeros(batch),
             jnp.zeros(batch),
         )
-        trial = _rl_trial(jax, jnp, rates, batch, num_arms, released_loss, skip_first)
+        trial = _make_trial_step(jax, jnp, params, batch, num_arms, released_loss, skip_first)
         inputs = (actions.T, rewards.T, mask.T, jnp.arange(actions.shape[1]))
         final, _ = jax.lax.scan(trial, initial, inputs)
         return final[2], final[3]
@@ -235,6 +245,8 @@ def _make_objective(statistics):
     def objective(raw, actions, rewards, mask, l2_weight):
         # Released fit_hyb_rnn.loss_fn: score t>=1, affine probability safeguard,
         # sum across trials and average across sampled sessions. Decay is AdamW.
+        # Known issue: ``l2_weight`` is unused here; the trainer always passes 0.0
+        # and the setting's decay is applied by the optimizer instead.
         nll, _ = statistics(raw, actions, rewards, mask, True, True)
         return nll.sum() / actions.shape[0]
 
@@ -242,7 +254,12 @@ def _make_objective(statistics):
 
 
 def _weight_decay(setting):
-    """AdamW weight decay of an optimizer setting; ``l2_weight`` is the legacy key."""
+    """AdamW weight decay of an optimizer setting; ``l2_weight`` is the legacy key.
+
+    Known issues, kept so existing sweeps (and their output directories) stay valid:
+    ``weight_decay`` silently wins when both keys are given, and a setting with
+    neither silently trains without decay instead of failing.
+    """
     return setting.get("weight_decay", setting.get("l2_weight", 0.0))
 
 
@@ -252,7 +269,7 @@ def _make_trainer(jax, optax, value_grad):
             setting["optimizer_learning_rate"], weight_decay=_weight_decay(setting)
         )
         batch_size = setting["batch_size"]
-        l2 = 0.0  # Decoupled AdamW decay, not a term in the likelihood.
+        l2 = 0.0  # Decoupled AdamW decay, not a term in the likelihood (see ``objective``).
 
         def step(carry, unused):
             raw, state, key, actions, rewards, mask = carry
@@ -274,7 +291,7 @@ def _make_trainer(jax, optax, value_grad):
     return trainer
 
 
-def make_backend(model, num_arms=3, hidden_units=16):
+def make_backend(model: str, num_arms: int = 3, hidden_units: int = 16) -> tuple[Any, Any, Any]:
     if model not in MODEL_NAMES:
         from src.agents.neural_bandit import make_backend as neural_backend
 
@@ -286,7 +303,13 @@ def make_backend(model, num_arms=3, hidden_units=16):
     return statistics, objective, trainer
 
 
-def score_sequences(raw, sequences, model, statistics=None, evaluation_batch_size=32):
+def score_sequences(
+    raw: Any,
+    sequences: list[dict],
+    model: str,
+    statistics: Any = None,
+    evaluation_batch_size: int = 32,
+) -> tuple[float, list[dict]]:
     if evaluation_batch_size < 1:
         raise ValueError("evaluation_batch_size must be positive.")
     statistics = statistics or make_backend(model)[0]
@@ -451,7 +474,7 @@ def _split_sequences(sequences, split_seed, test_problem=None, validation_proble
     )
 
 
-def fingerprint_sequences(sequences):
+def fingerprint_sequences(sequences: list[dict]) -> str:
     """SHA-256 over identities, towers, actions and rewards, in input order."""
     fingerprint = hashlib.sha256()
     for s in sequences:
@@ -488,12 +511,21 @@ def _build_manifest(settings, split_details, identities, data_sha256, versions, 
     )
 
 
+def _encode_manifest(manifest):
+    """Canonical JSON text of a manifest: sorted keys, so equal manifests hash equally."""
+    return json.dumps(manifest, sort_keys=True, indent=2)
+
+
+def _manifest_id(manifest):
+    """First 12 hex digits of the SHA-256 of the canonical manifest; names the output directory."""
+    return hashlib.sha256(_encode_manifest(manifest).encode()).hexdigest()[:12]
+
+
 def _write_manifest(output_root, manifest):
-    """Create ``<output_root>/<manifest hash>/`` and write ``manifest.json`` into it."""
-    encoded = json.dumps(manifest, sort_keys=True, indent=2)
-    output = Path(output_root) / hashlib.sha256(encoded.encode()).hexdigest()[:12]
+    """Create ``<output_root>/<manifest id>/`` and write ``manifest.json`` into it."""
+    output = Path(output_root) / _manifest_id(manifest)
     output.mkdir(parents=True, exist_ok=True)
-    (output / "manifest.json").write_text(encoded)
+    (output / "manifest.json").write_text(_encode_manifest(manifest))
     return output
 
 
@@ -637,7 +669,7 @@ def _serialize_raw(raw):
     return np.asarray(raw).tolist()
 
 
-def restore_raw(serialized):
+def restore_raw(serialized: list | dict) -> Any:
     """Inverse of :func:`_serialize_raw`, as JAX arrays."""
     _, jnp, _ = dependencies()
     if isinstance(serialized, dict):
@@ -792,20 +824,20 @@ def _finish_sweep(models, records, *, expected, parts, output, identities, split
 
 
 def run_paper_sweep(
-    sequences,
-    output_root,
-    grid=None,
-    n_seeds=5,
-    max_steps=1_000_000,
-    validation_every=500,
-    split_seed=42,
-    fit_seed=123,
-    max_new_runs=None,
-    profile="full",
-    models=MODEL_NAMES,
-    test_problem=None,
-    validation_problem=None,
-):
+    sequences: list[dict],
+    output_root: str | Path,
+    grid: list[dict] | None = None,
+    n_seeds: int = 5,
+    max_steps: int = 1_000_000,
+    validation_every: int = 500,
+    split_seed: int = 42,
+    fit_seed: int = 123,
+    max_new_runs: int | None = None,
+    profile: str = "full",
+    models: tuple[str, ...] = MODEL_NAMES,
+    test_problem: int | None = None,
+    validation_problem: int | None = None,
+) -> dict:
     """Run/resume AdamW sweep; select only on validation, score test after completion.
 
     Checkpoints contain parameters, AdamW moments, sampling RNG and best validation
@@ -885,7 +917,13 @@ def run_paper_sweep(
     )
 
 
-def run_problem_sweep(sequences, output_root, test_problems=None, max_new_runs=None, **kwargs):
+def run_problem_sweep(
+    sequences: list[dict],
+    output_root: str | Path,
+    test_problems: list[int] | None = None,
+    max_new_runs: int | None = None,
+    **kwargs: Any,
+) -> dict:
     """Run pooled leave-one-problem-out fits, with independent selection per fold.
 
     max_new_runs is a global budget across folds, including resumable partial runs.

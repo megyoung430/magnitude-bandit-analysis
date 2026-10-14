@@ -42,6 +42,10 @@ class TestSplitRLParameters:
         assert list(params) == [1, 2, 3, 4, 5, 6]
         assert params.stickiness == 3 and params.q_init == 6
 
+    def test_unknown_model_fails_loudly(self):
+        with pytest.raises(ValueError, match="Unknown model"):
+            paper._split_rl_parameters([1, 2, 3, 4, 5, 6], "typo")
+
     @pytest.mark.parametrize("model", paper.MODEL_NAMES)
     def test_wrong_length_fails_loudly(self, model):
         with pytest.raises(ValueError):
@@ -264,6 +268,14 @@ class TestManifest:
         assert json.loads(text) == manifest
         assert output.name == hashlib.sha256(text.encode()).hexdigest()[:12]
         assert paper._write_manifest(tmp_path / "new" / "root", manifest) == output
+
+    def test_manifest_id_is_pure_and_independent_of_key_order(self, tmp_path):
+        manifest = self.manifest()
+        reordered = dict(reversed(list(manifest.items())))
+        assert paper._manifest_id(manifest) == paper._manifest_id(reordered)
+        assert len(paper._manifest_id(manifest)) == 12
+        assert paper._manifest_id(manifest) != paper._manifest_id(self.manifest(data_sha256="x"))
+        assert list(tmp_path.iterdir()) == []
 
     def test_different_manifests_get_different_directories(self, tmp_path):
         first = paper._write_manifest(tmp_path, self.manifest())
