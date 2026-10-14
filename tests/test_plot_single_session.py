@@ -1,3 +1,6 @@
+import warnings
+from pathlib import Path
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -5,7 +8,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.figure import Figure
 
+from src.behavior_analysis.single_session import chosen_magnitudes
 from src.behavior_visualization.plot_single_session import (
     event_indices_from_cumulative,
     plot_choices_by_rank,
@@ -247,3 +252,65 @@ def test_probabilities_add_a_right_hand_twin_axis_with_its_own_legend(session, d
 
 def test_no_twin_axis_without_probabilities(session, draw):
     assert len(draw(session).axes) == 4
+
+
+def test_chosen_arm_dots_are_the_chosen_magnitudes_in_black(session, draw):
+    magnitudes = draw(session).axes[0]
+    (dots,) = magnitudes.collections
+    expected = chosen_magnitudes(
+        session["reward_magnitudes_by_tower"], session["choices_by_tower"], towers=TOWERS, N=12
+    )
+    assert list(dots.get_offsets()[:, 0]) == list(range(12))
+    assert list(dots.get_offsets()[:, 1]) == list(expected)
+    assert list(expected[:3]) == [4, 1, 0]  # guards against both sides being trivially equal
+    assert matplotlib.colors.to_hex(dots.get_facecolor()[0]) == "#000000"
+
+
+def test_percent_labels_sit_centred_on_top_of_their_bars(session, draw):
+    _, _, towers, ranks = draw(session).axes
+    for ax in (towers, ranks):
+        for bar, label in zip(ax.patches, ax.texts, strict=True):
+            assert label.get_position() == (bar.get_x() + bar.get_width() / 2, bar.get_height())
+            assert label.get_va() == "bottom" and label.get_ha() == "center"
+
+
+def test_bar_colours_follow_tower_and_rank_palettes(session, draw):
+    _, _, towers, ranks = draw(session).axes
+    assert [matplotlib.colors.to_hex(p.get_facecolor()) for p in towers.patches] == [
+        "#a6cee3",
+        "#fdbf6f",
+        "#b2df8a",
+    ]
+    assert [matplotlib.colors.to_hex(p.get_facecolor()) for p in ranks.patches] == [
+        "#000000",
+        "#858585",
+        "#cccccc",
+    ]
+
+
+def test_magnitude_and_ema_panels_share_the_trial_axis(session, draw):
+    magnitudes, ema, towers, _ = draw(session).axes
+    assert magnitudes.get_shared_x_axes().joined(magnitudes, ema)
+    assert not magnitudes.get_shared_x_axes().joined(magnitudes, towers)
+
+
+def test_saved_files_use_tight_bbox_and_png_is_300_dpi(session, tmp_path, monkeypatch):
+    calls = []
+    original = Figure.savefig
+
+    def recording_savefig(self, fname, **kwargs):
+        calls.append((Path(fname).suffix, kwargs))
+        return original(self, fname, **kwargs)
+
+    monkeypatch.setattr(Figure, "savefig", recording_savefig)
+    plot_single_session(session, save_path=tmp_path / "out")
+    assert calls == [
+        (".pdf", {"bbox_inches": "tight"}),
+        (".png", {"dpi": 300, "bbox_inches": "tight"}),
+    ]
+
+
+def test_drawing_emits_no_layout_warning(session, draw):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        draw(session, choice_probabilities_by_tower={t: [1 / 3] * 12 for t in TOWERS})
