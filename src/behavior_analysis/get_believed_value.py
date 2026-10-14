@@ -6,9 +6,9 @@ SECOND_VALS = [1, 2, 3]
 _RANK_LABELS = ("best", "second", "third")
 
 
-def _believed_magnitudes(reward_magnitudes: dict, last_seen: dict) -> dict:
-    """Last observed magnitude of every arm on offer that has been seen before."""
-    return {arm: last_seen[arm] for arm in reward_magnitudes.keys() if arm in last_seen}
+def _believed_magnitudes(offer: dict, last_seen: dict) -> dict:
+    """Last observed magnitude of every arm in one trial's *offer* seen before."""
+    return {arm: last_seen[arm] for arm in offer.keys() if arm in last_seen}
 
 
 def _rank_arms(believed: dict) -> list:
@@ -30,7 +30,8 @@ def _trial_belief(choice, believed: dict) -> dict:
     n_seen = len(believed)
     best_mag = ranked[0][1] if n_seen >= 1 else None
     second_mag = ranked[1][1] if n_seen >= 2 else None
-    # an arm that has never been seen has no believed rank
+    # an arm that has never been seen has no believed rank; the membership test also
+    # raises TypeError for an unhashable choice, which _rank_label alone would not
     rank_of_choice = _rank_label(choice, ranked) if choice in believed else None
     tied = best_mag is not None and second_mag is not None and best_mag == second_mag
     return {

@@ -91,8 +91,7 @@ def import_data(root: str | Path) -> dict:
     Recursively scans *root* for ``.tsv`` files, groups them by subject and
     session (using directory-path components that match ``sub-<N>_id-<id>`` and
     ``ses-<N>_date-<YYYYMMDD>``), and merges multiple files that belong to the
-    same session.  Also tracks problem number by detecting changes in the set
-    of choice towers across sessions.
+    same session.  Each session also carries a ``"problem"`` number.
 
     Args:
         root: Root directory containing subject/session sub-directories with
@@ -106,7 +105,7 @@ def import_data(root: str | Path) -> dict:
                 session_key: {
                   "data": DataFrame | list[DataFrame],  # JSON-expanded
                   "df": DataFrame | list[DataFrame],    # original 4-column TSV
-                  "problem": int,
+                  "problem": int,                       # always 1 (known issue)
                   "choice_towers": set,
                   "initiation_tower": str | None,
                 }
@@ -114,6 +113,10 @@ def import_data(root: str | Path) -> dict:
             }
 
         where *session_key* has the form ``"ses-<N>_date-<YYYYMMDD>"``.
+
+    Known issue: ``"problem"`` is always 1, because the counter meant to detect a
+    change of choice towers between sessions never fires.  Use ``extract_trials``'
+    ``group_sessions_by_problem`` for real problem ids.
     """
     root = Path(root).resolve()
 
@@ -313,8 +316,11 @@ def group_by_subj_and_ses(tsv_files: list) -> dict:
     Returns:
         Dict keyed by ``(subject_id, session_key)`` tuples, where each value
         is a list of ``pandas.DataFrame`` objects sorted chronologically by
-        file timestamp (earliest first).  Files whose subject or session key
-        cannot be parsed are skipped with a ``[WARN]`` message.
+        file timestamp (earliest first).  Files whose subject cannot be parsed
+        are skipped with a ``[WARN]`` message.
+
+    Known issue: a file whose path has no valid session folder is not skipped;
+    :func:`create_session_key` raises an ``AttributeError``.
     """
     grouped = {}
     for tsv_path, df in tsv_files:
@@ -391,8 +397,9 @@ def create_session_key(tsv_path) -> tuple:
                 session_num = int(m.group(1))
                 session_date = datetime.strptime(m.group(2), "%Y%m%d")
 
-    # Known issue: a folder that starts with "ses-" and contains "date-" but does not match
-    # the pattern leaves session_date as None, which fails here with an AttributeError.
+    # Known issue: a path with no valid ses-<N>_date-<YYYYMMDD> folder (none at all, or a
+    # "ses-"/"date-" folder that does not match the pattern) leaves session_date as None,
+    # which fails here with an AttributeError.
     session_key = f"ses-{session_num}_date-{session_date.strftime('%Y%m%d')}"
     return session_num, session_date, session_key
 

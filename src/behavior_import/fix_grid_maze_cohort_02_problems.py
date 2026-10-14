@@ -34,20 +34,21 @@ def fix_grid_maze_cohort_02_problems(
 ):
     """
     For specified subjects:
-      - problem start_problem gets replaced by start_problem+1
-      - problem start_problem+1 gets replaced by start_problem+2
+      - problem start_problem gets replaced by the next problem the subject has data in
+      - that problem gets replaced by the one after it
       - ...
       - last problem for that subject is removed
 
-    Example (start_problem=2):
+    Example (start_problem=2, subject has data in every problem):
       P2 <- P3, P3 <- P4, ..., Plast removed
+    A problem the subject has no data in is skipped over, not shifted.
 
     Parameters
     ----------
     subjects_trials_by_problem : dict
         problems[problem][subject][session] = session_data
     fix_subjects : list[str]
-        subjects to fix (default: ["MY_04_R", "MY_05_R"])
+        subjects to fix (default: DEFAULT_FIX_SUBJECTS)
     start_problem : int
         first problem to shift (default 2)
     in_place : bool
@@ -58,8 +59,8 @@ def fix_grid_maze_cohort_02_problems(
     dict
         fixed structure (same type as input keys/values)
     """
-    # Known issue: a bare string for fix_subjects is iterated character by character,
-    # so it silently fixes nothing instead of raising.
+    # Known issue: a bare string for fix_subjects is iterated character by character, so it
+    # fixes single-character subject names (normally none) instead of raising.
     if fix_subjects is None:
         fix_subjects = DEFAULT_FIX_SUBJECTS
 

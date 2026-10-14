@@ -12,7 +12,7 @@ import numpy as np
 from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
 
 
-def _boundary_indices(goods, bads, boundary):
+def _boundary_indices(*, goods, bads, boundary):
     """Sorted reversal trial indices that bound blocks for the chosen *boundary* type."""
     if boundary == "good":
         return sorted(goods)
@@ -23,17 +23,19 @@ def _boundary_indices(goods, bads, boundary):
     raise ValueError('boundary must be "all", "good", or "bad"')
 
 
-def _boundaries_per_mouse(subjects_trials, all_good_idx, all_bad_idx, boundary):
+def _boundaries_per_mouse(subjects_trials, *, all_good_idx, all_bad_idx, boundary):
     """``{subject: reversal indices}`` for subjects with at least one boundary.
 
     Block 1 is trial 0 up to the first reversal, so a subject needs a single
     reversal to have a block; subjects without one are left out.
     """
-    # Known issue: *boundary* is validated inside this loop, so an invalid value is
-    # only rejected (as a ValueError) when subjects_trials has at least one subject.
+    # Known issue: *boundary* is validated inside this loop, so with no subjects an invalid
+    # value gets the caller's "No mice..." ValueError instead of the boundary message.
     per_mouse_boundaries = {}
     for mouse in subjects_trials.keys():
-        idxs = _boundary_indices(all_good_idx.get(mouse, []), all_bad_idx.get(mouse, []), boundary)
+        idxs = _boundary_indices(
+            goods=all_good_idx.get(mouse, []), bads=all_bad_idx.get(mouse, []), boundary=boundary
+        )
         if len(idxs) >= 1:
             per_mouse_boundaries[mouse] = idxs
     return per_mouse_boundaries
@@ -96,7 +98,7 @@ def get_block_lengths(subjects_trials, boundary="all"):
     all_good_idx, all_bad_idx, _ = get_all_reversal_indices(subjects_trials)
 
     per_mouse_boundaries = _boundaries_per_mouse(
-        subjects_trials, all_good_idx, all_bad_idx, boundary
+        subjects_trials, all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, boundary=boundary
     )
     if not per_mouse_boundaries:
         raise ValueError("No mice had >=1 reversal boundary with the chosen boundary type.")
