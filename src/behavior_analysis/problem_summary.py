@@ -4,11 +4,16 @@ Functions here take ``subjects_trials_by_problem`` or similar structures and
 compute per-mouse, per-problem summary metrics that can be plotted with
 functions in :mod:`src.behavior_visualization.plot_problem_summary`.
 """
+
 from __future__ import annotations
+
 import re
 from collections import defaultdict
+
 import numpy as np
+
 from src.behavior_analysis.get_total_reversals import get_total_reversals
+
 
 def compute_problem_length_summary(data: dict) -> dict:
     """Summarise the number of sessions to complete each problem per mouse.
@@ -56,7 +61,56 @@ def compute_problem_length_summary(data: dict) -> dict:
         "mice": mice,
     }
 
-def compute_problem_blocklen_summary(problem_block_stats: dict, drop_last_problem_per_mouse: bool = False,) -> dict:
+
+def _mean_se_n(values: list) -> tuple[float, float, int]:
+    """Mean, standard error and count; the standard error is 0.0 for one value, NaN for none."""
+    vals = np.asarray(values, dtype=float)
+    n = int(vals.size)
+    if n == 0:
+        return float("nan"), float("nan"), n
+    if n == 1:
+        return float(vals.mean()), 0.0, n
+    return float(vals.mean()), float(vals.std(ddof=1) / np.sqrt(n)), n
+
+
+def _mean_blocklen_per_mouse(problem_block_stats: dict, problems: list, mice: list) -> dict:
+    """``{mouse: {problem: mean block length}}``; mice without blocks in a problem are absent."""
+    mean_blocklens: dict = {m: {} for m in mice}
+    for p in problems:
+        per_mouse = problem_block_stats[p]["block_stats"]["per_mouse_blocklens"]
+        for m, block_dict in per_mouse.items():
+            vals = np.asarray(list(block_dict.values()), dtype=float)
+            if vals.size > 0:
+                mean_blocklens[m][p] = float(np.mean(vals))
+    return mean_blocklens
+
+
+def _pop_last_problem(per_mouse_blocklens: dict) -> None:
+    """Remove each mouse's highest-numbered problem, in place."""
+    for blocklens in per_mouse_blocklens.values():
+        if blocklens:
+            blocklens.pop(max(blocklens.keys()), None)
+
+
+def _summarise_by_problem(per_mouse_blocklens: dict, problems: list) -> dict:
+    """Across-mouse mean, standard error and n for each problem in *problems*."""
+    mice = list(per_mouse_blocklens.keys())
+    stats = [
+        _mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
+        for p in problems
+    ]
+    return {
+        "blocks": problems,
+        "means": [mean for mean, _, _ in stats],
+        "ses": [se for _, se, _ in stats],
+        "ns": [n for _, _, n in stats],
+    }
+
+
+def compute_problem_blocklen_summary(
+    problem_block_stats: dict,
+    drop_last_problem_per_mouse: bool = False,
+) -> dict:
     """Summarise mean block length per problem averaged across mice.
 
     Args:
@@ -70,56 +124,28 @@ def compute_problem_blocklen_summary(problem_block_stats: dict, drop_last_proble
         ``"ns"``, ``"per_mouse_blocklens"``, and ``"mice"``.
     """
     problems = sorted(problem_block_stats.keys())
-    mice = sorted({
-        m
-        for p in problems
-        for m in problem_block_stats[p]["block_stats"]["per_mouse_blocklens"].keys()
-    })
-
-    per_mouse_blocklens: dict = {m: {} for m in mice}
-    for p in problems:
-        per_mouse = problem_block_stats[p]["block_stats"]["per_mouse_blocklens"]
-        for m, block_dict in per_mouse.items():
-            vals = np.asarray(list(block_dict.values()), dtype=float)
-            if vals.size > 0:
-                per_mouse_blocklens[m][p] = float(np.mean(vals))
+    mice = sorted(
+        {
+            m
+            for p in problems
+            for m in problem_block_stats[p]["block_stats"]["per_mouse_blocklens"].keys()
+        }
+    )
+    per_mouse_blocklens = _mean_blocklen_per_mouse(problem_block_stats, problems, mice)
 
     if drop_last_problem_per_mouse:
-        for m in mice:
-            if per_mouse_blocklens[m]:
-                last_p = max(per_mouse_blocklens[m].keys())
-                per_mouse_blocklens[m].pop(last_p, None)
+        _pop_last_problem(per_mouse_blocklens)
         problems = [p for p in problems if any(p in per_mouse_blocklens[m] for m in mice)]
 
-    means, ses, ns = [], [], []
-    for p in problems:
-        vals_p = np.asarray(
-            [per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]],
-            dtype=float,
-        )
-        n = int(vals_p.size)
-        ns.append(n)
-        if n == 0:
-            means.append(float("nan"))
-            ses.append(float("nan"))
-        elif n == 1:
-            means.append(float(vals_p.mean()))
-            ses.append(0.0)
-        else:
-            means.append(float(vals_p.mean()))
-            ses.append(float(vals_p.std(ddof=1) / np.sqrt(n)))
-
-    mice_kept = [m for m in mice if len(per_mouse_blocklens[m]) > 0]
-    per_mouse_blocklens = {m: per_mouse_blocklens[m] for m in mice_kept}
-
+    summary = _summarise_by_problem(per_mouse_blocklens, problems)
+    # mice left without any problem are dropped from the per-mouse table and the mouse list
+    per_mouse_blocklens = {m: bl for m, bl in per_mouse_blocklens.items() if len(bl) > 0}
     return {
-        "blocks": problems,
-        "means": means,
-        "ses": ses,
-        "ns": ns,
+        **summary,
         "per_mouse_blocklens": per_mouse_blocklens,
-        "mice": mice_kept,
+        "mice": list(per_mouse_blocklens),
     }
+
 
 def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
     """Compute each subject's average number of good reversals per session.
@@ -146,9 +172,7 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
         for sess_key, trials in subjects_trials[subj].items():
             stats = get_total_reversals({sess_key: trials})
             _ = _session_int(sess_key)
-            good_per_session_by_subj[subj].append(
-                float(stats.get("good_reversals", 0))
-            )
+            good_per_session_by_subj[subj].append(float(stats.get("good_reversals", 0)))
 
     per_mouse_avg: dict = {}
     for subj, vals in good_per_session_by_subj.items():
@@ -156,6 +180,7 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
         per_mouse_avg[subj] = float(arr.mean()) if arr.size else float("nan")
 
     return per_mouse_avg
+
 
 def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
     """Summarise average good reversals per session across mice and problems.
@@ -202,6 +227,7 @@ def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
         "per_mouse_blocklens": per_mouse_blocklens,
         "mice": mice,
     }
+
 
 def drop_last_problem_per_mouse(problem_to_per_mouse_avg: dict) -> dict:
     """Remove each mouse's last completed problem from a per-problem dict.
