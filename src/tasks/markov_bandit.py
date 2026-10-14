@@ -214,7 +214,7 @@ def sample_two_markov_bandits(
     state_vals[0] = draw_initial_states(rng, n_states, enforce_distinct)
     hold = np.ones(2, dtype=int)
 
-    # Each step depends on the previous state and the dwell counts, so this stays a loop.
+    # Sequential: each step reads the previous state and the dwell counts.
     for t in range(T - 1):
         nxt = advance_arms(rng, state_vals[t], hold, chain)
         if enforce_distinct and nxt[0] == nxt[1]:
@@ -296,8 +296,12 @@ def swap_arm_roles(
     """
     best_arm = int(np.argmax(row))
     old_inactive = inactive_arm
-    # An inactive best arm (possible only when val_list has non-positive values)
-    # has no stream entry and falls back to stream 0.
+    # Known defect: with non-positive values the inactive arm (reward 0) can win the
+    # argmax. It then has no stream entry (so it inherits stream 0 here), is listed
+    # as active again, and two arms share a stream; e.g.
+    # swap_arm_roles(np.array([-3., -1., 0.]), 2, [0, 1], {0: 0, 1: 1})
+    # returns (2, [2, 0], {0: 0, 2: 0}). Later swaps can then raise KeyError.
+    # Behaviour is kept so seeded results do not change.
     inherited_stream = arm_to_stream.get(best_arm, 0)
     other_active = first_other_active_arm(best_arm, active_arms, old_inactive)
     return (
@@ -414,7 +418,7 @@ def simulate_3armed_blockswaps_markov(
     if min_block_len is None:
         min_block_len = max_block_len - 10
 
-    # Stream sampling must precede the block-length draw to keep the rng order.
+    # Seeded results depend on this draw order: streams first, then block lengths.
     streams = sample_two_markov_bandits(
         T=T,
         pud=pud,

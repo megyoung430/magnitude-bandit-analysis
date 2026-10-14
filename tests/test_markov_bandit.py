@@ -194,6 +194,15 @@ def test_swap_arm_roles_hands_best_arm_stream_to_old_inactive_arm():
     assert stream == {0: 0, 2: 1}
 
 
+def test_swap_arm_roles_keeps_known_defect_when_inactive_arm_wins_argmax():
+    # Characterises current behaviour for non-positive values: the inactive arm is
+    # listed as active again and two arms share stream 0.
+    result = swap_arm_roles(
+        np.array([-3.0, -1.0, 0.0]), inactive_arm=2, active_arms=[0, 1], arm_to_stream={0: 0, 1: 1}
+    )
+    assert result == (2, [2, 0], {0: 0, 2: 0})
+
+
 def test_first_other_active_arm_skips_the_best_arm():
     assert first_other_active_arm(1, [1, 0], old_inactive=2) == 0
     assert first_other_active_arm(0, [1, 0], old_inactive=2) == 1
