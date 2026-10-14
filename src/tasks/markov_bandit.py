@@ -9,6 +9,7 @@ The public entry points are thin compositions of small pure helpers:
 - :func:`sample_two_markov_bandits` — two Markov reward streams.
 - :func:`simulate_3armed_blockswaps_markov` — streams -> 3-armed session -> metrics.
 - :func:`sweep_markov_metrics` — metric heatmaps over (max_block_len, pud).
+- :func:`count_best_second_switches` — best/second reversals within each block.
 - :func:`plot_heatmaps_pair_1` — gap-metric heatmaps from a sweep.
 - :func:`plot_heatmaps_pair_2` — run-length heatmaps from a sweep.
 - :func:`plot_switch_heatmap` — best/second switch heatmap from a sweep.

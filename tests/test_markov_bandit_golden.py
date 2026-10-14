@@ -527,7 +527,7 @@ def test_sweep_returns_independent_arrays():
 
 # Non-positive reward values can make the inactive arm win the argmax at a block
 # boundary; the role swap then looks up a stream that does not exist.
-def test_non_positive_values_raise_key_error_not_stop_iteration():
+def test_non_positive_values_raise_key_error():
     with pytest.raises(KeyError) as excinfo:
         simulate_3armed_blockswaps_markov(
             T=60,
