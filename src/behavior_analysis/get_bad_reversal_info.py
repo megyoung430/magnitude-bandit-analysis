@@ -25,8 +25,8 @@ class _SubjectSeries:
 
     @classmethod
     def from_merged(cls, d):
-        # Known issue: a ``None`` ``blocks`` value is passed through (only the tower and
-        # choice fields are coerced with ``or``), so it raises ``TypeError`` at ``len``.
+        # Only the tower and choice fields are coerced with ``or``; ``blocks`` is always a
+        # list here because get_vars_across_all_sessions already fails on a None one.
         return cls(
             bad=d.get("bad_reversals", []),
             blocks=d.get("blocks", []),
