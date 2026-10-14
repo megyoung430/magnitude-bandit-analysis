@@ -27,6 +27,40 @@ identical behaviour.
 - `uv run pytest -q` passes; ruff check + format pass on touched files.
 - Anything that looks like a pre-existing bug is reported, not silently changed.
 
+## Alignment with `markov_bandit`
+
+The helpers use the same names and shapes as `src/tasks/markov_bandit.py` so the two
+task modules read the same way: `draw_block_boundaries(rng, *, T, min_block_len,
+max_block_len, n_blocks_draw)`, `swap_arm_roles` / `first_other_active_arm`,
+`build_arm_values`, `gap_best_minus_second`, `best_run_lengths`, `session_metrics`,
+`build_session`, `summarize_sweep_cell`, `mean_left_to_right`,
+`simulate_example_session`, `format_session_title(metrics, *, ...)`,
+`plot_session_panel(vals3, boundaries, *, y_max, choices, ax, legend)`, and an
+`__all__` plus module docstring listing the entry points. The two modules are not
+shared yet; that is a later follow-up. `tests/test_gp_bandit_golden.py` pins values
+captured from main (outputs, generator state, a tiny sweep, the `KeyError` path, the
+example plot).
+
+Differences from the Markov helpers: `mean_left_to_right` and `summarize_sweep_cell`
+take the sweep's `n_sims` as the divisor, so a negative `n_sims` still yields `-0.0`
+and `0` still raises `ZeroDivisionError`, exactly as main's accumulating loop did.
+
+## Remaining differences from main (error paths only)
+
+Return values, generator and global RNG state, printed lines, warnings and exception
+types and messages match main on every compared input. One difference remains in the
+matplotlib state left behind when `plot_example_session_gp` raises:
+
+- `T=0` with `use_raw=True`: both versions raise the same `ValueError` from
+  `np.nanmax` of the empty session, but main has already drawn the three (empty) arm
+  lines and set the x-limits on a figure that stays open, while the refactor raises
+  while computing `y_max`, before any figure is created.
+
+Behaviour kept from main (see the comments in `swap_arm_roles` and
+`sweep_gp_metrics`): non-positive reward values can let the inactive arm win the
+argmax at a block boundary (a later `KeyError`), and `max_block_len <= 10` gives
+non-positive block lengths without validation.
+
 ## How to do it (applies to every refactor item)
 
 Type: `infrastructure` — behavior-preserving refactor, test-first.
