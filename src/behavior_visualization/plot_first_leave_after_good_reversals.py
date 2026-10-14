@@ -33,7 +33,7 @@ def _plot_mean_bars(ax: plt.Axes, x: np.ndarray, means: list, errs: list) -> Non
         alpha=0.55,
         color=[_BAR_COLOR, _BAR_COLOR],
     )
-    for xi, m in zip(x, means, strict=False):
+    for xi, m in zip(x, means, strict=True):
         ax.text(xi, 1.05, f"{m:.2f}", ha="center", va="bottom", fontsize=12)
 
 
@@ -43,16 +43,14 @@ def _plot_subject_lines(ax: plt.Axes, per_subject_counts: dict) -> list[Line2D]:
     Known issue: the jitter draws from NumPy's global random state, so the x
     positions differ between runs unless the caller seeds it.
     """
-    subjects = list(per_subject_counts.keys())
     handles = []
-    for subj in subjects:
-        counts = per_subject_counts[subj]
+    for index, (subj, counts) in enumerate(per_subject_counts.items()):
         fractions = first_leave_fractions(counts)
         if fractions is None:
             continue
         new_best, third = fractions
         # Known issue: a 17th subject raises IndexError; the palette is indexed, not cycled.
-        c = MOUSE_COLORS[subjects.index(subj)]
+        c = MOUSE_COLORS[index]
         ax.plot(
             [0 + np.random.uniform(-_JITTER, _JITTER), 1 + np.random.uniform(-_JITTER, _JITTER)],
             [new_best, third],
@@ -95,8 +93,8 @@ def plot_first_leave_panel(
     mean: dict,
     se: dict,
     per_subject_counts: dict,
-    p_value: float | None = None,
     *,
+    p_value: float | None = None,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
     """Draw first-leave proportions (new-best vs third arm) with per-subject lines.
@@ -151,7 +149,8 @@ def plot_first_leave_after_good_reversals(
         save_path: Base path (without extension) for saving ``.pdf`` and
             ``.png`` output.  If ``None``, the figure is shown interactively.
     """
-    ax = plot_first_leave_panel(mean, se, per_subject_counts, p_value)
+    ax = plot_first_leave_panel(mean, se, per_subject_counts, p_value=p_value)
     fig = ax.figure
     fig.tight_layout()
+    # An empty save_path means "show" here, so it is passed on as None.
     save_or_show(fig, save_path or None)

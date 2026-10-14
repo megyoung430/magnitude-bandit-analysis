@@ -27,8 +27,7 @@ def save_or_show(
     The figure is closed afterwards. With ``make_parent=False`` the parent
     directory must already exist and the path is used as given.
 
-    Known issue: callers draw the figure before calling this, so a figure that
-    raises while it is being drawn or saved stays open.
+    Known issue: if saving raises, *fig* stays open.
     """
     if save_path is None:
         plt.show()

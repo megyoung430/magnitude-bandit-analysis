@@ -17,6 +17,7 @@ from src.behavior_visualization.plot_helpers import mouse_color_map, save_png_an
 
 _SUBJECT_GROUPS = ("sub-01–04", "sub-05–08")
 _ALL_MICE = ("All mice",)
+_BOX_JITTER = 0.15  # half-width of the horizontal scatter around each box
 
 
 # ---------------------------------------------------------------------------
@@ -32,9 +33,9 @@ def _plot_mouse_distributions(
     ax.boxplot(arrays, showfliers=False)
     rng = np.random.default_rng(0)
     labels = []
-    for i, (mouse, values) in enumerate(zip(mice, arrays, strict=False), 1):
+    for i, (mouse, values) in enumerate(zip(mice, arrays, strict=True), 1):
         ax.scatter(
-            i + rng.uniform(-0.15, 0.15, len(values)), values, s=10, alpha=0.4, color=colors[mouse]
+            i + rng.uniform(-_BOX_JITTER, _BOX_JITTER, len(values)), values, s=10, alpha=0.4, color=colors[mouse]
         )
         number = int(table.loc[table.mouse == mouse, "subject_number"].iloc[0])
         labels.append(f"sub-{number:02d}\n{mouse}\nn={len(values)}")
@@ -105,7 +106,9 @@ def _distribution_figure(
         gridspec_kw={"width_ratios": [2] + [1] * len(groups)},
     )
     _plot_mouse_distributions(axes[0], table, mice, colors, title)
-    for ax, group in zip(axes[1:], groups, strict=False):
+    for ax, group in zip(axes[1:], groups, strict=True):
+        # Known issue: with split_subject_groups, mice numbered above 8 have group
+        # "Other", which matches neither panel, so they are left out of both ECDFs.
         group_table = table[table.group == group] if split_subject_groups else table
         _plot_group_ecdfs(ax, group_table, group, colors, title)
     fig.suptitle(f"{title}: distributions\n{note}", fontsize=13)
@@ -173,13 +176,18 @@ def _plot_unit(
     return paths
 
 
-def plot_trial_block_summaries(sessions, blocks, save_dir, show=True, split_subject_groups=True):
+def plot_trial_block_summaries(
+    sessions, blocks, save_dir, show=True, split_subject_groups=True
+) -> list[Path]:
     """Save PNG/PDF figures plus source tables and equal-mouse problem summaries.
 
     Distribution panels show individual observations per mouse and pooled group
     ECDFs. Time plots show each mouse (daily means when multiple observations
     share a date). Problem plots average within mouse first, then show mean ± SEM
     across mice; n is the number of mice. Blocks include observed edge portions.
+
+    Returns:
+        The saved PNG and PDF paths, in figure order (PNG first for each figure).
 
     Known issue: a figure that raises while being drawn or saved stays open.
     """

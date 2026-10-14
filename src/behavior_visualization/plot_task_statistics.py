@@ -40,7 +40,7 @@ def _plot_median_bars(
 
 
 def _annotate_medians(ax: plt.Axes, x: np.ndarray, meds: np.ndarray, annotate_y: float) -> None:
-    for xi, m in zip(x, meds, strict=False):
+    for xi, m in zip(x, meds, strict=True):
         ax.text(xi, annotate_y, f"{m:.1f}", ha="center", va="bottom", fontsize=11, clip_on=False)
 
 
@@ -149,4 +149,5 @@ def plot_block_lengths(
     ax = plot_block_length_panel(block_lengths_summary, jitter=jitter, annotate_y=annotate_y)
     fig = ax.figure
     fig.tight_layout()
+    # An empty save_path means "show" here, so it is passed on as None.
     save_or_show(fig, save_path or None)

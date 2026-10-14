@@ -34,7 +34,7 @@ def _plot_session_bars(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_t
         linewidth=1.5,
         zorder=1,
     )
-    for xi, m in zip(x, summary.mean, strict=False):
+    for xi, m in zip(x, summary.mean, strict=True):
         if np.isfinite(m):
             ax.text(
                 xi,
@@ -144,4 +144,5 @@ def plot_num_pokes_across_mice(
     ax = plot_pokes_by_session(avg_num_pokes_across_subjects, y_text)
     fig = ax.figure
     fig.tight_layout()
+    # An empty save_path means "show" here, so it is passed on as None.
     save_or_show(fig, save_path or None, make_parent=False)

@@ -142,6 +142,9 @@ def fraction_removed_by_problem(
     Returns:
         ``(frac_avg, probs_used)`` where *frac_avg* is the mean
         fraction-removed curve averaged over problems.
+
+    Known issue: when no problem yields a curve, *frac_avg* is all NaN and no
+    warning is raised.
     """
     from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
         cumulative_total_events_over_post,
@@ -290,4 +293,5 @@ def plot_choice_probs_with_fraction_removed_axis(
     )
     fig = ax.figure
     fig.tight_layout()
+    # Unlike the other plots, only None means "show": an empty save_path is used as a path.
     save_or_show(fig, save_path)

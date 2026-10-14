@@ -25,6 +25,9 @@ def _stack_problem_means(curves_by_problem: dict, probs: list, key: str) -> np.n
     """Stack each problem's mean curve for *key* into ``(n_problems, T)``.
 
     Problems that lack *key* are left out; returns ``None`` if no problem has it.
+
+    Known issue: the caller still counts every problem in ``num_problems`` (shown in
+    the figure title), so a curve can be averaged over fewer problems than reported.
     """
     rows = []
     for p in probs:

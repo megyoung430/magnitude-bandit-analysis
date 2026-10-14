@@ -53,16 +53,18 @@ def reversal_values(totals: dict) -> list[float]:
 
 
 def rank_record(label: str, problem, mouse: str, eligible_trials: int, values: list[float]) -> dict:
+    """CSV row for one mouse's pooled rank proportions (*values* are best, second, third)."""
     return dict(
         cohort=label,
         problem=problem,
         mouse=mouse,
         eligible_trials=eligible_trials,
-        **dict(zip(RANKS, values, strict=False)),
+        **dict(zip(RANKS, values, strict=True)),
     )
 
 
 def reversal_record(label: str, problem, mouse: str, totals: dict) -> dict:
+    """CSV row for one mouse's reversal totals; *totals* keys become columns."""
     return dict(cohort=label, problem=problem, mouse=mouse, **totals)
 
 
@@ -88,7 +90,9 @@ def label_height(value: float, error: float) -> float:
     return value + (error if np.isfinite(error) else 0) + 0.035
 
 
-def cap_problem_two(cohorts: dict, subject_numbers: dict, labels: list[str], trial_budget: int):
+def cap_problem_two(
+    cohorts: dict, subject_numbers: dict, labels: list[str], trial_budget: int
+) -> tuple[dict, list[dict]]:
     """Problem 2 of each cohort cut to its first *trial_budget* trials per mouse.
 
     Returns:

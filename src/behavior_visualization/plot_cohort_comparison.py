@@ -165,7 +165,7 @@ def _plot_across_problems(tables: dict, labels, problems, unit: str, output_dir:
 
 
 def _annotate_means(ax: plt.Axes, mean: np.ndarray, sem: np.ndarray) -> None:
-    for x, value, error in zip(_CATEGORIES, mean, sem, strict=False):
+    for x, value, error in zip(_CATEGORIES, mean, sem, strict=True):
         if np.isfinite(value):
             ax.text(
                 x, label_height(value, error), f"{value:.2f}", ha="center", va="bottom", fontsize=11
@@ -253,7 +253,7 @@ def _write_cohort_tables(label: str, tables: dict, output_dir: Path) -> None:
 
 def plot_cohort_comparison(
     cohorts, subject_numbers, output_dir, problems=(1, 2, 3), trial_budget=510, show=False
-):
+) -> list[Path]:
     """Save full-data comparisons, plus a separate capped problem-2 comparison.
 
     Columns are cohorts, rows are problems; paired panels share axes. Mouse
@@ -262,6 +262,9 @@ def plot_cohort_comparison(
     observed session in that problem. Block lengths include observed edges.
     Rank proportions use the existing good-block quality filters and pool
     retained trials within mouse. No between-cohort significance test is implied.
+
+    Returns:
+        The saved PNG and PDF paths, in figure order (PNG first for each figure).
 
     Known issue: a figure that raises while being drawn or saved stays open.
     """
