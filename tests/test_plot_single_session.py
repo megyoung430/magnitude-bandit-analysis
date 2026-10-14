@@ -119,3 +119,131 @@ def test_plot_single_session_rejects_unnormalised_probabilities(session):
 def test_plot_single_session_rejects_non_mapping_session_with_type_error(not_a_session):
     with pytest.raises(TypeError):
         plot_single_session(not_a_session)
+
+
+# ---------------------------------------------------------------------------
+# What the assembled figure looks like (characterization through plot_single_session)
+# ---------------------------------------------------------------------------
+
+GOOD, BAD = "#3a982e", "#f97979"
+
+
+@pytest.fixture
+def draw(monkeypatch):
+    """Call plot_single_session and return the figure it showed (it closes it afterwards)."""
+
+    def _draw(session, **kwargs):
+        shown = []
+        monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+        plot_single_session(session, **kwargs)
+        return shown[0]
+
+    return _draw
+
+
+def _lines_labelled(ax, label):
+    return [line for line in ax.lines if line.get_label() == label]
+
+
+def _colour(artist):
+    return matplotlib.colors.to_hex(artist.get_color())
+
+
+def _legend_texts(ax):
+    return [t.get_text() for t in ax.get_legend().get_texts()]
+
+
+def test_figure_with_ema_has_four_panels_with_titles_and_labels(session, draw):
+    fig = draw(session, title="My title")
+    assert tuple(fig.get_size_inches()) == (14, 11)
+    magnitudes, ema, towers, ranks = fig.axes
+    assert magnitudes.get_title() == "My title"
+    assert [a.get_ylabel() for a in fig.axes] == [
+        "Reward Magnitude",
+        "EMA",
+        "Count by Tower",
+        "Count by Rank",
+    ]
+    assert ema.get_xlabel() == "Trial"
+
+
+def test_default_title_is_used_when_none_given(session, draw):
+    assert draw(session).axes[0].get_title() == "Reward Magnitudes & Choices"
+
+
+def test_magnitude_panel_ticks_tower_colours_and_legend(session, draw):
+    magnitudes = draw(session).axes[0]
+    assert list(magnitudes.get_yticks()) == [0, 1, 4]
+    tower_lines = magnitudes.lines[:3]
+    assert [line.get_label() for line in tower_lines] == TOWERS
+    assert [_colour(line) for line in tower_lines] == ["#a6cee3", "#fdbf6f", "#b2df8a"]
+    assert sorted(_legend_texts(magnitudes)) == sorted([*TOWERS, "Choice", "Good Rev", "Bad Rev"])
+
+
+def test_good_and_bad_reversal_lines_sit_half_a_trial_before_the_event(session, draw):
+    fig = draw(session)
+    for ax in fig.axes[:2]:  # magnitude and EMA panels share the reversal markers
+        (good,) = _lines_labelled(ax, "Good Rev")
+        (bad,) = _lines_labelled(ax, "Bad Rev")
+        assert good.get_xdata()[0] == 6 - 0.5 and _colour(good) == GOOD
+        assert bad.get_xdata()[0] == 9 - 0.5 and _colour(bad) == BAD
+
+
+def test_block_lines_are_drawn_only_when_there_are_no_good_or_bad_reversals(session, draw):
+    session["blocks"] = [0] * 4 + [1] * 4 + [2] * 4
+    with_reversals = draw(session).axes[0]
+    assert _lines_labelled(with_reversals, "Rev") == []
+
+    for key in ("good_reversals", "bad_reversals"):
+        del session[key]
+    blocks_only = draw(session).axes[0]
+    (block_line,) = _lines_labelled(blocks_only, "Rev")
+    assert block_line.get_xdata()[0] == 4 - 0.5 and _colour(block_line) == GOOD
+    assert len(blocks_only.lines) == 3 + 2  # tower traces + one line per block start
+    assert _lines_labelled(blocks_only, "Good Rev") == []
+    assert _lines_labelled(blocks_only, "Bad Rev") == []
+
+
+def test_ema_panel_draws_both_traces_and_the_threshold(session, draw):
+    ema = draw(session).axes[1]
+    assert _legend_texts(ema) == ["Best", "Second", "Threshold", "Good Rev", "Bad Rev"]
+    assert [_colour(line) for line in ema.lines[:2]] == ["#000000", "#858585"]
+    (threshold,) = _lines_labelled(ema, "Threshold")
+    assert list(threshold.get_ydata()) == [0.7, 0.7]
+    assert tuple(ema.get_ylim()) == (0, 1)
+
+
+def test_bar_panels_show_heights_and_percent_labels(session, draw):
+    _, _, towers, ranks = draw(session).axes
+    assert [t.get_text() for t in towers.get_xticklabels()] == TOWERS
+    assert [p.get_height() for p in towers.patches] == [4, 4, 4]
+    assert [t.get_text() for t in towers.texts] == ["33%", "33%", "33%"]
+    assert [t.get_text() for t in ranks.get_xticklabels()] == ["best", "second", "third"]
+    assert [p.get_height() for p in ranks.patches] == [6, 4, 2]
+    assert [t.get_text() for t in ranks.texts] == ["50%", "33%", "17%"]
+
+
+def test_figure_without_ema_has_three_panels_and_labels_the_top_x_axis(session, draw):
+    for key in ("ema_best_arm_choices", "ema_second_arm_choices"):
+        del session[key]
+    fig = draw(session)
+    assert tuple(fig.get_size_inches()) == (14, 8)
+    assert [a.get_ylabel() for a in fig.axes] == [
+        "Reward Magnitude",
+        "Count by Tower",
+        "Count by Rank",
+    ]
+    assert fig.axes[0].get_xlabel() == "Trial"
+
+
+def test_probabilities_add_a_right_hand_twin_axis_with_its_own_legend(session, draw):
+    probabilities = {t: [1 / 3] * 12 for t in TOWERS}
+    fig = draw(session, choice_probabilities_by_tower=probabilities)
+    assert len(fig.axes) == 5
+    (twin,) = [a for a in fig.axes if a.get_ylabel() == "Vanilla RNN choice probability"]
+    assert tuple(twin.get_ylim()) == (0, 1)
+    assert _legend_texts(twin) == ["RNN P(A1)", "RNN P(B1)", "RNN P(C1)"]
+
+
+def test_no_twin_axis_without_probabilities(session, draw):
+    assert len(draw(session).axes) == 4
