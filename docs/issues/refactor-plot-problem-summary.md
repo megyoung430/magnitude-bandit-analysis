@@ -67,7 +67,12 @@ Behaviour-preserving refactor, test-first (principle 7):
 ## Differences from the original on malformed input
 
 Equal to the original, including the random state, warnings, exceptions, files and open figures,
-for everything the repo's producers generate. Three malformed-input differences remain:
+for everything the repo's producers generate. The malformed-input differences that remain:
+
+- `plot_metric_by_problem` and `plot_problem_lengths` with a summary that lacks `"ns"` or `"mice"`
+  (or `"per_mouse_blocklens"`): still a `KeyError` before any figure exists, but its message is now
+  `summary is missing 'ns'` instead of the bare `'ns'`. `"ns"` is still required although nothing
+  reads it, because the original did.
 
 - `plot_problem_lengths`: the original wrote value labels for `zip(x, means, ns)`, so a `"ns"` shorter
   than `"means"` produced fewer labels; the labels now follow `"means"` only. The producers always
@@ -76,5 +81,8 @@ for everything the repo's producers generate. Three malformed-input differences 
   dict (e.g. a list): the same `AttributeError`, but the figure left open by the failure has more of
   the panel drawn than before (the original failed straight after the bars).
 - `plot_rank_proportions_average_without_blocks` with `rank_counts_by_good_reversal` that is not a
-  dict (e.g. a list): the `AttributeError` message names `items` instead of `keys`, and a figure is
-  left open (the original failed before creating one).
+  dict (e.g. a list): the `AttributeError` message names `items` instead of `keys`. No figure is left
+  open, as before.
+- `plot_rank_proportions_average_without_blocks` with rows that are not dicts (e.g. `{"a": [1]}`):
+  the same `AttributeError`, but no figure is left open; the original created the figure before
+  reading the rows and left it open.
