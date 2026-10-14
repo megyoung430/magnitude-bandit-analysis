@@ -4,14 +4,122 @@ A "long poke" is an exploratory poke into a port that is not the animal's
 final choice for that trial.  This module provides a session-by-session bar
 chart with per-mouse overlaid lines.
 """
-import numpy as np
+
+from __future__ import annotations
+
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.lines import Line2D
-from src.behavior_import.sort_by_session import sort_sessions_chronologically, get_short_session_label
-from src.behavior_visualization.plot_style import MOUSE_COLORS
+
+from src.behavior_analysis.long_pokes_by_session import PokesBySession, summarize_pokes_by_session
+from src.behavior_import.sort_by_session import get_short_session_label
+from src.behavior_visualization.plot_helpers import despine, mouse_color_map, save_or_show
+
+_BAR_COLOR = "#999999"
+_JITTER = 0.03
 
 
-def plot_num_pokes_across_mice(avg_num_pokes_across_subjects, y_text, save_path=None):
+def _plot_session_bars(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_text: float) -> None:
+    """Bars of the across-mouse mean with SE caps, each labelled with its value at *y_text*."""
+    ax.bar(
+        x,
+        summary.mean,
+        yerr=summary.se,
+        capsize=6,
+        color=_BAR_COLOR,
+        alpha=0.55,
+        edgecolor="black",
+        linewidth=1.5,
+        zorder=1,
+    )
+    for xi, m in zip(x, summary.mean, strict=False):
+        if np.isfinite(m):
+            ax.text(
+                xi,
+                y_text,
+                f"{m:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=12,
+                color="black",
+                zorder=10,
+            )
+
+
+def _plot_mouse_lines(
+    ax: plt.Axes, x: np.ndarray, summary: PokesBySession, rng: np.random.Generator | None
+) -> list[Line2D]:
+    """One jittered line per mouse with data; returns matching legend handles."""
+    mouse_to_color = mouse_color_map(summary.mice)
+    handles = []
+    rng = np.random.default_rng() if rng is None else rng
+    for m in summary.mice:
+        c = mouse_to_color[m]
+        y = summary.by_mouse[m]
+        mask = np.isfinite(y)
+        if not np.any(mask):
+            continue
+        xs = x[mask].astype(float)
+        ys = y[mask].astype(float)
+        xs = xs + rng.uniform(-_JITTER, _JITTER, size=len(xs))
+        ax.plot(xs, ys, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=6, zorder=4)
+        handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", markersize=6, label=m))
+    return handles
+
+
+def _style_axes(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_text: float) -> None:
+    ax.set_xlabel("Session")
+    ax.set_ylabel("Non-Choice Long Pokes")
+    ax.set_xticks(x)
+    ax.set_xticklabels(
+        [get_short_session_label(s) for s in summary.sessions], fontsize=12, rotation=45
+    )
+    ax.tick_params(axis="y", labelsize=13)
+    ax.set_ylim(0, y_text)
+    despine(ax)
+    title = (
+        "Mean Non-Choice Long Pokes Across Sessions\n"
+        f" (mean ± se across subjects | n={len(summary.mice)} subjects)"
+    )
+    ax.set_title(title, fontsize=16, pad=25)
+
+
+def plot_pokes_by_session(
+    avg_num_pokes_across_subjects: dict,
+    y_text: float,
+    *,
+    ax: plt.Axes | None = None,
+    rng: np.random.Generator | None = None,
+) -> plt.Axes:
+    """Draw mean non-choice long pokes per session with per-mouse overlays.
+
+    Args:
+        avg_num_pokes_across_subjects: ``{mouse: {session_key: mean_pokes}}``; see
+            :func:`plot_num_pokes_across_mice`.
+        y_text: Y-coordinate for bar-value annotations and the upper y-limit.
+        ax: Axes to draw into; a new 12 x 5.5 inch figure is created if ``None``.
+        rng: Generator for the per-mouse x-jitter. Known issue: when ``None`` an
+            unseeded generator is used, so the jitter differs on every call.
+
+    Known issue: when the figure is created here, it stays open if drawing raises.
+    """
+    summary = summarize_pokes_by_session(avg_num_pokes_across_subjects)
+    if ax is None:
+        _, ax = plt.subplots(figsize=(12, 5.5))
+    x = np.arange(len(summary.sessions))
+    _plot_session_bars(ax, x, summary, y_text)
+    handles = _plot_mouse_lines(ax, x, summary, rng)
+    _style_axes(ax, x, summary, y_text)
+    if handles:
+        ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=10)
+    return ax
+
+
+def plot_num_pokes_across_mice(
+    avg_num_pokes_across_subjects: dict, y_text: float, save_path: str | Path | None = None
+) -> None:
     """Plot mean non-choice long-poke counts per session with per-mouse overlays.
 
     Draws a bar for each session (mean ± SE across mice) and overlays
@@ -27,118 +135,11 @@ def plot_num_pokes_across_mice(avg_num_pokes_across_subjects, y_text, save_path=
             of the axis.
         save_path: Base path (without extension) for saving ``.pdf`` and
             ``.png`` output.  If ``None``, the figure is shown interactively.
+
+    Known issue: the parent directory of *save_path* is not created, so saving
+    into a missing directory raises (and leaves the figure open).
     """
-
-    mice = sorted([m for m in avg_num_pokes_across_subjects.keys()
-               if m != "average_across_subjects"])
-    if len(mice) == 0:
-        raise ValueError("avg_num_pokes_across_subjects has no mice.")
-
-    # union of all session keys across mice
-    all_sessions = set()
-    for m in mice:
-        all_sessions.update(avg_num_pokes_across_subjects.get(m, {}).keys())
-
-    if len(all_sessions) == 0:
-        raise ValueError("No sessions found in avg_num_pokes_across_subjects.")
-
-    # sort sessions by ses-XX numeric index
-    sessions = sorted(all_sessions, key=sort_sessions_chronologically)
-
-    # per-session mean and SE across mice
-    per_session_mean = []
-    per_session_se = []
-    per_session_n = []
-
-    for s in sessions:
-        vals = []
-        for m in mice:
-            if s in avg_num_pokes_across_subjects.get(m, {}):
-                v = avg_num_pokes_across_subjects[m][s]
-                if v is not None and np.isfinite(v):
-                    vals.append(float(v))
-
-        vals = np.asarray(vals, dtype=float)
-        n = len(vals)
-        per_session_n.append(n)
-
-        if n == 0:
-            per_session_mean.append(np.nan)
-            per_session_se.append(np.nan)
-        else:
-            per_session_mean.append(np.mean(vals))
-            if n >= 2:
-                per_session_se.append(np.std(vals, ddof=1) / np.sqrt(n))
-            else:
-                per_session_se.append(0.0)
-
-    per_session_mean = np.asarray(per_session_mean, dtype=float)
-    per_session_se = np.asarray(per_session_se, dtype=float)
-    per_session_n = np.asarray(per_session_n, dtype=int)
-
-    per_mouse_series = {}
-    for m in mice:
-        y = np.full(len(sessions), np.nan, dtype=float)
-        md = avg_num_pokes_across_subjects.get(m, {})
-        for i, s in enumerate(sessions):
-            if s in md and md[s] is not None and np.isfinite(md[s]):
-                y[i] = float(md[s])
-        per_mouse_series[m] = y
-
-    x = np.arange(len(sessions))
-    fig, ax = plt.subplots(figsize=(12, 5.5))
-
-    ax.bar(x, per_session_mean, yerr=per_session_se, capsize=6, color="#999999", alpha=0.55, edgecolor="black", linewidth=1.5, zorder=1)
-
-    for xi, m in zip(x, per_session_mean):
-        if np.isfinite(m):
-            ax.text(xi, y_text, f"{m:.2f}", ha="center", va="bottom", fontsize=12, color="black", zorder=10)
-
-    mouse_to_color = {m: MOUSE_COLORS[i % len(MOUSE_COLORS)] for i, m in enumerate(mice)}
-
-    legend_handles = []
-    rng = np.random.default_rng()
-
-    for m in mice:
-        c = mouse_to_color[m]
-        y = per_mouse_series[m]
-
-        mask = np.isfinite(y)
-        if not np.any(mask):
-            continue
-
-        xs = x[mask].astype(float)
-        ys = y[mask].astype(float)
-
-        xs = xs + rng.uniform(-0.03, 0.03, size=len(xs))
-
-        ax.plot(xs, ys, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=6, zorder=4)
-
-        legend_handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", markersize=6, label=m))
-
-    ax.set_xlabel("Session")
-    ax.set_ylabel("Non-Choice Long Pokes")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([get_short_session_label(s) for s in sessions], fontsize=12, rotation=45)
-
-    ax.tick_params(axis="y", labelsize=13)
-    ax.set_ylim(0, y_text)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-    title = f"Mean Non-Choice Long Pokes Across Sessions\n (mean ± se across subjects | n={len(mice)} subjects)"
-    ax.set_title(title, fontsize=16, pad=25)
-
-    if legend_handles:
-        ax.legend(handles=legend_handles, loc="upper right", frameon=True, fontsize=10)
-
-    plt.tight_layout()
-
-    if save_path:
-        fig.savefig(str(save_path) + ".pdf", bbox_inches="tight")
-        fig.savefig(str(save_path) + ".png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
-
-    plt.close(fig)
+    ax = plot_pokes_by_session(avg_num_pokes_across_subjects, y_text)
+    fig = ax.figure
+    fig.tight_layout()
+    save_or_show(fig, save_path or None, make_parent=False)
