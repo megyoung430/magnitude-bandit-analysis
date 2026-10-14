@@ -24,7 +24,7 @@ from src.behavior_analysis.get_total_reversals import get_total_reversals
 from src.behavior_analysis.trial_count_summaries import (
     ecdf,
     mean_trials_by_problem_and_mouse,
-    problem_summary,
+    summarize_trials_by_problem,
 )
 from src.behavior_visualization.plot_helpers import save_png_and_pdf
 from src.behavior_visualization.plot_style import MOUSE_COLORS
@@ -110,7 +110,7 @@ def _plot_across_problems_panel(
     """
     for k, (mouse, rows) in enumerate(per_mouse.groupby("mouse")):
         ax.plot(rows.problem, rows.trials, "o-", alpha=0.45, label=mouse, color=_mouse_color(k))
-    means = problem_summary(per_mouse)
+    means = summarize_trials_by_problem(per_mouse)
     ax.errorbar(
         means.index,
         means["mean"],
@@ -121,7 +121,7 @@ def _plot_across_problems_panel(
         lw=2,
         label="Mean ± SEM across mice",
     )
-    ax.set_xticks(list(problems), [f"{p}\n(n={int(means.loc[p, 'count'])})" for p in problems])
+    ax.set_xticks(list(problems), [f"{p}\n(n={int(means.loc[p, 'n_mice'])})" for p in problems])
     ax.set(title=label, xlabel="Problem (number of mice)", ylabel=f"Mean trials per {unit}")
     ax.legend(fontsize=8, ncol=2)
 

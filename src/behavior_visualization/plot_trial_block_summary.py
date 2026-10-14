@@ -11,7 +11,7 @@ from src.behavior_analysis.trial_count_summaries import (
     ecdf,
     mean_trials_by_problem_and_mouse,
     mice_by_subject_number,
-    problem_summary,
+    summarize_trials_by_problem,
 )
 from src.behavior_visualization.plot_helpers import mouse_color_map, save_png_and_pdf
 
@@ -35,7 +35,11 @@ def _plot_mouse_distributions(
     labels = []
     for i, (mouse, values) in enumerate(zip(mice, arrays, strict=True), 1):
         ax.scatter(
-            i + rng.uniform(-_BOX_JITTER, _BOX_JITTER, len(values)), values, s=10, alpha=0.4, color=colors[mouse]
+            i + rng.uniform(-_BOX_JITTER, _BOX_JITTER, len(values)),
+            values,
+            s=10,
+            alpha=0.4,
+            color=colors[mouse],
         )
         number = int(table.loc[table.mouse == mouse, "subject_number"].iloc[0])
         labels.append(f"sub-{number:02d}\n{mouse}\nn={len(values)}")
@@ -168,7 +172,7 @@ def _plot_unit(
     paths += save_png_and_pdf(fig, save_dir, f"{title} - over time", show=show)
 
     per_mouse = mean_trials_by_problem_and_mouse(table)
-    summary = problem_summary(per_mouse).rename(columns={"count": "n_mice"})
+    summary = summarize_trials_by_problem(per_mouse)
     summary.to_csv(save_dir / f"{unit}_trials_by_problem_summary.csv")
     per_mouse.to_csv(save_dir / f"{unit}_trials_by_problem_per_mouse.csv", index=False)
     fig = _problem_figure(per_mouse, summary, unit, colors)

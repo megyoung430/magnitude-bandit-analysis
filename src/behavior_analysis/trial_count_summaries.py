@@ -43,6 +43,6 @@ def mean_trials_by_problem_and_mouse(table: pd.DataFrame) -> pd.DataFrame:
     return table.groupby(["problem", "mouse"], as_index=False).trials.mean()
 
 
-def problem_summary(per_mouse: pd.DataFrame) -> pd.DataFrame:
-    """Mean, SEM and number of mice (``count``) per problem from per-mouse means."""
-    return per_mouse.groupby("problem").trials.agg(["mean", "sem", "count"])
+def summarize_trials_by_problem(per_mouse: pd.DataFrame) -> pd.DataFrame:
+    """Mean, SEM and number of mice (``n_mice``) per problem from per-mouse means."""
+    return per_mouse.groupby("problem").trials.agg(mean="mean", sem="sem", n_mice="count")

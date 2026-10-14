@@ -13,7 +13,7 @@ from src.behavior_analysis.trial_count_summaries import (
     ecdf,
     mean_trials_by_problem_and_mouse,
     mice_by_subject_number,
-    problem_summary,
+    summarize_trials_by_problem,
 )
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
@@ -82,10 +82,10 @@ def test_problem_means_weigh_mice_equally_with_sem_and_count():
     )
     per_mouse = mean_trials_by_problem_and_mouse(table)
     assert per_mouse.trials.tolist() == [20.0, 20.0, 40.0]
-    summary = problem_summary(per_mouse)
+    summary = summarize_trials_by_problem(per_mouse)
     assert summary.loc[1, "mean"] == pytest.approx(80 / 3)
     assert summary.loc[1, "sem"] == pytest.approx(np.std([20, 20, 40], ddof=1) / np.sqrt(3))
-    assert summary.loc[1, "count"] == 3
+    assert summary.loc[1, "n_mice"] == 3
 
 
 # ---------------------------------------------------------------- outputs
@@ -147,9 +147,7 @@ def test_distribution_figure_layout_for_session_counts(capture, tables, tmp_path
     _, figures = run(capture, tables, tmp_path)
     fig = figures["Trials per session - distributions"]
     assert tuple(fig.get_size_inches()) == (17, 5) and len(fig.axes) == 3
-    assert fig._suptitle.get_text() == (
-        "Trials per session: distributions\nEach point is one session."
-    )
+    assert fig.get_suptitle() == ("Trials per session: distributions\nEach point is one session.")
     assert fig._suptitle.get_fontsize() == 13
     boxes, low, high = fig.axes
     assert boxes.get_title() == "Distribution by mouse"
@@ -203,7 +201,7 @@ def test_group_ecdfs_show_each_mouse_and_the_pooled_observations(capture, tables
 def test_block_distributions_use_the_block_note(capture, tables, tmp_path):
     _, figures = run(capture, tables, tmp_path)
     fig = figures["Trials per block - distributions"]
-    assert fig._suptitle.get_text() == (
+    assert fig.get_suptitle() == (
         "Trials per block: distributions\nBlocks include observed portions at problem edges."
     )
 

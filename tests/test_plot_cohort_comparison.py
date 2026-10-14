@@ -183,7 +183,7 @@ def test_grid_figures_have_a_row_per_problem_and_a_column_per_cohort(run):
 
 def test_distribution_panels_pool_observations_and_draw_faint_mouse_ecdfs(run):
     fig = run[1]["Trials per session - distributions"]
-    assert fig._suptitle.get_text() == "Trials per session: distributions (full data)"
+    assert fig.get_suptitle() == "Trials per session: distributions (full data)"
     a1, a2, b1, b2 = fig.axes
     assert a1.get_title() == "cohort-A — problem 1" and b2.get_title() == "cohort-B — problem 2"
     faint = a1.lines[:2]
@@ -206,7 +206,7 @@ def test_block_distribution_axis_names_blocks(run):
 
 def test_over_time_x_is_days_since_the_mouses_first_session_in_the_problem(run):
     fig = run[1]["Trials per session - over time"]
-    assert fig._suptitle.get_text() == "Trials per session: over time (full data)"
+    assert fig.get_suptitle() == "Trials per session: over time (full data)"
     a1 = fig.axes[0]
     first, second = a1.lines
     assert (first.get_label(), first.get_color(), first.get_alpha()) == ("a1", MOUSE_COLORS[0], 0.8)
@@ -220,9 +220,7 @@ def test_over_time_x_is_days_since_the_mouses_first_session_in_the_problem(run):
 def test_across_problems_figure_has_one_panel_per_cohort_with_mouse_counts(run):
     fig = run[1]["Trials per session - across problems"]
     assert tuple(fig.get_size_inches()) == (13, 5) and len(fig.axes) == 2
-    assert (
-        fig._suptitle.get_text() == "Trials per session: across problems (equal weight per mouse)"
-    )
+    assert fig.get_suptitle() == "Trials per session: across problems (equal weight per mouse)"
     left, right = fig.axes
     assert (left.get_title(), right.get_title()) == ("cohort-A", "cohort-B")
     assert [t.get_text() for t in left.get_xticklabels()] == ["1\n(n=2)", "2\n(n=2)"]
@@ -236,7 +234,7 @@ def test_across_problems_figure_has_one_panel_per_cohort_with_mouse_counts(run):
 
 def test_rank_panel_shows_pooled_proportions_with_mean_sem_and_labels(run):
     fig = run[1]["Rank proportions - full data"]
-    assert fig._suptitle.get_text() == "Pooled true-value rank proportions — full data"
+    assert fig.get_suptitle() == "Pooled true-value rank proportions — full data"
     ax = fig.axes[0]  # cohort-A, problem 1: a1 always best, a2 always second
     assert ax.get_title() == "cohort-A — problem 1 (n=2 mice)"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Best", "Second", "Third"]
@@ -263,7 +261,7 @@ def test_rank_panel_shows_pooled_proportions_with_mean_sem_and_labels(run):
 
 def test_reversal_panel_shows_good_bad_and_all_counts_per_mouse(run):
     fig = run[1]["Reversal totals - full data"]
-    assert fig._suptitle.get_text() == "Total reversals per mouse — full data"
+    assert fig.get_suptitle() == "Total reversals per mouse — full data"
     ax = fig.axes[0]  # a1 has two sessions of two good reversals, a2 one
     assert ax.get_title() == "cohort-A — problem 1 (n=2 mice)"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Good", "Bad", "All"]
@@ -279,7 +277,7 @@ def test_reversal_panel_shows_good_bad_and_all_counts_per_mouse(run):
 
 def test_capped_comparison_covers_problem_two_only(run):
     fig = run[1][f"Reversal totals - {CAPPED}"]
-    assert fig._suptitle.get_text() == f"Total reversals per mouse — {CAPPED}"
+    assert fig.get_suptitle() == f"Total reversals per mouse — {CAPPED}"
     left, right = fig.axes
     assert (left.get_title(), right.get_title()) == (
         "cohort-A — problem 2 (n=2 mice)",

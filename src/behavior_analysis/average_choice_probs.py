@@ -1,4 +1,8 @@
-"""Average choice-probability curves across problems (no plotting)."""
+"""Choice-probability curves around good reversals, per problem and averaged across problems.
+
+No plotting. :mod:`src.behavior_visualization.plot_averaged_choice_probs` re-exports the
+public functions for existing callers.
+"""
 
 from __future__ import annotations
 
@@ -60,6 +64,95 @@ def _problem_totals(curves_by_problem: dict, probs: list) -> tuple[int, int]:
     return len(subjects), reversals
 
 
+def compute_curve_from_windows(
+    reversal_windows: dict,
+    *,
+    pre: int,
+    post: int,
+    skip_n: int = 0,
+    do_moving_avg: bool = False,
+    moving_avg_window: int = 4,
+) -> tuple:
+    """Compute choice-probability curves from a single problem's reversal windows.
+
+    Args:
+        reversal_windows: ``{subject: list[reversal_dict]}`` for one problem.
+        pre: Number of trials before the reversal to include.
+        post: Number of trials after the reversal to include.
+        skip_n: Number of trials immediately after the reversal to mark as
+            missing (default: 0).
+        do_moving_avg: If ``True``, apply a centred moving average to the
+            curves (default: False).
+        moving_avg_window: Window size for the moving average (default: 4).
+
+    Returns:
+        ``(x, per_subject, across)`` as returned by
+        :func:`src.behavior_analysis.get_choice_probs_around_good_reversals.get_choice_probs_around_good_reversals`.
+    """
+    from src.behavior_analysis.get_choice_probs_around_good_reversals import (
+        apply_moving_average_to_choice_probs,
+        get_choice_probs_around_good_reversals,
+    )
+
+    x, per_subject, across = get_choice_probs_around_good_reversals(
+        reversal_windows,
+        pre=pre,
+        post=post,
+        skip_n_trials_after_reversal=skip_n,
+    )
+    if do_moving_avg:
+        x, per_subject, across = apply_moving_average_to_choice_probs(
+            x, per_subject, moving_avg_window=moving_avg_window, mode="centered"
+        )
+    return x, per_subject, across
+
+
+def curves_by_problem_from_windows_dict(
+    windows_dict: dict,
+    *,
+    pre: int,
+    post: int,
+    skip_n: int = 0,
+    do_moving_avg: bool = False,
+    moving_avg_window: int = 4,
+) -> dict:
+    """Compute per-problem choice-probability curves from a dict of windows.
+
+    Args:
+        windows_dict: ``{problem: reversal_windows}``
+        pre: Trials before reversal.
+        post: Trials after reversal.
+        skip_n: Trials to skip after reversal (default: 0).
+        do_moving_avg: Apply moving average (default: False).
+        moving_avg_window: Moving-average window size (default: 4).
+
+    Returns:
+        ``{problem: {"x": ..., "across": ..., "subjects": set, "num_reversals": int}}``
+        for each problem that had at least one subject contributing data.
+    """
+    out: dict = {}
+    for p, rw in windows_dict.items():
+        if not rw:
+            continue
+        x, per_subject, across = compute_curve_from_windows(
+            rw,
+            pre=pre,
+            post=post,
+            skip_n=skip_n,
+            do_moving_avg=do_moving_avg,
+            moving_avg_window=moving_avg_window,
+        )
+        if across.get("num_subjects", 0) == 0:
+            continue
+        out[p] = {
+            "x": np.asarray(x, float),
+            "across": across,
+            "subjects": set(per_subject.keys()),
+            "num_reversals": int(across.get("num_reversals", 0) or 0),
+        }
+    return out
+
+
 def average_across_problem_curves(curves_by_problem: dict) -> tuple:
     """Average per-problem choice-probability curves across problems.
 
@@ -67,7 +160,7 @@ def average_across_problem_curves(curves_by_problem: dict) -> tuple:
 
     Args:
         curves_by_problem: Dict as returned by
-            :func:`src.behavior_visualization.plot_averaged_choice_probs.curves_by_problem_from_windows_dict`.
+            :func:`curves_by_problem_from_windows_dict`.
 
     Returns:
         ``(x, across_avg)`` where *across_avg* contains keys

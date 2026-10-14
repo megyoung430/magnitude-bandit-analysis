@@ -88,7 +88,7 @@ def _style_axes(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_text: fl
     ax.set_title(title, fontsize=16, pad=25)
 
 
-def plot_pokes_by_session(
+def plot_num_pokes_panel(
     avg_num_pokes_across_subjects: dict,
     y_text: float,
     *,
@@ -141,7 +141,7 @@ def plot_num_pokes_across_mice(
     Known issue: the parent directory of *save_path* is not created, so saving
     into a missing directory raises (and leaves the figure open).
     """
-    ax = plot_pokes_by_session(avg_num_pokes_across_subjects, y_text)
+    ax = plot_num_pokes_panel(avg_num_pokes_across_subjects, y_text)
     fig = ax.figure
     fig.tight_layout()
     # An empty save_path means "show" here, so it is passed on as None.
