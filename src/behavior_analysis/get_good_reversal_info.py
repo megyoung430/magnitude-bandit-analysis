@@ -4,8 +4,193 @@ Functions here identify good-reversal boundaries from merged session data, apply
 quality filters (zero-reward gate), and slice choice/reward arrays into pre/post
 windows for downstream analyses.
 """
-from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+
+from dataclasses import dataclass
+
 from src.behavior_analysis.get_total_reversals import find_increment_indices
+from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+
+
+@dataclass(frozen=True)
+class _SubjectSeries:
+    """Per-trial series of one subject's merged sessions (missing fields become empty)."""
+
+    good: list | None  # None when absent; the fallback in _good_reversal_number depends on it
+    num_blocks: list
+    blocks: list
+    reward_by_tower: dict
+    choices_by_tower: dict
+    choices_by_rank: dict
+
+    @classmethod
+    def from_merged(cls, d):
+        return cls(
+            good=d.get("good_reversals"),
+            num_blocks=d.get("num_blocks") or [],
+            blocks=d.get("blocks") or [],
+            reward_by_tower=d.get("reward_magnitudes_by_tower", {}) or {},
+            choices_by_tower=d.get("choices_by_tower", {}) or {},
+            choices_by_rank=d.get("choices_by_rank", {}) or {},
+        )
+
+
+def _find_change_indices(seq):
+    """Return indices where consecutive elements differ in *seq*."""
+    return [i for i in range(1, len(seq)) if seq[i] != seq[i - 1]]
+
+
+def _count_trials(series):
+    """Trial count from the first series that exists: num_blocks, blocks, rewards, choices."""
+    if len(series.num_blocks) > 0:
+        return len(series.num_blocks)
+    if len(series.blocks) > 0:
+        return len(series.blocks)
+    for by_tower in (series.reward_by_tower, series.choices_by_tower):
+        if by_tower:
+            return max((len(v) for v in by_tower.values()), default=0)
+    return 0
+
+
+def _list_towers(series):
+    """Tower keys, taken from the reward data when present, else from the choice data."""
+    by_tower = series.reward_by_tower if series.reward_by_tower else series.choices_by_tower
+    return list(by_tower.keys())
+
+
+def _find_boundaries(series, any_good):
+    """Return ``(boundary_indices, boundary_source)`` using the priority in the public docstring."""
+    good = series.good
+    if any_good and good is not None and len(good) >= 2:
+        return find_increment_indices(good), "good_reversals"
+    if len(series.num_blocks) >= 2:
+        return find_increment_indices(series.num_blocks), "num_blocks"
+    if len(series.blocks) >= 2:
+        return _find_change_indices(series.blocks), "blocks"
+    return [], None
+
+
+def _block_id_at(blocks, idx):
+    """Block id at trial *idx*, or ``None`` when *blocks* does not reach it."""
+    return blocks[idx] if idx < len(blocks) else None
+
+
+def _window_indices(boundaries, k, n_trials, *, pre, post):
+    """Absolute ``(pre_idx, post_idx)`` trial indices around boundary number *k*.
+
+    The post-window never extends past the next boundary (or the last trial).
+    """
+    idx = boundaries[k]
+    next_boundary = boundaries[k + 1] if k + 1 < len(boundaries) else n_trials
+    post_end = next_boundary if post is None else min(n_trials, idx + post, next_boundary)
+    return list(range(max(0, idx - pre), idx)), list(range(idx, post_end))
+
+
+def _slice_choices(choices, pre_idx, post_idx):
+    """Cut each one-hot choice array into pre/post windows, dropping indices past its end."""
+    return {
+        key: {
+            "pre": [arr[i] for i in pre_idx if i < len(arr)],
+            "post": [arr[i] for i in post_idx if i < len(arr)],
+        }
+        for key, arr in choices.items()
+    }
+
+
+def _before_trial(idx):
+    """Trial whose reward magnitudes describe the state just before boundary *idx*.
+
+    Boundary 0 has no preceding trial, so it returns 0: with ``include_first_block``
+    the first record's "before" and "after" values both come from trial 0.
+    """
+    return idx - 1 if idx > 0 else 0
+
+
+def _rewards_at(reward_by_tower, towers, trial):
+    """Reward magnitude of every tower at *trial*; ``None`` for all if any array is too short."""
+    if any(trial >= len(reward_by_tower[t]) for t in towers):
+        return {t: None for t in towers}
+    return {t: reward_by_tower[t][trial] for t in towers}
+
+
+def _skip_message(subj, idx, boundary_source, series, towers, *, max_zero_count):
+    """Why boundary *idx* must be skipped, or ``None`` if it is usable."""
+    missing = [t for t in towers if t not in series.reward_by_tower]
+    if missing:
+        return (
+            f"[SKIP] {subj} boundary@{idx}: missing towers in reward_magnitudes_by_tower: {missing}"
+        )
+    before_trial = _before_trial(idx)
+    if any(before_trial >= len(series.reward_by_tower[t]) for t in towers):
+        return f"[SKIP] {subj} boundary@{idx}: reward_magnitudes_by_tower too short for idx-1"
+    before_vals = [series.reward_by_tower[t][before_trial] for t in towers]
+    if sum(v == 0 for v in before_vals) > max_zero_count:
+        block_id = _block_id_at(series.blocks, idx)
+        return (
+            f"[SKIP] {subj} boundary@{idx} ({boundary_source}, block {block_id}): "
+            f"more than {max_zero_count} zero rewards in {before_vals}"
+        )
+    return None
+
+
+def _good_reversal_number(series, idx, block_id):
+    """Cumulative good-reversal count at *idx*, falling back to ``block_id - 1``."""
+    if series.good is not None and idx < len(series.good):
+        return series.good[idx]
+    # Known bug: block_id is None when blocks is shorter than idx, so this raises
+    # TypeError instead of yielding None.
+    return block_id - 1
+
+
+def _build_reversal(series, towers, boundary_source, idx, pre_idx, post_idx):
+    """Assemble the reversal dict for the boundary at trial *idx* (see the public docstring).
+
+    Only called for boundaries that passed :func:`_skip_message`, so every tower's
+    reward array reaches the trial before *idx*.
+    """
+    block_id = _block_id_at(series.blocks, idx)
+    before = _before_trial(idx)
+    return {
+        "reversal_idx": idx,
+        "boundary_source": boundary_source,
+        "good_reversal_number": _good_reversal_number(series, idx, block_id),
+        "block_id": block_id,
+        "towers": towers,
+        "trial_window_idx": {"pre": pre_idx, "post": post_idx},
+        "reward_magnitudes_by_tower_before": {t: series.reward_by_tower[t][before] for t in towers},
+        "reward_magnitudes_by_tower_after": _rewards_at(series.reward_by_tower, towers, idx),
+        "choices_by_tower": _slice_choices(series.choices_by_tower, pre_idx, post_idx),
+        "choices_by_rank": _slice_choices(series.choices_by_rank, pre_idx, post_idx),
+    }
+
+
+def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block, max_zero_count):
+    """Reversal dicts for one subject; ``[]`` when there is nothing to window."""
+    n_trials = _count_trials(series)
+    if n_trials == 0:
+        return []
+    towers = _list_towers(series)
+    if not towers:
+        print(f"[WARN] {subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower")
+        return []
+
+    any_good = any(sess.get("has_good", False) for sess in sessions.values())
+    boundaries, boundary_source = _find_boundaries(series, any_good)
+    if include_first_block:
+        boundaries = [0] + boundaries
+
+    reversals = []
+    for k, idx in enumerate(boundaries):
+        message = _skip_message(
+            subj, idx, boundary_source, series, towers, max_zero_count=max_zero_count
+        )
+        if message is not None:
+            print(message)
+            continue
+        # Windows are computed from the full boundary list, so a kept reversal's
+        # post-window still stops at a neighbouring boundary that was skipped.
+        pre_idx, post_idx = _window_indices(boundaries, k, n_trials, pre=pre, post=post)
+        reversals.append(_build_reversal(series, towers, boundary_source, idx, pre_idx, post_idx))
+    return reversals
 
 
 def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, max_zero_count=1):
@@ -46,7 +231,9 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         - ``"good_reversal_number"`` (int | None): Cumulative good-reversal
           count at this reversal, or ``block_id - 1`` as a fallback.
         - ``"block_id"`` (int | None): Block identifier at the reversal trial.
-        - ``"towers"`` (list[str]): Tower keys present in the reward data.
+        - ``"towers"`` (list[str]): Tower keys from the reward data, or from the
+          choice data when there is no reward data (boundaries are then skipped
+          as missing towers).
         - ``"trial_window_idx"`` (dict): ``{"pre": [...], "post": [...]}``
           lists of absolute trial indices.
         - ``"reward_magnitudes_by_tower_before"`` (dict): Tower → magnitude on
@@ -58,150 +245,20 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
           [...]}`` one-hot choice slices.
     """
-    def find_change_indices(seq):
-        """Return indices where consecutive elements differ in *seq*."""
-        chg = []
-        for i in range(1, len(seq)):
-            if seq[i] != seq[i - 1]:
-                chg.append(i)
-        return chg
-
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
+    return {
+        subj: _subject_reversals(
+            subj,
+            _SubjectSeries.from_merged(d),
+            data.get(subj, {}),
+            pre=pre,
+            post=post,
+            include_first_block=include_first_block,
+            max_zero_count=max_zero_count,
+        )
+        for subj, d in merged_subject_data_across_all_sessions.items()
+    }
 
-    out = {}
-    for subj, d in merged_subject_data_across_all_sessions.items():
-        good = d.get("good_reversals")          # may be None / missing
-        num_blocks = d.get("num_blocks") or [] # cumulative block counter per trial (preferred)
-        blocks = d.get("blocks") or []         # block id per trial (backup)
-
-        reward_by_tower = d.get("reward_magnitudes_by_tower", {}) or {}
-        choices_by_tower = d.get("choices_by_tower", {}) or {}
-        choices_by_rank = d.get("choices_by_rank", {}) or {}
-
-        # decide n_trials from something that exists (prefer blocks/num_blocks, else reward arrays)
-        if len(num_blocks) > 0:
-            n_trials = len(num_blocks)
-        elif len(blocks) > 0:
-            n_trials = len(blocks)
-        elif reward_by_tower:
-            n_trials = max((len(v) for v in reward_by_tower.values()), default=0)
-        elif choices_by_tower:
-            n_trials = max((len(v) for v in choices_by_tower.values()), default=0)
-        else:
-            n_trials = 0
-
-        if n_trials == 0:
-            out[subj] = []
-            continue
-
-        # towers
-        towers = list(reward_by_tower.keys()) if reward_by_tower else list(choices_by_tower.keys())
-        if not towers:
-            print(f"[WARN] {subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower")
-            out[subj] = []
-            continue
-
-        # --- pick boundary indices ---
-        subj_sessions = data.get(subj, {})
-        any_good = any(sess.get("has_good", False) for sess in subj_sessions.values())
-        if any_good and good is not None and len(good) >= 2:
-            boundary_indices = find_increment_indices(good)
-            boundary_source = "good_reversals"
-        elif len(num_blocks) >= 2:
-            boundary_indices = find_increment_indices(num_blocks)
-            boundary_source = "num_blocks"
-        elif len(blocks) >= 2:
-            boundary_indices = find_change_indices(blocks)
-            boundary_source = "blocks"
-        else:
-            boundary_indices = []
-            boundary_source = None
-            
-        if include_first_block and n_trials > 0:
-            boundary_indices = [0] + boundary_indices
-
-        if not boundary_indices:
-            out[subj] = []
-            continue
-        
-        subj_results = []
-
-        for k, idx in enumerate(boundary_indices):
-            before_trial = idx - 1 if idx > 0 else 0
-
-            missing = [t for t in towers if t not in reward_by_tower]
-            if missing:
-                print(f"[SKIP] {subj} boundary@{idx}: missing towers in reward_magnitudes_by_tower: {missing}")
-                continue
-
-            try:
-                before_vals = [reward_by_tower[t][before_trial] for t in towers]
-            except IndexError:
-                print(f"[SKIP] {subj} boundary@{idx}: reward_magnitudes_by_tower too short for idx-1")
-                continue
-            
-            num_zeros = sum(v == 0 for v in before_vals)
-            if num_zeros > max_zero_count:
-                block_id = blocks[idx] if idx < len(blocks) else None
-                print(
-                    f"[SKIP] {subj} boundary@{idx} ({boundary_source}, block {block_id}): "
-                    f"more than {max_zero_count} zero rewards in {before_vals}"
-                )
-                continue
-
-            pre_start = max(0, idx - pre)
-            pre_end = idx
-            next_boundary = boundary_indices[k + 1] if (k + 1) < len(boundary_indices) else n_trials
-            post_start = idx
-            if post is None:
-                post_end = next_boundary
-            else:
-                post_end = min(n_trials, idx + post)
-                post_end = min(post_end, next_boundary)
-
-            pre_idx = list(range(pre_start, pre_end))
-            post_idx = list(range(post_start, post_end))
-
-            reward_before = {t: reward_by_tower[t][before_trial] for t in towers}
-            try:
-                reward_after = {t: reward_by_tower[t][idx] for t in towers}
-            except IndexError:
-                reward_after = {t: None for t in towers}
-
-            tower_slices = {}
-            for t, arr in choices_by_tower.items():
-                n = len(arr)
-                tower_slices[t] = {
-                    "pre":  [arr[i] for i in pre_idx if i < n],
-                    "post": [arr[i] for i in post_idx if i < n],
-                }
-
-            rank_slices = {}
-            for rk, arr in choices_by_rank.items():
-                n = len(arr)
-                rank_slices[rk] = {
-                    "pre":  [arr[i] for i in pre_idx if i < n],
-                    "post": [arr[i] for i in post_idx if i < n],
-                }
-
-            block_id = blocks[idx] if idx < len(blocks) else None
-
-            subj_results.append({
-                "reversal_idx": idx,
-                "boundary_source": boundary_source,
-                "good_reversal_number": (good[idx] if good is not None and idx < len(good) else block_id - 1),
-                "block_id": block_id,
-                "towers": towers,
-                "trial_window_idx": {"pre": pre_idx, "post": post_idx},
-                "reward_magnitudes_by_tower_before": reward_before,
-                "reward_magnitudes_by_tower_after": reward_after,
-                "choices_by_tower": tower_slices,
-                "choices_by_rank": rank_slices,
-            })
-
-        out[subj] = subj_results
-
-    return out
 
 def classify_towers_at_good_reversals(reversal):
     """Classify towers as prev-best, next-best, and third around a good reversal.
@@ -218,8 +275,11 @@ def classify_towers_at_good_reversals(reversal):
     Returns:
         A three-tuple ``(prev_best, next_best, third)`` of tower key strings.
     """
+    # Known issue: when prev_best == next_best, the third tower is taken from a set
+    # difference holding the two other towers, so which one is returned depends on
+    # PYTHONHASHSEED (e.g. ('A', 'A', 'C') in one run, ('A', 'A', 'B') in another).
     before = reversal["reward_magnitudes_by_tower_before"]
-    after  = reversal["reward_magnitudes_by_tower_after"]
+    after = reversal["reward_magnitudes_by_tower_after"]
 
     prev_best = max(before, key=before.get)
     next_best = max(after, key=after.get)
