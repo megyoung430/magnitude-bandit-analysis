@@ -1,0 +1,217 @@
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import pytest
+
+from src.behavior_analysis.average_choice_probs import average_across_problem_curves
+from src.behavior_visualization import plot_averaged_choice_probs as module
+from src.behavior_visualization.plot_averaged_choice_probs import (
+    plot_choice_probs_with_fraction_removed_axis,
+)
+from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
+from tests.plot_capture import capture_figures, lines_by_label
+
+X = np.array([-1.0, 0.0, 1.0])
+NAN = np.nan
+
+
+def problem_curve(prev, nxt, third, subjects, reversals):
+    return dict(
+        x=X.copy(),
+        across=dict(mean={"prev_best": prev, "next_best": nxt, "third": third}),
+        subjects=set(subjects),
+        num_reversals=reversals,
+    )
+
+
+@pytest.fixture
+def three_problems():
+    return {
+        3: problem_curve([0.6, 0.5, 0.4], [0.3, 0.3, 0.3], [0.1, 0.2, 0.3], {"a", "b"}, 5),
+        1: problem_curve([0.4, 0.3, NAN], [0.4, 0.4, NAN], [0.2, 0.3, NAN], {"b", "c"}, 4),
+        2: problem_curve([0.5, 0.4, 0.2], [0.3, 0.3, 0.4], [0.2, 0.3, 0.4], {"a"}, None),
+    }
+
+
+# ---------------------------------------------------------------- average_across_problem_curves
+
+
+def test_average_is_nanmean_over_problems_sorted_by_problem(three_problems):
+    x, avg = average_across_problem_curves(three_problems)
+    np.testing.assert_array_equal(x, X)
+    np.testing.assert_allclose(avg["mean"]["prev_best"], [0.5, 0.4, 0.3])
+    assert avg["problems_used"] == [1, 2, 3]
+    assert avg["num_problems"] == 3
+
+
+def test_average_counts_union_of_subjects_and_sums_reversals(three_problems):
+    _, avg = average_across_problem_curves(three_problems)
+    assert avg["num_subjects"] == 3  # a, b, c
+    assert avg["num_reversals"] == 9  # 4 + 0 (None) + 5
+
+
+def test_average_se_divides_by_number_of_problems_even_where_one_is_nan(three_problems):
+    # Known issue: at the last offset problem 1 is NaN, yet the SE keeps sqrt(3).
+    _, avg = average_across_problem_curves(three_problems)
+    stacked = np.array([[0.4, 0.3, NAN], [0.5, 0.4, 0.2], [0.6, 0.5, 0.4]])
+    expected = np.nanstd(stacked, axis=0, ddof=1) / np.sqrt(3)
+    np.testing.assert_allclose(avg["se"]["prev_best"], expected)
+    assert avg["se"]["prev_best"][2] == pytest.approx(np.std([0.2, 0.4], ddof=1) / np.sqrt(3))
+
+
+def test_average_single_problem_has_zero_se():
+    _, avg = average_across_problem_curves(
+        {7: problem_curve([0.6, 0.5, 0.4], [0.3, 0.3, 0.3], [0.1, 0.2, 0.3], {"a"}, 2)}
+    )
+    np.testing.assert_array_equal(avg["se"]["third"], np.zeros(3))
+    np.testing.assert_allclose(avg["mean"]["third"], [0.1, 0.2, 0.3])
+
+
+def test_average_key_missing_from_every_problem_is_none():
+    curves = {1: problem_curve([0.5] * 3, [0.3] * 3, [0.2] * 3, {"a"}, 1)}
+    del curves[1]["across"]["mean"]["third"]
+    _, avg = average_across_problem_curves(curves)
+    assert avg["mean"]["third"] is None and avg["se"]["third"] is None
+    assert avg["mean"]["prev_best"] is not None
+
+
+def test_average_rejects_empty_input_and_mismatched_x(three_problems):
+    with pytest.raises(ValueError, match="No problems to average."):
+        average_across_problem_curves({})
+    three_problems[2]["x"] = X + 1
+    with pytest.raises(ValueError, match="x-array mismatch between problems 1 and 2"):
+        average_across_problem_curves(three_problems)
+
+
+# ---------------------------------------------------------------- the figure
+
+AX = np.arange(-2, 3, dtype=float)
+ACROSS = dict(
+    mean=dict(
+        prev_best=np.array([0.6, 0.5, 0.2, 0.1, 0.1]),
+        next_best=np.array([0.2, 0.3, 0.5, 0.7, 0.8]),
+        third=np.array([0.2, 0.2, 0.3, 0.2, 0.1]),
+    ),
+    se=dict(prev_best=np.full(5, 0.05), next_best=np.full(5, 0.04), third=np.full(5, 0.03)),
+    num_subjects=4,
+    num_reversals=21,
+    num_problems=3,
+)
+FRAC = np.array([NAN, NAN, 0.0, 0.25, 0.5])
+
+
+@pytest.fixture
+def capture(monkeypatch):
+    return capture_figures(monkeypatch)
+
+
+def draw(capture, **kwargs):
+    plot_choice_probs_with_fraction_removed_axis(AX, ACROSS, FRAC, **kwargs)
+    assert len(capture.shown) + len(capture.saved) > 0
+    figure = (capture.shown[0] if capture.shown else [capture.saved[0].figure])[0]
+    left, right = figure.axes
+    return figure, left, right
+
+
+def test_show_when_no_save_path_and_figure_is_closed(capture):
+    fig, _, _ = draw(capture)
+    assert len(capture.shown) == 1 and capture.saved == []
+    assert not plt.fignum_exists(fig.number)
+
+
+def test_figure_layout_and_labels(capture):
+    fig, left, right = draw(capture)
+    assert tuple(fig.get_size_inches()) == (10, 6)
+    assert len(fig.axes) == 2 and right.get_shared_x_axes().joined(left, right)
+    assert left.get_xlabel() == "Trials from Good Reversal"
+    assert left.get_ylabel() == "Choice Probability"
+    assert right.get_ylabel() == "Fraction of Data Removed"
+    assert right.yaxis.label.get_rotation() == 270  # rotation=-90
+    assert left.get_ylim() == (0, 1) and right.get_ylim() == (0, 1)
+    assert left.get_xlim() == (-2, 2)
+    assert not left.spines["top"].get_visible() and not left.spines["right"].get_visible()
+    assert not right.spines["top"].get_visible()
+    assert left.get_title() == (
+        "Reversal-Aligned Choices\n(mean ± se across problems | "
+        "n=4 subjects, n=21 reversals, n=3 problems)\n"
+    )
+
+
+def test_choice_curves_use_arm_colours_and_labels(capture):
+    _, left, _ = draw(capture)
+    expected = {
+        "Previous Best": ("prev_best", ACROSS["mean"]["prev_best"]),
+        "New Best": ("next_best", ACROSS["mean"]["next_best"]),
+        "Third Arm": ("third", ACROSS["mean"]["third"]),
+    }
+    for label, (key, y) in expected.items():
+        (line,) = lines_by_label(left, label)
+        assert line.get_color() == CHOICE_PROB_COLOR_MAP[key]
+        assert line.get_linewidth() == 2
+        np.testing.assert_array_equal(line.get_xdata(), AX)
+        np.testing.assert_allclose(line.get_ydata(), y)
+    bands = left.collections
+    assert len(bands) == 3 and all(b.get_alpha() == 0.2 for b in bands)
+    prev_band = bands[0].get_paths()[0].vertices
+    assert prev_band[:, 1].max() == pytest.approx(0.65) and prev_band[:, 1].min() == pytest.approx(
+        0.05
+    )
+
+
+def test_reference_lines_and_fraction_step(capture):
+    _, left, right = draw(capture)
+    vline = [ln for ln in left.lines if list(ln.get_xdata()) == [0, 0]][0]
+    assert (vline.get_color(), vline.get_linestyle(), vline.get_linewidth()) == ("black", "--", 1)
+    hline = [ln for ln in left.lines if list(ln.get_ydata()) == [1 / 3, 1 / 3]][0]
+    assert (hline.get_color(), hline.get_linestyle(), hline.get_linewidth()) == ("gray", ":", 1)
+    (step,) = right.lines
+    assert step.get_color() == "#FF9100" and step.get_alpha() == 0.7
+    assert step.get_linewidth() == 2.0 and step.get_drawstyle() == "steps-post"
+    assert step.get_label() == "Total Rev"
+    np.testing.assert_array_equal(step.get_xdata(), AX[2:])
+    np.testing.assert_array_equal(step.get_ydata(), FRAC[2:])
+
+
+def test_legend_merges_both_axes(capture):
+    _, left, _ = draw(capture)
+    legend = left.get_legend()
+    assert [t.get_text() for t in legend.get_texts()] == [
+        "Previous Best",
+        "New Best",
+        "Third Arm",
+        "Total Rev",
+    ]
+    assert legend._loc == 2  # upper left
+    assert legend.get_texts()[0].get_fontsize() == 10
+
+
+def test_title_extra_is_appended(capture):
+    _, left, _ = draw(capture, title_extra="Early reversals")
+    assert left.get_title().endswith("n=3 problems)\nEarly reversals")
+
+
+def test_all_nan_curve_is_not_drawn_and_missing_fraction_has_no_step(capture):
+    across = {**ACROSS, "mean": {**ACROSS["mean"], "third": np.full(5, NAN)}}
+    plot_choice_probs_with_fraction_removed_axis(AX, across, np.full(5, NAN))
+    left, right = capture.shown[0][0].axes
+    assert [ln.get_label() for ln in left.lines if ln.get_label()[0] != "_"] == [
+        "Previous Best",
+        "New Best",
+    ]
+    assert len(right.lines) == 0
+
+
+def test_save_path_writes_pdf_then_png_and_creates_parent(capture, tmp_path):
+    base = tmp_path / "new_dir" / "Choice Probabilities"
+    plot_choice_probs_with_fraction_removed_axis(AX, ACROSS, FRAC, save_path=base)
+    assert capture.shown == []
+    pdf, png = capture.saved
+    assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
+    assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
+    assert base.parent.is_dir()
+
+
+def test_average_is_reexported_from_the_plotting_module():
+    assert module.average_across_problem_curves is average_across_problem_curves
