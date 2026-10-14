@@ -16,6 +16,9 @@ The public entry points are thin compositions of small pure helpers:
 
 Simulations consume the random generator in a fixed order, so a seeded
 generator reproduces a session exactly.
+
+Helpers whose names do not start with an underscore are importable for tests but
+are not stable API; only the names in ``__all__`` are.
 """
 
 from __future__ import annotations
@@ -102,9 +105,14 @@ def draw_block_boundaries(
     """Trial indices at which blocks end, drawn from random block lengths.
 
     Block lengths are uniform on ``[min_block_len, max_block_len]``; boundaries at
-    or beyond *T* are dropped. All *n_blocks_draw* lengths come from one
-    ``rng.integers`` call, so the generator advances identically however many
-    boundaries survive.
+    or beyond *T* are dropped. The lengths are not validated: if *min_block_len* is
+    zero or negative (the default minimum when ``max_block_len <= 10``), a block can
+    have zero or negative length, so the returned boundaries can be unsorted or
+    contain duplicates. :func:`build_arm_values` ignores repeated and non-positive
+    boundaries, but the returned array itself is not cleaned.
+
+    All *n_blocks_draw* lengths come from one ``rng.integers`` call, so the
+    generator advances identically however many boundaries survive.
     """
     block_lengths = rng.integers(min_block_len, max_block_len + 1, size=n_blocks_draw)
     boundaries = np.cumsum(block_lengths)
@@ -164,6 +172,10 @@ def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
     Two arms are active and read the two *streams*; the third is inactive and
     pays zero. At each boundary the best arm turns inactive (see
     :func:`swap_arm_roles`), so only the roles change, not the streams.
+
+    *boundaries* need not be sorted: repeated boundaries and boundaries below 1 are
+    ignored (``np.unique``, then dropping values < 1), and boundaries at or beyond
+    ``len(streams)`` never trigger a swap.
     """
     T = len(streams)
     vals3 = np.zeros((T, 3), dtype=float)
@@ -245,7 +257,7 @@ def simulate_3armed_blockswaps_gp(
     jitter: float = 1e-6,
     use_raw: bool = False,
     return_session: bool = False,
-):
+) -> tuple[float, float, float, float] | tuple[float, float, float, float, dict]:
     """Simulate a 3-armed GP bandit session with block-swap dynamics.
 
     Two arms are active at any time; at each block boundary the current best
@@ -256,7 +268,10 @@ def simulate_3armed_blockswaps_gp(
         sig: GP length-scale.
         max_block_len: Maximum block length in trials.
         min_block_len: Minimum block length (defaults to
-            ``max_block_len - 10``).
+            ``max_block_len - 10``). Block lengths are not validated: with
+            ``max_block_len <= 10`` the default minimum is zero or negative, so
+            block boundaries can be unsorted or duplicated (see
+            :func:`draw_block_boundaries`).
         n_blocks_draw: Number of block lengths to pre-sample (default: 1000).
         rng: Optional random generator.
         scale: GP amplitude scaling (default: 2.0).
@@ -323,9 +338,10 @@ def mean_left_to_right(values: Iterable[float], *, count: int | None = None) -> 
 
     Args:
         values: Numbers to average.
-        count: Divisor; defaults to the number of *values*. The sweep passes its
-            ``n_sims`` so that a non-positive ``n_sims`` divides exactly as the
-            accumulating loop always did (0 raises, a negative count gives -0.0).
+        count: Divisor; defaults to the number of *values*. When given, it is
+            the divisor whatever the number of *values*: 0 raises
+            ``ZeroDivisionError`` and a negative value gives -0.0 for an empty
+            input.
     """
     values = list(values)
     return reduce(operator.add, values, 0.0) / (len(values) if count is None else count)
@@ -336,7 +352,8 @@ def summarize_sweep_cell(results: list[tuple], *, n_sims: int) -> tuple[float, f
 
     Args:
         results: One :func:`simulate_3armed_blockswaps_gp` return per simulation.
-        n_sims: Number of simulations requested for the cell (the divisor).
+        n_sims: Number of simulations requested for the cell. It is the divisor:
+            0 raises ``ZeroDivisionError`` and a negative value gives -0.0.
 
     Returns:
         ``(gap_mean, gap_ge2, run_mean, run_std)``.
@@ -489,19 +506,22 @@ def simulate_example_session(
     clip: tuple[int, int],
     jitter: float,
     use_raw: bool,
-) -> tuple[tuple[float, ...], dict]:
+) -> tuple[tuple[float, float, float, float], dict]:
     """Simulate one seeded session.
 
     Returns:
         ``((gap_mean, gap_ge2, run_mean, run_std), session)`` as returned by
         :func:`simulate_3armed_blockswaps_gp` with ``return_session=True``.
     """
+    # The generator comes first so an invalid seed is reported before an invalid
+    # sig or max_block_len.
+    rng = np.random.default_rng(seed)
     *metrics, session = simulate_3armed_blockswaps_gp(
         T=T,
         sig=float(sig),
         max_block_len=int(max_block_len),
         min_block_len=int(max_block_len) - 10,
-        rng=np.random.default_rng(seed),
+        rng=rng,
         scale=scale,
         shift=shift,
         clip=clip,
@@ -513,7 +533,11 @@ def simulate_example_session(
 
 
 def format_session_title(
-    metrics: tuple[float, ...], *, sig: float, max_block_len: int, title: str | None = None
+    metrics: tuple[float, float, float, float],
+    *,
+    sig: float,
+    max_block_len: int,
+    title: str | None = None,
 ) -> str:
     """*title* if given, otherwise a summary of the parameters and session metrics."""
     gap_mean, gap_ge2, run_mean, run_std = metrics
@@ -524,8 +548,12 @@ def format_session_title(
     )
 
 
-def y_axis_max(vals3: np.ndarray, *, clip: tuple[int, int], use_raw: bool) -> float:
-    """Largest reward the y-axis must show: the clip maximum, or the data maximum if raw."""
+def y_axis_max(vals3: np.ndarray, *, clip: tuple[int, int], use_raw: bool) -> float | int:
+    """Largest reward the y-axis must show: the clip maximum, or the data maximum if raw.
+
+    The clip maximum keeps its type (an ``int`` for the default clip); the data
+    maximum is a float.
+    """
     return np.nanmax(vals3) if use_raw else max(clip)
 
 

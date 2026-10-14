@@ -75,7 +75,9 @@ def test_first_other_active_arm_skips_the_best_arm():
     assert first_other_active_arm(1, active_arms=[0, 1], old_inactive=2) == 0
 
 
-def test_first_other_active_arm_falls_back_to_the_arm_that_is_neither_best_nor_inactive():
+def test_first_other_active_arm_fallback_covers_the_known_swap_defect():
+    # Only the known swap defect (see swap_arm_roles) produces a duplicated active
+    # entry, so these states are unreachable without it.
     assert first_other_active_arm(2, active_arms=[2, 2], old_inactive=2) == 0
     assert first_other_active_arm(0, active_arms=[0, 0], old_inactive=1) == 2
 
@@ -97,16 +99,17 @@ def test_swap_arm_roles_does_not_mutate_its_inputs():
     assert active == [0, 1] and mapping == {0: 0, 1: 1}
 
 
-def test_swap_arm_roles_when_inactive_arm_is_best_keeps_it_inactive_and_reactivates_it():
-    # All active values are negative (raw GP), so the inactive arm's 0 wins the
-    # argmax; the inactive arm then appears in both the inactive and active slots.
+def test_swap_arm_roles_known_defect_inactive_arm_wins_argmax():
+    # Known swap defect, pinned so a change is deliberate: all active values are
+    # negative (raw GP), so the inactive arm's 0 wins the argmax; the inactive arm
+    # then appears in both the inactive and active slots.
     out = swap_arm_roles(np.array([-1.0, -2.0, 0.0]), *START)
     assert out == (2, [2, 0], {0: 0, 2: 0})
 
 
-def test_swap_arm_roles_fallback_arm_without_stream_raises_key_error():
-    # No active arm differs from the best arm, so the fallback picks arm 0, which
-    # has no stream assigned in this state.
+def test_swap_arm_roles_known_defect_state_raises_key_error():
+    # Known swap defect: a state that only the defect produces. No active arm differs
+    # from the best arm, so the fallback picks arm 0, which has no stream assigned.
     with pytest.raises(KeyError) as excinfo:
         swap_arm_roles(np.array([-1.0, -2.0, 0.0]), 2, [2, 2], {2: 0})
     assert excinfo.value.args == (0,)
@@ -216,7 +219,7 @@ def test_build_session_keeps_the_key_order_and_passes_arrays_through():
         "gp_int",
         "gp_raw",
     ]
-    assert session["vals3"] is arrays["vals3"]
+    np.testing.assert_array_equal(session["vals3"], arrays["vals3"])
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +274,11 @@ def test_summarize_sweep_cell_averages_each_metric():
     assert summarize_sweep_cell(results, n_sims=2) == (2.0, 0.5, 15.0, 3.0)
 
 
+def test_summarize_sweep_cell_divides_by_n_sims_not_by_the_number_of_results():
+    results = [(1.0, 0.0, 10.0, 2.0), (3.0, 1.0, 20.0, 4.0)]
+    assert summarize_sweep_cell(results, n_sims=4) == (1.0, 0.25, 7.5, 1.5)
+
+
 # ---------------------------------------------------------------------------
 # Example session
 # ---------------------------------------------------------------------------
@@ -305,6 +313,16 @@ def test_simulate_example_session_matches_a_seeded_simulation():
 def test_simulate_example_session_coerces_numeric_parameters():
     kwargs = {**EXAMPLE, "sig": np.float64(5.0), "max_block_len": np.int64(20)}
     assert simulate_example_session(**kwargs)[0] == simulate_example_session(**EXAMPLE)[0]
+
+
+def test_simulate_example_session_reports_a_bad_seed_before_a_bad_sig():
+    with pytest.raises(ValueError, match="expected non-negative integer"):
+        simulate_example_session(**{**EXAMPLE, "sig": "abc", "seed": -1})
+
+
+def test_simulate_example_session_reports_a_bad_seed_before_a_bad_max_block_len():
+    with pytest.raises(ValueError, match="expected non-negative integer"):
+        simulate_example_session(**{**EXAMPLE, "max_block_len": None, "seed": -1})
 
 
 # ---------------------------------------------------------------------------

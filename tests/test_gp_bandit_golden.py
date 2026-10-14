@@ -6,6 +6,8 @@ in the order or number of random draws fails here.  Inputs are tiny and built
 inline, so nothing depends on lab data.
 """
 
+import itertools
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -623,7 +625,11 @@ def test_simulate_3armed_blockswaps_gp_matches_golden(seed, use_raw):
     # Key order is part of the contract: callers may unpack the dict in order.
     assert list(session) == list(expected_session)
     for key, expected in expected_session.items():
-        np.testing.assert_array_equal(session[key], np.array(expected), err_msg=key)
+        # Compare bytes and dtype: assert_array_equal would accept -0.0 for the
+        # inactive arm's +0.0 and a float32 copy of a float64 array.
+        want = np.array(expected)
+        assert session[key].dtype == want.dtype, key
+        assert session[key].tobytes() == want.tobytes(), key
     assert generator_state(rng) == state
 
 
@@ -652,7 +658,24 @@ def test_sweep_gp_metrics_with_raw_values_matches_golden():
 
 def test_sweep_returns_independent_arrays():
     heatmaps = sweep_gp_metrics(n_sims=1, **SWEEP_KWARGS)
-    assert all(h.base is None for h in heatmaps)
+    for first, second in itertools.combinations(heatmaps, 2):
+        assert not np.shares_memory(first, second)
+
+
+# n_sims is the divisor of every cell: a negative value divides an empty sum into
+# -0.0 and 0 raises, so replacing it with the number of results would change both.
+def test_sweep_gp_metrics_negative_n_sims_gives_negative_zero_heatmaps(capsys):
+    heatmaps = sweep_gp_metrics(n_sims=-2, **SWEEP_KWARGS)
+    for heatmap in heatmaps:
+        assert heatmap.shape == (2, 2)
+        assert np.all(heatmap == 0) and np.all(np.signbit(heatmap))
+    assert capsys.readouterr().out == GOLDEN["sweep3"][1]
+
+
+def test_sweep_gp_metrics_zero_n_sims_raises_before_printing(capsys):
+    with pytest.raises(ZeroDivisionError):
+        sweep_gp_metrics(n_sims=0, **SWEEP_KWARGS)
+    assert capsys.readouterr().out == ""
 
 
 # Non-positive reward values can make the inactive arm win the argmax at a block
