@@ -275,8 +275,9 @@ def _draw_session(
     _style_spines((ax1, ax2, ax3, ax4))
     # The GridSpecs set hspace/wspace explicitly, which tight_layout reports as
     # "This figure includes Axes that are not compatible with tight_layout"
-    # (with or without the twin axis). tight_layout then recomputes the spacing
-    # itself and the result is what we want, so hide that one UserWarning.
+    # (with or without the twin axis) and then leaves every axis where the GridSpecs
+    # put it. The call has no effect on this figure; it stays only so the figure
+    # matches main, and that one UserWarning is hidden.
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message=".*not compatible with tight_layout", category=UserWarning
