@@ -6,14 +6,18 @@ design matrices suitable for multinomial logistic regression.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from functools import partial
-from itertools import compress
+from itertools import compress, pairwise
 from typing import Any
 
 import numpy as np
 
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+
+logger = logging.getLogger(__name__)
 
 
 def make_arm_mapping(tower_keys: Any) -> dict[str, str]:
@@ -98,12 +102,57 @@ _ARM_REDUNDANT = ("Arm3",)
 _RANK_REDUNDANT = ("Chose Third", "Third*Reward")
 
 
-def _n_design_cols(n_lags: int) -> int:
-    """Width of the full design matrix: bias, then 3 choices + 1 reward + 3 interactions per lag.
+@dataclass(frozen=True)
+class RowCounts:
+    """Where one subject's trials went on the way to the fitted rows.
 
-    A negative ``n_lags`` has no lags, like zero: the matrix is the bias alone.
+    ``n_trials = n_dropped_no_history + n_dropped_nan + n_rows``.
+
+    Attributes:
+        n_trials: Trials of the subject across all sessions.
+        n_dropped_no_history: Trials whose lags reach before the start of the
+            data (``reset_history_per_session=False``) or before the start of
+            their session (``True``).
+        n_dropped_nan: Remaining trials with a NaN response (true choice) or a
+            NaN in any regressor.
+        n_rows: Rows returned.
     """
-    return 1 + (2 * _N_ARMS + 1) * max(n_lags, 0)
+
+    n_trials: int
+    n_dropped_no_history: int
+    n_dropped_nan: int
+    n_rows: int
+
+
+@dataclass(frozen=True)
+class GlmDesign:
+    """Design matrices of all subjects together with how they were built.
+
+    Attributes:
+        regressors: ``{subject: ndarray(n_rows, n_cols)}``.
+        true_choices: ``{subject: ndarray(n_rows, 3)}``.
+        col_labels: One label per column of every regressor matrix.
+        row_counts: ``{subject: RowCounts}``.
+        n_lags: Number of history lags.
+        reset_history_per_session: Whether lags (and, for the rank design,
+            believed ranks) were restricted to the trial's own session.
+    """
+
+    regressors: dict[str, np.ndarray]
+    true_choices: dict[str, np.ndarray]
+    col_labels: list[str]
+    row_counts: dict[str, RowCounts]
+    n_lags: int
+    reset_history_per_session: bool
+
+
+@dataclass(frozen=True)
+class _Subject:
+    """One subject's merged trials plus the length of each merged session."""
+
+    name: str
+    data: dict[str, Any]
+    session_lengths: list[int]
 
 
 def _design_labels(
@@ -197,21 +246,6 @@ def _design_matrix(
     return np.hstack(blocks)
 
 
-def _designs_by_subject(
-    merged_data: dict[str, dict[str, Any]],
-    *,
-    design_fn: Callable[[dict[str, Any]], tuple[np.ndarray, np.ndarray]],
-) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-    """Apply ``design_fn(subject_data) -> (regressors, true_choices)`` to every subject.
-
-    Returns ``({subject: regressors}, {subject: true_choices})``.
-    """
-    per_subject = {subject: design_fn(data) for subject, data in merged_data.items()}
-    regressors = {subject: x for subject, (x, _) in per_subject.items()}
-    true_choices = {subject: y for subject, (_, y) in per_subject.items()}
-    return regressors, true_choices
-
-
 def _arm_labels(n_lags: int) -> list[str]:
     arms = [f"Arm{a}" for a in range(1, _N_ARMS + 1)]
     return _design_labels(
@@ -231,72 +265,221 @@ def _rank_labels(n_lags: int) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Sessions, history rows and NaN rows
+# ---------------------------------------------------------------------------
+
+
+def _check_sessions_aligned(subject: str, unmerged: dict[str, list]) -> None:
+    """Raise unless every session but the last has exactly one entry per trial.
+
+    Sessions are merged by concatenating their lists, so a list that is too
+    short or too long in one session moves every later session's entries onto
+    the wrong trials. Only the last session is exempt: nothing follows it, and
+    its final reward is never part of any history.
+    """
+    n_trials = [len(trials) for trials in unmerged["trial"]]
+    for kind, key in (("choices", "choices_by_tower"), ("rewards", "reward_magnitudes_by_tower")):
+        per_session = [dict(d) for d in unmerged[key]]
+        towers = sorted({tower for d in per_session for tower in d})
+        for i, (n, series_by_tower) in enumerate(zip(n_trials[:-1], per_session, strict=False)):
+            for tower in towers:
+                n_values = len(series_by_tower.get(tower) or [])
+                if n_values != n:
+                    raise ValueError(
+                        f"subject {subject!r}: session {i + 1} of {len(n_trials)} has {n_values} "
+                        f"{kind} for tower {tower!r} but {n} trials; concatenating the sessions "
+                        "would misalign every later session"
+                    )
+
+
+def _subjects(data: dict[str, Any]) -> list[_Subject]:
+    """Merge every subject's sessions and keep the session lengths for history resets."""
+    merged, unmerged = get_vars_across_all_sessions(data)
+    for name, parts in unmerged.items():
+        _check_sessions_aligned(name, parts)
+    return [
+        _Subject(name, merged[name], [len(trials) for trials in unmerged[name]["trial"]])
+        for name in merged
+    ]
+
+
+def _positions_in_session(session_lengths: list[int], n_trials: int) -> np.ndarray:
+    """0-based position of each of the first ``n_trials`` merged trials within its session.
+
+    Trials beyond the summed session lengths count on in the last session.
+    """
+    index = np.arange(n_trials)
+    if not session_lengths:
+        return index
+    starts = np.cumsum([0, *session_lengths[:-1]])
+    return index - starts[np.searchsorted(starts, index, side="right") - 1]
+
+
+def _history_ready(
+    positions: np.ndarray, *, n_lags: int, reset: bool, first_row: int
+) -> np.ndarray:
+    """Boolean mask of the trials whose ``n_lags`` lags all have a real trial behind them.
+
+    With ``reset`` a lag may not leave the trial's own session, so the first
+    ``n_lags`` trials of every session are not ready. Without it, history runs
+    across sessions and only the trials before ``first_row`` of the merged data
+    are not ready.
+    """
+    if reset:
+        return positions >= n_lags
+    return np.arange(len(positions)) >= first_row
+
+
+def _select_complete_rows(
+    regressors: np.ndarray, true_choices: np.ndarray, ready: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, RowCounts]:
+    """Rows that are ready and free of NaN in the regressors and the true choice.
+
+    The full-width regressors are checked, including the columns that may be
+    dropped later: a redundant column is NaN only where another used column is.
+    """
+    complete = ~(np.isnan(regressors).any(axis=1) | np.isnan(true_choices).any(axis=1))
+    keep = ready & complete
+    counts = RowCounts(
+        n_trials=len(regressors),
+        n_dropped_no_history=int((~ready).sum()),
+        n_dropped_nan=int((ready & ~complete).sum()),
+        n_rows=int(keep.sum()),
+    )
+    return regressors[keep], true_choices[keep], counts
+
+
+def _build_design(
+    data: dict[str, Any],
+    *,
+    design_fn: Callable[[_Subject], tuple[np.ndarray, np.ndarray, RowCounts]],
+    full_labels: list[str],
+    redundant_patterns: tuple[str, ...],
+    drop_redundant_cols: bool,
+    n_lags: int,
+    reset: bool,
+) -> GlmDesign:
+    """Apply ``design_fn`` to every subject and drop the redundant columns of all of them.
+
+    The returned labels are those of the returned columns.
+    """
+    per_subject = {s.name: design_fn(s) for s in _subjects(data)}
+    keep = (
+        _keep_mask(full_labels, redundant_patterns=redundant_patterns)
+        if drop_redundant_cols
+        else np.ones(len(full_labels), dtype=bool)
+    )
+    for name, (_, _, counts) in per_subject.items():
+        if counts.n_dropped_nan:
+            logger.info(
+                "subject %s: dropped %d of %d trials with a NaN response or regressor",
+                name,
+                counts.n_dropped_nan,
+                counts.n_trials,
+            )
+    return GlmDesign(
+        regressors={name: x[:, keep] for name, (x, _, _) in per_subject.items()},
+        true_choices={name: y for name, (_, y, _) in per_subject.items()},
+        col_labels=list(compress(full_labels, keep)),
+        row_counts={name: counts for name, (_, _, counts) in per_subject.items()},
+        n_lags=n_lags,
+        reset_history_per_session=reset,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Arm-ordered GLM
 # ---------------------------------------------------------------------------
 
 
-def _raise_unless_three_arms(choices_by_arm: dict[str, list[int]], *, n_towers: int) -> None:
-    """Fail for a tower count other than three, by assigning three choices into ``n_towers`` slots.
+def _check_three_towers(subject: str, towers: Any) -> None:
+    """Raise unless the subject has exactly the three towers the arm design is built for."""
+    if len(towers) != _N_ARMS:
+        raise ValueError(
+            f"expected exactly {_N_ARMS} towers, got {len(towers)} ({sorted(towers)}) "
+            f"for subject {subject!r}"
+        )
 
-    The assignment below is the check, not scratch work: its result is unused,
-    but it is what raises. Fewer towers fail with ``KeyError('Arm3')`` (or
-    ``'Arm2'``) while the three arm choices are looked up; more fail with
-    numpy's "could not broadcast input array" ``ValueError``. Removing it would
-    let a 4th or later tower silently drop out of the design matrix.
 
-    Known issue: the check is implicit and its message does not name the cause;
-    the exception types and messages are kept as they have always been.
-    """
-    first_row = np.zeros(n_towers)
-    first_row[:] = [choices_by_arm[f"Arm{a}"][1] for a in range(1, _N_ARMS + 1)]
+def _check_choices_cover_trials(
+    subject: str, choices_by_tower: dict[str, list[int]], *, n_trials: int
+) -> None:
+    """Raise if a tower has fewer choices than there are trials."""
+    for tower, choices in choices_by_tower.items():
+        if len(choices) < n_trials:
+            raise ValueError(
+                f"subject {subject!r}: tower {tower!r} has {len(choices)} choices "
+                f"but there are {n_trials} trials"
+            )
 
 
 def _choice_rows(series: list[list[int]], *, n_trials: int) -> list[list[int]]:
-    """The first ``n_trials`` choices of every arm series, one row per trial.
-
-    Raises ``IndexError`` if a series is shorter than ``n_trials``.
-    """
+    """The first ``n_trials`` choices of every arm series, one row per trial."""
     return [[s[t] for s in series] for t in range(n_trials)]
 
 
 def _arm_design_for_subject(
-    subject_data: dict[str, Any], *, n_lags: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """Full-width regressors and true choices (first trial dropped) for one subject.
+    subject: _Subject, *, n_lags: int, reset: bool
+) -> tuple[np.ndarray, np.ndarray, RowCounts]:
+    """Full-width regressors and true choices of the usable trials of one subject.
 
-    Known issue: a choice series shorter than ``trial`` raises ``IndexError``,
-    and a reward list one shorter than ``trial`` is accepted (the last reward
-    is never used) but, when it belongs to a session that is not last, shifts
-    every later session's rewards one trial earlier after merging.
+    A reward list one shorter than ``trial`` is accepted for the last session
+    (its final reward is never used).
     """
-    choices_by_tower = subject_data["choices_by_tower"]
+    choices_by_tower = subject.data["choices_by_tower"]
+    n_trials = len(subject.data["trial"])
+    _check_three_towers(subject.name, choices_by_tower)
+    _check_choices_cover_trials(subject.name, choices_by_tower, n_trials=n_trials)
     chosen_rewards = get_chosen_reward_per_trial(
-        choices_by_tower, subject_data["reward_magnitudes_by_tower"]
+        choices_by_tower, subject.data["reward_magnitudes_by_tower"]
     )
-    n_trials = len(subject_data["trial"])
-    n_towers = len(choices_by_tower)
-    if n_trials < 2:  # the first trial has no history, so no row survives
-        return np.zeros((0, _n_design_cols(n_lags))), np.zeros((0, n_towers))
 
     choices_by_arm = remap_tower_dict_to_arms(choices_by_tower, make_arm_mapping(choices_by_tower))
-    _raise_unless_three_arms(choices_by_arm, n_towers=n_towers)
     series = [choices_by_arm[f"Arm{a}"] for a in range(1, _N_ARMS + 1)]
-
-    # Rewards are checked for the trials that have choices before a short choice
-    # series is reported, so errors surface in trial order.
-    readable = min(n_trials, *map(len, series))
-    rewards, interactions = _history_terms(
-        _choice_rows(series, n_trials=readable), chosen_rewards, n_lags=n_lags
-    )
-    choices = np.array(_choice_rows(series, n_trials=n_trials), dtype=float)
+    rows = _choice_rows(series, n_trials=n_trials)
+    rewards, interactions = _history_terms(rows, chosen_rewards, n_lags=n_lags)
+    choices = np.array(rows, dtype=float).reshape(-1, _N_ARMS)
     x = _design_matrix(choices, rewards, interactions, n_lags=n_lags, fill=0.0)
-    return x[1:], choices[1:]
+    # Without a reset, history before the first trial is zero-filled: only trial 0 lacks history.
+    ready = _history_ready(
+        _positions_in_session(subject.session_lengths, n_trials),
+        n_lags=n_lags,
+        reset=reset,
+        first_row=1,
+    )
+    return _select_complete_rows(x, choices, ready)
+
+
+def format_glm_input_with_info(
+    data: dict[str, Any],
+    n_lags: int = 4,
+    drop_redundant_cols: bool = True,
+    *,
+    reset_history_per_session: bool = True,
+) -> GlmDesign:
+    """Build arm-ordered GLM design matrices and report how they were built.
+
+    Same as :func:`format_glm_input`, but returns a :class:`GlmDesign` that also
+    records ``n_lags``, ``reset_history_per_session`` and, per subject, how many
+    trials were dropped and why (:class:`RowCounts`).
+    """
+    return _build_design(
+        data,
+        design_fn=partial(_arm_design_for_subject, n_lags=n_lags, reset=reset_history_per_session),
+        full_labels=_arm_labels(n_lags),
+        redundant_patterns=_ARM_REDUNDANT,
+        drop_redundant_cols=drop_redundant_cols,
+        n_lags=n_lags,
+        reset=reset_history_per_session,
+    )
 
 
 def format_glm_input(
     data: dict[str, Any],
     n_lags: int = 4,
     drop_redundant_cols: bool = True,
+    *,
+    reset_history_per_session: bool = True,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]:
     """Build GLM design matrices and true-choice arrays for all subjects.
 
@@ -313,40 +496,48 @@ def format_glm_input(
         drop_redundant_cols: If ``True``, removes the ``Arm3`` columns for
             choice and interaction terms to make the design matrix full rank
             (default: ``True``).
+        reset_history_per_session: How lags treat session boundaries
+            (keyword-only, default ``True``).
+
+            - ``True``: a lag never crosses a session boundary. The first
+              ``n_lags`` trials of every session have no complete history and
+              are dropped (with ``n_lags=0`` nothing is dropped).
+            - ``False``: sessions are concatenated and history runs across
+              their boundaries; only the first trial of the whole data is
+              dropped, and lags reaching before it are zero-filled.
+
+    Rows with a NaN regressor (for example a NaN reward in the history) or a
+    NaN true choice are dropped in both settings; use
+    :func:`format_glm_input_with_info` to get the number of dropped rows and the
+    settings used.
 
     Returns:
         A three-tuple ``(regressors_across_subjects, true_choices_across_subjects,
         col_labels)`` where:
 
-        - *regressors_across_subjects* is ``{subject: ndarray(n_trials, n_cols)}``,
-        - *true_choices_across_subjects* is ``{subject: ndarray(n_trials, 3)}``,
-        - *col_labels* is a list of column label strings. Known issue: the
-          labels always omit the ``Arm3`` columns, so with
-          ``drop_redundant_cols=False`` they do not match the returned columns.
+        - *regressors_across_subjects* is ``{subject: ndarray(n_rows, n_cols)}``,
+        - *true_choices_across_subjects* is ``{subject: ndarray(n_rows, 3)}``,
+        - *col_labels* is the list of the column labels of the returned
+          matrices (``Arm3`` columns included only with
+          ``drop_redundant_cols=False``).
 
     Raises:
-        KeyError, ValueError, IndexError: For malformed subjects (a tower count
-            other than three, a trial without exactly one chosen tower, a
-            choice series shorter than ``trial``).
+        ValueError: For malformed subjects: a tower count other than three, a
+            trial without exactly one chosen tower, a choice series shorter
+            than ``trial``, or a session other than the last whose choice or
+            reward lists do not have one entry per trial (concatenation would
+            shift every later session).
+        KeyError: If the choices lack a tower that has rewards.
         TypeError: If the reward of a chosen tower that enters a lag is missing
             (``None``) and ``n_lags >= 1``.
-
-    Known issues:
-        - Sessions are concatenated before the design is built, so the first
-          trials of a session use the end of the previous session as lag
-          history.
-        - Only subjects with exactly three towers are supported.
     """
-    merged_data, _ = get_vars_across_all_sessions(data)
-
-    full_labels = _arm_labels(n_lags)
-    keep = _keep_mask(full_labels, redundant_patterns=_ARM_REDUNDANT)
-    regressors, true_choices = _designs_by_subject(
-        merged_data, design_fn=partial(_arm_design_for_subject, n_lags=n_lags)
+    design = format_glm_input_with_info(
+        data,
+        n_lags,
+        drop_redundant_cols,
+        reset_history_per_session=reset_history_per_session,
     )
-    if drop_redundant_cols:
-        regressors = {subject: x[:, keep] for subject, x in regressors.items()}
-    return regressors, true_choices, list(compress(full_labels, keep))
+    return design.regressors, design.true_choices, design.col_labels
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +584,18 @@ def _get_believed_rank_at_trial(
             last_seen[choice] = rm[choice]
 
     return result
+
+
+def _believed_ranks_by_session(
+    chosen: list, magnitudes: list[dict], positions: np.ndarray
+) -> list[dict | None]:
+    """Believed ranks computed afresh at every session start (``positions == 0``)."""
+    starts = [*np.flatnonzero(positions == 0).tolist(), len(chosen)]
+    return [
+        rank
+        for first, last in pairwise(starts)
+        for rank in _get_believed_rank_at_trial(chosen[first:last], magnitudes[first:last])
+    ]
 
 
 def _chosen_tower_per_trial(
@@ -442,36 +645,31 @@ def _chose_rank_indicators(
     ]
 
 
-def _complete_history_rows(regressors: np.ndarray) -> np.ndarray:
-    """Indices of rows after the first trial that contain no NaN."""
-    rows = np.arange(1, len(regressors))
-    return rows[~np.isnan(regressors[rows]).any(axis=1)]
-
-
 def _rank_design_for_subject(
-    subject_data: dict[str, Any], *, use_believed: bool, n_lags: int
-) -> tuple[np.ndarray, np.ndarray]:
-    """Full-width regressors and rank-ordered true choices for one subject.
+    subject: _Subject, *, use_believed: bool, n_lags: int, reset: bool
+) -> tuple[np.ndarray, np.ndarray, RowCounts]:
+    """Full-width regressors and rank-ordered true choices of the usable trials of one subject.
 
-    Only trials with a complete history (no NaN anywhere in the row) are kept.
-    A kept row's own outcome (true choice) can still be NaN, since the outcome
-    is not part of the row's regressors.
+    Only trials with a complete history (no NaN anywhere in the row) and a
+    known own outcome (true choice) are kept.
     """
-    choices_by_tower = subject_data["choices_by_tower"]
-    reward_magnitudes_by_tower = subject_data["reward_magnitudes_by_tower"]
+    choices_by_tower = subject.data["choices_by_tower"]
+    reward_magnitudes_by_tower = subject.data["reward_magnitudes_by_tower"]
     towers = list(choices_by_tower)
 
     n_trials = min(
         min(len(choices_by_tower[t]) for t in towers),
         min(len(reward_magnitudes_by_tower[t]) for t in towers),
     )
+    positions = _positions_in_session(subject.session_lengths, n_trials)
     chosen = _chosen_tower_per_trial(choices_by_tower, towers, n_trials=n_trials)
     magnitudes = _reward_magnitudes_per_trial(reward_magnitudes_by_tower, towers, n_trials=n_trials)
-    rank_at_trial = (
-        _get_believed_rank_at_trial(chosen, magnitudes)
-        if use_believed
-        else [_ranks_from_magnitudes(rm) for rm in magnitudes]
-    )
+    if not use_believed:
+        rank_at_trial = [_ranks_from_magnitudes(rm) for rm in magnitudes]
+    elif reset:
+        rank_at_trial = _believed_ranks_by_session(chosen, magnitudes, positions)
+    else:
+        rank_at_trial = _get_believed_rank_at_trial(chosen, magnitudes)
     # The rank indicator at trial t is both the outcome at t and the choice
     # regressor at t+lag, so one array serves as true choices and history.
     indicator_rows = _chose_rank_indicators(chosen, rank_at_trial)
@@ -480,8 +678,40 @@ def _rank_design_for_subject(
         indicator_rows, _chosen_rewards(reward_magnitudes_by_tower, chosen), n_lags=n_lags
     )
     regressors = _design_matrix(indicators, rewards, interactions, n_lags=n_lags, fill=np.nan)
-    rows = _complete_history_rows(regressors)
-    return regressors[rows], indicators[rows]
+    # Without a reset, lags that reach before the first trial are NaN, so the
+    # first max(n_lags, 1) trials of the merged data lack history.
+    ready = _history_ready(positions, n_lags=n_lags, reset=reset, first_row=max(n_lags, 1))
+    return _select_complete_rows(regressors, indicators, ready)
+
+
+def format_glm_input_by_rank_with_info(
+    data: dict[str, Any],
+    use_believed: bool = False,
+    n_lags: int = 4,
+    drop_redundant_cols: bool = True,
+    *,
+    reset_history_per_session: bool = True,
+) -> GlmDesign:
+    """Build rank-ordered GLM design matrices and report how they were built.
+
+    Same as :func:`format_glm_input_by_rank`, but returns a :class:`GlmDesign`
+    that also records ``n_lags``, ``reset_history_per_session`` and, per
+    subject, how many trials were dropped and why (:class:`RowCounts`).
+    """
+    return _build_design(
+        data,
+        design_fn=partial(
+            _rank_design_for_subject,
+            use_believed=use_believed,
+            n_lags=n_lags,
+            reset=reset_history_per_session,
+        ),
+        full_labels=_rank_labels(n_lags),
+        redundant_patterns=_RANK_REDUNDANT,
+        drop_redundant_cols=drop_redundant_cols,
+        n_lags=n_lags,
+        reset=reset_history_per_session,
+    )
 
 
 def format_glm_input_by_rank(
@@ -489,6 +719,8 @@ def format_glm_input_by_rank(
     use_believed: bool = False,
     n_lags: int = 4,
     drop_redundant_cols: bool = True,
+    *,
+    reset_history_per_session: bool = True,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]:
     """Build rank-ordered GLM design matrices for all subjects.
 
@@ -521,39 +753,45 @@ def format_glm_input_by_rank(
         n_lags:              Number of history lags (default 4).
         drop_redundant_cols: Drop "Chose Third" and "Third*Reward" columns
                              (default True).
+        reset_history_per_session: How history treats session boundaries
+                             (keyword-only, default True).
+
+                             - True: a lag never crosses a session boundary,
+                               and with ``use_believed`` the believed ranks
+                               (last-seen magnitudes) start empty in every
+                               session. The first ``n_lags`` trials of every
+                               session are dropped (with ``n_lags=0`` none).
+                             - False: sessions are concatenated; lags and
+                               believed ranks run across session boundaries,
+                               and the first ``max(n_lags, 1)`` trials of the
+                               merged data are dropped.
+
+    Rows are kept only when the history and the row's own outcome (true choice)
+    are known: a row with no single chosen tower, or with ``use_believed`` no
+    believed rank yet, is dropped in both settings, as is a row with a NaN in
+    any regressor. Use :func:`format_glm_input_by_rank_with_info` to get the
+    number of dropped rows and the settings used.
 
     Returns:
         A three-tuple ``(regressors, true_choices, col_labels)`` where:
 
-        - *regressors* is ``{subject: ndarray(n_trials, n_cols)}``,
-        - *true_choices* is ``{subject: ndarray(n_trials, 3)}``
+        - *regressors* is ``{subject: ndarray(n_rows, n_cols)}``,
+        - *true_choices* is ``{subject: ndarray(n_rows, 3)}``
           columns = [chose_best, chose_second, chose_third],
         - *col_labels* is a list of strings describing each column.
 
     Raises:
+        ValueError: If a session other than the last has choice or reward lists
+            without one entry per trial (concatenation would shift every later
+            session), or if a subject has no towers.
         TypeError: If a magnitude that has to be sorted or multiplied into the
             history is missing (``None``).
-
-    Known issues:
-        - Rows are kept when their *history* is complete, so a row whose own
-          outcome is NaN (no single chosen tower, or, with ``use_believed``,
-          no believed rank yet) is returned with a NaN row in *true_choices*.
-          With ``n_lags=0`` nothing is NaN, so every row after the first is
-          kept.
-        - Sessions are concatenated before the design is built: lags, and the
-          believed-rank state (last-seen magnitudes), carry over from the end
-          of one session into the start of the next.
     """
-    merged_data, _ = get_vars_across_all_sessions(data)
-
-    full_labels = _rank_labels(n_lags)
-    regressors, true_choices = _designs_by_subject(
-        merged_data,
-        design_fn=partial(_rank_design_for_subject, use_believed=use_believed, n_lags=n_lags),
+    design = format_glm_input_by_rank_with_info(
+        data,
+        use_believed,
+        n_lags,
+        drop_redundant_cols,
+        reset_history_per_session=reset_history_per_session,
     )
-    if not drop_redundant_cols:
-        return regressors, true_choices, full_labels
-
-    keep = _keep_mask(full_labels, redundant_patterns=_RANK_REDUNDANT)
-    regressors = {subject: x[:, keep] for subject, x in regressors.items()}
-    return regressors, true_choices, list(compress(full_labels, keep))
+    return design.regressors, design.true_choices, design.col_labels

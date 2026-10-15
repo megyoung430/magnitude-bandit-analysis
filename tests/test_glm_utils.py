@@ -167,9 +167,34 @@ def test_chose_rank_indicators_of_no_trials_is_empty():
     assert g._chose_rank_indicators([], []) == []
 
 
-def test_complete_history_rows_skips_first_trial_and_nan_rows():
-    x = np.array([[1.0, 1], [1, NAN], [1, 1], [1, 1]])
-    assert g._complete_history_rows(x).tolist() == [2, 3]
+def test_positions_in_session_restart_at_every_session():
+    assert g._positions_in_session([3, 2], 5).tolist() == [0, 1, 2, 0, 1]
+
+
+def test_positions_in_session_continue_in_the_last_session_past_its_length():
+    assert g._positions_in_session([2, 2], 6).tolist() == [0, 1, 0, 1, 2, 3]
+    assert g._positions_in_session([], 3).tolist() == [0, 1, 2]
+
+
+def test_history_ready_with_reset_needs_n_lags_trials_in_the_same_session():
+    positions = g._positions_in_session([3, 3], 6)
+    ready = g._history_ready(positions, n_lags=2, reset=True, first_row=1)
+    assert ready.tolist() == [False, False, True, False, False, True]
+
+
+def test_history_ready_without_reset_only_skips_the_leading_rows():
+    positions = g._positions_in_session([3, 3], 6)
+    ready = g._history_ready(positions, n_lags=2, reset=False, first_row=2)
+    assert ready.tolist() == [False, False, True, True, True, True]
+
+
+def test_select_complete_rows_drops_unready_and_nan_rows_and_counts_them():
+    x = np.array([[1.0, 1], [1, NAN], [1, 1], [1, 1], [1, 1]])
+    y = np.array([[0.0], [0], [0], [NAN], [1]])
+    ready = np.array([False, True, True, True, True])
+    kept_x, kept_y, counts = g._select_complete_rows(x, y, ready)
+    assert kept_x.tolist() == [[1, 1], [1, 1]] and kept_y.tolist() == [[0.0], [1.0]]
+    assert counts == g.RowCounts(n_trials=5, n_dropped_no_history=1, n_dropped_nan=2, n_rows=2)
 
 
 # ---- format_glm_input -----------------------------------------------------
@@ -188,15 +213,31 @@ def test_format_glm_input_values_and_labels():
 
 def test_format_glm_input_keeps_arm3_columns_when_asked():
     data = constant_subjects(["A", "B", "C"])
-    x, _, _ = g.format_glm_input(data, 2, drop_redundant_cols=False)
+    x, _, _ = g.format_glm_input(
+        data, 2, drop_redundant_cols=False, reset_history_per_session=False
+    )
     assert x["m"].shape == (2, 1 + 7 * 2)
 
 
-def test_format_glm_input_labels_omit_arm3_even_when_columns_are_kept():
-    # Known issue: the labels always omit Arm3 while the matrix may keep it.
+def test_format_glm_input_labels_include_arm3_when_columns_are_kept():
     data = constant_subjects(["A", "B", "C"])
     x, _, labels = g.format_glm_input(data, 1, drop_redundant_cols=False)
-    assert len(labels) == 6 and x["m"].shape[1] == 8
+    assert labels == [
+        "Bias", "Choice Arm1 t-1", "Choice Arm2 t-1", "Choice Arm3 t-1", "Reward t-1",
+        "Chx Rew Arm1 t-1", "Chx Rew Arm2 t-1", "Chx Rew Arm3 t-1",
+    ]  # fmt: skip
+    assert x["m"].shape[1] == len(labels)
+
+
+@pytest.mark.parametrize("n_lags", [0, 1, 3])
+@pytest.mark.parametrize("drop", [True, False])
+@pytest.mark.parametrize("by_rank", [False, True])
+def test_labels_always_match_matrix_columns(by_rank, drop, n_lags):
+    fmt = g.format_glm_input_by_rank if by_rank else g.format_glm_input
+    data = constant_subjects(["A", "B", "C"] * 3)
+    x, _, labels = fmt(data, n_lags=n_lags, drop_redundant_cols=drop)
+    assert x["m"].shape[1] == len(labels)
+    assert len(set(labels)) == len(labels)
 
 
 def test_format_glm_input_session_with_one_trial_is_empty():
@@ -208,15 +249,21 @@ def test_format_glm_input_negative_lags_mean_bias_only():
     # Negative lags behave like zero lags, even with missing rewards or too few trials.
     data = constant_subjects(["A", "B", "C", "A"])
     data["m"]["ses-1"]["reward_magnitudes_by_tower"]["A"][0] = None
-    x, y, labels = g.format_glm_input(data, n_lags=-1)
+    x, y, labels = g.format_glm_input(data, n_lags=-1, reset_history_per_session=False)
     assert labels == ["Bias"] and x["m"].tolist() == [[1.0]] * 3 and y["m"].shape == (3, 3)
-    x, y, _ = g.format_glm_input(constant_subjects(["A"]), n_lags=-1)
+    x, y, _ = g.format_glm_input(
+        constant_subjects(["A"]), n_lags=-1, reset_history_per_session=False
+    )
     assert x["m"].shape == (0, 1) and y["m"].shape == (0, 3)
+    # With a reset, no lags means no trial lacks history.
+    x, y, _ = g.format_glm_input(data, n_lags=-1)
+    assert x["m"].shape == (4, 1) and y["m"].shape == (4, 3)
 
 
 def test_format_glm_input_missing_history_before_the_first_trial_is_zero():
     # Four trials, three lags: rows for trials 1..3 reach back before trial 0.
-    x, _, labels = g.format_glm_input(constant_subjects(["A", "B", "C", "A"]), n_lags=3)
+    data = constant_subjects(["A", "B", "C", "A"])
+    x, _, labels = g.format_glm_input(data, n_lags=3, reset_history_per_session=False)
     assert x["m"].shape == (3, 1 + 5 * 3) and not np.isnan(x["m"]).any()
     first = columns(labels, x["m"][0])
     assert first["Choice Arm1 t-1"] == 1 and first["Reward t-1"] == 1.0
@@ -226,8 +273,11 @@ def test_format_glm_input_missing_history_before_the_first_trial_is_zero():
 
 
 def test_format_glm_input_with_more_lags_than_trials_is_still_a_full_matrix():
-    x, _, _ = g.format_glm_input(constant_subjects(["A", "B", "C", "A"]), n_lags=10)
+    data = constant_subjects(["A", "B", "C", "A"])
+    x, _, _ = g.format_glm_input(data, n_lags=10, reset_history_per_session=False)
     assert x["m"].shape == (3, 1 + 5 * 10) and not np.isnan(x["m"]).any()
+    x, _, _ = g.format_glm_input(data, n_lags=10)  # every trial lacks a full history
+    assert x["m"].shape == (0, 1 + 5 * 10)
 
 
 def test_format_glm_input_orders_arms_by_sorted_tower_key():
@@ -251,13 +301,82 @@ def two_session_subject():
     }
 
 
-def test_format_glm_input_lags_cross_session_boundaries():
-    # Known issue: sessions are concatenated, so the first trial of the second
-    # session sees the last trial of the first (trial 3: chose C, reward 3) as history.
-    x, y, _ = g.format_glm_input(two_session_subject(), n_lags=1)
+def test_format_glm_input_without_reset_lags_cross_session_boundaries():
+    # The first trial of the second session sees the last trial of the first
+    # (trial 3: chose C, reward 3) as history.
+    x, y, _ = g.format_glm_input(two_session_subject(), n_lags=1, reset_history_per_session=False)
     np.testing.assert_array_equal(x["m"][2], [1, 0, 0, 3.0, 0, 0])
     np.testing.assert_array_equal(y["m"][2], [0, 0, 1])
     assert x["m"].shape[0] == 5
+
+
+def test_format_glm_input_reset_drops_the_first_n_lags_trials_of_every_session():
+    x, y, _ = g.format_glm_input(two_session_subject(), n_lags=1, reset_history_per_session=True)
+    # Merged trials 2, 3 (ses-2: B after A, C after B) and 5, 6 (ses-10: A after C, B after A).
+    np.testing.assert_array_equal(
+        x["m"],
+        [
+            [1, 1, 0, 1.0, 1.0, 0],
+            [1, 0, 1, 2.0, 0, 2.0],
+            [1, 0, 0, 3.0, 0, 0],
+            [1, 1, 0, 1.0, 1.0, 0],
+        ],
+    )
+    np.testing.assert_array_equal(y["m"], [[0, 1, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0]])
+
+
+def test_format_glm_input_reset_is_the_default():
+    default = g.format_glm_input(two_session_subject(), n_lags=1)
+    explicit = g.format_glm_input(two_session_subject(), n_lags=1, reset_history_per_session=True)
+    np.testing.assert_array_equal(default[0]["m"], explicit[0]["m"])
+
+
+def test_format_glm_input_reset_with_two_lags_keeps_one_row_per_session():
+    x, y, labels = g.format_glm_input(two_session_subject(), n_lags=2)
+    assert x["m"].shape[0] == 2 and not np.isnan(x["m"]).any()
+    # Merged trial 3 (C) sees trials 2 and 1; merged trial 6 (B) sees trials 5 and 4.
+    second = columns(labels, x["m"][1])
+    assert second["Choice Arm1 t-1"] == 1  # trial 5 chose A, not trial 3's C
+    assert second["Reward t-2"] == 3.0  # trial 4 chose C
+    np.testing.assert_array_equal(y["m"], [[0, 0, 1], [0, 1, 0]])
+
+
+def test_format_glm_input_reset_drops_the_zero_filled_start_rows_instead_of_keeping_them():
+    data = constant_subjects(["A", "B", "C", "A"])
+    kept, _, _ = g.format_glm_input(data, n_lags=3, reset_history_per_session=False)
+    reset, _, _ = g.format_glm_input(data, n_lags=3, reset_history_per_session=True)
+    assert kept["m"].shape[0] == 3 and reset["m"].shape[0] == 1
+    np.testing.assert_array_equal(reset["m"][0], kept["m"][-1])
+
+
+def test_format_glm_input_reset_without_lags_keeps_every_trial():
+    x, _, _ = g.format_glm_input(two_session_subject(), n_lags=0, reset_history_per_session=True)
+    assert x["m"].shape[0] == 6
+    x, _, _ = g.format_glm_input(two_session_subject(), n_lags=0, reset_history_per_session=False)
+    assert x["m"].shape[0] == 5
+
+
+@pytest.mark.parametrize("reset", [True, False])
+def test_with_info_records_the_option_and_the_row_counts(reset):
+    design = g.format_glm_input_with_info(
+        two_session_subject(), n_lags=1, reset_history_per_session=reset
+    )
+    assert design.reset_history_per_session is reset and design.n_lags == 1
+    counts = design.row_counts["m"]
+    assert counts.n_trials == 6
+    assert counts.n_dropped_no_history == (2 if reset else 1)
+    assert counts.n_dropped_nan == 0
+    assert counts.n_rows == design.regressors["m"].shape[0] == (4 if reset else 5)
+
+
+@pytest.mark.parametrize("reset", [True, False])
+def test_arm_rows_with_a_nan_reward_in_their_history_are_dropped_and_counted(reset):
+    data = constant_subjects(["A", "B", "C", "A", "B"])
+    data["m"]["ses-1"]["reward_magnitudes_by_tower"]["B"][1] = NAN  # trial 1 chose B
+    design = g.format_glm_input_with_info(data, n_lags=1, reset_history_per_session=reset)
+    assert not np.isnan(design.regressors["m"]).any()
+    assert design.row_counts["m"].n_dropped_nan == 1  # trial 2 uses trial 1 as history
+    assert design.regressors["m"].shape[0] == 3
 
 
 def test_format_glm_input_rejects_trial_without_single_choice():
@@ -283,8 +402,10 @@ def test_format_glm_input_missing_chosen_reward_raises_type_error():
 def test_format_glm_input_missing_reward_is_harmless_without_lags_or_on_last_trial():
     data = constant_subjects(["A", "B", "C", "A"])
     data["m"]["ses-1"]["reward_magnitudes_by_tower"]["A"][0] = None
-    x, _, _ = g.format_glm_input(data, n_lags=0)
+    x, _, _ = g.format_glm_input(data, n_lags=0, reset_history_per_session=False)
     assert x["m"].shape == (3, 1)
+    x, _, _ = g.format_glm_input(data, n_lags=0)
+    assert x["m"].shape == (4, 1)
     data = constant_subjects(["A", "B", "C", "A"])
     data["m"]["ses-1"]["reward_magnitudes_by_tower"]["A"][3] = None
     x, _, _ = g.format_glm_input(data, n_lags=1)
@@ -307,40 +428,57 @@ def test_format_glm_input_reward_list_one_short_returns_the_matrix():
     np.testing.assert_array_equal(x["m"], expected["m"])
 
 
-def test_format_glm_input_short_reward_list_in_middle_session_shifts_later_rewards():
-    # Known issue: sessions are merged by concatenation, so one missing reward in
-    # an early session moves every later reward one trial earlier. Merged trial 2
-    # (ses-2, chose C, reward 3) therefore receives the reward 30 of ses-3's first
-    # trial.
+def two_scaled_sessions():
     big = {t: 10 * v for t, v in CONST.items()}
-    data = {"m": {"ses-2": session(["A", "B", "C"], [CONST] * 3),
+    return {"m": {"ses-2": session(["A", "B", "C"], [CONST] * 3),
                   "ses-3": session(["A", "B", "C"], [big] * 3)}}  # fmt: skip
+
+
+@pytest.mark.parametrize("fmt", ["format_glm_input", "format_glm_input_by_rank"])
+@pytest.mark.parametrize("reset", [True, False])
+def test_short_reward_list_in_a_non_final_session_is_rejected(fmt, reset):
+    # Concatenation would move every later session's rewards one trial earlier.
+    data = two_scaled_sessions()
     for rewards in data["m"]["ses-2"]["reward_magnitudes_by_tower"].values():
         rewards.pop()
-    x, _, labels = g.format_glm_input(data, n_lags=1)
-    reward_col = labels.index("Reward t-1")
-    assert x["m"][:, reward_col].tolist() == [1.0, 2.0, 30.0, 10.0, 20.0]
+    with pytest.raises(ValueError, match=r"subject 'm'.*session 1 of 2.*2 rewards.*3 trials"):
+        getattr(g, fmt)(data, n_lags=1, reset_history_per_session=reset)
 
 
-def test_format_glm_input_four_towers_fail_with_a_broadcast_error():
-    # Known issue: only exactly three towers are supported; other counts are not checked.
-    towers = {**CONST, "D": 4.0}
-    with pytest.raises(
-        ValueError, match=r"could not broadcast input array from shape \(3,\) into shape \(4,\)"
-    ):
-        g.format_glm_input(constant_subjects(["A", "B", "C"], towers))
+@pytest.mark.parametrize("reset", [True, False])
+def test_short_choice_list_in_a_non_final_session_is_rejected(reset):
+    data = two_scaled_sessions()
+    for choices in data["m"]["ses-2"]["choices_by_tower"].values():
+        choices.pop()
+    with pytest.raises(ValueError, match=r"session 1 of 2.*2 choices.*3 trials"):
+        g.format_glm_input(data, n_lags=1, reset_history_per_session=reset)
 
 
-def test_format_glm_input_two_towers_fail_with_a_key_error():
-    with pytest.raises(KeyError, match="Arm3"):
-        g.format_glm_input(constant_subjects(["A", "B", "A"], {"A": 1.0, "B": 2.0}))
+def test_aligned_sessions_are_not_shifted():
+    x, _, labels = g.format_glm_input(
+        two_scaled_sessions(), n_lags=1, reset_history_per_session=False
+    )
+    assert x["m"][:, labels.index("Reward t-1")].tolist() == [1.0, 2.0, 3.0, 10.0, 20.0]
 
 
-def test_format_glm_input_choice_series_shorter_than_trials_raises_index_error():
+@pytest.mark.parametrize(
+    ("towers", "choices"),
+    [
+        ({**CONST, "D": 4.0}, ["A", "B", "C"]),
+        ({"A": 1.0, "B": 2.0}, ["A", "B", "A"]),
+        ({**CONST, "D": 4.0}, ["A"]),  # a single trial is no excuse
+    ],
+)
+def test_format_glm_input_rejects_other_than_three_towers(towers, choices):
+    with pytest.raises(ValueError, match=r"exactly 3 towers.*subject 'm'"):
+        g.format_glm_input(constant_subjects(choices, towers))
+
+
+def test_format_glm_input_choice_series_shorter_than_trials_raises_value_error():
     data = constant_subjects(["A", "B", "C", "A"])
     for choices in data["m"]["ses-1"]["choices_by_tower"].values():
         choices.pop()
-    with pytest.raises(IndexError, match="list index out of range"):
+    with pytest.raises(ValueError, match=r"subject 'm'.*3 choices.*4 trials"):
         g.format_glm_input(data, n_lags=1)
 
 
@@ -414,10 +552,10 @@ def test_by_rank_unchosen_trial_poisons_only_the_rows_that_use_it_as_history():
     for tower in "ABC":
         data["m"]["ses-1"]["choices_by_tower"][tower][1] = 0
     x, y, _ = g.format_glm_input_by_rank(data, n_lags=1)
-    # Row 2 uses trial 1 as history and is dropped. Row 1 stays although its own
-    # outcome is unknown, so its true choice is NaN.
-    assert x["m"].shape[0] == 2
-    assert np.isnan(y["m"][0]).all() and y["m"][1].tolist() == [1.0, 0.0, 0.0]
+    # Row 2 uses trial 1 as history and is dropped. Row 1 is dropped too: its own
+    # outcome is unknown.
+    assert x["m"].shape[0] == 1
+    assert y["m"].tolist() == [[1.0, 0.0, 0.0]]
 
 
 def test_by_rank_keeps_all_columns_when_asked():
@@ -425,23 +563,69 @@ def test_by_rank_keeps_all_columns_when_asked():
     assert x["m"].shape[1] == len(labels) == 1 + 7
 
 
-def test_by_rank_zero_lags_keeps_rows_with_unavailable_beliefs():
-    # Known issue: without history columns nothing is NaN, so rows whose own
-    # believed-rank outcome is NaN survive.
-    x, y, _ = g.format_glm_input_by_rank(rank_data(), use_believed=True, n_lags=0)
-    assert x["m"].shape == (3, 1) and np.isnan(y["m"]).any()
+@pytest.mark.parametrize("reset", [True, False])
+def test_by_rank_zero_lags_drops_rows_with_unavailable_beliefs(reset):
+    design = g.format_glm_input_by_rank_with_info(
+        rank_data(), use_believed=True, n_lags=0, reset_history_per_session=reset
+    )
+    # Beliefs exist from the fourth trial only, so only that trial has an outcome.
+    assert design.regressors["m"].shape == (1, 1)
+    assert not np.isnan(design.true_choices["m"]).any()
+    counts = design.row_counts["m"]
+    assert counts.n_dropped_nan == (3 if reset else 2)
+    assert counts.n_dropped_no_history == (0 if reset else 1)
 
 
-def test_by_rank_lags_and_beliefs_cross_session_boundaries():
-    # Known issue: sessions are concatenated, so trial 3 (first of ses-10) has the
-    # last trial of ses-2 as history, and believed ranks carry over: with beliefs
-    # from ses-2, ses-10 has a believed rank from its first trial.
-    x, y, _ = g.format_glm_input_by_rank(two_session_subject(), n_lags=1)
+def test_by_rank_without_reset_lags_and_beliefs_cross_session_boundaries():
+    # Trial 4 (first of ses-10) has the last trial of ses-2 as history, and believed
+    # ranks carry over: with beliefs from ses-2, ses-10 has a believed rank from its
+    # first trial.
+    kwargs = {"n_lags": 1, "reset_history_per_session": False}
+    x, y, _ = g.format_glm_input_by_rank(two_session_subject(), **kwargs)
     assert x["m"].shape[0] == 5
     np.testing.assert_array_equal(x["m"][2], [1, 1, 0, 3.0, 3.0, 0])  # C is best
     np.testing.assert_array_equal(y["m"][2], [1, 0, 0])
-    x, _, _ = g.format_glm_input_by_rank(two_session_subject(), use_believed=True, n_lags=1)
+    x, _, _ = g.format_glm_input_by_rank(two_session_subject(), use_believed=True, **kwargs)
     assert x["m"].shape[0] == 2  # merged trials 4 and 5 are the first with beliefs
+
+
+def test_by_rank_reset_drops_session_starts():
+    x, y, _ = g.format_glm_input_by_rank(two_session_subject(), n_lags=1)
+    # Merged trials 2, 3, 5, 6; none of them uses the other session as history.
+    assert x["m"].shape[0] == 4
+    np.testing.assert_array_equal(x["m"][2], [1, 1, 0, 3.0, 3.0, 0])  # trial 5 follows C (best)
+    np.testing.assert_array_equal(y["m"][2], [0, 0, 1])  # trial 5 chose A, the worst
+
+
+def test_by_rank_reset_forgets_beliefs_at_a_session_start():
+    # Each 3-trial session visits every arm only at its end, so no believed rank forms.
+    x, _, _ = g.format_glm_input_by_rank(two_session_subject(), use_believed=True, n_lags=1)
+    assert x["m"].shape[0] == 0
+
+
+def test_by_rank_reset_keeps_beliefs_within_a_session():
+    one = session(["A", "B", "C", "A", "B"], [{"A": 3.0, "B": 2.0, "C": 1.0}] * 5)
+    data = {"m": {"ses-1": one, "ses-2": one}}
+    # Beliefs form at trial 4 of a session, so only its trial 5 has beliefs at t and t-1.
+    x, _, _ = g.format_glm_input_by_rank(data, use_believed=True, n_lags=1)
+    assert x["m"].shape[0] == 2
+    x, _, _ = g.format_glm_input_by_rank(
+        data, use_believed=True, n_lags=1, reset_history_per_session=False
+    )
+    assert x["m"].shape[0] == 6  # beliefs and history run on through trials 5..10
+
+
+@pytest.mark.parametrize("reset", [True, False])
+def test_by_rank_with_info_records_the_option(reset):
+    design = g.format_glm_input_by_rank_with_info(
+        two_session_subject(), n_lags=1, reset_history_per_session=reset
+    )
+    assert design.reset_history_per_session is reset
+    assert design.col_labels == [
+        "Bias", "Chose Best t-1", "Chose Second t-1", "Reward t-1",
+        "Best*Reward t-1", "Second*Reward t-1",
+    ]  # fmt: skip
+    assert design.row_counts["m"].n_rows == design.regressors["m"].shape[0] == (4 if reset else 5)
 
 
 def test_by_rank_without_towers_fails_loudly():
