@@ -13,7 +13,7 @@ Two cumulative-axis modes are available:
 - *good/bad* mode (default): separate orange (good) and red (bad) step-lines
   that together sum to ≤ 1. Sessions that log no good/bad counters (blocks
   only) cut windows with reversals of unknown kind; when
-  ``all_unclassified_idx`` lists any, a grey line shows them, so good + bad +
+  ``all_unclassified_idx`` lists any (it is required), a grey line shows them, so good + bad +
   unclassified = total.
 
 The panel functions (:func:`plot_choice_probs`,
@@ -388,7 +388,8 @@ def plot_choice_probs_around_good_reversals(
         all_unclassified_idx: ``{subject: [int]}`` block changes of sessions
             without good/bad counters
             (:func:`src.behavior_analysis.get_total_reversals.get_unclassified_reversal_indices`);
-            ``None`` if every session logs counters.
+            required (like ``all_good_idx``) when ``add_cumulative_axis``;
+            ``{subject: []}`` if every session logs counters.
         skip_n_trials_after_reversal: Post-reversal trials to omit (default: 0).
         save_path: Base path without extension for ``.pdf`` / ``.png`` output;
             if ``None``, the figure is shown.
@@ -427,7 +428,8 @@ def add_cumulative_rev_axis(
     plot_fraction_removed: bool = True,
     only_good: bool = False,
     use_total: bool | None = None,
-    all_unclassified_idx: dict | None = None,
+    *,
+    all_unclassified_idx: dict | None,
 ) -> None:
     """Plot choice-probability curves with a cumulative fraction-removed twin axis.
 
@@ -454,8 +456,10 @@ def add_cumulative_rev_axis(
             reversal kind); if falsy, use good/bad-mode (two lines, default:
             ``None`` → falsy).
         all_unclassified_idx: ``{subject: [int]}`` reversals of unknown kind
-            (blocks-only sessions); adds an "unclassified" line in good/bad
-            mode.
+            (blocks-only sessions), from
+            :func:`src.behavior_analysis.get_total_reversals.get_reversal_indices_by_kind`;
+            required keyword-only (``{subject: []}`` if every session logs
+            counters). Adds an "unclassified" line in good/bad mode.
 
     Raises:
         ValueError: If ``all_good_idx`` or ``all_bad_idx`` is missing.
@@ -495,6 +499,8 @@ def cumulative_reversal_events_over_post(
     x: ArrayLike,
     across: dict | None,
     exclude_anchor_good: bool = True,
+    *,
+    all_unclassified_idx: dict,
 ) -> tuple[np.ndarray, ...]:
     """Compute cumulative good/bad reversal removal curves over the post window.
 
@@ -514,6 +520,9 @@ def cumulative_reversal_events_over_post(
         exclude_anchor_good: If ``True``, only count reversals *after* anchor
             *g*; if ``False``, reversals at *g* itself are also eligible
             (default: ``True``).
+        all_unclassified_idx: ``{subject: [int]}`` reversals of unknown kind
+            (blocks-only sessions); they cut windows but are in neither the
+            good nor the bad curve.
 
     Returns:
         A five-tuple ``(x_disp, cumulative_good_full, cumulative_bad_full,
@@ -522,7 +531,12 @@ def cumulative_reversal_events_over_post(
     """
     x = np.asarray(x, dtype=float)
     curves = good_bad_removal_curves(
-        good_windows, all_good_idx, all_bad_idx, x, exclude_anchor=exclude_anchor_good
+        good_windows,
+        all_good_idx,
+        all_bad_idx,
+        x,
+        exclude_anchor=exclude_anchor_good,
+        unclassified_idx=all_unclassified_idx,
     )
     return (x.copy(), *curves)
 
@@ -535,7 +549,7 @@ def cumulative_total_events_over_post(
     *,
     good_idx: dict,
     bad_idx: dict,
-    unclassified_idx: dict | None = None,
+    unclassified_idx: dict,
 ) -> tuple[np.ndarray, ...]:
     """Compute a single cumulative fraction-removed curve over the post window.
 
@@ -559,7 +573,8 @@ def cumulative_total_events_over_post(
         good_idx: ``{subject: [int]}`` good-reversal trial indices.
         bad_idx: ``{subject: [int]}`` bad-reversal trial indices.
         unclassified_idx: ``{subject: [int]}`` reversals of unknown kind (block
-            changes of sessions without good/bad counters); ``None`` if none.
+            changes of sessions without good/bad counters); ``{subject: []}``
+            if none.
 
     Returns:
         A three-tuple ``(x_disp, cum_total_full, frac_total_full)`` where each

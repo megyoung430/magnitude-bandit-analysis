@@ -20,11 +20,12 @@ A session that logs no good/bad counters (`has_good` and `has_bad` both false) c
 - `get_unclassified_reversal_indices` gives them per subject, decided per session (a subject can mix counters and blocks-only sessions), on the same merged-trial axis as `get_all_reversal_indices`. `get_reversal_indices_by_kind` bundles good, bad and unclassified.
 - Total mode counts them, so total = good + bad + unclassified at every offset.
 - Good/bad mode keeps `good_bad_removal_curves` returning good and bad only (anchors first cut by an unclassified reversal are in neither, so they are not mis-attributed to a later good or bad one). `removal_curves_by_kind` returns all three, and `cumulative_removal_series` adds an `"unclassified"` line (grey in the plot) whenever `unclassified_idx` holds any reversal, so they never silently vanish.
-- `unclassified_idx=None` (the default) means no session lacks counters. Callers with blocks-only sessions must pass it, otherwise the total reads flat 0 there.
+- `unclassified_idx` / `all_unclassified_idx` are required keyword-only arguments (`{subject: []}` when every session logs counters), so a caller cannot forget them and read a flat 0 on blocks-only data. `plot_choice_probs_around_good_reversals` accepts `None` only when no cumulative axis is drawn; with one, `None` raises `ValueError`. `src/pipelines/open_field.py` and the two analysis scripts (`scripts/full_pipelines/run_grid_maze_analysis.py`, `scripts/individual_analyses/plot_choice_probs_around_good_reversals.py`) build the indices with `get_reversal_indices_by_kind` and pass them, so the grey unclassified line is reachable from them.
+- `get_unclassified_reversal_indices` checks every session first: `blocks` and `trial` must have the same length (missing counts as empty), otherwise it raises a `ValueError` naming subject and session.
 
 ## Acceptance criteria
 
-- `total_removal_curves(..., *, good_idx, bad_idx, unclassified_idx=None)` uses the same reversals as `good_bad_removal_curves`; total equals good + bad + unclassified at every offset (tested on synthetic mixes). `good_idx` / `bad_idx` are required keyword-only arguments.
+- `total_removal_curves(..., *, good_idx, bad_idx, unclassified_idx)` uses the same reversals as `good_bad_removal_curves`; total equals good + bad + unclassified at every offset (tested on synthetic mixes). `good_idx` / `bad_idx` are required keyword-only arguments.
 - `cumulative_removal_series` raises one `ValueError` ("Cumulative removal needs both all_good_idx and all_bad_idx.") in either mode if an index dict is `None`.
 - `cumulative_total_events_over_post`, `plot_choice_probs_around_good_reversals` and `add_cumulative_rev_axis` thread the indices through; `fraction_removed_by_problem` takes a required keyword-only `reversals_by_problem` (`{problem: get_reversal_indices_by_kind(...)}`).
 - `fraction_removed_by_problem` does not count a problem without anchors in `probs_used`, and names a problem missing from `reversals_by_problem` in a `KeyError`.
@@ -36,7 +37,7 @@ A session that logs no good/bad counters (`has_good` and `has_bad` both false) c
 
 ## Results change
 
-Sample data (`cohort-01`, 1 subject, 1 session ses-91, blocks only: 0 good, 0 bad, block-change anchors at 22, 53, 86), total fraction removed:
+Sample data (`cohort-01`, 1 subject, 1 session ses-91, blocks only: 0 good, 0 bad, block-change anchors at 22, 53, 86), total fraction removed. Everything is 0 up to offset 30; 0.667 first appears at offset 35 and stays at 40:
 
 | Offset | main | fixed |
 | --- | --- | --- |

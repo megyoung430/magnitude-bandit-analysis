@@ -22,8 +22,11 @@ X = np.arange(-3, 12)
 WINDOWS = {"A": [{"reversal_idx": 10}, {"reversal_idx": 20}], "B": [{"reversal_idx": 4}]}
 GOOD = {"A": [10], "B": [4]}
 BAD = {"A": [20], "B": []}
+NONE = {"A": [], "B": []}  # every session logs counters
 SERIES = {"good": np.where(X >= 0, 0.2, np.nan), "bad": np.where(X >= 0, 0.1, np.nan)}
-MISSING_INDEX_MESSAGE = "Cumulative removal needs both all_good_idx and all_bad_idx."
+MISSING_INDEX_MESSAGE = (
+    "Cumulative removal needs all_good_idx, all_bad_idx and all_unclassified_idx."
+)
 TITLE = "Good Reversal-Aligned Choices\n(mean ± se across subjects | n=2 subjects, n=3 reversals)\n"
 
 
@@ -61,7 +64,7 @@ def cumulative_figure(shown, across, **kwargs):
         windows_for_cumulative_axis=WINDOWS,
         all_good_idx=GOOD,
         all_bad_idx=BAD,
-        **kwargs,
+        **{"all_unclassified_idx": NONE, **kwargs},
     )
     fig = shown[-1]
     host, twin = fig.axes
@@ -236,6 +239,7 @@ def test_public_plot_with_cumulative_axis_saves_the_removal_figure(across, tmp_p
         windows_for_cumulative_axis=WINDOWS,
         all_good_idx=GOOD,
         all_bad_idx=BAD,
+        all_unclassified_idx=NONE,
         save_path=save_path,
     )
     assert sorted(p.name for p in tmp_path.iterdir()) == ["cum.pdf", "cum.png"]
@@ -247,7 +251,12 @@ def test_public_plot_with_cumulative_axis_shows_the_plain_figure_too(across, sho
     open_at_show = []
     monkeypatch.setattr(plt, "show", lambda: open_at_show.append(len(plt.get_fignums())))
     plot_choice_probs_around_good_reversals(
-        X, across, windows_for_cumulative_axis=WINDOWS, all_good_idx=GOOD, all_bad_idx=BAD
+        X,
+        across,
+        windows_for_cumulative_axis=WINDOWS,
+        all_good_idx=GOOD,
+        all_bad_idx=BAD,
+        all_unclassified_idx=NONE,
     )
     # Known issue pinned here: the plain figure is open too, so a real show displays both
     assert open_at_show == [2]
@@ -288,7 +297,14 @@ def test_public_plot_draws_unclassified_reversals_of_blocks_only_sessions(across
 )
 def test_add_cumulative_rev_axis_fraction_or_counts(across, shown, plot_fraction_removed, label):
     add_cumulative_rev_axis(
-        X, across, WINDOWS, GOOD, BAD, plot_fraction_removed=plot_fraction_removed, use_total=False
+        X,
+        across,
+        WINDOWS,
+        GOOD,
+        BAD,
+        plot_fraction_removed=plot_fraction_removed,
+        use_total=False,
+        all_unclassified_idx=NONE,
     )
     (fig,) = shown
     twin = fig.axes[1]
@@ -310,13 +326,13 @@ def test_good_bad_cumulative_axis_without_indices_fails_loudly(across):
 def test_cumulative_wrappers_return_offsets_first_and_do_not_alias_input():
     x = np.arange(-3, 12, dtype=float)
     x_disp, cum_good, cum_bad, frac_good, frac_bad = cumulative_reversal_events_over_post(
-        WINDOWS, GOOD, BAD, x, across=None
+        WINDOWS, GOOD, BAD, x, across=None, all_unclassified_idx=NONE
     )
     assert x_disp.tolist() == x.tolist() and x_disp is not x
     assert cum_good.shape == cum_bad.shape == frac_good.shape == frac_bad.shape == x.shape
 
     x_disp, cum_total, frac_total = cumulative_total_events_over_post(
-        WINDOWS, x, across=None, good_idx=GOOD, bad_idx=BAD
+        WINDOWS, x, across=None, good_idx=GOOD, bad_idx=BAD, unclassified_idx=NONE
     )
     assert x_disp.tolist() == x.tolist() and x_disp is not x
     # only anchor 10 -> bad reversal 20 (+10) is cut within the window; of 3 anchors

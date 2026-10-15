@@ -3,13 +3,17 @@
 import re
 from datetime import datetime
 
-def ordered_sessions(subject_sessions):
-    """A subject's session dicts in session-number order (the order trials are merged in)."""
+def ordered_session_keys(subject_sessions):
+    """A subject's session keys in session-number order (the order trials are merged in)."""
     def order(key):
         match = re.search(r"ses-(\d+)", key)
         return (int(match[1]) if match else float("inf"), key)
 
-    return [subject_sessions[k] for k in sorted(subject_sessions, key=order)]
+    return sorted(subject_sessions, key=order)
+
+def ordered_sessions(subject_sessions):
+    """A subject's session dicts in session-number order."""
+    return [subject_sessions[k] for k in ordered_session_keys(subject_sessions)]
 
 def get_vars_across_all_sessions(data):
     """Merge aligned trials, carrying terminal reversals into the next session.

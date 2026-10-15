@@ -28,6 +28,9 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 KINDS = ("good", "bad", "unclassified")
+MISSING_INDEX_MESSAGE = (
+    "Cumulative removal needs all_good_idx, all_bad_idx and all_unclassified_idx."
+)
 
 
 def post_window_steps(x: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -139,7 +142,7 @@ def _cumulative_by_kind(
     exclude_anchor: bool,
     good_idx: dict,
     bad_idx: dict,
-    unclassified_idx: dict | None,
+    unclassified_idx: dict,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """``(anchors, {kind: cumulative removed over x})``; ``nan`` before the reversal."""
     post_mask, steps, step_idx = post_window_steps(x)
@@ -151,12 +154,7 @@ def _cumulative_by_kind(
         return {
             "good": _reversals_of(good_idx, subject, "good_idx"),
             "bad": _reversals_of(bad_idx, subject, "bad_idx"),
-            # no dict means no session lacks good/bad counters
-            "unclassified": (
-                []
-                if unclassified_idx is None
-                else _reversals_of(unclassified_idx, subject, "unclassified_idx")
-            ),
+            "unclassified": _reversals_of(unclassified_idx, subject, "unclassified_idx"),
         }
 
     removed = sum(
@@ -178,7 +176,7 @@ def removal_curves_by_kind(
     *,
     good_idx: dict,
     bad_idx: dict,
-    unclassified_idx: dict | None = None,
+    unclassified_idx: dict,
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """Anchors removed by the next reversal, split by its kind, per offset of *x*.
 
@@ -195,7 +193,8 @@ def removal_curves_by_kind(
         good_idx: ``{subject: [trial index]}`` of good reversals.
         bad_idx: ``{subject: [trial index]}`` of bad reversals.
         unclassified_idx: ``{subject: [trial index]}`` of reversals of unknown
-            kind. ``None`` means no session lacks counters.
+            kind (block changes of sessions without good/bad counters); required,
+            ``{subject: []}`` when every session logs counters.
 
     Returns:
         ``{kind: (cumulative, fraction)}``, each the length of *x*. Fractions
@@ -219,7 +218,7 @@ def good_bad_removal_curves(
     x: ArrayLike,
     exclude_anchor: bool = True,
     *,
-    unclassified_idx: dict | None = None,
+    unclassified_idx: dict,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Anchors removed by a later good / bad reversal, per offset of *x*.
 
@@ -252,7 +251,7 @@ def total_removal_curves(
     *,
     good_idx: dict,
     bad_idx: dict,
-    unclassified_idx: dict | None = None,
+    unclassified_idx: dict,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Anchors removed by the next reversal of any kind, per offset of *x*.
 
@@ -281,7 +280,7 @@ def cumulative_removal_series(
     *,
     use_total: bool | None,
     fraction: bool,
-    unclassified_idx: dict | None = None,
+    unclassified_idx: dict | None,
 ) -> dict[str, np.ndarray]:
     """The removal curves to draw, ``{kind: values over x}``.
 
@@ -293,10 +292,10 @@ def cumulative_removal_series(
     reversals strictly after the anchor count (``exclude_anchor=True``).
 
     Raises:
-        ValueError: If *good_idx* or *bad_idx* is ``None``.
+        ValueError: If *good_idx*, *bad_idx* or *unclassified_idx* is ``None``.
     """
-    if good_idx is None or bad_idx is None:
-        raise ValueError("Cumulative removal needs both all_good_idx and all_bad_idx.")
+    if good_idx is None or bad_idx is None or unclassified_idx is None:
+        raise ValueError(MISSING_INDEX_MESSAGE)
     if use_total:
         cumulative, frac = total_removal_curves(
             windows,

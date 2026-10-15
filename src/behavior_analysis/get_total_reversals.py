@@ -6,7 +6,7 @@ counters increment.
 """
 from src.behavior_analysis.get_variables_across_sessions import (
     get_vars_across_all_sessions,
-    ordered_sessions,
+    ordered_session_keys,
 )
 
 
@@ -109,13 +109,26 @@ def get_unclassified_reversal_indices(subjects_trials):
 
     Returns:
         ``{subject: sorted list of trial indices}``; every subject is a key.
+
+    Raises:
+        ValueError: If a session's ``blocks`` and ``trial`` differ in length
+            (missing counts as empty); the merged block axis would no longer
+            line up with the merged trial axis.
     """
+    for subject, sessions in subjects_trials.items():
+        for key, sess in sessions.items():
+            n_trials, n_blocks = len(sess.get("trial", [])), len(sess.get("blocks", []))
+            if n_trials != n_blocks:
+                raise ValueError(
+                    f"{subject} {key}: blocks has {n_blocks} entries but trial has {n_trials}."
+                )
     merged, _ = get_vars_across_all_sessions(subjects_trials)
     unclassified = {}
     for subject, sessions in subjects_trials.items():
         blocks = merged[subject]["blocks"]
         indices, start = [], 0
-        for sess in ordered_sessions(sessions):
+        for key in ordered_session_keys(sessions):
+            sess = sessions[key]
             n_trials = len(sess.get("trial", []))
             if n_trials and not (sess.get("has_good") or sess.get("has_bad")):
                 first = max(start, 1)
