@@ -42,7 +42,7 @@ def make_config(**changes):
 def make_fit(estimates=None, fails_on=(), crashes_on=()):
     """Fake fit: returns fixed estimates and records the calls it received.
 
-    A plain function, because run_recovery hashes the source of the fit into the manifest.
+    A plain function, because run_recovery records the source of the fit in the manifest.
     """
     calls = []
     estimates = estimates or dict(learning_rate=0.2, beta=2.0, alpha=0.25)
@@ -113,9 +113,14 @@ def test_run_writes_layout_and_complete_results(tmp_path):
     assert {"manifest.json", "design.csv", "results.json", "results.csv"} <= names
     assert {f"session_{run_id}.npz" for run_id in design.run_id} <= names
     assert not [n for n in names if n.endswith(".tmp")]
-    manifest_text = (output / "manifest.json").read_text()
-    assert output.name == hashlib.sha256(manifest_text.encode()).hexdigest()[:12]
-    manifest = json.loads(manifest_text)
+    manifest = json.loads((output / "manifest.json").read_text())
+    identity = {k: v for k, v in manifest.items() if k != "code"}
+    encoded = json.dumps(identity, sort_keys=True, indent=2)
+    assert output.name == hashlib.sha256(encoded.encode()).hexdigest()[:12]
+    assert manifest["algorithm_version"] == parameter_recovery.ALGORITHM_VERSION
+    assert manifest["at_bound_atol"] == parameter_recovery._AT_BOUND_ATOL
+    assert manifest["fit_function"].endswith("make_fit.<locals>.fit")
+    assert manifest["loss_function"].endswith("mean_choice_loss")
     assert manifest["config"] == make_config() and manifest["bounds"] == [list(b) for b in BOUNDS]
     assert {"task", "mouse", "runner", "module", "design", "fit", "loss"} <= set(manifest["code"])
     assert manifest["code"]["module"] == Path(parameter_recovery.__file__).read_text()
@@ -225,10 +230,37 @@ def test_directory_changes_with_config_bounds_and_code(tmp_path):
     assert run(tmp_path, loss=other_loss)[1] != base
 
 
-def test_directory_changes_with_a_module_constant(tmp_path, edit_module_text):
+def test_directory_changes_with_a_module_constant(tmp_path, monkeypatch):
     base = run(tmp_path)[1]
-    edit_module_text(parameter_recovery, "ATOL = 1e-4", "ATOL = 1e-3")
+    monkeypatch.setattr(parameter_recovery, "_AT_BOUND_ATOL", 1e-3)
     assert run(tmp_path)[1] != base
+
+
+def test_directory_changes_with_the_algorithm_version(tmp_path, monkeypatch):
+    base = run(tmp_path)[1]
+    monkeypatch.setattr(
+        parameter_recovery, "ALGORITHM_VERSION", parameter_recovery.ALGORITHM_VERSION + 1
+    )
+    assert run(tmp_path)[1] != base
+
+
+def test_editing_source_text_keeps_the_directory_and_resumes(tmp_path, edit_module_text):
+    fit = make_fit()
+    _, base = run(tmp_path, fit)
+    n_fits = len(fit.calls)
+    edit_module_text(parameter_recovery, "ATOL = 1e-4", "ATOL = 1e-3  # reformatted")
+    _, resumed = run(tmp_path, fit)
+    assert resumed == base
+    assert len(fit.calls) == n_fits  # every session was loaded from the checkpoint
+    # the edited text is recorded as provenance, outside the hash
+    assert "reformatted" in json.loads((resumed / "manifest.json").read_text())["code"]["module"]
+
+
+def test_unbounded_side_is_never_at_bound(tmp_path):
+    bounds = [(0.001, 1.0), (0.01, None), (0.0, 3.0)]
+    fit = make_fit(estimates=dict(learning_rate=0.2, beta=1e6, alpha=0.25))
+    results, _ = run(tmp_path, fit, bounds=bounds)
+    assert not results.at_bound_beta.any()
 
 
 def test_at_bound_tolerance_edges(tmp_path):

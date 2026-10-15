@@ -208,7 +208,11 @@ class TestFitGolden:
         manifest = json.loads(text)
         assert list(manifest) == sorted(manifest)
         assert text == json.dumps(manifest, sort_keys=True, indent=2)
-        assert output.name == hashlib.sha256(text.encode()).hexdigest()[:12]
+        provenance = {"implementation", "neural_implementation", "rl_implementations"}
+        identity = {k: v for k, v in manifest.items() if k not in provenance}
+        encoded = json.dumps(identity, sort_keys=True, indent=2)
+        assert output.name == hashlib.sha256(encoded.encode()).hexdigest()[:12]
+        assert manifest["algorithm_version"] == paper.ALGORITHM_VERSION
 
     def test_schedule_ends_with_the_shorter_chunk(self, sweep):
         _, _, records = sweep
@@ -348,3 +352,30 @@ class TestScoringFailure:
         written = sorted(p.name for p in output.glob("*_selected_parameters.npz"))
         assert written == ["sticky_rl_selected_parameters.npz"]
         assert not (output / "results.json").exists()
+
+
+class TestRunDirectoryIdentity:
+    """The directory follows the algorithm version and configuration, not the source text."""
+
+    def sweep(self, root, **overrides):
+        return paper.run_paper_sweep(golden_sequences(), root, **{**SWEEP, **overrides})
+
+    def test_editing_source_text_resumes_in_the_same_directory(
+        self, tmp_path, edit_module_text, monkeypatch
+    ):
+        first = self.sweep(tmp_path)
+        fits = []
+        fit_run = paper._fit_run
+        monkeypatch.setattr(paper, "_fit_run", lambda *a, **k: fits.append(a) or fit_run(*a, **k))
+        edit_module_text(paper, "SOURCE_URL =", "SOURCE_URL =  # edited\n_UNUSED =")
+        second = self.sweep(tmp_path)
+        assert second == first and second["output_dir"] == first["output_dir"]
+        assert fits == []  # every run was loaded from disk
+        manifest = json.loads((Path(first["output_dir"]) / "manifest.json").read_text())
+        assert "# edited" in manifest["implementation"]
+
+    def test_version_or_setting_change_starts_a_new_directory(self, tmp_path, monkeypatch):
+        first = self.sweep(tmp_path)
+        assert self.sweep(tmp_path, fit_seed=6)["output_dir"] != first["output_dir"]
+        monkeypatch.setattr(paper, "ALGORITHM_VERSION", paper.ALGORITHM_VERSION + 1)
+        assert self.sweep(tmp_path)["output_dir"] != first["output_dir"]

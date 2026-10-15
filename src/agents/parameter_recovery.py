@@ -14,11 +14,16 @@ import numpy as np
 import pandas as pd
 
 from src.agents.mouse_agents import QLearningMouse
+from src.agents.run_store import at_bound, manifest_dir, write_atomically, write_json_atomically
 from src.tasks.drifting_bandit import DriftingBanditTask
 
 NAMES = ["learning_rate", "beta", "alpha"]
 # A bound is "hit" when the recovered value lies within this distance of it.
 _AT_BOUND_ATOL = 1e-4
+# Names the experiment directory together with the configuration. It stands for the task,
+# the simulated mouse and the design code, which the manifest records only as provenance.
+# Bump when a change alters results; comments and refactors don't need a bump.
+ALGORITHM_VERSION = 1
 
 
 def recovery_design(config):
@@ -56,46 +61,49 @@ def recovery_design(config):
 # ---------------------------------------------------------------------------
 
 
-def _write_json_atomically(path: Path, payload, *, indent: int) -> None:
-    """Write via a temporary file so an interrupted run never leaves a partial file."""
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload, indent=indent, allow_nan=False))
-    temporary.replace(path)
+def _function_name(function: Callable) -> str:
+    return f"{function.__module__}.{function.__qualname__}"
 
 
 def _build_manifest(
     config: dict, *, bounds: list, fit_function: Callable, loss_function: Callable
-) -> dict:
-    """Config, bounds and the source of everything that determines the results.
+) -> tuple[dict, dict]:
+    """The identity of an experiment, and the source of the code that produced it.
 
-    The whole module text is hashed, so editing a helper or a module constant (such as the
-    at-bound tolerance) starts a new experiment instead of resuming stale checkpoints.
+    The identity (algorithm version, config, bounds, at-bound tolerance and the names of the
+    fit and loss functions) names the experiment directory. The source text is provenance
+    only, so editing a helper does not start a new experiment; a change to the task, the
+    mouse or a fit that alters results needs an ALGORITHM_VERSION bump, and a different fit
+    or loss function is a different experiment.
 
     Known issue: inspect.getsource needs plain functions, so a callable object passed as
     fit_function or loss_function raises TypeError.
     """
-    return dict(
+    code = {
+        "task": inspect.getsource(DriftingBanditTask),
+        "mouse": inspect.getsource(QLearningMouse),
+        "runner": inspect.getsource(run_recovery),
+        "module": Path(__file__).read_text(),
+        "design": inspect.getsource(recovery_design),
+        "fit": inspect.getsource(fit_function),
+        "loss": inspect.getsource(loss_function),
+    }
+    identity = dict(
+        algorithm_version=ALGORITHM_VERSION,
         config=config,
         bounds=bounds,
-        code={
-            "task": inspect.getsource(DriftingBanditTask),
-            "mouse": inspect.getsource(QLearningMouse),
-            "runner": inspect.getsource(run_recovery),
-            "module": Path(__file__).read_text(),
-            "design": inspect.getsource(recovery_design),
-            "fit": inspect.getsource(fit_function),
-            "loss": inspect.getsource(loss_function),
-        },
+        at_bound_atol=_AT_BOUND_ATOL,
+        fit_function=_function_name(fit_function),
+        loss_function=_function_name(loss_function),
     )
+    return identity, dict(code=code)
 
 
-def _create_experiment_dir(output_root, manifest: dict, design: pd.DataFrame) -> Path:
-    """Directory named by the manifest hash; holds the manifest and the design table."""
-    serialized = json.dumps(manifest, sort_keys=True, indent=2)
-    experiment_id = hashlib.sha256(serialized.encode()).hexdigest()[:12]
-    output = Path(output_root) / experiment_id
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "manifest.json").write_text(serialized)
+def _create_experiment_dir(
+    output_root, identity: dict, provenance: dict, design: pd.DataFrame
+) -> Path:
+    """Directory named by the identity hash; holds the manifest and the design table."""
+    output = manifest_dir(output_root, identity, provenance)
     design.to_csv(output / "design.csv", index=False)
     return output
 
@@ -132,17 +140,12 @@ def _simulate_session(row: dict, config: dict) -> tuple[dict, np.ndarray, np.nda
 
 def _save_session_data(path: Path, *, actions, rewards, arm_history) -> None:
     """Save the synthetic session atomically."""
-    with path.with_suffix(".tmp").open("wb") as handle:
-        np.savez_compressed(
+    write_atomically(
+        path,
+        lambda handle: np.savez_compressed(
             handle, actions=actions, rewards=rewards, arm_history=np.asarray(arm_history)
-        )
-    path.with_suffix(".tmp").replace(path)
-
-
-def _at_bound(value: float, limits) -> bool:
-    # Known issue: a None limit (an unbounded side) raises TypeError here, unlike the
-    # cohort fits, which skip None limits.
-    return bool(any(np.isclose(value, b, atol=_AT_BOUND_ATOL, rtol=0) for b in limits))
+        ),
+    )
 
 
 def _fit_session(
@@ -172,7 +175,7 @@ def _fit_session(
         # dropping the later parameters' recovered values from the row.
         for name, limits in zip(NAMES, bounds, strict=False):
             row[f"recovered_{name}"] = float(estimates[name])
-            row[f"at_bound_{name}"] = _at_bound(estimates[name], limits)
+            row[f"at_bound_{name}"] = at_bound(estimates[name], limits, atol=_AT_BOUND_ATOL)
     except RuntimeError as error:
         row.update(success=False, loss=None, message=str(error))
         for name in NAMES:
@@ -231,10 +234,10 @@ def run_recovery(config, fit_function, loss_function, bounds, output_root, max_n
     design = recovery_design(config)
     if design.empty or design.run_id.duplicated().any():
         raise ValueError("Design must contain unique, nonempty conditions.")
-    manifest = _build_manifest(
+    identity, provenance = _build_manifest(
         config, bounds=bounds, fit_function=fit_function, loss_function=loss_function
     )
-    output = _create_experiment_dir(output_root, manifest, design)
+    output = _create_experiment_dir(output_root, identity, provenance, design)
     checkpoint = output / "results.json"
     rows = json.loads(checkpoint.read_text()) if checkpoint.exists() else []
     complete = {row["run_id"] for row in rows}
@@ -256,7 +259,7 @@ def run_recovery(config, fit_function, loss_function, bounds, output_root, max_n
                 output=output,
             )
             rows.append(row)
-            _write_json_atomically(checkpoint, rows, indent=2)
+            write_json_atomically(checkpoint, rows, indent=2)
             elapsed = time.perf_counter() - started
             remaining = (len(pending) - count) * elapsed / count
             if count == 1 or count % 10 == 0 or count == len(pending):
