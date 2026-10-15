@@ -1,11 +1,13 @@
 """Unit tests for the small helpers behind ``make_backend`` and ``run_paper_sweep``."""
 
 import importlib.util
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from src.agents import paper_rl_fitting as paper
+from src.agents.run_store import ProvenanceMismatchWarning, manifest_dir
 
 needs_jax = pytest.mark.skipif(
     not (importlib.util.find_spec("jax") and importlib.util.find_spec("optax")),
@@ -226,7 +228,7 @@ class TestFingerprintSequences:
 
 
 class TestManifest:
-    def manifest(self, **overrides):
+    def identity(self, **overrides):
         settings = dict(
             profile="p",
             models=["sticky_rl"],
@@ -243,44 +245,65 @@ class TestManifest:
             identities={"train": ["a"]},
             data_sha256="abc",
             versions=dict(jax="0"),
-            snapshots=dict(implementation="src"),
+            model_fields={},
         )
         return paper._build_manifest(**{**args, **overrides})
 
-    def test_collects_settings_split_data_and_code_identity(self):
-        manifest = self.manifest()
-        assert manifest["profile"] == "p" and manifest["split_strategy"] == "mouse"
-        assert manifest["split_mice"] == {"train": ["a"]}
-        assert manifest["data_sha256"] == "abc" and manifest["implementation"] == "src"
-        assert manifest["upstream_commit"] == paper.SOURCE_COMMIT
+    def test_collects_settings_split_data_and_version_identity(self):
+        identity = self.identity()
+        assert identity["profile"] == "p" and identity["split_strategy"] == "mouse"
+        assert identity["split_mice"] == {"train": ["a"]}
+        assert identity["data_sha256"] == "abc" and identity["versions"] == dict(jax="0")
+        assert identity["upstream_commit"] == paper.SOURCE_COMMIT
+        assert identity["algorithm_version"] == paper.ALGORITHM_VERSION
+
+    def test_identity_holds_no_source_text(self):
+        assert not {"implementation", "neural_implementation"} & set(self.identity())
+
+    @needs_jax
+    def test_neural_models_add_their_version_to_the_identity(self):
+        from src.agents import neural_bandit
+
+        assert paper._neural_identity(("sticky_rl",)) == {}
+        fields = paper._neural_identity(("sticky_rl", "rl_ann"))
+        assert fields["model_versions"] == dict(neural_bandit=neural_bandit.MODEL_VERSION)
+        assert fields["neural_initialization"] == paper._NEURAL_INITIALIZATION
+
+    @needs_jax
+    def test_library_versions_include_jaxlib_and_the_backend(self):
+        versions = paper._library_versions()
+        assert {"jax", "jaxlib", "optax", "numpy", "jax_backend", "jax_platform"} == set(versions)
+        assert versions["jax_platform"] in ("cpu", "gpu", "tpu", "cuda", "rocm")
 
     def test_overlapping_keys_fail_loudly_instead_of_overwriting(self):
         with pytest.raises(TypeError):
-            self.manifest(snapshots=dict(profile="shadow"))
+            self.identity(model_fields=dict(profile="shadow"))
 
-    def test_output_directory_is_named_by_manifest_hash(self, tmp_path):
-        import hashlib
-        import json
+    def test_directory_changes_with_version_settings_data_and_libraries(
+        self, tmp_path, monkeypatch
+    ):
+        base = manifest_dir(tmp_path, self.identity())
+        assert manifest_dir(tmp_path, self.identity()) == base
+        assert manifest_dir(tmp_path, self.identity(data_sha256="other")) != base
+        assert manifest_dir(tmp_path, self.identity(versions=dict(jax="1"))) != base
+        assert manifest_dir(tmp_path, self.identity(settings=dict(profile="q"))) != base
+        assert (
+            manifest_dir(tmp_path, self.identity(settings=dict(grid=[{"batch_size": 2}]))) != base
+        )
+        monkeypatch.setattr(paper, "ALGORITHM_VERSION", paper.ALGORITHM_VERSION + 1)
+        assert manifest_dir(tmp_path, self.identity()) != base
 
-        manifest = self.manifest()
-        output = paper._write_manifest(tmp_path / "new" / "root", manifest)
-        text = (output / "manifest.json").read_text()
-        assert json.loads(text) == manifest
-        assert output.name == hashlib.sha256(text.encode()).hexdigest()[:12]
-        assert paper._write_manifest(tmp_path / "new" / "root", manifest) == output
+    def test_source_text_is_provenance_only(self, tmp_path):
+        snapshots = dict(implementation="one", neural_implementation="x")
+        first = manifest_dir(tmp_path, self.identity(), snapshots)
+        with pytest.warns(ProvenanceMismatchWarning, match="implementation"):
+            second = manifest_dir(tmp_path, self.identity(), dict(snapshots, implementation="two"))
+        assert first == second
 
-    def test_manifest_id_is_pure_and_independent_of_key_order(self, tmp_path):
-        manifest = self.manifest()
-        reordered = dict(reversed(list(manifest.items())))
-        assert paper._manifest_id(manifest) == paper._manifest_id(reordered)
-        assert len(paper._manifest_id(manifest)) == 12
-        assert paper._manifest_id(manifest) != paper._manifest_id(self.manifest(data_sha256="x"))
-        assert list(tmp_path.iterdir()) == []
-
-    def test_different_manifests_get_different_directories(self, tmp_path):
-        first = paper._write_manifest(tmp_path, self.manifest())
-        second = paper._write_manifest(tmp_path, self.manifest(data_sha256="other"))
-        assert first != second
+    def test_read_source_snapshots_names_the_files_that_were_read(self):
+        snapshots = paper._read_source_snapshots(("sticky_rl",))
+        assert snapshots["implementation"] == Path(paper.__file__).read_text()
+        assert set(snapshots) == {"implementation"}
 
 
 class TestRunMetadata:

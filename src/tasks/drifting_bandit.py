@@ -1,6 +1,11 @@
 import numpy as np
 import random
 
+# Bump when a change alters what this task computes; comments and refactors don't need a bump.
+# Runs that use this task record the version in their saved-run identity.
+MODEL_VERSION = 1
+
+
 class DriftingBanditTask():
 
     """

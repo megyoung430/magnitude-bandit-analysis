@@ -10,6 +10,9 @@ upstream zero-valued input slot. See the notebook for paper/code differences. Al
 import numpy as np
 from src.agents.paper_rl_fitting import dependencies
 
+# Bump when a change alters what this model computes; comments and refactors don't need a bump.
+# Runs that use this model record the version in their saved-run identity.
+MODEL_VERSION = 1
 NEURAL_MODELS = ('rl_ann', 'context_ann', 'memory_ann', 'vanilla_rnn')
 DISPLAY_NAMES = dict(rl_ann='RL-ANN', context_ann='Context-ANN',
                      memory_ann='Memory-ANN', vanilla_rnn='Vanilla RNN')
