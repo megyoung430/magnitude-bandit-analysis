@@ -8,12 +8,15 @@ Importing this module sets the ``"always"`` warnings filter for :class:`Reversal
 """
 
 import warnings
+from collections import Counter
 from dataclasses import dataclass
+from pathlib import PurePath
 
 from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.reversal_format import check_formats_agree
+from src.behavior_analysis.suspect_reversals import good_event_counts
 from src.behavior_import.session_order import ordered_session_keys
 
 
@@ -83,6 +86,8 @@ class _SessionSpan:
     stop: int
     bad_only: bool  # logs bad reversals but no good ones
     run_lengths: tuple  # trials in each recording run of the session (empty if unknown)
+    run_files: tuple  # file name of each recording run (``None`` where not recorded)
+    events: tuple  # ``((session-local trial, good reversals logged while not recording), ...)``
 
 
 def _run_lengths(sess):
@@ -93,6 +98,15 @@ def _run_lengths(sess):
     return tuple(len(r.get("trial") or []) for r in runs)
 
 
+def _run_files(sess):
+    """File name of each recording run of *sess* (``None`` where the import did not keep it)."""
+    frames = sess.get("data")
+    if not isinstance(frames, list):
+        frames = [frames]
+    paths = [getattr(f, "attrs", {}).get("source_path") for f in frames]
+    return tuple(None if p is None else PurePath(p).name for p in paths)
+
+
 def _session_spans(subject, sessions):
     """Spans of a subject's sessions in merged order (sessions without trials are absent)."""
     spans, start = [], 0
@@ -101,7 +115,12 @@ def _session_spans(subject, sessions):
         n = len(sess.get("trial") or [])
         if n:
             bad_only = bool(sess.get("has_bad", False)) and not sess.get("has_good", False)
-            spans.append(_SessionSpan(key, start, start + n, bad_only, _run_lengths(sess)))
+            events = tuple(sorted(good_event_counts(sess).items()))
+            spans.append(
+                _SessionSpan(
+                    key, start, start + n, bad_only, _run_lengths(sess), _run_files(sess), events
+                )
+            )
             start += n
     return spans
 
@@ -115,6 +134,8 @@ class _Where:
     trial: int | None
     run: int | None
     merged: int | None
+    file: str | None = None  # file name of the recording run, when the import kept it
+    run_trial: int | None = None  # trial index within the run (counted from 0)
 
     def text(self):
         if self.session is not None:
@@ -124,14 +145,21 @@ class _Where:
         return head if self.run is None else f"{head} (run {self.run})"
 
 
-def _run_of(span, local_trial):
-    """Index of the recording run holding session-local *local_trial*, or ``None``."""
+def _run_position(span, local_trial):
+    """``(run, trial within that run)`` of session-local *local_trial*; ``(None, None)`` if unknown."""
     first = 0
     for run, length in enumerate(span.run_lengths):
         if local_trial < first + length:
-            return run
+            return run, local_trial - first
         first += length
-    return None
+    return None, None
+
+
+def _file_of(span, run):
+    """File name of recording *run* of *span*, or ``None`` when unknown."""
+    if run is None or len(span.run_files) != len(span.run_lengths):
+        return None
+    return span.run_files[run]
 
 
 def _locate_trial(subj, spans, idx):
@@ -139,7 +167,8 @@ def _locate_trial(subj, spans, idx):
     for span in spans:
         if span.start <= idx < span.stop:
             local = idx - span.start
-            return _Where(subj, span.key, local, _run_of(span, local), idx)
+            run, run_trial = _run_position(span, local)
+            return _Where(subj, span.key, local, run, idx, _file_of(span, run), run_trial)
     return _Where(subj, None, None, None, idx)
 
 
@@ -270,12 +299,24 @@ def _build_reversal(
 
 
 @dataclass(frozen=True)
-class _Dropped:
-    """A reversal left out of the output because its best tower did not change."""
+class DroppedReversal:
+    """A boundary left out of the output because its best tower did not change.
+
+    ``reason`` is the :func:`~src.behavior_analysis.best_change.best_change_problem` result.
+    ``count`` is the reversals on the boundary trial (a jump of two in the counter is two),
+    of which ``events`` were logged while nothing was recording (between runs, or after a
+    run's last trial). ``before`` and ``after`` are the ``{tower: magnitude}`` dicts that the
+    check compared; ``good_reversal_number`` is the logged counter at the boundary, or
+    ``None`` when no counter was logged.
+    """
 
     where: _Where
     reason: str
-    count: int = 1  # reversals on the boundary trial: a jump of two in the counter is two
+    count: int = 1
+    good_reversal_number: int | None = None
+    before: dict | None = None
+    after: dict | None = None
+    events: int = 0
 
 
 def _reversals_at(series, boundary_source, idx):
@@ -283,6 +324,26 @@ def _reversals_at(series, boundary_source, idx):
     if boundary_source != "good_reversals":
         return 1
     return int(series.good[idx] - series.good[idx - 1])
+
+
+def _events_at(spans):
+    """``{merged trial: good reversals logged while nothing was recording}`` of the spans.
+
+    An event after a session's last trial enters the counter at the next session's first
+    trial, which is the same merged index.
+    """
+    events = Counter()
+    for span in spans:
+        for local, count in span.events:
+            events[span.start + local] += count
+    return events
+
+
+def _logged_good_number(series, idx):
+    """The good counter at merged trial *idx*, or ``None`` when it was not logged."""
+    if series.good is None or idx >= len(series.good):
+        return None
+    return series.good[idx]
 
 
 def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block, max_zero_count):
@@ -309,6 +370,7 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
     if include_first_block:
         boundaries = [0] + boundaries
 
+    events = _events_at(spans)
     reversals, dropped = [], []
     for k, idx in enumerate(boundaries):
         if _in_spans(idx, masked):
@@ -329,7 +391,18 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
         if problem is not None:
             # A dropped reversal is still a real block change in the data, so (like a
             # skipped one) it keeps ending the window of the reversal before it.
-            dropped.append(_Dropped(where, problem, _reversals_at(series, boundary_source, idx)))
+            count = _reversals_at(series, boundary_source, idx)
+            dropped.append(
+                DroppedReversal(
+                    where,
+                    problem,
+                    count,
+                    _logged_good_number(series, idx),
+                    before,
+                    after,
+                    min(count, events[idx]),
+                )
+            )
             continue
         # Windows come from the full boundary list, so a kept reversal's post-window
         # still stops at a neighbouring boundary that was skipped, masked or dropped.
@@ -377,7 +450,7 @@ def _check_aligned(subj, merged):
 
 
 def _warn_dropped(dropped):
-    """One warning listing every dropped reversal (a list of ``_Dropped``) and their count."""
+    """One warning listing every dropped reversal (``DroppedReversal``) and their count."""
     listing = "; ".join(
         f"{d.where.text()} [merged trial {d.where.merged}, {d.reason}"
         + (f", {d.count} reversals on this trial" if d.count > 1 else "")
@@ -389,10 +462,42 @@ def _warn_dropped(dropped):
         f"not change (a tied best counts) or a reward magnitude was missing: {listing}. "
         "A good reversal "
         "should change the best tower; these are left out of every analysis but still end "
-        "the windows of their neighbours.",
+        "the windows of their neighbours. See suspect_reversal_table for a reviewable list.",
         ReversalWarning,
         stacklevel=3,
     )
+
+
+def collect_good_reversals(data, *, pre, post, include_first_block, max_zero_count):
+    """Windows, dropped reversals and bad-only sessions of every subject (no warnings).
+
+    The shared core of :func:`get_good_reversal_info` and
+    :func:`~src.behavior_analysis.suspect_reversal_table.suspect_reversal_table`, so that
+    the table lists exactly the reversals that the analyses drop.
+
+    Returns:
+        ``(result, dropped, bad_only)``: the ``{subject: [reversal_dict]}`` result, the
+        :class:`DroppedReversal` list across subjects, and ``(subject, session)`` of each
+        bad-only session.
+    """
+    for subj, subject_sessions in data.items():
+        check_formats_agree(subj, subject_sessions)
+    merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
+    result, dropped, bad_only = {}, [], []
+    for subj, d in merged_subject_data_across_all_sessions.items():
+        _check_aligned(subj, d)
+        result[subj], subj_dropped, subj_bad_only = _subject_reversals(
+            subj,
+            _SubjectSeries.from_merged(d),
+            data.get(subj, {}),
+            pre=pre,
+            post=post,
+            include_first_block=include_first_block,
+            max_zero_count=max_zero_count,
+        )
+        dropped += subj_dropped
+        bad_only += [(subj, key) for key in subj_bad_only]
+    return result, dropped, bad_only
 
 
 def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, max_zero_count=1):
@@ -422,6 +527,8 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     is left out of the result, so every analysis downstream sees only valid
     reversals. One ``ReversalWarning`` per call lists the dropped reversals
     (subject, session, session-local trial, recording run) and their count.
+    :func:`~src.behavior_analysis.suspect_reversal_table.suspect_reversal_table` lists
+    the same reversals as a table to review by hand against the raw files.
     **A dropped reversal still ends the window of its neighbour and still counts
     as a removal** (:mod:`src.behavior_analysis.cumulative_reversal_removal`): it
     is a real block change in the data, so it only has no record of its own, as
@@ -494,23 +601,13 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
           [...]}`` one-hot choice slices.
     """
-    for subj, subject_sessions in data.items():
-        check_formats_agree(subj, subject_sessions)
-    merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
-    result, dropped, bad_only = {}, [], []
-    for subj, d in merged_subject_data_across_all_sessions.items():
-        _check_aligned(subj, d)
-        result[subj], subj_dropped, subj_bad_only = _subject_reversals(
-            subj,
-            _SubjectSeries.from_merged(d),
-            data.get(subj, {}),
-            pre=pre,
-            post=post,
-            include_first_block=include_first_block,
-            max_zero_count=max_zero_count,
-        )
-        dropped += subj_dropped
-        bad_only += [(subj, key) for key in subj_bad_only]
+    result, dropped, bad_only = collect_good_reversals(
+        data,
+        pre=pre,
+        post=post,
+        include_first_block=include_first_block,
+        max_zero_count=max_zero_count,
+    )
     # Warnings are raised here, not in the helpers, so stacklevel=2 is the caller's line.
     for subj, key in bad_only:
         warnings.warn(

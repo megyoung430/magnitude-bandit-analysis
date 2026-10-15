@@ -8,8 +8,8 @@ Three views are available, all accessible through the top-level
 - *Average across mice* — one panel: bars over mice, a line per mouse (mouse colours).
 - *Average across blocks* — one panel: bars over blocks, a line per block (block colours).
 
-:func:`plot_rank_proportions_average` still draws the two averages side by side in one
-figure, but the dispatcher does not call it.
+:func:`plot_rank_proportions_average` is a separate function, not part of the dispatcher: it
+draws the two averages side by side in one figure.
 
 Each panel is a function that draws into an ``ax`` you pass (or a new figure if
 you don't), so it can be one panel of a larger figure; the ``plot_rank_proportions*``

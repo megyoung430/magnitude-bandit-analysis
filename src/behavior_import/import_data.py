@@ -24,6 +24,8 @@ import pandas as pd
 
 from src.behavior_import.problem_numbering import (
     SessionFacts,
+    classify_task_name,
+    is_pretraining,
     number_subject_sessions,
     tower_layout,
 )
@@ -64,7 +66,50 @@ def source_path(df) -> str:
     return df.attrs.get("source_path", "<unknown path>")
 
 
-def _build_session_record(df_list: list, towers: dict, assignment, evidence: dict) -> dict:
+def session_source_paths(session: dict) -> list[str]:
+    """The files a session record was read from (its ``"df"`` frames), without re-reading them.
+
+    Frames that did not come from :func:`collect_tsv_files` carry no path and are left out,
+    so the list can be empty.
+    """
+    frames = session.get("df")
+    frames = frames if isinstance(frames, list) else [frames]
+    paths = (getattr(frame, "attrs", {}).get("source_path") for frame in frames)
+    return [path for path in paths if path]
+
+
+def session_task_type(
+    subject: str, session_key: str, task_name: str | None, paths: list[str], *, skip_pretraining
+) -> str | None:
+    """``"blocked"`` or ``"drifting"`` for a session's task name; errors name where it is from.
+
+    Args:
+        subject, session_key, paths: The session and its files, named in the error message.
+        task_name: The session's ``task_name`` info row, or ``None`` if the file has none.
+        skip_pretraining: If true, a pretraining task gives ``None`` instead of being classified.
+
+    Raises:
+        ValueError: If the task name is missing, unrecognised or matches both types.
+    """
+    if skip_pretraining and is_pretraining(task_name):
+        return None
+    try:
+        return classify_task_name(task_name)
+    except ValueError as err:
+        files = ", ".join(paths) or "<unknown file>"
+        raise ValueError(
+            f"{subject} {session_key} ({files}), task name {task_name!r}: {err}"
+        ) from err
+
+
+def _build_session_record(
+    df_list: list,
+    towers: dict,
+    assignment,
+    evidence: dict,
+    task_type: str | None,
+    task_types_classified: bool,
+) -> dict:
     """The per-session entry returned by :func:`import_data`.
 
     Raw and expanded representations are independent copies, so expanding
@@ -81,6 +126,8 @@ def _build_session_record(df_list: list, towers: dict, assignment, evidence: dic
         "problem_provisional": assignment.provisional,
         "settings_evidence": evidence,
         "task_name": evidence["task_name"],
+        "task_type": task_type,
+        "task_types_classified": task_types_classified,
         "choice_towers": towers.get("choice_towers", set()),
         "initiation_tower": towers.get("initiation_tower"),
     }
@@ -94,16 +141,19 @@ def _session_run_start(df_list: list, subject_id: str, session_key: str) -> dict
         raise ValueError(f"{subject_id} {session_key} ({source_path(df_list[0])}): {err}") from err
 
 
-def _session_facts(towers: dict, evidence: dict) -> SessionFacts:
+def _session_facts(towers: dict, evidence: dict, task_type: str | None) -> SessionFacts:
     return SessionFacts(
         tower_layout(towers["choice_towers"], towers["initiation_tower"]),
         evidence["starts_found_ports_false"],
         evidence["has_port_finding_trials"],
         evidence["task_name"],
+        task_type,
     )
 
 
-def _import_subject_sessions(grouped_tsv_files: dict, subject_id: str) -> dict:
+def _import_subject_sessions(
+    grouped_tsv_files: dict, subject_id: str, classify_task_types: bool = False
+) -> dict:
     """``{session_key: session record}`` for one subject, with problem numbers assigned."""
     keys = _sorted_session_keys(grouped_tsv_files, subject_id)
     df_lists = [grouped_tsv_files[key] for key in keys]
@@ -116,22 +166,36 @@ def _import_subject_sessions(grouped_tsv_files: dict, subject_id: str) -> dict:
         settings_evidence(df_list, run_start)
         for df_list, run_start in zip(df_lists, run_starts, strict=True)
     ]
+    # Classified before numbering, so an unreadable task name stops the run instead of being
+    # numbered; pretraining is left unclassified because numbering skips it.
+    task_types = [
+        session_task_type(
+            subject_id,
+            key[1],
+            e["task_name"],
+            [source_path(df) for df in df_list],
+            skip_pretraining=True,
+        )
+        if classify_task_types
+        else None
+        for df_list, key, e in zip(df_lists, keys, evidence, strict=True)
+    ]
     # stacklevel 4: number_subject_sessions, this function, import_data, then the caller.
     assignments = number_subject_sessions(
         subject_id,
         [key[1] for key in keys],
-        [_session_facts(t, e) for t, e in zip(towers, evidence, strict=True)],
+        [_session_facts(t, e, k) for t, e, k in zip(towers, evidence, task_types, strict=True)],
         stacklevel=4,
     )
     return {
-        key[1]: _build_session_record(df_list, t, assignment, e)
-        for key, df_list, t, e, assignment in zip(
-            keys, df_lists, towers, evidence, assignments, strict=True
+        key[1]: _build_session_record(df_list, t, assignment, e, kind, classify_task_types)
+        for key, df_list, t, e, assignment, kind in zip(
+            keys, df_lists, towers, evidence, assignments, task_types, strict=True
         )
     }
 
 
-def import_data(root: str | Path) -> dict:
+def import_data(root: str | Path, *, classify_task_types: bool = False) -> dict:
     """Import behavioral experiment data from a directory tree of TSV files.
 
     Recursively scans *root* for ``.tsv`` files, groups them by subject and
@@ -150,9 +214,18 @@ def import_data(root: str | Path) -> dict:
     Flagged sessions stay in the result for single-session analyses.  Subjects are returned in
     sorted order.
 
+    With ``classify_task_types`` each session's task name is read as blocked or drifting
+    (:func:`~src.behavior_import.problem_numbering.classify_task_name`), stored as
+    ``"task_type"``, and made part of the numbering: a change of task type starts a new problem
+    like a change of layout. A missing, unrecognised or ambiguous task name raises before any
+    numbering, naming subject, session and file; pretraining is skipped first. Off by default
+    (``"task_type"`` is ``None`` and numbering is by layout alone) because other tasks,
+    such as the grid maze, have other task names.
+
     Args:
         root: Root directory containing subject/session sub-directories with
             ``.tsv`` files.
+        classify_task_types: Classify and number by task type (see above).
 
     Returns:
         Nested dict of the form::
@@ -167,6 +240,8 @@ def import_data(root: str | Path) -> dict:
                   "problem_provisional": bool,          # final one-session run: may change
                   "settings_evidence": dict,            # facts the flag rule used
                   "task_name": str | None,              # the file header's task_name row
+                  "task_type": str | None,              # "blocked"/"drifting" if classified
+                  "task_types_classified": bool,        # whether classify_task_types was on
                   "choice_towers": set,
                   "initiation_tower": str | None,
                 }
@@ -201,7 +276,9 @@ def import_data(root: str | Path) -> dict:
     # _import_subject_sessions does not depend on the Python version.
     subjects = {}
     for subject_id in unique_subjects:
-        subjects[subject_id] = _import_subject_sessions(grouped_tsv_files, subject_id)
+        subjects[subject_id] = _import_subject_sessions(
+            grouped_tsv_files, subject_id, classify_task_types
+        )
 
     total = sum(len(s) for s in subjects.values())
     print(f"[INFO] Processed {len(subjects)} subjects(s), {total} session(s).")

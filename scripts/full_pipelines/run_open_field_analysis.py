@@ -5,6 +5,12 @@ Edit the settings below, then run:
     uv run python scripts/full_pipelines/run_open_field_analysis.py
 
 Figures are written under results/figures/<task>/<cohort>/problem-NN/.
+
+This script applies one analysis selection (the default: choice probabilities, first leave and
+the other sections) to every problem of one cohort. That suits the blocked-task cohort in
+FOLDER_NAME, whose problems are all blocked. For cohorts 1-4, or any cohort that has drifting
+problems, use scripts/full_pipelines/run_cohorts.py: it reads the task type of each session from
+its task name and runs the analyses that apply to each type.
 """
 
 from src.behavior_import.load_trials import load_trials_by_problem

@@ -19,7 +19,7 @@ def computed(monkeypatch):
     """Replace the slow import with a counter so tests need no real sessions."""
     calls = []
 
-    def fake_import(root):
+    def fake_import(root, classify_task_types=False):
         calls.append(root)
         return {1: {"M1": {"n_calls": len(calls)}}}
 
@@ -59,7 +59,7 @@ def test_use_cache_false_always_recomputes(raw_root, tmp_path, computed):
 
 def test_fingerprint_lists_tsv_files_relative_to_root(raw_root):
     (raw_root / "notes.txt").write_text("ignored")
-    (path, size, _), = raw_data_fingerprint(raw_root)
+    ((path, size, _),) = raw_data_fingerprint(raw_root)
     assert path == "sub-01_id-M1/ses-01_date-20260101/behav/M1-2026-01-01-120000.tsv"
     assert size > 0
 
@@ -67,3 +67,9 @@ def test_fingerprint_lists_tsv_files_relative_to_root(raw_root):
 def test_missing_root_fails_loudly(tmp_path, computed):
     with pytest.raises(FileNotFoundError):
         load_trials_by_problem(tmp_path / "unmounted", cache_dir=tmp_path / "cache")
+
+
+def test_classifying_task_types_is_part_of_the_cache_key(raw_root, tmp_path, computed):
+    load_trials_by_problem(raw_root, cache_dir=tmp_path)
+    load_trials_by_problem(raw_root, cache_dir=tmp_path, classify_task_types=True)
+    assert len(computed) == 2

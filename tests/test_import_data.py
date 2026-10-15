@@ -217,7 +217,7 @@ def test_corrupt_or_empty_first_run_start_raises_naming_subject_session_and_file
         import_data(tmp_path)
 
 
-def import_sessions(root, items):
+def import_sessions(root, items, **import_kwargs):
     """Write one session per item (ses-1, ses-2, ...) and import them.
 
     An item is a run_start dict, imported as a clean first session of its layout (it prints
@@ -232,7 +232,7 @@ def import_sessions(root, items):
             task_name=task_name,
             port_finding=port_finding,
         )
-    return import_data(root)["M1"]
+    return import_data(root, **import_kwargs)["M1"]
 
 
 A = run_start_for(["A1", "B1", "C1"])

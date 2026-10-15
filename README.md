@@ -160,10 +160,10 @@ folder without any bump. Finished results always stay readable in the old folder
 | `src/behavior_import/` | Parses raw pyControl `.tsv` logs into trial-level structures. `import_data.py` is the main entry point; handles field-name aliasing across protocol versions. |
 | `src/behavior_analysis/` | Computes derived metrics from imported trials — reversals, choice probabilities, task statistics, GLM utilities, cross-problem summaries. |
 | `src/behavior_visualization/` | One plotting function per analysis in `behavior_analysis/`. |
-| `src/pipelines/` | End-to-end analysis pipelines as functions with typed settings (`open_field.py`: every standard open-field figure, per problem). Scripts and notebooks call these rather than copying or exec-ing script code. |
+| `src/pipelines/` | End-to-end analysis pipelines as functions with typed settings (`open_field.py`: every standard open-field figure, per problem; `cohort_analysis.py`: the whole suite for a cohort, split by blocked/drifting task type). Scripts and notebooks call these rather than copying or exec-ing script code. |
 | `src/task_simulations/` | Synthetic bandit sessions (GP-driven and Markov-chain reward dynamics) for comparing real behavior against simulated agents. |
 | `scripts/individual_analyses/` | Standalone scripts, one per analysis/plot type — thin wrappers around `src/`. |
-| `scripts/full_pipelines/` | Entry points for full cohort runs (`run_open_field_analysis.py` calls `src/pipelines/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
+| `scripts/full_pipelines/` | Entry points for full cohort runs (`run_cohorts.py` calls `src/pipelines/cohort_analysis.py`; `run_open_field_analysis.py` calls `src/pipelines/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
 | `scripts/to_integrate/` | Exploratory notebooks not yet folded into `src/`. |
 
 ## Getting started
@@ -174,6 +174,45 @@ folder without any bump. Finished results always stay readable in the old folder
    plots.
 3. For a specific analysis, check `scripts/individual_analyses/` for a
    standalone example, or `scripts/full_pipelines/` for a full pipeline.
+
+### How to run cohorts 1-4
+
+```bash
+uv run python scripts/full_pipelines/run_cohorts.py --cohorts 1 2 3 4
+```
+
+(or `scripts/full_pipelines/cohort-analysis.ipynb`, with `cohort_ids = [1, 2, 3, 4]`). Raw data
+is read from `<BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N`. The run stops at
+the first cohort that fails and names it; add `--continue-on-error` to run the others and
+report all failures at the end.
+
+- **Task type** comes from each session's pyControl task name (last path component, case
+  insensitive): `blocked` or `structured` is blocked, `drifting` is drifting. Pretraining is
+  skipped first; a missing name, any other name, or a name matching both stops the run with an
+  error naming the mouse, session, file and task name.
+- A **change of task type starts a new problem**, like a change of tower layout, even when the
+  layout is unchanged; a task type that lasts one session before changing again is a suspected
+  settings error, left out and pooled around like a one-session layout change.
+- **Numbering** is per mouse within the type (blocked 1, 2, ...; drifting 1, 2, ...), so
+  "drifting problem 1" lines up across mice even if their blocked problems differ in number.
+  All sessions of one problem must have the same type.
+- **Blocked** problems: choice probabilities, first leave, number of reversals, true-value rank
+  proportions, single sessions. **Drifting** problems: number of reversals, true- and
+  believed-value rank proportions, single sessions, plus rank proportions pooled over all of a
+  mouse's drifting problems (ranks are computed within each problem first).
+- **Outputs** (under `results/`, which is git-ignored):
+  `figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/`,
+  `figures/open-field/cohort-0N/drifting/all-drifting-problems/choice-stats/`,
+  `figures/open-field/cohort-0N/trial-block-summaries/all-problems/`, and
+  `tables/open-field/cohort-0N/problem_map.csv` (mouse, task type, number within type, overall
+  problem, sessions) and `suspect_reversals.csv` (the good reversals the analyses drop, for
+  review by hand). In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
+  session; to find a row in the raw file, search `file` for `"num_t": <num_t>` (the run-local,
+  1-based trial number pyControl printed) or for the row at `print_time`.
+- **Before you compare with older runs**: a `results/` folder from before this runner keeps the
+  previous folder layout (`cohort-0N/problem-NN/`) and the old `... by Average` rank-proportion
+  files next to the new ones, so start from a clean `results/figures` folder. The
+  across-blocks rank-proportion figure now has its own y tick labels.
 
 ### Reversals at session boundaries
 
