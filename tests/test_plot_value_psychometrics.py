@@ -11,11 +11,14 @@ from src.behavior_analysis.get_choice_probs_by_value import MouseCounts
 from src.behavior_analysis.value_psychometrics import heatmap_tables, psychometric_curves
 from src.behavior_visualization.plot_value_psychometrics import (
     annotation_position,
+    label_placements,
     plot_overall_heatmaps,
     plot_per_mouse_heatmaps,
     plot_prob_heatmap,
     plot_psychometric_curves,
     plot_psychometric_panel,
+    tie_label,
+    tie_summary,
 )
 
 
@@ -35,6 +38,7 @@ def counts_for(cells):
     return counts
 
 
+TIES = {"best_second": 4, "second_third": 0, "all_three": 2}
 CELLS = {(4, 1): (20, 19, 1), (4, 3): (30, 15, 12), (3, 2): (10, 9, 0), (2, 1): (8, 2, 6)}
 
 
@@ -101,7 +105,9 @@ def test_heatmap_without_annotation_draws_no_text():
 
 def test_overall_heatmaps_save_one_png_and_pdf(tmp_path):
     tables = heatmap_tables(two_mice())
-    plot_overall_heatmaps(tables, "True", save_path=tmp_path / "Heatmaps (True Value) Overall")
+    plot_overall_heatmaps(
+        tables, "True", "split", save_path=tmp_path / "Heatmaps (True Value) Overall"
+    )
     assert (tmp_path / "Heatmaps (True Value) Overall.png").exists()
     assert (tmp_path / "Heatmaps (True Value) Overall.pdf").exists()
     assert plt.get_fignums() == []
@@ -111,7 +117,7 @@ def test_per_mouse_heatmaps_have_a_row_per_mouse_and_a_column_per_choice(tmp_pat
     shown = []
     monkeypatch.setattr(plt, "show", lambda: shown.extend(plt.get_fignums()))
     tables = heatmap_tables(two_mice())
-    plot_per_mouse_heatmaps(tables, "Believed")
+    plot_per_mouse_heatmaps(tables, "Believed", "split")
     assert len(shown) == 1
 
 
@@ -120,7 +126,7 @@ def test_per_mouse_heatmap_layout(monkeypatch):
 
     seen = {}
     monkeypatch.setattr(module, "save_or_show", lambda fig, path: seen.update(fig=fig))
-    plot_per_mouse_heatmaps(heatmap_tables(two_mice()), "True")
+    plot_per_mouse_heatmaps(heatmap_tables(two_mice()), "True", "split")
     heat_axes = [a for a in seen["fig"].axes if a.images]
     assert len(heat_axes) == 4
     assert [a.get_title() for a in heat_axes][:2] == ["P(Best) - m1", "P(Second) - m1"]
@@ -164,7 +170,7 @@ def test_mean_annotations_are_inside_the_axes_even_at_the_extremes():
 def test_curves_figure_has_three_panels_and_is_saved(tmp_path):
     curves = psychometric_curves(two_mice(), pool_trials=False)
     base = tmp_path / "Psychometric Curves (True Value) (Pool Trials False)"
-    plot_psychometric_curves(curves, "True", pool_trials=False, save_path=base)
+    plot_psychometric_curves(curves, "True", False, TIES, "split", save_path=base)
     assert base.with_suffix(".png").exists() and base.with_suffix(".pdf").exists()
 
 
@@ -174,7 +180,7 @@ def test_curves_figure_panels_and_title(monkeypatch):
     seen = {}
     monkeypatch.setattr(module, "save_or_show", lambda fig, path: seen.update(fig=fig))
     curves = psychometric_curves(two_mice(), pool_trials=True)
-    plot_psychometric_curves(curves, "Believed", pool_trials=True)
+    plot_psychometric_curves(curves, "Believed", True, TIES, "split")
     fig = seen["fig"]
     assert [a.get_xlabel() for a in fig.axes] == [
         "Value of Best",
@@ -190,3 +196,123 @@ def test_no_mice_still_draws_empty_panels():
     _, ax = plt.subplots()
     plot_psychometric_panel(curves["best"]["diff"], curves["second"]["diff"], "x", ax=ax)
     assert np.isnan(curves["best"]["diff"].mean).all()
+
+
+# --- label placement -----------------------------------------------------------------------
+
+LABEL_HEIGHT = 0.05  # the placement budget for one label, in data units
+
+
+def span(placement):
+    low = {"bottom": placement.y, "top": placement.y - LABEL_HEIGHT}.get(
+        placement.va, placement.y - LABEL_HEIGHT / 2
+    )
+    return low, low + LABEL_HEIGHT
+
+
+def test_labels_of_well_separated_means_go_outside_the_gap():
+    best, second = label_placements(0.8, 0.3)
+    assert (best.va, second.va) == ("bottom", "top") and best.y > 0.8 and second.y < 0.3
+
+
+def test_crossed_curves_put_the_higher_label_above_whichever_curve_it_is():
+    best, second = label_placements(0.40, 0.50)
+    assert second.va == "bottom" and best.va == "top"
+
+
+@pytest.mark.parametrize("gap", [0.0, 0.02, 0.05, 0.1])
+def test_close_means_do_not_collide_anywhere_on_the_axis(gap):
+    for low in np.arange(0.0, 1.0 - gap + 1e-9, 0.01):
+        for mean_best, mean_second in ((low, low + gap), (low + gap, low)):
+            best, second = label_placements(mean_best, mean_second)
+            for placement in (best, second):
+                lo, hi = span(placement)
+                assert -1e-9 <= lo and hi <= 1 + 1e-9, (mean_best, mean_second)
+            if best.dx_sign == second.dx_sign:  # stacked in one column
+                (a0, a1), (b0, b1) = span(best), span(second)
+                assert a1 <= b0 + 1e-9 or b1 <= a0 + 1e-9, (mean_best, mean_second)
+                for (lo, hi), other_mean in (((a0, a1), mean_second), ((b0, b1), mean_best)):
+                    assert not (lo - 0.01 <= other_mean <= hi + 0.01), (mean_best, mean_second)
+
+
+def test_labels_beside_the_points_when_there_is_no_room_above_or_below():
+    best, second = label_placements(0.97, 0.95)
+    assert {best.dx_sign, second.dx_sign} == {1, -1}
+    assert best.va == second.va == "center"
+
+
+def test_panel_labels_of_close_means_are_separate_texts_in_range():
+    close = {(4, 1): (100, 50, 45), (3, 1): (100, 40, 50)}
+    ax = draw_panel({"m1": counts_for(close), "m2": counts_for(close)})
+    positions = [t.get_position() for t in ax.texts]
+    assert len(positions) == 4 and len(set(positions)) == 4
+
+
+# --- tie reporting and layout --------------------------------------------------------------
+
+
+def test_tie_label_names_the_mode_and_rejects_unknown_ones():
+    assert (tie_label("exclude"), tie_label("split")) == ("Excluded", "Split")
+    with pytest.raises(ValueError, match="tie_mode"):
+        tie_label("drop")
+
+
+def test_tie_summary_gives_the_three_totals_and_the_fate_of_the_trials():
+    excluded = tie_summary(TIES, "exclude")
+    assert "best/second: 4" in excluded and "second/third: 0" in excluded
+    assert "all three: 2" in excluded and "left out" in excluded
+    assert "split evenly" in tie_summary(TIES, "split")
+
+
+def capture_figure(monkeypatch):
+    from src.behavior_visualization import plot_value_psychometrics as module
+
+    seen = {}
+    monkeypatch.setattr(module, "save_or_show", lambda fig, path: seen.update(fig=fig))
+    return seen
+
+
+def tie_line(fig):
+    return [t.get_text() for t in fig.texts if t.get_text().startswith("Trials with ties")]
+
+
+@pytest.mark.parametrize("tie_mode, word", [("exclude", "Excluded"), ("split", "Split")])
+def test_every_figure_prints_the_tie_totals_and_the_mode(monkeypatch, tie_mode, word):
+    seen = capture_figure(monkeypatch)
+    counts = two_mice()
+    counts["m1"].ties.update(TIES)
+    tables = heatmap_tables(counts)
+    curves = psychometric_curves(counts, pool_trials=True)
+    drawers = [
+        lambda: plot_overall_heatmaps(tables, "True", tie_mode),
+        lambda: plot_per_mouse_heatmaps(tables, "True", tie_mode),
+        lambda: plot_psychometric_curves(curves, "True", True, tables.ties, tie_mode),
+    ]
+    for draw in drawers:
+        draw()
+        fig = seen["fig"]
+        assert len(tie_line(fig)) == 1 and "best/second: 4" in tie_line(fig)[0]
+        assert f"Ties {word}" in fig._suptitle.get_text()
+
+
+def test_per_mouse_title_clears_the_first_row_and_footer_clears_the_last(monkeypatch):
+    seen = capture_figure(monkeypatch)
+    plot_per_mouse_heatmaps(heatmap_tables(two_mice()), "True", "split")
+    fig = seen["fig"]
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    title_box = fig._suptitle.get_window_extent(renderer)
+    footer = next(t for t in fig.texts if t.get_text().startswith("Trials with ties"))
+    footer_box = footer.get_window_extent(renderer)
+    for ax in fig.axes:
+        box = ax.get_tightbbox(renderer)
+        assert box.y1 <= title_box.y0 + 1 and box.y0 >= footer_box.y1 - 1
+
+
+def test_one_mouse_is_not_pluralised(monkeypatch):
+    seen = capture_figure(monkeypatch)
+    plot_overall_heatmaps(heatmap_tables({"m1": counts_for(CELLS)}), "True", "split")
+    assert "1 mouse " in seen["fig"]._suptitle.get_text()
+    curves = psychometric_curves({"m1": counts_for(CELLS)}, pool_trials=True)
+    plot_psychometric_curves(curves, "True", True, TIES, "split")
+    assert seen["fig"]._suptitle.get_text().endswith("1 mouse")

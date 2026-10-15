@@ -19,6 +19,7 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
+from src.behavior_analysis.get_believed_value import TIE_CATEGORIES
 from src.behavior_analysis.get_choice_probs_by_value import (
     BEST_VALS,
     SECOND_VALS,
@@ -59,7 +60,8 @@ class HeatmapTables(NamedTuple):
     """Cell probabilities and trial counts (best value x second value) for the heatmaps.
 
     The ``p_*`` and ``n_trials`` tables are over all mice: the mean of the mice's cell
-    probabilities (every mouse equal, empty cells ignored) and the summed trial counts.
+    probabilities (every mouse equal, empty cells ignored) and the summed trial counts; ``ties``
+    totals the tied trials of all mice by category.
     """
 
     p_best: pd.DataFrame
@@ -68,6 +70,7 @@ class HeatmapTables(NamedTuple):
     per_mouse_p_best: dict[str, pd.DataFrame]
     per_mouse_p_second: dict[str, pd.DataFrame]
     per_mouse_n: dict[str, pd.DataFrame]
+    ties: dict[str, int]
 
 
 def _membership(x_values: list, x_of_cell) -> np.ndarray:
@@ -172,6 +175,21 @@ def psychometric_curves(
     }
 
 
+def tie_totals(counts_by_mouse: dict[str, MouseCounts]) -> dict[str, int]:
+    """Trials with tied values, summed over mice, for each of the three tie categories.
+
+    Args:
+        counts_by_mouse (dict[str, MouseCounts]): Output of ``count_choice_probs``.
+
+    Returns:
+        dict[str, int]: ``{"best_second": n, "second_third": n, "all_three": n}``.
+    """
+    return {
+        category: sum(counts.ties[category] for counts in counts_by_mouse.values())
+        for category in TIE_CATEGORIES
+    }
+
+
 def heatmap_tables(counts_by_mouse: dict[str, MouseCounts]) -> HeatmapTables:
     """Cell probabilities and trial counts for the overall and per-mouse heatmaps.
 
@@ -183,7 +201,13 @@ def heatmap_tables(counts_by_mouse: dict[str, MouseCounts]) -> HeatmapTables:
     """
     p_best, p_second, per_mouse_best, per_mouse_second = choice_probs_from_counts(counts_by_mouse)
     per_mouse_n = {subject: counts.denom.copy() for subject, counts in counts_by_mouse.items()}
-    total = init_matrix(fill=0.0)
-    for n in per_mouse_n.values():
-        total = total + n
-    return HeatmapTables(p_best, p_second, total, per_mouse_best, per_mouse_second, per_mouse_n)
+    total = sum(per_mouse_n.values(), start=init_matrix(fill=0.0))
+    return HeatmapTables(
+        p_best,
+        p_second,
+        total,
+        per_mouse_best,
+        per_mouse_second,
+        per_mouse_n,
+        tie_totals(counts_by_mouse),
+    )

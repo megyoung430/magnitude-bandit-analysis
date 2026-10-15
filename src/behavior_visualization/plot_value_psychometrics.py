@@ -11,13 +11,19 @@ each probability next to its evidence, and the per-mouse figure stays two panels
 
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from src.behavior_analysis.get_choice_probs_by_value import BEST_VALS, SECOND_VALS
+from src.behavior_analysis.get_choice_probs_by_value import (
+    BEST_VALS,
+    SECOND_VALS,
+    TIE_EXCLUDE,
+    TIE_MODES,
+)
 from src.behavior_analysis.value_psychometrics import Curve, HeatmapTables
 from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
@@ -31,6 +37,10 @@ EMPTY_CELL_COLOR = "#e6e6e6"
 # Text height in data units (a 10 pt label on a ~4 inch tall panel) used to keep labels inside 0-1.
 _LABEL_HEIGHT = 0.05
 _LABEL_PAD = 0.05
+
+# Figure margins in inches: room for the title above and the tie summary below the panels.
+_TITLE_MARGIN = 0.55
+_FOOTER_MARGIN = 0.45
 
 PANELS = (
     ("best_val", "Value of Best"),
@@ -72,6 +82,104 @@ def annotation_position(mean: float, *, above: bool) -> tuple[float, str]:
     if place_above:
         return mean + _LABEL_PAD, "bottom"
     return mean - _LABEL_PAD, "top"
+
+
+class Placement(NamedTuple):
+    """Where one mean label goes: y, vertical and horizontal alignment, and x offset sign."""
+
+    y: float
+    va: str
+    ha: str = "center"
+    dx_sign: int = 0
+
+
+def _label_span(placement: Placement) -> tuple[float, float]:
+    """The y range a label occupies, in data units."""
+    y = placement.y
+    if placement.va == "bottom":
+        return y, y + _LABEL_HEIGHT
+    if placement.va == "top":
+        return y - _LABEL_HEIGHT, y
+    return y - _LABEL_HEIGHT / 2, y + _LABEL_HEIGHT / 2
+
+
+def _labels_collide(first: Placement, mean_first: float, second: Placement, mean_second: float):
+    """Whether two stacked labels overlap each other or sit on the other curve's point."""
+    box_a, box_b = _label_span(first), _label_span(second)
+    overlap = box_a[0] < box_b[1] and box_b[0] < box_a[1]
+    margin = 0.01
+    on_point = lambda box, mean: box[0] - margin <= mean <= box[1] + margin  # noqa: E731
+    return overlap or on_point(box_a, mean_second) or on_point(box_b, mean_first)
+
+
+def label_placements(mean_best: float, mean_second: float) -> tuple[Placement, Placement]:
+    """Label positions for the P(best) and P(second) means at one x, clear of each other.
+
+    The higher mean's label goes above its point and the lower one's below, so the labels stay
+    outside the gap between the curves, also when they are close or have crossed. If a label has
+    to flip at the edge of the axes and then collides, the higher label goes to the right of its
+    point and the lower one to the left.
+
+    Args:
+        mean_best (float): Mean P(best) at this x.
+        mean_second (float): Mean P(second) at this x.
+
+    Returns:
+        tuple[Placement, Placement]: The placements of the best and of the second label.
+    """
+    best_higher = mean_best >= mean_second
+    best = Placement(*annotation_position(mean_best, above=best_higher))
+    second = Placement(*annotation_position(mean_second, above=not best_higher))
+    if not _labels_collide(best, mean_best, second, mean_second):
+        return best, second
+    edge = _LABEL_HEIGHT / 2
+
+    def side(mean: float, right: bool) -> Placement:
+        y = min(max(mean, edge), 1.0 - edge)
+        return Placement(y, "center", "left" if right else "right", 1 if right else -1)
+
+    return side(mean_best, best_higher), side(mean_second, not best_higher)
+
+
+def tie_label(tie_mode: str) -> str:
+    """``"Excluded"`` or ``"Split"``, for titles and file names.
+
+    Raises:
+        ValueError: If *tie_mode* is not one of the tie modes.
+    """
+    if tie_mode not in TIE_MODES:
+        raise ValueError(f"tie_mode must be one of {TIE_MODES}, got {tie_mode!r}")
+    return "Excluded" if tie_mode == TIE_EXCLUDE else "Split"
+
+
+def tie_summary(ties: dict[str, int], tie_mode: str) -> str:
+    """One line with the tied-trial totals and what this figure did with them."""
+    fate = (
+        "left out of this figure"
+        if tie_mode == TIE_EXCLUDE
+        else "split evenly between the tied arms"
+    )
+    return (
+        f"Trials with ties - best/second: {ties['best_second']}, "
+        f"second/third: {ties['second_third']}, all three: {ties['all_three']} ({fate})"
+    )
+
+
+def _mice(n: int) -> str:
+    """``"1 mouse"`` or ``"3 mice"``."""
+    return f"{n} mouse" if n == 1 else f"{n} mice"
+
+
+def _finish_figure(fig: plt.Figure, title: str, ties: dict[str, int], tie_mode: str) -> None:
+    """Add the title above and the tie summary below the panels, then lay the panels out between.
+
+    The margins are fixed in inches so the title and footer never overlap the panels, however
+    many rows the figure has.
+    """
+    height = fig.get_figheight()
+    fig.suptitle(title, y=1 - 0.08 / height, va="top", fontsize=12)
+    fig.text(0.5, 0.1 / height, tie_summary(ties, tie_mode), ha="center", va="bottom", fontsize=9)
+    fig.tight_layout(rect=(0, _FOOTER_MARGIN / height, 1, 1 - _TITLE_MARGIN / height))
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +244,17 @@ def plot_prob_heatmap(
 
 
 def plot_overall_heatmaps(
-    tables: HeatmapTables, value_label: str, save_path: str | Path | None = None
+    tables: HeatmapTables,
+    value_label: str,
+    tie_mode: str,
+    save_path: str | Path | None = None,
 ) -> None:
     """Across-mice P(best) and P(second) heatmaps side by side; save or show.
 
     Args:
         tables (HeatmapTables): From ``heatmap_tables``.
         value_label (str): ``"True"`` or ``"Believed"``, for the titles.
+        tie_mode (str): The tie mode the tables were made with, for the title and tie line.
         save_path (str | Path | None): Base path without extension for ``.png`` and ``.pdf``;
             ``None`` or ``""`` shows the figure.
     """
@@ -152,14 +264,18 @@ def plot_overall_heatmaps(
             axs, (tables.p_best, tables.p_second), ("Best", "Second"), strict=True
         ):
             plot_prob_heatmap(prob, tables.n_trials, f"P({name}) - {value_label} Value", ax=ax)
-        fig.suptitle(f"Mean across {n_mice} mice (n = trials summed over mice)", fontsize=11)
-        fig.tight_layout()
+        title = (
+            f"{value_label} Value (Ties {tie_label(tie_mode)}): mean across {_mice(n_mice)} "
+            "(n = trials summed over mice)"
+        )
+        _finish_figure(fig, title, tables.ties, tie_mode)
     save_or_show(fig, save_path or None)
 
 
 def plot_per_mouse_heatmaps(
     tables: HeatmapTables,
     value_label: str,
+    tie_mode: str,
     save_path: str | Path | None = None,
     mice: list[str] | None = None,
 ) -> None:
@@ -168,6 +284,7 @@ def plot_per_mouse_heatmaps(
     Args:
         tables (HeatmapTables): From ``heatmap_tables``.
         value_label (str): ``"True"`` or ``"Believed"``, for the titles.
+        tie_mode (str): The tie mode the tables were made with, for the title and tie line.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
         mice (list[str] | None): Mice to draw, in order; default all, sorted.
 
@@ -187,8 +304,8 @@ def plot_per_mouse_heatmaps(
                 (("Best", tables.per_mouse_p_best), ("Second", tables.per_mouse_p_second))
             ):
                 plot_prob_heatmap(probs[subject], n, f"P({name}) - {subject}", ax=axs[row, col])
-        fig.suptitle(f"{value_label} Value", fontsize=12)
-        fig.tight_layout()
+        title = f"{value_label} Value (Ties {tie_label(tie_mode)}): {_mice(len(mice))}"
+        _finish_figure(fig, title, tables.ties, tie_mode)
     save_or_show(fig, save_path or None)
 
 
@@ -214,12 +331,32 @@ def _draw_mean(ax: plt.Axes, curve: Curve, color: str, label: str) -> None:
     ax.plot(curve.x, curve.mean, "-o", color=color, lw=2.2, ms=5, label=label, zorder=5)
 
 
-def _annotate_means(ax: plt.Axes, curve: Curve, color: str, *, above: bool) -> None:
-    """Write each mean next to its point, inside the 0-1 range."""
-    for x, mean in zip(curve.x, curve.mean, strict=True):
-        if not np.isnan(mean):
-            y, va = annotation_position(mean, above=above)
-            ax.text(x, y, f"{mean:.2f}", ha="center", va=va, fontsize=10, color=color)
+def _placements_at(mean_best: float, mean_second: float) -> tuple[Placement | None, ...]:
+    """Placements of the two labels at one x; a NaN mean has no label."""
+    if np.isnan(mean_best) and np.isnan(mean_second):
+        return None, None
+    if np.isnan(mean_second):
+        return Placement(*annotation_position(mean_best, above=True)), None
+    if np.isnan(mean_best):
+        return None, Placement(*annotation_position(mean_second, above=False))
+    return label_placements(mean_best, mean_second)
+
+
+def _annotate_means(ax: plt.Axes, curve_best: Curve, curve_second: Curve) -> None:
+    """Write each mean next to its point, inside 0-1 and clear of the other curve's label."""
+    dx = 0.06 * float(np.ptp(curve_best.x))
+    for x, mean_best, mean_second in zip(
+        curve_best.x, curve_best.mean, curve_second.mean, strict=True
+    ):
+        placements = _placements_at(mean_best, mean_second)
+        for placement, mean, color in zip(
+            placements, (mean_best, mean_second), (COLOR_BEST, COLOR_SECOND), strict=True
+        ):
+            if placement is not None:
+                ax.text(
+                    x + placement.dx_sign * dx, placement.y, f"{mean:.2f}",
+                    ha=placement.ha, va=placement.va, fontsize=10, color=color,
+                )  # fmt: skip
 
 
 def plot_psychometric_panel(
@@ -239,15 +376,12 @@ def plot_psychometric_panel(
     Returns:
         plt.Axes: The axes drawn into.
     """
-    series = (
-        (curve_best, COLOR_BEST, "P(best)", True),
-        (curve_second, COLOR_SECOND, "P(second)", False),
-    )
+    series = ((curve_best, COLOR_BEST, "P(best)"), (curve_second, COLOR_SECOND, "P(second)"))
     with axes_or_new(ax, figsize=(4.6, 4.2)) as ax:
-        for curve, color, label, above in series:
+        for curve, color, label in series:
             _draw_mouse_lines(ax, curve, color)
             _draw_mean(ax, curve, color, label)
-            _annotate_means(ax, curve, color, above=above)
+        _annotate_means(ax, curve_best, curve_second)
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Choice Probability", fontsize=12)
         ax.set_title(xlabel, fontsize=14)
@@ -262,6 +396,8 @@ def plot_psychometric_curves(
     curves: dict[str, dict[str, Curve]],
     value_label: str,
     pool_trials: bool,
+    ties: dict[str, int],
+    tie_mode: str,
     save_path: str | Path | None = None,
 ) -> None:
     """Three panels (vs best, second and best - second value) of P(best) and P(second).
@@ -270,6 +406,8 @@ def plot_psychometric_curves(
         curves (dict[str, dict[str, Curve]]): From ``psychometric_curves``.
         value_label (str): ``"True"`` or ``"Believed"``, for the title.
         pool_trials (bool): The weighting the curves were computed with, for the title.
+        ties (dict[str, int]): Tied-trial totals by category (``HeatmapTables.ties``).
+        tie_mode (str): The tie mode the curves were made with, for the title and tie line.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
     n_mice = len(curves["best"]["best_val"].mice)
@@ -277,10 +415,9 @@ def plot_psychometric_curves(
     with _new_figure(ncols=3, figsize=(13, 4.4)) as (fig, axs):
         for ax, (axis, xlabel) in zip(axs, PANELS, strict=True):
             plot_psychometric_panel(curves["best"][axis], curves["second"][axis], xlabel, ax=ax)
-        fig.suptitle(
-            f"Psychometric Curves ({value_label} Value): {weighting}; mean and SE across "
-            f"{n_mice} mice",
-            fontsize=13,
+        title = (
+            f"Psychometric Curves ({value_label} Value) (Ties {tie_label(tie_mode)}): "
+            f"{weighting}; mean and SE across {_mice(n_mice)}"
         )
-        fig.tight_layout()
+        _finish_figure(fig, title, ties, tie_mode)
     save_or_show(fig, save_path or None)

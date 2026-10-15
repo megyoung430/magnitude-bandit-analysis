@@ -1,6 +1,8 @@
 """Aggregate arm-rank choice counts per good reversal for all subjects."""
 import numpy as np
 
+from src.behavior_analysis.get_believed_value import rank_weights
+
 
 def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=True):
     """Count and proportion best/second/third arm choices in each reversal's post window.
@@ -96,11 +98,7 @@ def get_rank_counts_by_value(subjects_trials, reversal_windows, value_basis="tru
             weight = dict.fromkeys(ranks, 0.0)
             seen = {arm: last_seen[arm] for arm in rewards if arm in last_seen}
             if chosen in seen:
-                value = seen[chosen]
-                above = sum(v > value for v in seen.values())
-                tied = sum(v == value for v in seen.values())
-                for position in range(above, above + tied):
-                    weight[ranks[position]] = 1.0 / tied
+                weight = dict(zip(ranks, rank_weights(seen[chosen], seen.values()), strict=True))
             weights.append(weight)
             if chosen in rewards and rewards[chosen][i] is not None:
                 last_seen[chosen] = rewards[chosen][i]

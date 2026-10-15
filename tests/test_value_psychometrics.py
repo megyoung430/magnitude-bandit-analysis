@@ -199,3 +199,15 @@ def test_pipeline_recovers_known_choice_probabilities_in_both_weightings():
         by_diff = dict(zip(curve.x, curve.mean, strict=True))
         assert by_diff[1] == pytest.approx(np.mean([0.6, 0.65, 0.7]), abs=0.03)
         assert by_diff[3] == pytest.approx(0.9, abs=0.03)
+
+
+# --- tie totals ----------------------------------------------------------------------------
+
+
+def test_tie_totals_sum_each_category_over_mice_and_default_to_zero():
+    m1, m2 = counts_for({}), counts_for({})
+    m1.ties.update({"best_second": 3, "all_three": 1})
+    m2.ties.update({"best_second": 2, "second_third": 4})
+    tables = heatmap_tables({"m1": m1, "m2": m2})
+    assert tables.ties == {"best_second": 5, "second_third": 4, "all_three": 1}
+    assert heatmap_tables({}).ties == {"best_second": 0, "second_third": 0, "all_three": 0}

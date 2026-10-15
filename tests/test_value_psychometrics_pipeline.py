@@ -1,4 +1,4 @@
-"""run_value_psychometric_analysis on synthetic sessions: files, tables, problems."""
+"""run_value_psychometric_analysis on synthetic sessions: files, tables, problems, tie modes."""
 
 import matplotlib
 
@@ -24,24 +24,32 @@ def session(offers, choices, ranks):
 
 def mouse_sessions():
     offer = {"A": 4, "B": 3, "C": 1}
-    choices = ["A", "B", "C", "A", "B", "A", "A", "B"]
-    ranks = ["best", "second", "third", "best", "second", "best", "best", "second"]
-    return {"ses-1": session([offer] * 8, choices, ranks)}
+    tied = {"A": 3, "B": 3, "C": 1}
+    offers = [offer] * 8 + [tied] * 2
+    choices = ["A", "B", "C", "A", "B", "A", "A", "B", "A", "B"]
+    ranks = ["best", "second", "third", "best", "second", "best", "best", "second", "best", "best"]
+    return {"ses-1": session(offers, choices, ranks)}
 
 
 def data(problems=(1,), mice=("m1", "m2")):
     return {p: {m: mouse_sessions() for m in mice} for p in problems}
 
 
+def stems(value_basis, tie_word):
+    base = f"({value_basis} Value) (Ties {tie_word})"
+    return [
+        f"Heatmaps {base} Overall",
+        f"Heatmaps {base} Per Mouse",
+        f"Psychometric Curves {base} (Pool Trials True)",
+        f"Psychometric Curves {base} (Pool Trials False)",
+    ]
+
+
 EXPECTED_STEMS = [
-    "Heatmaps (True Value) Overall",
-    "Heatmaps (True Value) Per Mouse",
-    "Heatmaps (Believed Value) Overall",
-    "Heatmaps (Believed Value) Per Mouse",
-    "Psychometric Curves (True Value) (Pool Trials True)",
-    "Psychometric Curves (True Value) (Pool Trials False)",
-    "Psychometric Curves (Believed Value) (Pool Trials True)",
-    "Psychometric Curves (Believed Value) (Pool Trials False)",
+    stem
+    for basis in ("True", "Believed")
+    for word in ("Excluded", "Split")
+    for stem in stems(basis, word)
 ]
 
 
@@ -51,42 +59,55 @@ def test_writes_every_figure_as_png_and_pdf_and_returns_the_tables(tmp_path):
         for ext in ("png", "pdf"):
             assert (tmp_path / "new" / "out" / f"{stem}.{ext}").exists(), stem
     assert set(results) == {"true", "believed"}
-    for entry in results.values():
-        assert set(entry) == {"counts", "heatmaps", "psychometric"}
-        assert set(entry["psychometric"]) == {True, False}
+    for by_tie_mode in results.values():
+        assert set(by_tie_mode) == {"exclude", "split"}
+        for entry in by_tie_mode.values():
+            assert set(entry) == {"counts", "heatmaps", "psychometric"}
+            assert set(entry["psychometric"]) == {True, False}
     assert plt.get_fignums() == []
 
 
-def test_true_value_table_matches_hand_counts(tmp_path):
+def test_true_value_tables_match_hand_counts_in_both_tie_modes(tmp_path):
     results = run_value_psychometric_analysis(data(), tmp_path, value_bases=("true",))
-    tables = results["true"]["heatmaps"]
-    # 8 trials per mouse in cell (4, 3): 4 best, 3 second, 1 third
-    assert tables.p_best.loc[4, 3] == pytest.approx(4 / 8)
-    assert tables.p_second.loc[4, 3] == pytest.approx(3 / 8)
-    assert tables.n_trials.loc[4, 3] == 16
+    split = results["true"]["split"]["heatmaps"]
+    exclude = results["true"]["exclude"]["heatmaps"]
+    # per mouse in cell (4, 3): 8 trials, 4 best, 3 second, 1 third
+    assert split.p_best.loc[4, 3] == pytest.approx(4 / 8)
+    assert split.p_second.loc[4, 3] == pytest.approx(3 / 8)
+    assert split.n_trials.loc[4, 3] == 16 and exclude.n_trials.loc[4, 3] == 16
+    # per mouse in the tied cell (3, 3): two trials, each choosing one tied arm
+    assert split.n_trials.loc[3, 3] == 4 and exclude.n_trials.loc[3, 3] == 0
+    assert split.p_best.loc[3, 3] == pytest.approx(0.5)
+    assert split.ties == exclude.ties == {"best_second": 4, "second_third": 0, "all_three": 0}
 
 
-def test_selected_bases_and_modes_only(tmp_path):
+def test_selected_bases_modes_and_pooling_only(tmp_path):
     results = run_value_psychometric_analysis(
-        data(), tmp_path, value_bases=("believed",), pooling_modes=(False,)
+        data(),
+        tmp_path,
+        value_bases=("believed",),
+        pooling_modes=(False,),
+        tie_modes=("exclude",),
     )
-    assert set(results) == {"believed"} and set(results["believed"]["psychometric"]) == {False}
+    assert set(results["believed"]) == {"exclude"}
+    assert set(results["believed"]["exclude"]["psychometric"]) == {False}
     names = sorted(p.name for p in tmp_path.glob("*.png"))
     assert names == [
-        "Heatmaps (Believed Value) Overall.png",
-        "Heatmaps (Believed Value) Per Mouse.png",
-        "Psychometric Curves (Believed Value) (Pool Trials False).png",
+        "Heatmaps (Believed Value) (Ties Excluded) Overall.png",
+        "Heatmaps (Believed Value) (Ties Excluded) Per Mouse.png",
+        "Psychometric Curves (Believed Value) (Ties Excluded) (Pool Trials False).png",
     ]
 
 
 def test_several_problems_pool_per_mouse_but_believed_values_reset_per_problem(tmp_path):
-    one = run_value_psychometric_analysis(data((1,)), tmp_path / "a")
-    two = run_value_psychometric_analysis(data((1, 2)), tmp_path / "b")
+    kwargs = {"pooling_modes": (True,), "tie_modes": ("split",)}
+    one = run_value_psychometric_analysis(data((1,)), tmp_path / "a", **kwargs)
+    two = run_value_psychometric_analysis(data((1, 2)), tmp_path / "b", **kwargs)
     for basis in ("true", "believed"):
-        n_one = one[basis]["heatmaps"].n_trials.to_numpy().sum()
-        n_two = two[basis]["heatmaps"].n_trials.to_numpy().sum()
+        n_one = one[basis]["split"]["heatmaps"].n_trials.to_numpy().sum()
+        n_two = two[basis]["split"]["heatmaps"].n_trials.to_numpy().sum()
         assert n_two == 2 * n_one  # each problem warms up on its own, so counts exactly double
-    assert one["believed"]["heatmaps"].n_trials.to_numpy().sum() < 16  # warm-up trials excluded
+    assert one["believed"]["split"]["heatmaps"].n_trials.to_numpy().sum() < 20
 
 
 def test_out_of_grid_counts_are_returned_and_warned(tmp_path, caplog):
@@ -94,24 +115,33 @@ def test_out_of_grid_counts_are_returned_and_warned(tmp_path, caplog):
     sessions = {"ses-1": session([off_grid] * 2, ["A", "B"], ["best", "second"])}
     with caplog.at_level("WARNING"):
         results = run_value_psychometric_analysis(
-            {1: {"m1": sessions, "m2": mouse_sessions()}}, tmp_path, value_bases=("true",)
+            {1: {"m1": sessions, "m2": mouse_sessions()}},
+            tmp_path,
+            value_bases=("true",),
+            pooling_modes=(True,),
+            tie_modes=("split",),
         )
-    assert results["true"]["counts"]["m1"].out_of_grid == {(1, 1): 2}
+    assert results["true"]["split"]["counts"]["m1"].out_of_grid == {(1, 1): 2}
     warned = [r for r in caplog.records if r.name.endswith("get_choice_probs_by_value")]
     assert len(warned) == 1 and "m1" in warned[0].getMessage()
 
 
-def test_unknown_value_basis_raises(tmp_path):
-    with pytest.raises(ValueError, match="value_bases"):
-        run_value_psychometric_analysis(data(), tmp_path, value_bases=("belived",))
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"value_bases": ("belived",)},
+        {"pooling_modes": ("yes",)},
+        {"pooling_modes": (1,)},
+        {"tie_modes": ("drop",)},
+        {"tie_modes": "split"},
+    ],
+)
+def test_unknown_options_are_rejected_before_anything_is_written(tmp_path, kwargs):
+    with pytest.raises(ValueError, match="must only contain"):
+        run_value_psychometric_analysis(data(), tmp_path / "x", **kwargs)
+    assert not (tmp_path / "x").exists()
 
 
 def test_no_subjects_raises(tmp_path):
     with pytest.raises(ValueError, match="no subjects"):
         run_value_psychometric_analysis({1: {}}, tmp_path)
-
-
-def test_unknown_basis_is_rejected_before_anything_is_written(tmp_path):
-    with pytest.raises(ValueError):
-        run_value_psychometric_analysis(data(), tmp_path / "x", value_bases=("nope",))
-    assert not (tmp_path / "x").exists()
