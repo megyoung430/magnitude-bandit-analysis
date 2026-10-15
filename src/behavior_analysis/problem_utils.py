@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from src.behavior_analysis.rank_proportions_summary import mean_se_n
+from src.behavior_analysis.stats import mean_se_n
 
 # ---------------------------------------------------------------------------
 # Key-parsing helpers
@@ -305,10 +305,9 @@ def summarize_by_problem_safe(per_mouse_metric: dict) -> dict:
     out: dict = {}
     for p, vals_list in by_p.items():
         vals = np.asarray(vals_list, dtype=float)
-        n = int(np.isfinite(vals).sum())
+        m, se, n = mean_se_n(vals)
         if n == 0:
             continue
-        m, se, _ = mean_se_n(vals)
         out[p] = {"mean": m, "se": se, "n": n, "values": vals.tolist()}
     return out
 

@@ -13,7 +13,7 @@ from collections import defaultdict
 import numpy as np
 
 from src.behavior_analysis.get_total_reversals import get_total_reversals
-from src.behavior_analysis.rank_proportions_summary import mean_se_n
+from src.behavior_analysis.stats import mean_se_n
 
 
 def compute_problem_length_summary(data: dict) -> dict:

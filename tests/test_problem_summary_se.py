@@ -3,10 +3,15 @@ import math
 import numpy as np
 import pytest
 
+from src.behavior_analysis.get_first_leave_after_good_reversals import (
+    average_first_leave_across_subjects,
+)
+from src.behavior_analysis.get_task_statistics import _standard_error
 from src.behavior_analysis.problem_summary import (
     compute_problem_goodrev_summary,
     compute_problem_length_summary,
 )
+from src.behavior_analysis.problem_utils import summarize_by_problem, summarize_by_problem_safe
 
 nan = float("nan")
 
@@ -39,8 +44,6 @@ def test_goodrev_summary_se_is_nan_for_a_single_mouse():
 
 
 def test_summarize_by_problem_se_is_nan_for_one_mouse_and_skips_nan():
-    from src.behavior_analysis.problem_utils import summarize_by_problem, summarize_by_problem_safe
-
     metric = {"a": {1: 2.0, 2: 3.0}, "b": {1: 4.0, 2: nan}, "c": {1: 6.0}}
     out = summarize_by_problem(metric)
     assert out["ns"] == [3, 1]
@@ -52,10 +55,6 @@ def test_summarize_by_problem_se_is_nan_for_one_mouse_and_skips_nan():
 
 
 def test_first_leave_se_is_nan_for_one_subject():
-    from src.behavior_analysis.get_first_leave_after_good_reversals import (
-        average_first_leave_across_subjects,
-    )
-
     counts = {"a": {"new_best": 3, "third": 1, "total": 4}}
     mean, se, n = average_first_leave_across_subjects(counts)
     assert n == 1 and math.isnan(se["new_best"]) and math.isnan(se["third"])
@@ -65,8 +64,6 @@ def test_first_leave_se_is_nan_for_one_subject():
 
 
 def test_block_length_se_is_nan_below_two_values_and_skips_nan():
-    from src.behavior_analysis.get_task_statistics import _standard_error
-
     assert _standard_error([1.0, 3.0]) == pytest.approx(np.sqrt(2) / np.sqrt(2))
     assert math.isnan(_standard_error([5.0]))
     assert math.isnan(_standard_error([5.0, nan]))

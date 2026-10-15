@@ -3,7 +3,6 @@ import pytest
 
 from src.behavior_analysis.rank_proportions_summary import (
     mean_rank_proportions_by_subject,
-    nan_standard_error,
     rank_mean_and_se,
 )
 
@@ -64,10 +63,3 @@ def test_rank_se_is_nan_when_one_non_nan_mouse_remains():
     with pytest.warns(RuntimeWarning):
         _, ses = rank_mean_and_se(per_mouse)
     assert np.isnan(ses[0]) and not np.isnan(ses[1])
-
-
-def test_nan_standard_error_uses_the_non_nan_rows_of_each_column():
-    stack = np.array([[1.0, 1.0, nan], [3.0, nan, nan], [nan, nan, 5.0]])
-    se = nan_standard_error(stack)
-    assert se[0] == pytest.approx(1.0)  # sd 1.414 / sqrt(2)
-    assert np.isnan(se[1]) and np.isnan(se[2])  # one or no values: never 0

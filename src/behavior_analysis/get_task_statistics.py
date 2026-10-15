@@ -10,7 +10,7 @@ from itertools import pairwise
 import numpy as np
 
 from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
-from src.behavior_analysis.rank_proportions_summary import mean_se_n
+from src.behavior_analysis.stats import mean_se_n
 
 
 def _boundary_indices(*, goods, bads, boundary):

@@ -10,7 +10,7 @@ from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
 from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_good_reversal
 from src.behavior_analysis.get_total_reversals import get_total_reversals
 from src.behavior_analysis.matched_trial_budget import match_trial_budget
-from src.behavior_analysis.rank_proportions_summary import nan_standard_error
+from src.behavior_analysis.stats import nan_standard_error
 from src.behavior_analysis.trial_block_summary import build_trial_block_tables
 
 RANKS = ("best", "second", "third")

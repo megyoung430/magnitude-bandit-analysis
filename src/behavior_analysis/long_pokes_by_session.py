@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from src.behavior_analysis.rank_proportions_summary import mean_se_n
+from src.behavior_analysis.stats import mean_se_n
 from src.behavior_import.sort_by_session import sort_sessions_chronologically
 
 AVERAGE_KEY = "average_across_subjects"

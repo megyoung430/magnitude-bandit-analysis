@@ -7,7 +7,7 @@ third, and aggregate these classifications across reversals and subjects.
 """
 import numpy as np
 
-from src.behavior_analysis.rank_proportions_summary import mean_se_n
+from src.behavior_analysis.stats import mean_se_n
 
 
 def get_first_leave_after_good_reversals(reversal_windows):
