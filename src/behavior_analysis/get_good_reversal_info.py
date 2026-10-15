@@ -135,6 +135,7 @@ class _Where:
     run: int | None
     merged: int | None
     file: str | None = None  # file name of the recording run, when the import kept it
+    run_trial: int | None = None  # trial index within the run (counted from 0)
 
     def text(self):
         if self.session is not None:
@@ -144,14 +145,14 @@ class _Where:
         return head if self.run is None else f"{head} (run {self.run})"
 
 
-def _run_of(span, local_trial):
-    """Index of the recording run holding session-local *local_trial*, or ``None``."""
+def _run_position(span, local_trial):
+    """``(run, trial within that run)`` of session-local *local_trial*; ``(None, None)`` if unknown."""
     first = 0
     for run, length in enumerate(span.run_lengths):
         if local_trial < first + length:
-            return run
+            return run, local_trial - first
         first += length
-    return None
+    return None, None
 
 
 def _file_of(span, run):
@@ -166,8 +167,8 @@ def _locate_trial(subj, spans, idx):
     for span in spans:
         if span.start <= idx < span.stop:
             local = idx - span.start
-            run = _run_of(span, local)
-            return _Where(subj, span.key, local, run, idx, _file_of(span, run))
+            run, run_trial = _run_position(span, local)
+            return _Where(subj, span.key, local, run, idx, _file_of(span, run), run_trial)
     return _Where(subj, None, None, None, idx)
 
 

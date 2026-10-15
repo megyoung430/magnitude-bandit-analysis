@@ -98,6 +98,17 @@ def extract_trials_grouped_by_problem(data):
     return problems
 
 
+def recording_trial_rows(df):
+    """Return ``[(time, trial_dict)]`` for the trials printed by one recording, in time order.
+
+    The rows behind :func:`recording_trial_info`: port-finding prints are left out.
+    """
+    is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
+    printed = df[is_print].sort_values("time")
+    rows = zip(printed["time"], printed["content"].map(parse_content_json), strict=True)
+    return [(t, d) for t, d in rows if not (isinstance(d, dict) and "num_t_found" in d)]
+
+
 def recording_trial_info(df):
     """Return the per-trial dicts printed by one recording, in time order.
 
@@ -109,10 +120,7 @@ def recording_trial_info(df):
     """
     # Known issue: with no ``type`` column, ``df.get("type", "") == "variable"`` is False, so this
     # returns [] instead of raising.
-    is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
-    printed = df[is_print].sort_values("time")
-    raw_trial_info = printed["content"].map(parse_content_json).tolist()
-    return [d for d in raw_trial_info if not (isinstance(d, dict) and "num_t_found" in d)]
+    return [d for _, d in recording_trial_rows(df)]
 
 
 def bandit_trial_info(df, subject, session_key):
