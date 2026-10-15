@@ -41,42 +41,69 @@ def _keep_zero_then_skip(post_list: list, skip: int) -> list:
     return post_list[:1] + post_list[skip + 1 :]
 
 
-def _pad_to_length(arr: Sequence[float], length: int) -> np.ndarray:
-    """Pad or truncate *arr* to *length*, filling missing entries with NaN."""
+def _right_aligned(values: Sequence[float], length: int) -> np.ndarray:
+    """Last *length* entries of *values* in a length-*length* row, NaN at the front.
+
+    The final entry always sits in the last slot, so a window cut short at the
+    start of the data keeps every trial at its true offset before the reversal.
+    """
     out = np.full(length, np.nan, dtype=float)
-    n = min(len(arr), length)
-    out[:n] = arr[:n]
+    kept = list(values)[len(values) - length :] if length > 0 else []
+    if kept:
+        out[length - len(kept) :] = kept
     return out
 
 
-def _reversal_choice_rows(reversal: dict, *, skip: int, length: int) -> dict[str, np.ndarray]:
+def _left_aligned(values: Sequence[float], length: int) -> np.ndarray:
+    """First *length* entries of *values* in a length-*length* row, NaN at the end."""
+    out = np.full(length, np.nan, dtype=float)
+    kept = list(values)[:length]
+    out[: len(kept)] = kept
+    return out
+
+
+def _reversal_choice_rows(
+    reversal: dict, *, skip: int, pre: int, post: int
+) -> dict[str, np.ndarray]:
     """One-hot choice row per tower role (pre + post window) for one reversal.
+
+    The pre segment is right-aligned (last pre trial at offset -1) and the post
+    segment left-aligned (reversal trial at offset 0), so each trial lands at its
+    true offset whatever the window lengths; missing positions are NaN.
 
     Args:
         reversal: A reversal dict from ``get_good_reversal_info``.
         skip: Post trial 0 (the reversal trial) is kept and the next *skip*
             post trials (``1 .. skip``) are dropped (see
             :func:`_keep_zero_then_skip`).
-        length: Row length; shorter windows are NaN-padded, longer truncated.
+        pre: Number of pre-reversal bins; a longer window keeps its last *pre* trials.
+        post: Number of post-reversal trials before skipping; the row has
+            ``post - skip`` post bins and a longer window is truncated.
 
     Returns:
-        ``{role: 1-D float array}`` for ``prev_best``, ``next_best``, ``third``.
+        ``{role: 1-D float array of length pre + post - skip}`` for ``prev_best``,
+        ``next_best``, ``third``.
     """
     towers = classify_towers_at_good_reversals(reversal)
     by_tower = reversal["choices_by_tower"]
     return {
-        role: _pad_to_length(
-            by_tower[tower]["pre"] + _keep_zero_then_skip(by_tower[tower]["post"], skip), length
+        role: np.concatenate(
+            [
+                _right_aligned(by_tower[tower]["pre"], pre),
+                _left_aligned(_keep_zero_then_skip(by_tower[tower]["post"], skip), post - skip),
+            ]
         )
         for role, tower in zip(_TOWER_ROLES, towers, strict=True)
     }
 
 
 def _subject_choice_matrices(
-    reversals: list[dict], *, skip: int, length: int
+    reversals: list[dict], *, skip: int, pre: int, post: int
 ) -> dict[str, np.ndarray]:
-    """Stack the per-reversal rows of one subject into ``{role: (n_reversals, length)}``."""
-    rows = [_reversal_choice_rows(reversal, skip=skip, length=length) for reversal in reversals]
+    """Stack the per-reversal rows of one subject into ``{role: (n_reversals, n_bins)}``."""
+    rows = [
+        _reversal_choice_rows(reversal, skip=skip, pre=pre, post=post) for reversal in reversals
+    ]
     return {role: np.vstack([row[role] for row in rows]) for role in _TOWER_ROLES}
 
 
@@ -188,6 +215,11 @@ def get_choice_probs_around_good_reversals(
           and ``"num_reversals"``, where ``"mean"`` and ``"se"`` are themselves
           dicts keyed by ``"prev_best"``, ``"next_best"``, ``"third"``.
 
+    Rows are aligned to the reversal: the last pre trial is at offset -1 and the
+    reversal trial at offset 0, whatever the window lengths.  Positions a window
+    does not cover (a reversal near the start of the data, a post window cut by
+    the next boundary or the end) are NaN and ignored by the means.
+
     Reversals whose best tower did not change have no third tower and are left
     out; a ``UserWarning`` reports how many per subject.
 
@@ -199,7 +231,6 @@ def get_choice_probs_around_good_reversals(
     """
     skip = skip_n_trials_after_reversal
     x = _trial_offsets(pre=pre, post=post, skip=skip)
-    n_bins = pre + (post - skip)
 
     per_subject = {}
     for subj, reversals in reversal_windows.items():
@@ -210,7 +241,7 @@ def get_choice_probs_around_good_reversals(
             print(f"[INFO] Skipping subject {subj} with no good reversals.")
             continue
         per_subject[subj] = _summarize_subject(
-            _subject_choice_matrices(reversals, skip=skip, length=n_bins)
+            _subject_choice_matrices(reversals, skip=skip, pre=pre, post=post)
         )
 
     across = _across_subject_curves(per_subject, _MEAN_KEYS)
