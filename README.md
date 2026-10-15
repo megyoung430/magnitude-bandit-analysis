@@ -188,8 +188,11 @@ report all failures at the end.
 
 - **Task type** comes from each session's pyControl task name (last path component, case
   insensitive): `blocked` or `structured` is blocked, `drifting` is drifting. Pretraining is
-  skipped; any other name, or a name matching both, raises an error naming the mouse, session,
-  file and task name.
+  skipped first; a missing name, any other name, or a name matching both stops the run with an
+  error naming the mouse, session, file and task name.
+- A **change of task type starts a new problem**, like a change of tower layout, even when the
+  layout is unchanged; a task type that lasts one session before changing again is a suspected
+  settings error, left out and pooled around like a one-session layout change.
 - **Numbering** is per mouse within the type (blocked 1, 2, ...; drifting 1, 2, ...), so
   "drifting problem 1" lines up across mice even if their blocked problems differ in number.
   All sessions of one problem must have the same type.
@@ -203,7 +206,13 @@ report all failures at the end.
   `figures/open-field/cohort-0N/trial-block-summaries/all-problems/`, and
   `tables/open-field/cohort-0N/problem_map.csv` (mouse, task type, number within type, overall
   problem, sessions) and `suspect_reversals.csv` (the good reversals the analyses drop, for
-  review by hand).
+  review by hand). In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
+  session; to find a row in the raw file, search `file` for `"num_t": <num_t>` (the run-local,
+  1-based trial number pyControl printed) or for the row at `print_time`.
+- **Before you compare with older runs**: a `results/` folder from before this runner keeps the
+  previous folder layout (`cohort-0N/problem-NN/`) and the old `... by Average` rank-proportion
+  files next to the new ones, so start from a clean `results/figures` folder. The
+  across-blocks rank-proportion figure now has its own y tick labels.
 
 ### Reversals at session boundaries
 

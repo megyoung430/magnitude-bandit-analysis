@@ -19,7 +19,15 @@ command, with the task type taken from the task name.
   component, case-insensitive, `blocked`/`structured` is blocked, `drifting` is drifting;
   pretraining stays excluded by problem numbering; an unknown name or a name matching both raises
   a `ValueError` naming subject, session, file and task name.
-- A problem whose sessions have different types raises, naming the sessions.
+- A change of task type starts a new problem, exactly like a layout change: the type is part of
+  the signature `assign_problems` compares, so the one-session settings-error rule applies to
+  type changes too (`problem_numbering.py` documents it). `import_data(classify_task_types=True)`
+  reads the type of each session before numbering (pretraining skipped first); a missing,
+  unrecognised or ambiguous task name raises, naming subject, session, file and task name, and a
+  missing name says the run stops. `group_sessions_by_problem` reads the stored `"task_type"`, so
+  both entry points agree. The cohort runner loads with it on.
+- A problem whose sessions have different types raises, naming the sessions (a guard for data
+  imported without task types).
 - Each mouse's problems are renumbered within type; `{problem: {subject: sessions}}` is
   regrouped as `{(task_type, k): {subject: sessions}}`; each mouse's overall problem number stays
   on its sessions (`"problem"`) and is written to `problem_map.csv`.
@@ -49,6 +57,19 @@ command, with the task type taken from the task name.
 - `run_cohorts` stops at the first failing cohort with a `RuntimeError` naming it (the original
   error is chained). With `continue_on_error=True` the remaining cohorts run and the failures are
   raised together at the end, so the exit code is still non-zero.
+- Task types are opt-in at import (`classify_task_types`, default off) because other tasks, such
+  as the grid maze, and existing tests have other or no task names; unclassified data is
+  numbered by layout alone, as before.
+- `number_within_task_type` is computed once per cohort and passed to `regroup_by_task_type` and
+  `problem_map_table`. Each distinct `ReversalWarning` text is shown once per cohort run
+  (`each_reversal_warning_once`), including the repeats from the pooled drifting step.
+- Suspect-reversal table: new `num_t` (the 1-based, run-local trial number printed in the run's
+  file) and `print_time` (that row's time) columns, so a reviewer can search the raw file;
+  `session_trial` stays 0-based over the session. Checked on the sample (runs of 31 and 62
+  trials): merged trial 53 is run 1, `num_t` 23, as in the file. A reversal logged between runs
+  keeps its real check result as `reason` and is flagged by a new `logged_between_runs` column
+  (the old "uncheckable between-run or terminal" label is gone); the module docstring now says
+  such a reversal is dropped only when the best-change check fails or a magnitude is missing.
 - `write_suspect_reversal_table` also accepts the leading columns `task_type`,
   `problem_in_type`, `overall_problem`. The CSV's `overall_problem` is looked up per mouse.
 - Rank-proportion plots use the dispatcher defaults (average across mice only).
@@ -68,4 +89,11 @@ command, with the task type taken from the task name.
   probabilities and first leave to problems <= 4; its selection now applies to every problem it
   is given. Pass a selection with those two off if only the early problems should have them.
 - New files: the two CSVs per cohort.
+- A task-type change with an unchanged layout now splits a problem in two, so problem numbers
+  (and the within-type numbers) can differ from the layout-only numbering in such data.
+- The suspect-reversal table gains `num_t`, `print_time` and `logged_between_runs`, and its
+  between-runs rows change `reason` from "uncheckable between-run or terminal" to the real
+  check result.
+- `run_open_field_analysis.py` keeps its behaviour (one selection for every problem of its
+  blocked-task cohort); its docstring points to `run_cohorts.py`.
 - `cohort-3-analysis.ipynb` is unchanged apart from a pointer cell at its top.
