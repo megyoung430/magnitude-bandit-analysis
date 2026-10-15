@@ -106,12 +106,33 @@ import automatically. Delete `.cache/` at any time; it only costs a re-import.
 
 ### Resumable cohort cross-validation and recovery runs
 
-`run_problem_cross_validation` (`src/agents/cohort_fitting.py`) and `run_recovery`
-(`src/agents/parameter_recovery.py`) save into a folder named by a hash of their
-manifest, which includes the source text of the module. Resuming therefore works only
-while that code is unchanged: **after any edit to those modules (including a refactor
-merge), an interrupted run restarts from zero in a new folder.** Finished results stay
-readable in the old folder.
+`run_problem_cross_validation` (`src/agents/cohort_fitting.py`), `run_recovery`
+(`src/agents/parameter_recovery.py`) and `run_paper_sweep` / `run_problem_sweep`
+(`src/agents/paper_rl_fitting.py`) save into a folder named by a hash of what
+determines their results, and an identical rerun resumes from the finished folds, runs
+or checkpoints in that folder. The shared helpers live in `src/agents/run_store.py`.
+
+The hash covers:
+
+- the module's `ALGORITHM_VERSION` (an integer, currently `1`);
+- the configuration: a fingerprint of the input sequences, the settings (seed, number
+  of starts, grid, models, problems), the bounds, constants such as the at-bound
+  tolerance, and for the paper-style sweeps the jax, optax and numpy versions.
+
+It does **not** cover source text. Editing a comment, reformatting or refactoring keeps
+the folder, so an interrupted run resumes. `manifest.json` still records the source text
+of the code that wrote the folder, as provenance only.
+
+**When to bump `ALGORITHM_VERSION`:** when a change alters results (the model, the loss,
+the optimiser, the simulated task or mouse, the scoring), including in code a module
+calls, such as `best_rl.py`, `released_rl.py` or `neural_bandit.py`. A bump starts every
+run in a new folder; comments and refactors don't need one. A configuration change (a
+different seed, bounds, data or library version) moves the folder without any bump.
+Finished results always stay readable in the old folder.
+
+**Migration.** The change that introduced the version scheme moved every folder one last
+time: runs started before it restart from zero in a new folder (finished results stay in
+the old one). From then on, only a version bump or a configuration change moves them.
 
 ## Code organisation
 
