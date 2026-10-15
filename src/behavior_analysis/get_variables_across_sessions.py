@@ -3,15 +3,6 @@
 from src.behavior_import.session_order import ordered_session_keys
 
 
-def ordered_sessions(subject, subject_sessions):
-    """A subject's session dicts in the package's session order (date, then number).
-
-    Raises ``ValueError`` naming *subject* if the session numbers and dates disagree (see
-    :mod:`src.behavior_import.session_order`).
-    """
-    return [subject_sessions[k] for k in ordered_session_keys(subject, subject_sessions)]
-
-
 def get_vars_across_all_sessions(data):
     """Merge aligned trials, carrying terminal reversals into the next session.
 
@@ -24,10 +15,16 @@ def get_vars_across_all_sessions(data):
     End-of-session events affect totals even without a following trial. They
     enter trial-aligned counters only when another trial is available. Sessions
     retain their incoming boundary corrections when selected as a subset.
+
+    Returns:
+        ``(merged, unmerged)``, each ``{subject: dict}``. ``unmerged[subject]`` holds the
+        per-session lists that went into the merge, one entry per session with trials, in
+        merge order, and ``"session_keys"``: the keys of those sessions in the same order.
     """
     merged, unmerged = {}, {}
     for subject, subject_sessions in data.items():
-        sessions = ordered_sessions(subject, subject_sessions)
+        keys = ordered_session_keys(subject, subject_sessions)
+        sessions = [subject_sessions[k] for k in keys]
         fields = (
             "trial",
             "blocks",
@@ -37,6 +34,7 @@ def get_vars_across_all_sessions(data):
             "choices_by_rank",
         )
         parts = {key: [s.get(key, []) for s in sessions if s.get("trial")] for key in fields}
+        parts["session_keys"] = [k for k, s in zip(keys, sessions, strict=True) if s.get("trial")]
         result = {"trial": merge_trials_across_sessions(parts["trial"])}
         for key in ("reward_magnitudes_by_tower", "choices_by_tower", "choices_by_rank"):
             result[key] = merge_list_of_dicts_of_lists(parts[key])
