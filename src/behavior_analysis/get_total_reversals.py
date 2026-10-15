@@ -4,7 +4,10 @@ Provides helpers to count total good/bad reversals across sessions per subject,
 retrieve all reversal indices, and identify trials where cumulative reversal
 counters increment.
 """
-from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.get_variables_across_sessions import (
+    get_vars_across_all_sessions,
+    ordered_session_keys,
+)
 from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
 
 
@@ -103,6 +106,64 @@ def get_all_reversal_indices(subjects_trials):
         all_blocks[subj] = blocks
 
     return all_good, all_bad, all_blocks
+
+def get_unclassified_reversal_indices(subjects_trials):
+    """Block-change trial indices of sessions that log no good/bad counters.
+
+    A session with neither ``has_good`` nor ``has_bad`` cannot say whether a
+    reversal was good or bad, so each of its block changes is a reversal of
+    unknown kind. Indices are on the merged-trial axis that
+    :func:`get_all_reversal_indices` uses, and sessions that do log counters
+    contribute none (their reversals are already good or bad).
+
+    Args:
+        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+
+    Returns:
+        ``{subject: sorted list of trial indices}``; every subject is a key.
+
+    Raises:
+        ValueError: If a session's ``blocks`` and ``trial`` differ in length
+            (missing counts as empty); the merged block axis would no longer
+            line up with the merged trial axis.
+    """
+    for subject, sessions in subjects_trials.items():
+        for key, sess in sessions.items():
+            n_trials, n_blocks = len(sess.get("trial", [])), len(sess.get("blocks", []))
+            if n_trials != n_blocks:
+                raise ValueError(
+                    f"{subject} {key}: blocks has {n_blocks} entries but trial has {n_trials}."
+                )
+    merged, _ = get_vars_across_all_sessions(subjects_trials)
+    unclassified = {}
+    for subject, sessions in subjects_trials.items():
+        blocks = merged[subject]["blocks"]
+        indices, start = [], 0
+        for key in ordered_session_keys(sessions):
+            sess = sessions[key]
+            n_trials = len(sess.get("trial", []))
+            if n_trials and not (sess.get("has_good") or sess.get("has_bad")):
+                first = max(start, 1)
+                indices += [i for i in range(first, start + n_trials) if blocks[i] != blocks[i - 1]]
+            start += n_trials
+        unclassified[subject] = indices
+    return unclassified
+
+
+def get_reversal_indices_by_kind(subjects_trials):
+    """Good, bad and unclassified reversal indices per subject, for the removal curves.
+
+    Returns:
+        ``{"good": ..., "bad": ..., "unclassified": ...}``, each ``{subject: [index]}``
+        (see :func:`get_all_reversal_indices` and :func:`get_unclassified_reversal_indices`).
+    """
+    good, bad, _ = get_all_reversal_indices(subjects_trials)
+    return {
+        "good": good,
+        "bad": bad,
+        "unclassified": get_unclassified_reversal_indices(subjects_trials),
+    }
+
 
 def find_increment_indices(cumulative_list):
     """Return trial indices where a cumulative counter increments.

@@ -1,27 +1,36 @@
 """How quickly reversal-aligned windows are cut short by the next reversal.
 
-Each good reversal anchors a window of trials after it. Once another reversal
-happens, the rest of that window no longer reflects the anchor's contingencies,
-so the anchor counts as *removed* at every post-reversal offset from the next
-reversal onwards. The functions here count removed anchors per offset:
+Each reversal in the windows anchors a window of trials after it. Once another
+reversal happens, the rest of that window no longer reflects the anchor's
+contingencies, so the anchor counts as *removed* at every post-reversal offset
+from the next reversal onwards. The next reversal can be of three kinds:
+``good``, ``bad``, or ``unclassified`` (a block change in a session that logs no
+good/bad counters, where the kind is unknown). The functions here count removed
+anchors per offset:
 
-- :func:`good_bad_removal_curves` splits removals by whether the next reversal
-  was good or bad (the two fractions sum to at most 1).
-- :func:`total_removal_curves` counts a removal by any later reversal that is
-  itself an anchor in the windows.
+- :func:`removal_curves_by_kind` splits removals by the kind of the next reversal.
+- :func:`good_bad_removal_curves` keeps the good and bad parts of that split.
+- :func:`total_removal_curves` counts a removal by the next reversal of any
+  kind, so at every offset total = good + bad + unclassified.
 
-Known issue: callers build the windows from good reversals only, so the total
-curve never sees bad reversals and understates removal compared with the sum of
-the good and bad curves. Use :func:`good_bad_removal_curves` when bad reversals
-matter.
+The anchors are the windows' ``reversal_idx`` (good reversals when the session
+logs a good counter, otherwise block changes). The reversals that can cut a
+window come from the per-subject ``good_idx`` / ``bad_idx`` / ``unclassified_idx``
+index dicts, not from the windows, because a bad reversal is never an anchor.
 
 All functions are pure; offsets before the reversal (``x < 0``) are ``nan``.
-Series are keyed by kind (``"good"``, ``"bad"``, ``"total"``); display labels
-belong to the plotting code.
+Fractions are ``nan`` when there are no anchors (no data, not 0% removed).
+Series are keyed by kind (``"good"``, ``"bad"``, ``"unclassified"``,
+``"total"``); display labels belong to the plotting code.
 """
 
 import numpy as np
 from numpy.typing import ArrayLike
+
+KINDS = ("good", "bad", "unclassified")
+MISSING_INDEX_MESSAGE = (
+    "Cumulative removal needs all_good_idx, all_bad_idx and all_unclassified_idx."
+)
 
 
 def post_window_steps(x: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -86,107 +95,181 @@ def _over_x(per_step: np.ndarray, post_mask: np.ndarray, step_idx: np.ndarray) -
 
 
 def _check_fraction(fraction: np.ndarray) -> None:
-    if np.nanmax(fraction) > 1.0 + 1e-6:
+    finite = fraction[np.isfinite(fraction)]
+    if finite.size and finite.max() > 1.0 + 1e-6:
         raise AssertionError("Fraction removed exceeds 1.0")
 
 
-def _anchor_count(anchors: dict[str, np.ndarray]) -> int:
-    """Total anchors, at least 1 so fractions are 0 rather than nan when there are none."""
-    # Known issue: with 0 anchors the curves report 0% removed instead of "no data".
-    return max(sum(a.size for a in anchors.values()), 1)
+def _fraction(cumulative: np.ndarray, anchors: dict[str, np.ndarray]) -> np.ndarray:
+    """*cumulative* counts over the number of anchors; all ``nan`` when there are none."""
+    n_anchors = sum(a.size for a in anchors.values())
+    if n_anchors == 0:
+        return np.full(cumulative.shape, np.nan)
+    return cumulative / n_anchors
+
+
+def _reversals_of(index: dict, subject: str, name: str) -> ArrayLike:
+    """``index[subject]``, or a ``KeyError`` naming the subject if it is absent."""
+    if subject not in index:
+        raise KeyError(f"Subject {subject!r} has windows but is missing from {name}.")
+    return index[subject]
 
 
 def _subject_removals(
-    anchors: np.ndarray, good: ArrayLike, bad: ArrayLike, steps: np.ndarray, exclude_anchor: bool
+    anchors: np.ndarray, reversals: dict[str, ArrayLike], steps: np.ndarray, exclude_anchor: bool
 ) -> np.ndarray:
-    """``[good, bad]`` cumulative removal counts over *steps* for one subject's anchors."""
-    goods, bads = np.unique(good), np.unique(bad)
-    delays, next_reversals = next_reversal_delays(anchors, np.union1d(goods, bads), exclude_anchor)
-    # every reversal comes from one of the two lists, so "not good" means bad
-    next_is_good = np.isin(next_reversals, goods)
+    """Cumulative removal counts over *steps*, one row per kind in :data:`KINDS`.
+
+    *reversals* is ``{kind: trial indices}`` for one subject. Each anchor is
+    counted once, under the kind of its first later reversal.
+    """
+    by_kind = {kind: np.unique(reversals[kind]) for kind in KINDS}
+    every = np.unique(np.concatenate(list(by_kind.values())))
+    delays, next_reversals = next_reversal_delays(anchors, every, exclude_anchor)
+    # kinds are disjoint (a trial is one kind of reversal), so membership picks the row
+    kind_of_next = np.select(
+        [np.isin(next_reversals, by_kind[kind]) for kind in KINDS[:-1]], range(len(KINDS) - 1), -1
+    )
+    kind_of_next[kind_of_next < 0] = len(KINDS) - 1
     return np.stack(
-        [
-            cumulative_counts(delays[next_is_good], steps),
-            cumulative_counts(delays[~next_is_good], steps),
-        ]
+        [cumulative_counts(delays[kind_of_next == row], steps) for row in range(len(KINDS))]
     )
 
 
-def good_bad_removal_curves(
-    windows: dict, good_idx: dict, bad_idx: dict, x: ArrayLike, exclude_anchor: bool = True
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Anchors removed by a later good / bad reversal, per offset of *x*.
+def _cumulative_by_kind(
+    windows: dict,
+    x: ArrayLike,
+    exclude_anchor: bool,
+    good_idx: dict,
+    bad_idx: dict,
+    unclassified_idx: dict,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """``(anchors, {kind: cumulative removed over x})``; ``nan`` before the reversal."""
+    post_mask, steps, step_idx = post_window_steps(x)
+    anchors = _anchors_by_subject(windows)
+    if not post_mask.any():
+        return anchors, {kind: np.full(post_mask.shape, np.nan) for kind in KINDS}
 
-    Each anchor in *windows* is removed once, by the first later reversal in
-    ``good_idx`` or ``bad_idx`` of its subject, so the good and bad fractions
-    sum to at most 1. A subject missing from either dict is treated as having
-    no reversals of that kind.
+    def reversals(subject: str) -> dict[str, ArrayLike]:
+        return {
+            "good": _reversals_of(good_idx, subject, "good_idx"),
+            "bad": _reversals_of(bad_idx, subject, "bad_idx"),
+            "unclassified": _reversals_of(unclassified_idx, subject, "unclassified_idx"),
+        }
+
+    removed = sum(
+        (
+            _subject_removals(a, reversals(subject), steps, exclude_anchor)
+            for subject, a in anchors.items()
+        ),
+        np.zeros((len(KINDS), steps.size)),
+    )
+    return anchors, {
+        kind: _over_x(row, post_mask, step_idx) for kind, row in zip(KINDS, removed, strict=True)
+    }
+
+
+def removal_curves_by_kind(
+    windows: dict,
+    x: ArrayLike,
+    exclude_anchor: bool = True,
+    *,
+    good_idx: dict,
+    bad_idx: dict,
+    unclassified_idx: dict,
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Anchors removed by the next reversal, split by its kind, per offset of *x*.
+
+    Each anchor in *windows* is removed once, by the first later reversal of its
+    subject, whatever its kind. Kinds are ``"good"``, ``"bad"`` and
+    ``"unclassified"``: a reversal of a session that logs no good/bad counters
+    (blocks only), where every block change is a reversal of unknown kind. The
+    three fractions therefore sum to at most 1, and to the total curve.
 
     Args:
         windows: ``{subject: [reversal_dict]}``; each dict's ``reversal_idx`` is an anchor.
-        good_idx: ``{subject: [trial index]}`` of good reversals.
-        bad_idx: ``{subject: [trial index]}`` of bad reversals.
         x: Trial offsets relative to the anchor.
         exclude_anchor: See :func:`next_reversal_delays`.
+        good_idx: ``{subject: [trial index]}`` of good reversals.
+        bad_idx: ``{subject: [trial index]}`` of bad reversals.
+        unclassified_idx: ``{subject: [trial index]}`` of reversals of unknown
+            kind (block changes of sessions without good/bad counters); required,
+            ``{subject: []}`` when every session logs counters.
+
+    Returns:
+        ``{kind: (cumulative, fraction)}``, each the length of *x*. Fractions
+        are counts divided by the number of anchors, ``nan`` if there are none.
+
+    Raises:
+        KeyError: If a subject in *windows* is missing from a given index dict.
+    """
+    anchors, cumulative = _cumulative_by_kind(
+        windows, x, exclude_anchor, good_idx, bad_idx, unclassified_idx
+    )
+    fractions = {kind: _fraction(values, anchors) for kind, values in cumulative.items()}
+    _check_fraction(sum(fractions.values()))
+    return {kind: (cumulative[kind], fractions[kind]) for kind in KINDS}
+
+
+def good_bad_removal_curves(
+    windows: dict,
+    good_idx: dict,
+    bad_idx: dict,
+    x: ArrayLike,
+    exclude_anchor: bool = True,
+    *,
+    unclassified_idx: dict,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Anchors removed by a later good / bad reversal, per offset of *x*.
+
+    As :func:`removal_curves_by_kind`, keeping only the good and bad curves.
+    Anchors first cut by an unclassified reversal are in neither, so the good
+    and bad fractions sum to at most 1 and to less than the total when
+    *unclassified_idx* has reversals; read them from
+    :func:`removal_curves_by_kind`.
 
     Returns:
         ``(cumulative_good, cumulative_bad, fraction_good, fraction_bad)``,
-        each the length of *x* (fractions are counts divided by the number of anchors).
+        each the length of *x*.
     """
-    post_mask, steps, step_idx = post_window_steps(x)
-    if not post_mask.any():
-        return tuple(np.full(post_mask.shape, np.nan) for _ in range(4))
-
-    anchors = _anchors_by_subject(windows)
-    # Known issue: a subject absent from good_idx / bad_idx is treated as having no
-    # reversals of that kind instead of raising, so a mismatched dict hides removals.
-    per_subject = (
-        _subject_removals(
-            a, good_idx.get(subject, []), bad_idx.get(subject, []), steps, exclude_anchor
-        )
-        for subject, a in anchors.items()
+    curves = removal_curves_by_kind(
+        windows,
+        x,
+        exclude_anchor,
+        good_idx=good_idx,
+        bad_idx=bad_idx,
+        unclassified_idx=unclassified_idx,
     )
-    removed_good, removed_bad = sum(per_subject, np.zeros((2, steps.size)))
-
-    cumulative_good = _over_x(removed_good, post_mask, step_idx)
-    cumulative_bad = _over_x(removed_bad, post_mask, step_idx)
-    n_anchors = _anchor_count(anchors)
-    fraction_good, fraction_bad = cumulative_good / n_anchors, cumulative_bad / n_anchors
-    _check_fraction(fraction_good + fraction_bad)
-    return cumulative_good, cumulative_bad, fraction_good, fraction_bad
+    (cum_good, frac_good), (cum_bad, frac_bad) = curves["good"], curves["bad"]
+    return cum_good, cum_bad, frac_good, frac_bad
 
 
 def total_removal_curves(
-    windows: dict, x: ArrayLike, exclude_anchor: bool = True
+    windows: dict,
+    x: ArrayLike,
+    exclude_anchor: bool = True,
+    *,
+    good_idx: dict,
+    bad_idx: dict,
+    unclassified_idx: dict,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Anchors removed by a later reversal that is itself an anchor, per offset of *x*.
+    """Anchors removed by the next reversal of any kind, per offset of *x*.
 
-    Known issue: only reversals present as anchors in *windows* can cut a window.
-    Callers build windows from good reversals, so bad reversals never count here
-    and this understates removal relative to :func:`good_bad_removal_curves`.
+    Uses the same reversals as :func:`removal_curves_by_kind`, so at every offset
+    total = good + bad + unclassified. Arguments are those of
+    :func:`removal_curves_by_kind`; the index dicts are required, since without
+    bad reversals the curve would silently understate removal.
 
     Returns:
         ``(cumulative, fraction)``, each the length of *x*.
     """
-    post_mask, steps, step_idx = post_window_steps(x)
-    if not post_mask.any():
-        return np.full(post_mask.shape, np.nan), np.full(post_mask.shape, np.nan)
-
-    anchors = _anchors_by_subject(windows)
-    # Known issue: the reversals that can cut a window are the anchors themselves
-    # (see the docstring), not every reversal of the subject.
-    removed = sum(
-        (
-            cumulative_counts(next_reversal_delays(a, a, exclude_anchor)[0], steps)
-            for a in anchors.values()
-        ),
-        np.zeros(steps.size),
+    anchors, cumulative = _cumulative_by_kind(
+        windows, x, exclude_anchor, good_idx, bad_idx, unclassified_idx
     )
-
-    cumulative = _over_x(removed, post_mask, step_idx)
-    fraction = cumulative / _anchor_count(anchors)
+    total = sum(cumulative.values())
+    fraction = _fraction(total, anchors)
     _check_fraction(fraction)
-    return cumulative, fraction
+    return total, fraction
 
 
 def cumulative_removal_series(
@@ -197,25 +280,41 @@ def cumulative_removal_series(
     *,
     use_total: bool | None,
     fraction: bool,
+    unclassified_idx: dict | None,
 ) -> dict[str, np.ndarray]:
     """The removal curves to draw, ``{kind: values over x}``.
 
-    Total mode (*use_total* truthy) has one entry, ``"total"``; good/bad mode has
-    ``"good"`` and ``"bad"`` and needs both index dicts. *fraction* picks
-    fractions over counts. Only reversals strictly after the anchor count
-    (``exclude_anchor=True``).
+    Total mode (*use_total* truthy) has one entry, ``"total"`` (every reversal
+    kind). Good/bad mode has ``"good"`` and ``"bad"``, plus ``"unclassified"``
+    when *unclassified_idx* holds any reversal, so removals by reversals of
+    unknown kind (blocks-only sessions) stay visible and good + bad +
+    unclassified = total. *fraction* picks fractions over counts. Only
+    reversals strictly after the anchor count (``exclude_anchor=True``).
 
     Raises:
-        ValueError: In good/bad mode if *good_idx* or *bad_idx* is ``None``.
+        ValueError: If *good_idx*, *bad_idx* or *unclassified_idx* is ``None``.
     """
+    if good_idx is None or bad_idx is None or unclassified_idx is None:
+        raise ValueError(MISSING_INDEX_MESSAGE)
     if use_total:
-        cumulative, frac = total_removal_curves(windows, x, exclude_anchor=True)
+        cumulative, frac = total_removal_curves(
+            windows,
+            x,
+            exclude_anchor=True,
+            good_idx=good_idx,
+            bad_idx=bad_idx,
+            unclassified_idx=unclassified_idx,
+        )
         return {"total": frac if fraction else cumulative}
-    if good_idx is None or bad_idx is None:
-        raise ValueError("For mode='goodbad', provide all_good_idx and all_bad_idx.")
-    cum_good, cum_bad, frac_good, frac_bad = good_bad_removal_curves(
-        windows, good_idx, bad_idx, x, exclude_anchor=True
+    curves = removal_curves_by_kind(
+        windows,
+        x,
+        exclude_anchor=True,
+        good_idx=good_idx,
+        bad_idx=bad_idx,
+        unclassified_idx=unclassified_idx,
     )
-    if fraction:
-        return {"good": frac_good, "bad": frac_bad}
-    return {"good": cum_good, "bad": cum_bad}
+    shown = ("good", "bad")
+    if unclassified_idx and any(len(v) for v in unclassified_idx.values()):
+        shown += ("unclassified",)
+    return {kind: curves[kind][1 if fraction else 0] for kind in shown}

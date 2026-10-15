@@ -18,6 +18,7 @@ OUT = Path("out")
 NAME = "Choice Probabilities Around Good Reversals"
 BEST = "Choice Probs Good Reversals"
 IDX = ("good_idx", "bad_idx")
+UNCLASSIFIED = "unclassified_idx"
 
 
 class Recorder:
@@ -25,7 +26,7 @@ class Recorder:
         self.plots, self.calls = [], []
         fakes = dict(
             get_good_reversal_info=self.windows,
-            get_all_reversal_indices=self.indices,
+            get_reversal_indices_by_kind=self.indices,
             split_good_reversals_early_late=self.early_late,
             split_good_reversals_by_best_change=self.best_change,
             remove_trials_after_bad_rev=self.remove_bad,
@@ -43,7 +44,7 @@ class Recorder:
 
     def indices(self, trials):
         self.calls.append("indices")
-        return (*IDX, "n_bad")
+        return {"good": IDX[0], "bad": IDX[1], "unclassified": UNCLASSIFIED}
 
     def early_late(self, windows, first_n=None):
         return ("early", windows, first_n), ("late", windows, first_n)
@@ -125,6 +126,7 @@ def test_all_reversal_figures(rec):
             windows_for_cumulative_axis=source,
             all_good_idx="good_idx",
             all_bad_idx="bad_idx",
+            all_unclassified_idx=UNCLASSIFIED,
             save_path=kw["save_path"],
         )
 
