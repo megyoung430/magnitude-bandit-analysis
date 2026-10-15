@@ -8,7 +8,6 @@ import pytest
 
 from src.behavior_import.extract_trials import (
     add_reward_magnitude_features,
-    assign_problem_ordinals,
     available_towers,
     bandit_trial_info,
     drop_unlogged_reversal_vars,
@@ -30,6 +29,9 @@ from src.behavior_import.extract_trials import (
     standardize_rank_key,
     top_magnitudes,
 )
+
+# Facts that ``import_data`` stores on every session; a clean first session of a layout.
+EVIDENCE = {"has_num_t_found": True, "starts_found_ports_false": True}
 
 # --- reward magnitude features ---
 
@@ -121,7 +123,12 @@ def test_add_reward_magnitude_features_leaves_session_without_magnitudes_alone(s
 
 
 def session_with_towers(towers, *, trials=True, **extra):
-    return {"trial_info": [[{"x": 1}]] if trials else [], "choice_towers": [towers], **extra}
+    return {
+        "trial_info": [[{"x": 1}]] if trials else [],
+        "choice_towers": [towers],
+        "settings_evidence": EVIDENCE,
+        **extra,
+    }
 
 
 def test_session_sort_key_orders_by_session_number_then_date():
@@ -134,36 +141,22 @@ def test_session_sort_key_orders_by_session_number_then_date():
     ]
 
 
-def test_problem_signature_ignores_tower_order_and_separates_has_good():
-    a = problem_signature(session_with_towers(["B1", "A1"], has_good=True))
-    b = problem_signature(session_with_towers(["A1", "B1"], has_good=True))
-    c = problem_signature(session_with_towers(["A1", "B1"]))
+def test_problem_signature_ignores_tower_order_but_not_the_initiation_tower():
+    a = problem_signature(session_with_towers(["B1", "A1"], initiation_tower="B2"))
+    b = problem_signature(session_with_towers(["A1", "B1"], initiation_tower="B2"))
+    c = problem_signature(session_with_towers(["A1", "B1"], initiation_tower="A2"))
     assert a == b
     assert a != c
+
+
+def test_problem_signature_does_not_separate_has_good():
+    good = problem_signature(session_with_towers(["A1", "B1"], has_good=True))
+    assert good == problem_signature(session_with_towers(["A1", "B1"]))
 
 
 def test_problem_signature_is_none_without_towers():
     assert problem_signature({}) is None
     assert problem_signature({"choice_towers": [None]}) is None
-
-
-@pytest.mark.parametrize(
-    ("sigs", "merge", "expected"),
-    [
-        (["A", "B", "A"], False, [1, 2, 3]),
-        (["A", "B", "A"], True, [1, 2, 1]),
-        (["A", "A", "B", "B"], False, [1, 1, 2, 2]),
-        # Pins current (suspect) behaviour: a None signature breaks "same as previous", so one
-        # problem is split in two; [1, 1, 1] would arguably be right.
-        (["A", None, "A"], False, [1, 1, 2]),
-        ([None, "A"], False, [1, 1]),  # ...and the first real signature is problem 1
-        ([None, None], True, [1, 1]),
-        (["A", "B", None, "B"], True, [1, 2, 2, 2]),
-        ([], False, []),
-    ],
-)
-def test_assign_problem_ordinals(sigs, merge, expected):
-    assert assign_problem_ordinals(sigs, merge) == expected
 
 
 def test_signed_sessions_skips_sessions_without_trials_and_reports_it(capsys):
@@ -181,18 +174,55 @@ def by_problem(grouped):
     return {problem: list(subjects["m"]) for problem, subjects in grouped.items()}
 
 
-def test_group_sessions_by_problem_merges_recurring_only_when_asked():
+def test_group_sessions_by_problem_numbers_a_return_to_an_earlier_layout_as_new():
     data = {
         "m": {
             "ses-1": session_with_towers(["A1"]),
             "ses-2": session_with_towers(["B1"]),
+            "ses-3": session_with_towers(["B1"]),
+            "ses-4": session_with_towers(["A1"]),
+        }
+    }
+    assert by_problem(group_sessions_by_problem(data)) == {
+        1: ["ses-1"],
+        2: ["ses-2", "ses-3"],
+        3: ["ses-4"],
+    }
+
+
+def test_group_sessions_by_problem_leaves_out_a_flagged_session_and_pools_around_it():
+    data = {
+        "m": {
+            "ses-1": session_with_towers(["A1"]),
+            "ses-2": session_with_towers(["B1"]),  # lasts one session: suspected settings error
             "ses-3": session_with_towers(["A1"]),
         }
     }
-    separate = group_sessions_by_problem(data)
-    merged = group_sessions_by_problem(data, merge_recurring_problems=True)
-    assert by_problem(separate) == {1: ["ses-1"], 2: ["ses-2"], 3: ["ses-3"]}
-    assert by_problem(merged) == {1: ["ses-1", "ses-3"], 2: ["ses-2"]}
+    with pytest.warns(UserWarning, match=r"m ses-2.*suspected settings error"):
+        grouped = group_sessions_by_problem(data)
+    assert by_problem(grouped) == {1: ["ses-1", "ses-3"]}
+    assert "ses-2" in data["m"]  # still available for single-session analyses
+
+
+def test_group_sessions_by_problem_uses_the_initiation_tower_and_ignores_has_good():
+    data = {
+        "m": {
+            "ses-1": session_with_towers(["A1"], initiation_tower="B2", has_good=True),
+            "ses-2": session_with_towers(["A1"], initiation_tower="B2"),
+            "ses-3": session_with_towers(["A1"], initiation_tower="A2"),
+            "ses-4": session_with_towers(["A1"], initiation_tower="A2"),
+        }
+    }
+    assert by_problem(group_sessions_by_problem(data)) == {
+        1: ["ses-1", "ses-2"],
+        2: ["ses-3", "ses-4"],
+    }
+
+
+def test_group_sessions_by_problem_requires_settings_evidence():
+    data = {"m": {"ses-1": {"trial_info": [[{"x": 1}]], "choice_towers": [["A1"]]}}}
+    with pytest.raises(ValueError, match="m ses-1.*settings_evidence"):
+        group_sessions_by_problem(data)
 
 
 def test_group_sessions_by_problem_copies_unless_told_not_to():
@@ -427,35 +457,35 @@ def test_extract_trials_updates_every_session_in_place():
     assert all(session["choice"] == ["A1"] for session in data["m"].values())
 
 
-def test_grouped_by_problem_numbers_a_recurring_problem_with_and_without_merging():
+def test_grouped_by_problem_numbers_a_recurring_problem_as_new():
     problem_a = {"current_choice_towers": ["A1", "B1", "C1"]}
     problem_b = {
         "current_choice_towers": ["A1", "B1", "D1"],
         "current_reward_magnitudes": {"A1": 1, "B1": 3, "D1": 2},
     }
-    # Session 3 returns to problem A but logged no reward magnitudes.
+    # Session 4 returns to problem A but logged no reward magnitudes.
     no_magnitudes = {**problem_a, "current_reward_magnitudes": None}
 
     def one_trial_session(extra):
         return {
             "data": recording(
                 [bandit_trial(1, "B1", "second", {"second": 1}, num_blocks=1, **extra)]
-            )
+            ),
+            "settings_evidence": EVIDENCE,
         }
 
     data = {
         "m": {
             "ses-1": one_trial_session(problem_a),
             "ses-2": one_trial_session(problem_b),
-            "ses-3": one_trial_session(no_magnitudes),
+            "ses-3": one_trial_session(problem_b),
+            "ses-4": one_trial_session(no_magnitudes),
         }
     }
-    separate = extract_trials_grouped_by_problem(deepcopy(data))
-    merged = extract_trials_grouped_by_problem(deepcopy(data), merge_recurring_problems=True)
+    grouped = extract_trials_grouped_by_problem(deepcopy(data))
 
-    assert by_problem(separate) == {1: ["ses-1"], 2: ["ses-2"], 3: ["ses-3"]}
-    assert by_problem(merged) == {1: ["ses-1", "ses-3"], 2: ["ses-2"]}
-    assert merged[1]["m"]["ses-1"]["chosen_magnitude"] == [2]
-    assert merged[2]["m"]["ses-2"]["chosen_magnitude"] == [3]
-    assert merged[1]["m"]["ses-3"]["chosen_magnitude"] == [None]
-    assert merged[1]["m"]["ses-3"]["choices_by_rank"]["second"] == [1]
+    assert by_problem(grouped) == {1: ["ses-1"], 2: ["ses-2", "ses-3"], 3: ["ses-4"]}
+    assert grouped[1]["m"]["ses-1"]["chosen_magnitude"] == [2]
+    assert grouped[2]["m"]["ses-2"]["chosen_magnitude"] == [3]
+    assert grouped[3]["m"]["ses-4"]["chosen_magnitude"] == [None]
+    assert grouped[3]["m"]["ses-4"]["choices_by_rank"]["second"] == [1]

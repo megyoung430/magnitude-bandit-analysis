@@ -1,16 +1,37 @@
 """Keep restarted recordings with different arm sets in separate segments."""
-import json
+
+from src.behavior_import.import_data import (
+    RunStartError,
+    read_run_start,
+    settings_evidence,
+    source_path,
+)
 
 
-def _signature(frame):
-    rows = frame.loc[(frame['type'] == 'variable') & (frame['subtype'] == 'run_start'), 'content']
-    if rows.empty:
+def _signature(frame, mouse, key):
+    """Sorted tower names and initiation tower of a recording's first ``run_start``.
+
+    ``(None, None)`` if the recording has no ``run_start`` row; a corrupt row raises a
+    ``ValueError`` naming the mouse, session and file.
+    """
+    is_run_start = (frame['type'] == 'variable') & (frame['subtype'] == 'run_start')
+    if not is_run_start.any():
         return None, None
-    raw = rows.iloc[0]
-    state = raw if isinstance(raw, dict) else json.loads(raw)
+    try:
+        state = read_run_start(frame)
+    except RunStartError as err:
+        raise ValueError(f'{mouse} {key} ({source_path(frame)}): {err}') from err
     magnitudes = state.get('current_reward_magnitudes', state.get('curr_rew_mag'))
     initiation = state.get('current_initiation_tower', state.get('curr_initiation_tow', state.get('initiation_tower')))
     return (tuple(sorted(magnitudes)) if magnitudes else None), initiation
+
+
+def _segment_evidence(session, segment_frames):
+    """Settings evidence of one segment; one starting without ``run_start`` keeps the session's."""
+    first = segment_frames[0]
+    if not ((first['type'] == 'variable') & (first['subtype'] == 'run_start')).any():
+        return session['settings_evidence']
+    return settings_evidence(segment_frames, read_run_start(first))
 
 
 def split_recording_configurations(data):
@@ -28,7 +49,7 @@ def split_recording_configurations(data):
                 continue
             groups, current, previous = [], [], None
             for i,frame in enumerate(frames):
-                signature = _signature(frame)
+                signature = _signature(frame, mouse, key)
                 if previous is not None and signature[0] is not None and previous[0] is not None and signature != previous:
                     groups.append(current)
                     current = []
@@ -49,7 +70,8 @@ def split_recording_configurations(data):
                     if isinstance(values,list):
                         selected = [values[i] for i in indices]
                         segment[field] = selected[0] if len(selected)==1 else selected
-                towers,initiation = _signature(frames[indices[0]])
+                segment['settings_evidence'] = _segment_evidence(session, [frames[i] for i in indices])
+                towers,initiation = _signature(frames[indices[0]], mouse, key)
                 if towers is not None:segment['choice_towers'] = set(towers)
                 if initiation is not None:segment['initiation_tower'] = initiation
                 sessions[segment_key] = segment

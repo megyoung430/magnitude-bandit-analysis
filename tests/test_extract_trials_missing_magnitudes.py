@@ -38,7 +38,11 @@ class MissingMagnitudeTests(unittest.TestCase):
             'current_choice_towers': ['A1', 'B1'],
             'chosen_rank': 'best', 'rank_counts': {'best': 1, 'second': 0},
         }])
-        data = {'mouse': {'ses-1': {'data': training}, 'ses-2': {'data': bandit}}}
+        evidence = {'has_num_t_found': True, 'starts_found_ports_false': True}
+        data = {'mouse': {
+            'ses-1': {'data': training, 'settings_evidence': evidence},
+            'ses-2': {'data': bandit, 'settings_evidence': evidence},
+        }}
         problems = extract_trials_grouped_by_problem(data)
         self.assertEqual(list(problems), [1])
         self.assertEqual(list(problems[1]['mouse']), ['ses-2'])

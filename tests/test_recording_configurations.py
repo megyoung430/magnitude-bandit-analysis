@@ -26,5 +26,13 @@ class ConfigurationTests(unittest.TestCase):
         split_recording_configurations(data)
         self.assertEqual(list(data['mouse']),['ses-1'])
 
+    def test_corrupt_run_start_raises_naming_mouse_session_and_file(self):
+        a = frame(['C1','A1','B3'])
+        b = pd.DataFrame([{'type':'variable','subtype':'run_start','content':'{not json'}])
+        b.attrs['source_path'] = '/raw/sub-01_id-mouse/ses-1/b.tsv'
+        data={'mouse':{'ses-1':{'data':[a,b]}}}
+        with self.assertRaisesRegex(ValueError, r'mouse ses-1 \(/raw/sub-01_id-mouse/ses-1/b.tsv\).*not valid JSON'):
+            split_recording_configurations(data)
+
 
 if __name__ == '__main__':unittest.main()

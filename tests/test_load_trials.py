@@ -19,7 +19,7 @@ def computed(monkeypatch):
     """Replace the slow import with a counter so tests need no real sessions."""
     calls = []
 
-    def fake_import(root, merge_recurring_problems):
+    def fake_import(root):
         calls.append(root)
         return {1: {"M1": {"n_calls": len(calls)}}}
 
@@ -47,12 +47,6 @@ def test_import_code_change_invalidates_cache(raw_root, tmp_path, computed, monk
     load_trials_by_problem(raw_root, cache_dir=tmp_path / "cache")
     monkeypatch.setattr(load_trials, "import_code_version", lambda: "edited")
     load_trials_by_problem(raw_root, cache_dir=tmp_path / "cache")
-    assert len(computed) == 2
-
-
-def test_options_are_part_of_the_cache_key(raw_root, tmp_path, computed):
-    load_trials_by_problem(raw_root, cache_dir=tmp_path / "cache")
-    load_trials_by_problem(raw_root, cache_dir=tmp_path / "cache", merge_recurring_problems=True)
     assert len(computed) == 2
 
 
