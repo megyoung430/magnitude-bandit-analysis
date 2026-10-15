@@ -4,6 +4,7 @@ from src.behavior_import.import_data import (
     RunStartError,
     read_run_start,
     settings_evidence,
+    session_task_type,
     source_path,
 )
 
@@ -83,6 +84,12 @@ def split_recording_configurations(data):
                         segment[field] = selected[0] if len(selected)==1 else selected
                 segment['settings_evidence'] = _segment_evidence(session, [frames[i] for i in indices])
                 segment['task_name'] = segment['settings_evidence']['task_name']
+                if session.get('task_types_classified'):
+                    # a segment is a recording of its own task, not of the parent's first one
+                    segment['task_type'] = session_task_type(
+                        mouse, segment_key, segment['task_name'],
+                        [source_path(frames[i]) for i in indices], skip_pretraining=True,
+                    )
                 towers,initiation = _signature(frames[indices[0]], mouse, key)
                 if towers is not None:segment['choice_towers'] = set(towers)
                 if initiation is not None:segment['initiation_tower'] = initiation

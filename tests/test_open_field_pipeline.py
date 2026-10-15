@@ -28,9 +28,20 @@ def test_run_problem_runs_selected_sections_in_problem_dir(calls):
     assert {str(d.parent) for _, d in calls} == {"out/open-field/cohort-01/problem-02"}
 
 
-def test_reversal_window_sections_stop_after_last_problem(calls):
+def test_the_problem_number_does_not_limit_the_selected_sections(calls):
+    # choice probabilities and first leave run for a late problem number too
     run_problem(5, {}, task="t", cohort="c", output_root=Path("out"))
-    assert [name for name, _ in calls] == SECTIONS[2:]
+    assert [name for name, _ in calls] == SECTIONS
+
+
+def test_task_type_adds_a_folder_between_cohort_and_problem(calls):
+    run_problem(2, {}, task="t", cohort="c", output_root=Path("out"), task_type="drifting")
+    assert {str(d.parent) for _, d in calls} == {"out/t/c/drifting/problem-02"}
+
+
+def test_selection_has_no_problem_number_cutoff():
+    with pytest.raises(ValueError):
+        AnalysisSelection(last_reversal_window_problem=4)
 
 
 def test_disabled_sections_are_skipped(calls):

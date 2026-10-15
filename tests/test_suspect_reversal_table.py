@@ -1,5 +1,6 @@
 """The suspect-reversal review table lists exactly the reversals get_good_reversal_info drops."""
 
+import json
 import re
 import warnings
 
@@ -100,18 +101,33 @@ def test_every_reason_appears_and_kept_reversals_do_not():
         "best tower unchanged",
         "missing magnitude",
         "tie for best",
-        "uncheckable between-run or terminal",
     ]
     # the kept reversal is ses-1 trial 2 (merged 2)
     assert not ((table["session"] == "ses-1") & (table["session_trial"] == 2)).any()
     assert 2 not in set(table["merged_trial"])
 
 
-def test_a_between_runs_event_is_labelled_uncheckable_not_best_unchanged():
+def test_a_between_runs_event_keeps_its_real_check_result_and_is_flagged():
     table = suspect_reversal_table({"m": mixed_subject()})
     (row,) = table[table["session"] == "ses-3"].to_dict("records")
-    assert row["reason"] == "uncheckable between-run or terminal"
+    assert row["reason"] == "best tower unchanged"
+    assert row["logged_between_runs"]
     assert row["count"] == 1
+
+
+def test_only_the_event_rows_are_flagged_as_logged_between_runs():
+    table = suspect_reversal_table({"m": mixed_subject()})
+    assert table[table["logged_between_runs"]]["session"].tolist() == ["ses-3"]
+
+
+def test_a_between_runs_event_with_a_missing_magnitude_says_so():
+    sess = session(
+        [0, 0, 1, 1],
+        [A_BEST, A_BEST, (4, 1, None), (4, 1, 2)],
+        reversal_boundary_events=[dict(kind="good", index=2, count=1, source="between_runs")],
+    )
+    (row,) = suspect_reversal_table({"m": {"ses-1": sess}}).to_dict("records")
+    assert (row["reason"], row["logged_between_runs"]) == ("missing magnitude", True)
 
 
 def test_a_jump_of_two_is_one_row_with_count_two():
@@ -131,9 +147,11 @@ def test_an_event_and_an_in_run_reversal_on_one_trial_split_into_two_rows():
         reversal_boundary_events=[dict(kind="good", index=2, count=1, source="between_runs")],
     )
     table = suspect_reversal_table({"m": {"ses-1": sess}})
-    assert sorted(zip(table["reason"], table["count"], strict=True)) == [
-        ("best tower unchanged", 1),
-        ("uncheckable between-run or terminal", 1),
+    assert sorted(
+        zip(table["reason"], table["logged_between_runs"], table["count"], strict=True)
+    ) == [
+        ("best tower unchanged", False, 1),
+        ("best tower unchanged", True, 1),
     ]
 
 
@@ -165,6 +183,64 @@ def test_run_and_file_are_missing_when_not_recorded():
     assert pd.isna(row["run"]) and pd.isna(row["file"])
 
 
+def print_row(time, content):
+    return (time, "variable", "print", json.dumps(content))
+
+
+def recording(first_time, n_trials, path, num_t_start=1):
+    """A raw pyControl frame: a port-finding print, then *n_trials* trial prints."""
+    rows = [
+        (0.0, "variable", "run_start", "{}"),
+        print_row(first_time - 5, {"num_t_found": 1}),
+    ]
+    rows += [
+        print_row(first_time + i, {"num_t": num_t_start + i, "curr_rew_mag": {}})
+        for i in range(n_trials)
+    ]
+    df = pd.DataFrame(rows, columns=["time", "type", "subtype", "content"])
+    df.attrs["source_path"] = path
+    return df
+
+
+def two_run_session(good):
+    """Runs of 3 and 5 trials; each restarts its pyControl trial counter at 1."""
+    n = len(good)
+    return session(
+        good,
+        [A_BEST] * n,
+        trial_variables=[{"trial": [1, 2, 3]}, {"trial": [1, 2, 3, 4, 5]}],
+        data=[recording(10.0, 3, "/raw/run-a.tsv"), recording(100.0, 5, "/raw/run-b.tsv")],
+    )
+
+
+def test_num_t_is_the_run_local_trial_number_printed_in_that_runs_file():
+    # merged trial 5 is the third trial of run 1 (runs of 3 and 5 trials)
+    (row,) = suspect_reversal_table({"m": {"ses-1": two_run_session([0] * 5 + [1] * 3)}}).to_dict(
+        "records"
+    )
+    assert (row["session_trial"], row["run"], row["file"]) == (5, 1, "run-b.tsv")
+    assert row["num_t"] == 3
+    assert row["print_time"] == 102.0  # the time of that print row, not of the port-finding row
+
+
+def test_num_t_in_the_first_run_counts_from_one_too():
+    sess = two_run_session([0, 0, 1, 1, 1, 1, 1, 1])
+    (row,) = suspect_reversal_table({"m": {"ses-1": sess}}).to_dict("records")
+    assert (row["run"], row["num_t"], row["print_time"]) == (0, 3, 12.0)
+
+
+def test_num_t_is_the_printed_value_even_when_a_recording_does_not_start_at_one():
+    sess = two_run_session([0] * 5 + [1] * 3)
+    sess["data"][1] = recording(100.0, 5, "/raw/run-b.tsv", num_t_start=11)
+    (row,) = suspect_reversal_table({"m": {"ses-1": sess}}).to_dict("records")
+    assert row["num_t"] == 13
+
+
+def test_num_t_and_print_time_are_missing_when_the_raw_frames_are_not_kept():
+    table = suspect_reversal_table({"m": mixed_subject()})
+    assert table["num_t"].isna().all() and table["print_time"].isna().all()
+
+
 def test_columns_order_and_dtypes():
     table = suspect_reversal_table({"m": mixed_subject()})
     assert list(table.columns) == list(COLUMNS)
@@ -175,7 +251,10 @@ def test_columns_order_and_dtypes():
         "merged_trial",
         "run",
         "file",
+        "num_t",
+        "print_time",
         "reason",
+        "logged_between_runs",
         "good_reversal_number",
         "magnitudes_before",
         "magnitudes_after",
@@ -187,6 +266,8 @@ def test_columns_order_and_dtypes():
     assert dtypes["session_trial"] == "Int64" and dtypes["run"] == "Int64"
     assert dtypes["merged_trial"] == "int64" and dtypes["count"] == "int64"
     assert dtypes["good_reversal_number"] == "Int64"
+    assert dtypes["num_t"] == "Int64" and dtypes["print_time"] == "float64"
+    assert dtypes["logged_between_runs"] == "bool"
     assert dtypes["subject"] == dtypes["reason"] == "object"
 
 
@@ -269,3 +350,13 @@ def test_csv_of_an_empty_table_keeps_the_header(tmp_path):
 def test_write_rejects_a_table_without_the_expected_columns(tmp_path):
     with pytest.raises(ValueError, match="columns"):
         write_suspect_reversal_table(pd.DataFrame({"a": [1]}), tmp_path / "x.csv")
+
+
+def test_write_accepts_the_task_type_columns_and_keeps_them_in_the_csv(tmp_path):
+    table = suspect_reversal_table({"m": mixed_subject()})
+    typed = table.assign(task_type="drifting", problem_in_type=1, overall_problem=3)
+    typed = typed[["task_type", "problem_in_type", "overall_problem", *COLUMNS]]
+    path = tmp_path / "typed.csv"
+    write_suspect_reversal_table(typed, path)
+    header = path.read_text().splitlines()[0]
+    assert header == ",".join(["task_type", "problem_in_type", "overall_problem", *COLUMNS])
