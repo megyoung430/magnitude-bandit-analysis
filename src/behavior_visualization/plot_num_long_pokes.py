@@ -7,6 +7,8 @@ chart with per-mouse overlaid lines.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -74,22 +76,38 @@ def _plot_mouse_lines(
     return handles
 
 
-def _style_axes(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_text: float) -> None:
+def relative_session_label(session_key: str) -> str:
+    """The number of a ``rel_ses-NN`` key without leading zeros (``"rel_ses-03"`` -> ``"3"``)."""
+    match = re.fullmatch(r"rel_ses-0*(\d+)", session_key)
+    if match is None:
+        raise ValueError(f"not a relative session key: {session_key!r}")
+    return match[1]
+
+
+def _style_axes(
+    ax: plt.Axes,
+    x: np.ndarray,
+    summary: PokesBySession,
+    y_text: float,
+    *,
+    xlabel: str,
+    title: str | None,
+    tick_label: Callable[[str], str],
+) -> None:
     # Known issue: the title's subject count includes mice without finite data,
     # which are not drawn.
-    ax.set_xlabel("Session")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Non-Choice Long Pokes")
     ax.set_xticks(x)
-    ax.set_xticklabels(
-        [get_short_session_label(s) for s in summary.sessions], fontsize=12, rotation=45
-    )
+    ax.set_xticklabels([tick_label(s) for s in summary.sessions], fontsize=12, rotation=45)
     ax.tick_params(axis="y", labelsize=13)
     ax.set_ylim(0, y_text)
     despine(ax)
-    title = (
-        "Mean Non-Choice Long Pokes Across Sessions\n"
-        f" (mean ± se across subjects | n={len(summary.mice)} subjects)"
-    )
+    if title is None:
+        title = (
+            "Mean Non-Choice Long Pokes Across Sessions\n"
+            f" (mean ± se across subjects | n={len(summary.mice)} subjects)"
+        )
     ax.set_title(title, fontsize=16, pad=25)
 
 
@@ -99,6 +117,9 @@ def plot_num_pokes_panel(
     *,
     ax: plt.Axes | None = None,
     rng: np.random.Generator | None = None,
+    xlabel: str = "Session",
+    title: str | None = None,
+    tick_label: Callable[[str], str] = get_short_session_label,
 ) -> plt.Axes:
     """Draw mean non-choice long pokes per session with per-mouse overlays.
 
@@ -109,13 +130,17 @@ def plot_num_pokes_panel(
         ax: Axes to draw into; a new 12 x 5.5 inch figure is created if ``None``.
         rng: Generator for the per-mouse x-jitter. Known issue: when ``None`` an
             unseeded generator is used, so the jitter differs on every call.
+        xlabel: X-axis label.
+        title: Axes title; default is the across-sessions title with the subject count.
+        tick_label: Maps a session key to its x-tick label (default: the short ``ses-XX``
+            form; :func:`relative_session_label` for ``rel_ses-NN`` keys).
     """
     summary = summarize_pokes_by_session(avg_num_pokes_across_subjects)
     x = np.arange(len(summary.sessions))
     with axes_or_new(ax, figsize=(12, 5.5)) as ax:
         _plot_session_bars(ax, x, summary, y_text)
         handles = _plot_mouse_lines(ax, x, summary, rng)
-        _style_axes(ax, x, summary, y_text)
+        _style_axes(ax, x, summary, y_text, xlabel=xlabel, title=title, tick_label=tick_label)
         if handles:
             ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=10)
     return ax

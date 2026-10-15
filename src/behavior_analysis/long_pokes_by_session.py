@@ -7,6 +7,7 @@ from typing import NamedTuple
 import numpy as np
 
 from src.behavior_analysis.stats import mean_se_n
+from src.behavior_import.session_order import ordered_session_keys
 from src.behavior_import.sort_by_session import sort_sessions_chronologically
 
 AVERAGE_KEY = "average_across_subjects"
@@ -99,3 +100,80 @@ def summarize_pokes_by_session(avg_num_pokes_across_subjects: dict) -> PokesBySe
         se=np.asarray([se for _, se in stats], dtype=float),
         by_mouse=by_mouse,
     )
+
+
+def _trial_values(subject: str, session_key: str, session: dict) -> np.ndarray:
+    """The session's per-trial ``num_long_pokes`` as floats, trials without a value dropped."""
+    if "num_long_pokes" not in session:
+        raise ValueError(f"{subject} {session_key}: session has no 'num_long_pokes'")
+    values = [v for v in session["num_long_pokes"] if v is not None]
+    return np.asarray(values, dtype=float)
+
+
+def session_mean_long_pokes(subjects_sessions: dict) -> dict[str, dict[str, float]]:
+    """Mean non-choice long pokes per trial of every session, sessions in session order.
+
+    Unlike :func:`src.behavior_analysis.get_num_long_pokes.get_num_long_pokes`, a session
+    without ``num_long_pokes`` raises rather than being skipped.
+
+    Args:
+        subjects_sessions: ``{mouse: {session_key: session_dict}}`` of one problem, each
+            session holding the importer's merged per-trial ``"num_long_pokes"`` list.
+
+    Returns:
+        ``{mouse: {session_key: mean}}``; NaN for a session with no trial values.
+
+    Raises:
+        ValueError: If a session lacks ``num_long_pokes`` or a mouse's sessions cannot be
+            ordered.
+    """
+    return {
+        mouse: {
+            key: float(np.mean(v))
+            if (v := _trial_values(mouse, key, sessions[key])).size
+            else np.nan
+            for key in ordered_session_keys(mouse, sessions)
+        }
+        for mouse, sessions in subjects_sessions.items()
+    }
+
+
+def to_relative_sessions(per_mouse: dict, *, start_at: int = 1) -> dict[str, dict]:
+    """Re-key each mouse's sessions as ``rel_ses-01``, ``rel_ses-02``, ... in session order.
+
+    Mice that started the problem on different absolute sessions then line up on the same
+    relative session. The ``"average_across_subjects"`` entry is dropped.
+
+    Args:
+        per_mouse: ``{mouse: {session_key: value}}``.
+        start_at: Number of each mouse's first session.
+
+    Raises:
+        ValueError: If a mouse's session keys cannot be ordered (see ``ordered_session_keys``).
+    """
+    return {
+        mouse: {
+            f"rel_ses-{i:02d}": by_session[key]
+            for i, key in enumerate(ordered_session_keys(mouse, by_session), start=start_at)
+        }
+        for mouse, by_session in per_mouse.items()
+        if mouse != AVERAGE_KEY
+    }
+
+
+def problem_mean_long_pokes(subjects_sessions: dict) -> dict[str, float]:
+    """Each mouse's mean non-choice long pokes per trial over all trials of the problem.
+
+    Trials are pooled across the mouse's sessions, so long sessions weigh more than short ones.
+    Arguments and errors as for :func:`session_mean_long_pokes`; NaN for a mouse without trial
+    values.
+    """
+    return {
+        mouse: _pooled_mean([_trial_values(mouse, key, s) for key, s in sessions.items()])
+        for mouse, sessions in subjects_sessions.items()
+    }
+
+
+def _pooled_mean(arrays: list[np.ndarray]) -> float:
+    pooled = np.concatenate(arrays) if arrays else np.empty(0)
+    return float(pooled.mean()) if pooled.size else float("nan")
