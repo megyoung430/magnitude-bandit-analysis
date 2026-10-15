@@ -291,6 +291,7 @@ def assign_problems(facts):
     """
     assignments = {i: a for i, f in enumerate(facts) if (a := _skip_assignment(f))}
     runs = _layout_runs(facts, [i for i in range(len(facts)) if i not in assignments])
+    changed = "layout or task type" if any(f.task_type for f in facts) else "layout"
     problem, last_signature = 0, None
     # Each run is judged against the last unflagged layout, so this is a loop.
     for position, run in enumerate(runs):
@@ -298,7 +299,7 @@ def assign_problems(facts):
         if signature == last_signature:
             first = ProblemAssignment(problem, None, ())
         elif len(run) == 1 and position < len(runs) - 1:
-            reasons = ("layout or task type lasts one session before changing again",)
+            reasons = (f"{changed} lasts one session before changing again",)
             assignments[run[0]] = ProblemAssignment(None, SUSPECTED_SETTINGS_ERROR, reasons)
             continue
         else:

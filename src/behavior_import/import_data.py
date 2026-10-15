@@ -103,7 +103,12 @@ def session_task_type(
 
 
 def _build_session_record(
-    df_list: list, towers: dict, assignment, evidence: dict, task_type: str | None
+    df_list: list,
+    towers: dict,
+    assignment,
+    evidence: dict,
+    task_type: str | None,
+    task_types_classified: bool,
 ) -> dict:
     """The per-session entry returned by :func:`import_data`.
 
@@ -122,6 +127,7 @@ def _build_session_record(
         "settings_evidence": evidence,
         "task_name": evidence["task_name"],
         "task_type": task_type,
+        "task_types_classified": task_types_classified,
         "choice_towers": towers.get("choice_towers", set()),
         "initiation_tower": towers.get("initiation_tower"),
     }
@@ -182,7 +188,7 @@ def _import_subject_sessions(
         stacklevel=4,
     )
     return {
-        key[1]: _build_session_record(df_list, t, assignment, e, kind)
+        key[1]: _build_session_record(df_list, t, assignment, e, kind, classify_task_types)
         for key, df_list, t, e, assignment, kind in zip(
             keys, df_lists, towers, evidence, assignments, task_types, strict=True
         )
@@ -235,6 +241,7 @@ def import_data(root: str | Path, *, classify_task_types: bool = False) -> dict:
                   "settings_evidence": dict,            # facts the flag rule used
                   "task_name": str | None,              # the file header's task_name row
                   "task_type": str | None,              # "blocked"/"drifting" if classified
+                  "task_types_classified": bool,        # whether classify_task_types was on
                   "choice_towers": set,
                   "initiation_tower": str | None,
                 }

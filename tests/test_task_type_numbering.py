@@ -5,6 +5,7 @@ import warnings
 import pytest
 
 from src.behavior_import.extract_trials import extract_trials_grouped_by_problem
+from src.behavior_import.import_data import import_data
 from src.behavior_import.problem_numbering import (
     SUSPECTED_SETTINGS_ERROR,
     ProblemNumberingWarning,
@@ -12,7 +13,15 @@ from src.behavior_import.problem_numbering import (
     assign_problems,
     tower_layout,
 )
-from tests.test_import_data import A, flags_of, import_sessions, problems
+from tests.test_import_data import (
+    A,
+    flags_of,
+    import_sessions,
+    problems,
+    run_start_for,
+    session_dir,
+    write_tsv,
+)
 
 LAYOUT = tower_layout(["A1", "B1", "C1"], "B2")
 BLOCKED_TASK = "Meg\\3x3_field_blocked_value_bandit"
@@ -133,3 +142,83 @@ def test_a_missing_task_name_stops_the_run_and_names_the_file(tmp_path):
     message = str(err.value)
     assert "M1 ses-2_date-20260102" in message and "M1-2026-01-02-100000.tsv" in message
     assert "no task name" in message and "stops" in message
+
+
+# --- sessions split into segments ---
+
+B_LAYOUT = run_start_for(["A2", "B2", "C2"])
+RESUMED_A = {**A, "found_ports": True}
+RESUMED_B = {**B_LAYOUT, "found_ports": True}
+
+
+def write_session(root, number, recordings):
+    """One session folder with a recording per ``(run_start, task_name, port_finding)``."""
+    folder = session_dir(root, session=f"ses-{number}_date-202601{number:02d}")
+    for n, (run_start, task_name, port_finding) in enumerate(recordings):
+        write_tsv(
+            folder,
+            f"M1-2026-01-{number:02d}-{10 + n}0000.tsv",
+            run_start=run_start,
+            task_name=task_name,
+            port_finding=port_finding,
+        )
+
+
+def segment_numbers(root):
+    imported = import_data(root, classify_task_types=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ProblemNumberingWarning)
+        grouped = extract_trials_grouped_by_problem(imported)
+    return {key: problem for problem, subjects in grouped.items() for key in subjects["M1"]}
+
+
+def test_a_segment_is_numbered_by_its_own_task_type_on_a_switch_day(tmp_path):
+    write_session(tmp_path, 1, [(A, BLOCKED_TASK, True)])
+    write_session(tmp_path, 2, [(RESUMED_A, BLOCKED_TASK, False)])
+    # blocked on layout A, then a drifting recording on layout B, in one session
+    write_session(tmp_path, 3, [(RESUMED_A, BLOCKED_TASK, False), (B_LAYOUT, DRIFTING_TASK, True)])
+    write_session(tmp_path, 4, [(RESUMED_B, DRIFTING_TASK, False)])
+    assert segment_numbers(tmp_path) == {
+        "ses-1_date-20260101": 1,
+        "ses-2_date-20260102": 1,
+        "ses-3_date-20260103_part-01": 1,
+        "ses-3_date-20260103_part-02": 2,
+        "ses-4_date-20260104": 2,
+    }
+
+
+def test_a_segment_after_a_pretraining_first_recording_is_classified_itself(tmp_path):
+    write_session(tmp_path, 1, [(A, BLOCKED_TASK, True)])
+    write_session(tmp_path, 2, [(RESUMED_A, BLOCKED_TASK, False)])
+    write_session(
+        tmp_path, 3, [(A, "initiation_pretraining", True), (B_LAYOUT, BLOCKED_TASK, True)]
+    )
+    write_session(tmp_path, 4, [(RESUMED_B, BLOCKED_TASK, False)])
+    numbers = segment_numbers(tmp_path)
+    assert "ses-3_date-20260103_part-01" not in numbers  # the pretraining recording is skipped
+    assert numbers["ses-3_date-20260103_part-02"] == numbers["ses-4_date-20260104"] == 2
+
+
+def test_segments_carry_no_task_type_when_task_types_are_off(tmp_path):
+    write_session(tmp_path, 1, [(A, BLOCKED_TASK, True)])
+    write_session(tmp_path, 2, [(RESUMED_A, BLOCKED_TASK, False)])
+    write_session(tmp_path, 3, [(RESUMED_A, BLOCKED_TASK, False), (B_LAYOUT, DRIFTING_TASK, True)])
+    write_session(tmp_path, 4, [(RESUMED_B, DRIFTING_TASK, False)])
+    grouped = extract_trials_grouped_by_problem(import_data(tmp_path))
+    segments = [s for subjects in grouped.values() for s in subjects["M1"].values()]
+    assert len(segments) == 5 and {s["task_type"] for s in segments} == {None}
+
+
+def test_the_settings_error_warning_names_only_the_layout_without_task_types(tmp_path):
+    entries = [(A, BLOCKED_TASK, True), (A, BLOCKED_TASK, True), (B_LAYOUT, BLOCKED_TASK, True)]
+    entries += [(A, BLOCKED_TASK, True)]
+    with pytest.warns(ProblemNumberingWarning) as caught:
+        import_sessions(tmp_path, entries)
+    text = " ".join(str(w.message) for w in caught)
+    assert "layout lasts one session" in text and "task type" not in text
+
+
+def test_the_settings_error_warning_names_the_task_type_when_classified(tmp_path):
+    names = [DRIFTING_TASK, DRIFTING_TASK, BLOCKED_TASK, DRIFTING_TASK, DRIFTING_TASK]
+    with pytest.warns(ProblemNumberingWarning, match="layout or task type lasts one session"):
+        import_sessions(tmp_path, items(names), classify_task_types=True)
