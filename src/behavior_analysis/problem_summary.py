@@ -185,16 +185,37 @@ def compute_suspect_good_reversals_per_session(subjects_trials: dict) -> dict:
     return per_subject
 
 
-def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
+def compute_problem_goodrev_summary(
+    problem_to_per_mouse_avg: dict, problem_to_per_mouse_suspect: dict | None = None
+) -> dict:
     """Summarise average good reversals per session across mice and problems.
 
     Args:
         problem_to_per_mouse_avg: ``{problem: {mouse: avg_good_reversals}}``
+        problem_to_per_mouse_suspect: Optional ``{problem: {mouse: {"suspect": avg,
+            "uncheckable": avg}}}``, the per-problem results of
+            :func:`compute_suspect_good_reversals_per_session`.
 
     Returns:
         A summary dict with keys ``"blocks"``, ``"means"``, ``"ses"``,
-        ``"ns"``, ``"per_mouse_blocklens"``, and ``"mice"``.
+        ``"ns"``, ``"per_mouse_blocklens"``, and ``"mice"`` for the logged counts. With
+        *problem_to_per_mouse_suspect* it also has ``"suspect"`` and ``"uncheckable"``, each
+        a summary dict with the same keys for those counts.
     """
+    summary = _summarise_per_problem(problem_to_per_mouse_avg)
+    if problem_to_per_mouse_suspect is not None:
+        for name in ("suspect", "uncheckable"):
+            summary[name] = _summarise_per_problem(
+                {
+                    problem: {mouse: counts[name] for mouse, counts in per_mouse.items()}
+                    for problem, per_mouse in problem_to_per_mouse_suspect.items()
+                }
+            )
+    return summary
+
+
+def _summarise_per_problem(problem_to_per_mouse_avg: dict) -> dict:
+    """Mean, SE and n of a per-mouse value for each problem (NaN values are left out)."""
     problems = sorted(problem_to_per_mouse_avg.keys())
     mice = sorted({m for p in problems for m in problem_to_per_mouse_avg[p].keys()})
 

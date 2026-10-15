@@ -5,7 +5,10 @@ import pytest
 
 from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import get_total_reversals
-from src.behavior_analysis.problem_summary import compute_suspect_good_reversals_per_session
+from src.behavior_analysis.problem_summary import (
+    compute_problem_goodrev_summary,
+    compute_suspect_good_reversals_per_session,
+)
 from src.behavior_analysis.reversals_by_session import reversal_counts_by_session
 from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
 
@@ -143,3 +146,27 @@ def test_problem_summary_averages_over_sessions():
     two = session([0, 1, 1], "ABB", reversal_totals={"good": 1, "bad": 0})
     out = compute_suspect_good_reversals_per_session({"m": {"ses-1": one, "ses-2": two}})
     assert out == {"m": {"suspect": 0.5, "uncheckable": 0.0}}
+
+
+def test_problem_summary_reports_suspect_counts_beside_the_logged_ones():
+    logged = {1: {"a": 2.0, "b": 4.0}, 2: {"a": 3.0}}
+    suspect = {
+        1: {"a": {"suspect": 1.0, "uncheckable": 0.0}, "b": {"suspect": 0.0, "uncheckable": 2.0}},
+        2: {"a": {"suspect": 0.5, "uncheckable": 0.0}},
+    }
+    summary = compute_problem_goodrev_summary(logged, suspect)
+    assert summary["means"] == compute_problem_goodrev_summary(logged)["means"]  # unchanged
+    assert summary["suspect"]["means"] == pytest.approx([0.5, 0.5])
+    assert summary["uncheckable"]["means"] == pytest.approx([1.0, 0.0])
+    assert summary["suspect"]["blocks"] == [1, 2]
+
+
+def test_problem_summary_without_suspect_counts_has_no_suspect_keys():
+    assert set(compute_problem_goodrev_summary({1: {"a": 2.0}})) == {
+        "blocks",
+        "means",
+        "ses",
+        "ns",
+        "per_mouse_blocklens",
+        "mice",
+    }
