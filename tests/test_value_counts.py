@@ -41,17 +41,17 @@ def assert_only_cells(df, expected):
 def test_believed_second_third_tie_does_not_depend_on_arm_names(names):
     top, tie1, tie2 = names
     offer = {top: 4, tie1: 2, tie2: 2}
-    seq = [top, tie1, tie2, tie1, tie2, tie1, tie2]
+    seq = [top, tie1, tie2, tie1, tie1, tie1, tie1]  # only ever the first tied arm
     sess = labelled_session(offer, seq, ["best"] * len(seq))
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess), use_believed=True)
-    # after all arms are seen, four trials choose a tied arm: half "second" each
+    # after all arms are seen, four trials choose one tied arm: half "second" whichever it is
     assert_only_cells(per_second["m1"], {(4, 2): 0.5})
     assert_only_cells(per_best["m1"], {(4, 2): 0.0})
 
 
 def test_believed_three_way_tie_gives_each_arm_a_third():
     offer = {"A": 3, "B": 3, "C": 3}
-    sess = labelled_session(offer, ["A", "B", "C", "A", "B", "C"], ["best"] * 6)
+    sess = labelled_session(offer, ["A", "B", "C", "A", "A", "A"], ["best"] * 6)
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess), use_believed=True)
     assert_only_cells(per_best["m1"], {(3, 3): 1 / 3})
     assert_only_cells(per_second["m1"], {(3, 3): 1 / 3})
@@ -59,7 +59,7 @@ def test_believed_three_way_tie_gives_each_arm_a_third():
 
 def test_true_best_second_tie_ignores_the_arbitrary_rank_label():
     offer = {"A": 3, "B": 3, "C": 1}
-    sess = labelled_session(offer, ["A", "B"], ["best", "second"])
+    sess = labelled_session(offer, ["A", "A"], ["best", "best"])
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess))
     assert_only_cells(per_best["m1"], {(3, 3): 0.5})
     assert_only_cells(per_second["m1"], {(3, 3): 0.5})
@@ -67,7 +67,7 @@ def test_true_best_second_tie_ignores_the_arbitrary_rank_label():
 
 def test_true_second_third_tie_splits_second_between_the_tied_arms():
     offer = {"A": 4, "B": 2, "C": 2}
-    sess = labelled_session(offer, ["B", "C"], ["second", "third"])
+    sess = labelled_session(offer, ["B", "B"], ["second", "second"])
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess))
     assert_only_cells(per_second["m1"], {(4, 2): 0.5})
     assert_only_cells(per_best["m1"], {(4, 2): 0.0})
@@ -75,7 +75,7 @@ def test_true_second_third_tie_splits_second_between_the_tied_arms():
 
 def test_true_three_way_tie_gives_each_arm_a_third():
     offer = {"A": 3, "B": 3, "C": 3}
-    sess = labelled_session(offer, ["A", "B", "C"], ["best", "second", "third"])
+    sess = labelled_session(offer, ["A", "B", "C"], ["best", "best", "best"])
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess))
     assert_only_cells(per_best["m1"], {(3, 3): 1 / 3})
     assert_only_cells(per_second["m1"], {(3, 3): 1 / 3})

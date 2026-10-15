@@ -166,8 +166,7 @@ def psychometric_curves(
     """
     return {
         choice: {
-            axis: _curve(counts_by_mouse, choice, axis, pool_trials=pool_trials)
-            for axis in X_AXES
+            axis: _curve(counts_by_mouse, choice, axis, pool_trials=pool_trials) for axis in X_AXES
         }
         for choice in CHOICES
     }
@@ -187,6 +186,4 @@ def heatmap_tables(counts_by_mouse: dict[str, MouseCounts]) -> HeatmapTables:
     total = init_matrix(fill=0.0)
     for n in per_mouse_n.values():
         total = total + n
-    return HeatmapTables(
-        p_best, p_second, total, per_mouse_best, per_mouse_second, per_mouse_n
-    )
+    return HeatmapTables(p_best, p_second, total, per_mouse_best, per_mouse_second, per_mouse_n)

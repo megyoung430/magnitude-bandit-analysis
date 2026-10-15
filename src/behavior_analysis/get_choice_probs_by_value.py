@@ -185,7 +185,9 @@ def _problem_trial_lists(subject_id, sessions_dict):
     for key in ordered_session_keys(subject_id, sessions_dict):
         trial_lists = _session_trial_lists(sessions_dict[key])
         if trial_lists is not None:
-            for joined, new in zip((reward_magnitudes, chosen_ranks, choices), trial_lists):
+            for joined, new in zip(
+                (reward_magnitudes, chosen_ranks, choices), trial_lists, strict=True
+            ):
                 joined.extend(new)
     return reward_magnitudes, chosen_ranks, choices
 
