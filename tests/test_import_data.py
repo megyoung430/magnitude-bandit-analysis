@@ -1,5 +1,6 @@
 import json
 import os
+import warnings
 
 import pandas as pd
 import pytest
@@ -27,15 +28,21 @@ def run_start_for(towers, initiation="B2", **extra):
     }
 
 
-def write_tsv(folder, name, run_start=None, marker=None, start_time=None):
-    """A minimal pyControl recording: optional start_time, run_start and a marker variable."""
+def write_tsv(
+    folder, name, run_start=None, marker=None, start_time=None, task_name=None, port_finding=False
+):
+    """A minimal pyControl recording: optional task_name, start_time, run_start, marker."""
     rows = [("0.000", "info", "subject_id", "M")]
+    if task_name:
+        rows.append(("0.000", "info", "task_name", task_name))
     if start_time:
         rows.append(("0.000", "info", "start_time", start_time))
     rows.append(("0.001", "state", "", "wait_init"))  # plain-text content is not JSON
     run_start = RUN_START if run_start is None else run_start
     content = run_start if isinstance(run_start, str) else json.dumps(run_start)
     rows.append(("0.002", "variable", "run_start", content))
+    if port_finding:
+        rows.append(("0.500", "variable", "print", json.dumps({"num_t_found": 1})))
     if marker is not None:
         rows.append(("1.000", "variable", "marker", json.dumps({"marker": marker})))
     folder.mkdir(parents=True, exist_ok=True)
@@ -186,12 +193,20 @@ def test_corrupt_or_empty_first_run_start_raises_naming_subject_session_and_file
 
 
 def import_sessions(root, run_starts):
-    """Write one session per run_start dict (ses-1, ses-2, ...) and import them."""
-    for n, run_start in enumerate(run_starts, start=1):
+    """Write one session per run_start dict (ses-1, ses-2, ...) and import them.
+
+    An item may also be ``(run_start, task_name, port_finding)``.
+    """
+    for n, item in enumerate(run_starts, start=1):
+        run_start, task_name, port_finding = (
+            item if isinstance(item, tuple) else (item, None, False)
+        )
         write_tsv(
             session_dir(root, session=f"ses-{n}_date-202601{n:02d}"),
             f"M1-2026-01-{n:02d}-100000.tsv",
             run_start=run_start,
+            task_name=task_name,
+            port_finding=port_finding,
         )
     return import_data(root)["M1"]
 
@@ -280,17 +295,62 @@ def test_evidence_is_not_checked_for_sessions_that_keep_the_layout(tmp_path):
     assert problems(import_sessions(tmp_path, [A, later, later])) == [1, 1, 1]
 
 
-def test_sessions_without_choice_towers_do_not_change_the_counter(tmp_path):
-    no_towers = {"num_t_found": 0, "found_ports": False}
-    sessions = import_sessions(tmp_path, [A, no_towers, A])
-    assert problems(sessions) == [1, 1, 1]
-    assert [s["problem_flag"] for s in sessions.values()] == [None, None, None]
+NO_TOWERS = {"num_t_found": 0, "found_ports": False}
+
+
+def flags_of(sessions):
+    return [s["problem_flag"] for s in sessions.values()]
+
+
+def test_task_name_is_stored_on_each_session(tmp_path):
+    sessions = import_sessions(tmp_path, [(A, "Meg\\3x3_field_drifting_value_bandit", False), A])
+    first, second = sessions.values()
+    assert first["task_name"] == "Meg\\3x3_field_drifting_value_bandit"
+    assert first["settings_evidence"]["task_name"] == first["task_name"]
+    assert second["task_name"] is None
+
+
+@pytest.mark.parametrize("task", ["mag", "Meg\\initiation_pretraining"])
+def test_pretraining_sessions_are_skipped_silently_and_do_not_break_pooling(tmp_path, task):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        sessions = import_sessions(tmp_path, [A, (NO_TOWERS, task, False), A, A])
+    assert problems(sessions) == [1, None, 1, 1]
+    assert flags_of(sessions) == [None, "pretraining", None, None]
+    assert len(sessions) == 4  # kept for single-session analyses
+
+
+def test_port_finding_sessions_are_skipped_flagged_and_warned(tmp_path):
+    with pytest.warns(UserWarning, match=r"M1 ses-2_date-20260102.*port finding"):
+        sessions = import_sessions(tmp_path, [A, (NO_TOWERS, None, True), A])
+    assert problems(sessions) == [1, None, 1]
+    assert flags_of(sessions) == [None, "port_finding", None]
+
+
+def test_towerless_session_of_unknown_kind_is_flagged_and_warned(tmp_path):
+    with pytest.warns(UserWarning, match=r"M1 ses-2_date-20260102.*no choice towers"):
+        sessions = import_sessions(tmp_path, [A, NO_TOWERS, A])
+    assert problems(sessions) == [1, None, 1]
+    assert flags_of(sessions) == [None, "no_choice_towers", None]
 
 
 def test_problem_numbers_agree_with_group_sessions_by_problem(tmp_path):
     other_init = run_start_for(["A1", "B1", "C1"], initiation="A2")
-    scenario = [A, A, B, B, C, A, other_init, other_init, A, A]
-    with pytest.warns(UserWarning):  # ses-5 (C) and ses-6 (A) last one session
+    scenario = [
+        (NO_TOWERS, "mag", False),
+        A,
+        (NO_TOWERS, None, True),
+        A,
+        B,
+        B,
+        C,
+        A,
+        other_init,
+        other_init,
+        NO_TOWERS,
+        A,
+    ]
+    with pytest.warns(UserWarning):  # port finding, no towers, and the one-session C and A
         imported = import_sessions(tmp_path, scenario)
     # group_sessions_by_problem reads trial-level fields that extract_trials would add.
     trials = {
@@ -300,6 +360,7 @@ def test_problem_numbers_agree_with_group_sessions_by_problem(tmp_path):
                 "choice_towers": [sorted(s["choice_towers"])],
                 "initiation_tower": s["initiation_tower"],
                 "settings_evidence": s["settings_evidence"],
+                "task_name": s["task_name"],
             }
             for key, s in imported.items()
         }
@@ -309,7 +370,20 @@ def test_problem_numbers_agree_with_group_sessions_by_problem(tmp_path):
     expected = {key: p for p, subjs in by_problem.items() for key in subjs["M1"]}
     numbered = {k: s["problem"] for k, s in imported.items() if s["problem"] is not None}
     assert numbered == expected
-    assert [s["problem"] for s in imported.values()] == [1, 1, 2, 2, None, None, 3, 3, 4, 4]
+    assert [s["problem"] for s in imported.values()] == [
+        None,
+        1,
+        None,
+        1,
+        2,
+        2,
+        None,
+        None,
+        3,
+        3,
+        None,
+        4,
+    ]
 
 
 def test_subjects_come_out_sorted(tmp_path):

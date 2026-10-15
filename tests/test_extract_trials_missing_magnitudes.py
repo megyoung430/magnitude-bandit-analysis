@@ -38,7 +38,10 @@ class MissingMagnitudeTests(unittest.TestCase):
             'current_choice_towers': ['A1', 'B1'],
             'chosen_rank': 'best', 'rank_counts': {'best': 1, 'second': 0},
         }])
-        evidence = {'has_num_t_found': True, 'starts_found_ports_false': True}
+        evidence = {
+            'has_num_t_found': True, 'starts_found_ports_false': True,
+            'has_port_finding_trials': False, 'task_name': None,
+        }
         data = {'mouse': {
             'ses-1': {'data': training, 'settings_evidence': evidence},
             'ses-2': {'data': bandit, 'settings_evidence': evidence},

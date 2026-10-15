@@ -18,10 +18,16 @@ Per subject, in session order:
   A flagged session is neither a new problem nor pooled with another one, and it is
   ignored when deciding whether the next session changed problem: A, flagged B, A is
   problems 1, None, 1.
-- A session with no choice towers (layout ``None``) never changes the counter, is never
-  flagged and joins the current problem (problem 1 if it precedes every layout). It is
-  not flagged because without a layout there is nothing to compare; the sessions around
-  it are compared with each other as if it were absent.
+- Sessions that are not bandit problems are skipped (problem ``None``) and are ignored
+  when comparing the sessions around them, so they never break pooling
+  (A, skipped, A is problem 1, 1). In this order:
+
+  1. *Pretraining* (task name, see :func:`is_pretraining`): flag :data:`PRETRAINING`,
+     no warning.
+  2. No choice towers and port-finding trials printed: flag :data:`PORT_FINDING`, with
+     a warning.
+  3. No choice towers otherwise: flag :data:`NO_CHOICE_TOWERS`, with a warning, rather
+     than guessing what the session was.
 - The first session with a layout is never flagged.
 """
 
@@ -30,6 +36,17 @@ import warnings
 from typing import NamedTuple
 
 SUSPECTED_SETTINGS_ERROR = "suspected_settings_error"
+PRETRAINING = "pretraining"
+PORT_FINDING = "port_finding"
+NO_CHOICE_TOWERS = "no_choice_towers"
+
+# Pretraining tasks, recognised from the ``task_name`` info row (e.g.
+# ``Meg\3x3_field_drifting_value_bandit``) by its last path component, case-insensitive.
+# The lab's cohort-fitting notebook excludes task names containing "mag" or "pretraining";
+# "mag" is matched as the whole name here so that a task such as "..._magnitude_bandit" is
+# not mistaken for pretraining.
+PRETRAINING_TASK_NAMES = frozenset({"mag"})
+PRETRAINING_TASK_NAME_PARTS = ("pretraining",)
 DEFAULT_INITIATION_TOWER = "B2"
 
 TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
@@ -41,6 +58,8 @@ class SessionFacts(NamedTuple):
     layout: tuple | None  # from :func:`tower_layout`; ``None`` without choice towers
     has_num_t_found: bool
     starts_found_ports_false: bool
+    task_name: str | None = None
+    has_port_finding_trials: bool = False  # a printed trial dict carries ``num_t_found``
 
 
 class ProblemAssignment(NamedTuple):
@@ -154,6 +173,27 @@ def tower_layout(choice_towers, initiation_tower):
     return permutation_invariant_signature((towers, initiation_tower or DEFAULT_INITIATION_TOWER))
 
 
+def is_pretraining(task_name):
+    """True if *task_name* (the ``task_name`` info row, or ``None``) is a pretraining task."""
+    if not task_name:
+        return False
+    name = re.split(r"[\\/]", task_name.strip())[-1].casefold()
+    return name in PRETRAINING_TASK_NAMES or any(
+        part in name for part in PRETRAINING_TASK_NAME_PARTS
+    )
+
+
+def _skip_assignment(session):
+    """The assignment for a session that is not a bandit problem, or ``None`` if it is one."""
+    if is_pretraining(session.task_name):
+        return ProblemAssignment(None, PRETRAINING, ())
+    if session.layout is not None:
+        return None
+    if session.has_port_finding_trials:
+        return ProblemAssignment(None, PORT_FINDING, ("no choice towers; port-finding trials",))
+    return ProblemAssignment(None, NO_CHOICE_TOWERS, ("no choice towers",))
+
+
 def _settings_error_reasons(facts, position, layouts):
     """Why the session at *position* of *layouts* is a suspected settings error (maybe empty).
 
@@ -171,9 +211,9 @@ def _settings_error_reasons(facts, position, layouts):
     return tuple(reasons)
 
 
-def _flagged_reasons(facts):
+def _flagged_reasons(facts, skipped):
     """``{session index: reasons}`` for sessions that changed layout and look like errors."""
-    layouts = [(i, f.layout) for i, f in enumerate(facts) if f.layout is not None]
+    layouts = [(i, f.layout) for i, f in enumerate(facts) if i not in skipped]
     flagged = {}
     for position in range(1, len(layouts)):
         index, layout = layouts[position]
@@ -191,17 +231,20 @@ def assign_problems(facts):
     See the module docstring for the rule. Returns one :class:`ProblemAssignment` per
     session.
     """
-    flagged = _flagged_reasons(facts)
+    skipped = {i: a for i, f in enumerate(facts) if (a := _skip_assignment(f))}
+    flagged = _flagged_reasons(facts, skipped)
     assignments = []
     problem, last_layout = 0, None
     # Each number depends on the last unflagged layout, so this is a loop.
     for index, session in enumerate(facts):
-        if index in flagged:
+        if index in skipped:
+            assignments.append(skipped[index])
+        elif index in flagged:
             assignments.append(ProblemAssignment(None, SUSPECTED_SETTINGS_ERROR, flagged[index]))
-            continue
-        if session.layout is not None and session.layout != last_layout:
-            problem, last_layout = problem + 1, session.layout
-        assignments.append(ProblemAssignment(max(problem, 1), None, ()))
+        else:
+            if session.layout != last_layout:
+                problem, last_layout = problem + 1, session.layout
+            assignments.append(ProblemAssignment(problem, None, ()))
     return assignments
 
 
@@ -209,9 +252,9 @@ def number_subject_sessions(subject, session_ids, facts):
     """:func:`assign_problems` plus one warning per flagged session, naming it."""
     assignments = assign_problems(facts)
     for session_id, assignment in zip(session_ids, assignments, strict=True):
-        if assignment.flag:
+        if assignment.flag and assignment.flag != PRETRAINING:
             warnings.warn(
-                f"{subject} {session_id}: suspected settings error ("
+                f"{subject} {session_id}: {assignment.flag.replace('_', ' ')} ("
                 + "; ".join(assignment.reasons)
                 + "); excluded from problem numbering.",
                 stacklevel=2,

@@ -724,7 +724,7 @@ def choice_towers_signature(session_data):
 
     Returns:
         A hashable tuple representing the tower set, or ``None`` if
-        ``"choice_towers"`` is absent or all values are ``None``.
+        ``"choice_towers"`` is absent, all values are ``None`` or the first is empty.
     """
     towers_seq = session_data.get("choice_towers", None)
     if not towers_seq:
@@ -746,6 +746,9 @@ def choice_towers_signature(session_data):
         towers_part = (first,)
     else:
         towers_part = (repr(first),)
+
+    if not towers_part:
+        return None
 
     default_initiation_tower = "B2"
     init_tower = session_data.get("initiation_tower", None)
@@ -791,6 +794,8 @@ def session_facts(subject_id, session_id, session_data):
         problem_signature(session_data),
         evidence["has_num_t_found"],
         evidence["starts_found_ports_false"],
+        evidence["task_name"],
+        evidence["has_port_finding_trials"],
     )
 
 
@@ -820,7 +825,9 @@ def group_sessions_by_problem(data, copy_sessions=True):
     rule ``import_data`` uses for its ``"problem"`` field: a problem is the choice
     towers plus the initiation tower, a return to an earlier layout is a new problem,
     and a session that changes layout but looks like a settings error is left out
-    (with a warning), neither a new problem nor pooled with another. Sessions without
+    (with a warning), neither a new problem nor pooled with another. Pretraining,
+    port-finding and other tower-less sessions are left out too (see
+    :mod:`src.behavior_import.problem_numbering`). Sessions without
     trial information are skipped before numbering, so the numbers can differ from
     ``import_data``'s when such sessions exist. Flagged sessions stay in *data* for
     single-session analyses.

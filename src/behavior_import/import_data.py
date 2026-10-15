@@ -78,6 +78,7 @@ def _build_session_record(df_list: list, towers: dict, assignment, evidence: dic
         "problem": assignment.problem,
         "problem_flag": assignment.flag,
         "settings_evidence": evidence,
+        "task_name": evidence["task_name"],
         "choice_towers": towers.get("choice_towers", set()),
         "initiation_tower": towers.get("initiation_tower"),
     }
@@ -96,6 +97,8 @@ def _session_facts(towers: dict, evidence: dict) -> SessionFacts:
         tower_layout(towers["choice_towers"], towers["initiation_tower"]),
         evidence["has_num_t_found"],
         evidence["starts_found_ports_false"],
+        evidence["task_name"],
+        evidence["has_port_finding_trials"],
     )
 
 
@@ -137,8 +140,11 @@ def import_data(root: str | Path) -> dict:
     ``group_sessions_by_problem`` uses): a problem is the choice towers plus the
     initiation tower; a returning layout is a new problem; a session whose layout
     change looks like a settings error gets ``"problem": None`` and
-    ``"problem_flag": "suspected_settings_error"`` and a warning.  Flagged sessions
-    stay in the result for single-session analyses.  Subjects are returned in
+    ``"problem_flag": "suspected_settings_error"`` and a warning.  Pretraining
+    sessions (flag ``"pretraining"``, no warning), port-finding sessions
+    (``"port_finding"``) and other sessions without choice towers
+    (``"no_choice_towers"``) are likewise skipped, with a warning for the last two.
+    Flagged sessions stay in the result for single-session analyses.  Subjects are returned in
     sorted order.
 
     Args:
@@ -156,6 +162,7 @@ def import_data(root: str | Path) -> dict:
                   "problem": int | None,                # 1-based per subject; None if flagged
                   "problem_flag": str | None,           # "suspected_settings_error" or None
                   "settings_evidence": dict,            # facts the flag rule used
+                  "task_name": str | None,              # the file header's task_name row
                   "choice_towers": set,
                   "initiation_tower": str | None,
                 }
@@ -278,22 +285,33 @@ def settings_evidence(df_list, run_start: dict) -> dict:
         run_start: The parsed ``run_start`` of the earliest recording.
 
     Returns:
-        ``{"has_num_t_found": bool, "starts_found_ports_false": bool}``.
-        ``has_num_t_found`` is true if the first ``run_start`` has a ``num_t_found``
-        key, or any recording prints a trial dict with one (the port-finding trials).
-        ``starts_found_ports_false`` is true only if the first ``run_start`` has
-        ``found_ports`` equal to ``false``; a missing or null value is not false.
+        ``{"has_num_t_found": bool, "starts_found_ports_false": bool,
+        "has_port_finding_trials": bool, "task_name": str | None}``.
+        ``has_port_finding_trials`` is true if any recording prints a trial dict with
+        ``num_t_found`` (the port-finding trials).  ``has_num_t_found`` is that, or the
+        first ``run_start`` having a ``num_t_found`` key.  ``starts_found_ports_false``
+        is true only if the first ``run_start`` has ``found_ports`` equal to ``false``;
+        a missing or null value is not false.  ``task_name`` is the earliest
+        recording's ``task_name`` info row, or ``None``.
     """
     printed = (
         parse_content_json(content)
         for df in df_list
         for content in df.loc[(df["type"] == "variable") & (df["subtype"] == "print"), "content"]
     )
+    port_finding = any(isinstance(d, dict) and "num_t_found" in d for d in printed)
     return {
-        "has_num_t_found": "num_t_found" in run_start
-        or any(isinstance(d, dict) and "num_t_found" in d for d in printed),
+        "has_num_t_found": "num_t_found" in run_start or port_finding,
         "starts_found_ports_false": run_start.get("found_ports") is False,
+        "has_port_finding_trials": port_finding,
+        "task_name": read_task_name(df_list[0]),
     }
+
+
+def read_task_name(df) -> str | None:
+    """The recording's ``task_name`` info row (pyControl header), or ``None`` if absent."""
+    rows = df.loc[(df["type"] == "info") & (df["subtype"] == "task_name"), "content"]
+    return str(rows.iloc[0]) if not rows.empty else None
 
 
 def towers_from_run_start(run_start: dict) -> dict:

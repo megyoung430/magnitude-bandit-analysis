@@ -71,6 +71,7 @@ def split_recording_configurations(data):
                         selected = [values[i] for i in indices]
                         segment[field] = selected[0] if len(selected)==1 else selected
                 segment['settings_evidence'] = _segment_evidence(session, [frames[i] for i in indices])
+                segment['task_name'] = segment['settings_evidence']['task_name']
                 towers,initiation = _signature(frames[indices[0]], mouse, key)
                 if towers is not None:segment['choice_towers'] = set(towers)
                 if initiation is not None:segment['initiation_tower'] = initiation

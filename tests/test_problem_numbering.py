@@ -5,9 +5,13 @@ import warnings
 import pytest
 
 from src.behavior_import.problem_numbering import (
+    NO_CHOICE_TOWERS,
+    PORT_FINDING,
+    PRETRAINING,
     SUSPECTED_SETTINGS_ERROR,
     SessionFacts,
     assign_problems,
+    is_pretraining,
     number_subject_sessions,
     tower_layout,
 )
@@ -109,18 +113,83 @@ def test_first_session_is_never_flagged_whatever_its_evidence():
     assert numbers([unchecked, clean(A)]) == [1, 1]
 
 
-def test_sessions_without_choice_towers_keep_the_current_problem_and_are_not_flagged():
-    none = SessionFacts(None, has_num_t_found=False, starts_found_ports_false=False)
-    assert numbers([clean(A), none, clean(A)]) == [1, 1, 1]
-    assert numbers([clean(A), clean(B), none, clean(B)]) == [1, 2, 2, 2]
-    assert numbers([none, clean(A)]) == [1, 1]
-    assert flags([clean(A), none, clean(A)]) == [None] * 3
+def pretraining(task_name="mag"):
+    return SessionFacts(None, True, True, task_name=task_name)
 
 
-def test_a_session_without_towers_does_not_hide_a_layout_change_from_the_flag_checks():
-    none = SessionFacts(None, has_num_t_found=True, starts_found_ports_false=True)
-    # B lasts one session (the None session in between is ignored), then A returns.
-    assert numbers([clean(A), clean(B), none, clean(A)]) == [1, None, 1, 1]
+def port_finding():
+    return SessionFacts(None, True, True, has_port_finding_trials=True)
+
+
+def no_towers():
+    return SessionFacts(None, False, False)
+
+
+@pytest.mark.parametrize(
+    ("task_name", "expected"),
+    [
+        ("mag", True),
+        ("Meg\\MAG", True),
+        ("Meg/initiation_pretraining", True),
+        ("Meg\\3x3_field_pretraining_v2", True),
+        ("Meg\\3x3_field_drifting_value_bandit", False),
+        ("Meg\\3x3_field_magnitude_bandit", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_pretraining_matches_the_task_name_not_substrings_of_mag(task_name, expected):
+    assert is_pretraining(task_name) is expected
+
+
+def test_pretraining_is_skipped_silently_and_marked():
+    facts = [clean(A), pretraining(), clean(A)]
+    assert numbers(facts) == [1, None, 1]
+    assert flags(facts) == [None, PRETRAINING, None]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        number_subject_sessions("M1", ["ses-1", "ses-2", "ses-3"], facts)
+
+
+def test_pretraining_by_task_name_wins_even_with_choice_towers():
+    with_towers = SessionFacts(B, True, True, task_name="initiation_pretraining")
+    assert numbers([clean(A), with_towers, clean(A)]) == [1, None, 1]
+    assert flags([with_towers, clean(A)]) == [PRETRAINING, None]
+    assert numbers([with_towers, clean(A)]) == [None, 1]
+
+
+def test_port_finding_is_skipped_marked_and_warned():
+    facts = [clean(A), port_finding(), clean(A)]
+    assert numbers(facts) == [1, None, 1]
+    assert flags(facts) == [None, PORT_FINDING, None]
+    with pytest.warns(UserWarning, match=r"M1 ses-2.*port finding"):
+        number_subject_sessions("M1", ["ses-1", "ses-2", "ses-3"], facts)
+
+
+def test_towerless_session_that_is_neither_is_flagged_and_warned():
+    facts = [clean(A), no_towers(), clean(A)]
+    assert numbers(facts) == [1, None, 1]
+    assert flags(facts) == [None, NO_CHOICE_TOWERS, None]
+    with pytest.warns(UserWarning, match=r"M1 ses-2.*no choice towers"):
+        number_subject_sessions("M1", ["ses-1", "ses-2", "ses-3"], facts)
+
+
+def test_skipped_sessions_before_the_first_layout_do_not_take_a_number():
+    assert numbers([pretraining(), port_finding(), clean(A), clean(B), clean(B)]) == [
+        None,
+        None,
+        1,
+        2,
+        2,
+    ]
+
+
+def test_skipped_sessions_do_not_count_as_the_session_before_a_change():
+    # B differs from A (the previous layout-bearing session) and lasts two sessions: a real
+    # problem even though a skipped session sits between the A and the first B.
+    assert numbers([clean(A), pretraining(), clean(B), clean(B)]) == [1, None, 2, 2]
+    # B lasts one session before A returns; the skipped session between does not rescue it.
+    assert numbers([clean(A), clean(B), port_finding(), clean(A)]) == [1, None, None, 1]
 
 
 def test_no_sessions():

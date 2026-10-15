@@ -31,7 +31,12 @@ from src.behavior_import.extract_trials import (
 )
 
 # Facts that ``import_data`` stores on every session; a clean first session of a layout.
-EVIDENCE = {"has_num_t_found": True, "starts_found_ports_false": True}
+EVIDENCE = {
+    "has_num_t_found": True,
+    "starts_found_ports_false": True,
+    "has_port_finding_trials": False,
+    "task_name": "Meg\\3x3_field_drifting_value_bandit",
+}
 
 # --- reward magnitude features ---
 
@@ -157,6 +162,7 @@ def test_problem_signature_does_not_separate_has_good():
 def test_problem_signature_is_none_without_towers():
     assert problem_signature({}) is None
     assert problem_signature({"choice_towers": [None]}) is None
+    assert problem_signature({"choice_towers": [[]]}) is None
 
 
 def test_signed_sessions_skips_sessions_without_trials_and_reports_it(capsys):
