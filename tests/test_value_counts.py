@@ -53,8 +53,8 @@ def test_believed_three_way_tie_gives_each_arm_a_third():
     offer = {"A": 3, "B": 3, "C": 3}
     sess = labelled_session(offer, ["A", "B", "C", "A", "B", "C"], ["best"] * 6)
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess), use_believed=True)
-    assert_only_cells(per_best["m1"], {(3, 3): pytest.approx(1 / 3)})
-    assert_only_cells(per_second["m1"], {(3, 3): pytest.approx(1 / 3)})
+    assert_only_cells(per_best["m1"], {(3, 3): 1 / 3})
+    assert_only_cells(per_second["m1"], {(3, 3): 1 / 3})
 
 
 def test_true_best_second_tie_ignores_the_arbitrary_rank_label():
@@ -77,8 +77,8 @@ def test_true_three_way_tie_gives_each_arm_a_third():
     offer = {"A": 3, "B": 3, "C": 3}
     sess = labelled_session(offer, ["A", "B", "C"], ["best", "second", "third"])
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess))
-    assert_only_cells(per_best["m1"], {(3, 3): pytest.approx(1 / 3)})
-    assert_only_cells(per_second["m1"], {(3, 3): pytest.approx(1 / 3)})
+    assert_only_cells(per_best["m1"], {(3, 3): 1 / 3})
+    assert_only_cells(per_second["m1"], {(3, 3): 1 / 3})
 
 
 def test_true_tie_with_a_choice_not_among_the_arms_raises():
