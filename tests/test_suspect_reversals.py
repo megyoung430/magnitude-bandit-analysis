@@ -60,10 +60,10 @@ def test_a_jump_of_two_counts_both_reversals():
     assert count_suspect_good_reversals(sess) == {"suspect": 2, "uncheckable": 0}
 
 
-def test_missing_magnitude_at_an_increment_is_suspect():
+def test_missing_magnitude_at_an_increment_is_uncheckable_not_suspect():
     sess = session([0, 0, 1, 1], "AABB")
     sess["reward_magnitudes_by_tower"]["C"][2] = None
-    assert count_suspect_good_reversals(sess)["suspect"] == 1
+    assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
 
 
 def test_between_run_event_is_uncheckable_and_not_checked():
@@ -78,6 +78,14 @@ def test_between_run_event_and_a_reversal_on_the_same_trial_are_separated():
     events = [dict(kind="good", index=2, count=1, source="between_runs")]
     sess = session([0, 0, 2, 2], "AAAA", reversal_boundary_events=events)
     assert count_suspect_good_reversals(sess) == {"suspect": 1, "uncheckable": 1}
+
+
+def test_terminal_event_of_an_earlier_run_is_counted_once_as_uncheckable():
+    # Run 1 ends after trial 2 with one reversal after its last trial; the counter of run 2
+    # steps at trial 2 and the best tower is unchanged there, but it is the same event.
+    events = [dict(kind="good", index=2, count=1, source="run_end")]
+    sess = session([0, 0, 1, 1], "AAAA", reversal_boundary_events=events)
+    assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
 
 
 def test_terminal_event_is_uncheckable():

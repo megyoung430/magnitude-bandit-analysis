@@ -8,12 +8,14 @@ Importing this module sets the ``"always"`` warnings filter for :class:`Reversal
 """
 
 import warnings
+from collections import Counter
 from dataclasses import dataclass
 
-from src.behavior_analysis.best_change import best_change_problem
+from src.behavior_analysis.best_change import best_change_problem, is_suspect
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.reversal_format import check_formats_agree
+from src.behavior_analysis.suspect_reversals import good_event_counts
 from src.behavior_import.session_order import ordered_session_keys
 
 
@@ -277,6 +279,31 @@ class _Dropped:
     reason: str
 
 
+def _unrecorded_event_positions(subj, sessions):
+    """``{merged trial index: good reversals logged while nothing was recording}``.
+
+    Events between runs and after a run's last trial enter the merged good counter at the
+    next trial, which is where a boundary for them appears.
+    """
+    positions, start = Counter(), 0
+    for key in ordered_session_keys(subj, sessions):
+        for local, count in good_event_counts(sessions[key]).items():
+            positions[start + local] += count
+        start += len(sessions[key].get("trial") or [])
+    return positions
+
+
+def _only_unrecorded_events(series, boundary_source, events, idx):
+    """True if every good reversal at boundary *idx* was logged while nothing was recording.
+
+    The trials on either side of such a reversal may be separated by any number of unlogged
+    reversals, so the unchanged-best check does not apply to it.
+    """
+    if boundary_source != "good_reversals":
+        return False
+    return events.get(idx, 0) >= series.good[idx] - series.good[idx - 1]
+
+
 def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block, max_zero_count):
     """Reversal dicts for one subject, the dropped suspect ones, and its bad-only sessions.
 
@@ -300,6 +327,7 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
     boundaries, boundary_source = _find_boundaries(series, any_good)
     if include_first_block:
         boundaries = [0] + boundaries
+    events = _unrecorded_event_positions(subj, sessions)
 
     reversals, dropped = [], []
     for k, idx in enumerate(boundaries):
@@ -318,6 +346,8 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
         # The first block is not a reversal: its "before" and "after" both come from trial 0,
         # so an unchanged best tower there is expected.
         problem = None if first_block else best_change_problem(before, after)
+        if is_suspect(problem) and _only_unrecorded_events(series, boundary_source, events, idx):
+            problem = None
         if problem is not None:
             # A dropped reversal is still a real block change in the data, so (like a
             # skipped one) it keeps ending the window of the reversal before it.

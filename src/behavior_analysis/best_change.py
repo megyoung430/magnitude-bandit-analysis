@@ -1,8 +1,18 @@
 """Check that a good reversal changes the best-rewarding tower.
 
 Shared by the windowing of good reversals and by the counts of suspect reversals, so both
-apply the same rule.
+apply the same rule:
+
+- *suspect*: checked, and the best tower is unchanged or tied (:func:`is_suspect`);
+- *uncheckable*: a magnitude is missing (:func:`is_uncheckable`); counts also treat
+  reversals logged while nothing was recording as uncheckable (see
+  :mod:`src.behavior_analysis.suspect_reversals`).
 """
+
+MISSING_MAGNITUDE = "missing magnitude"
+TIE_FOR_BEST = "tie for best"
+BEST_UNCHANGED = "best tower unchanged"
+SUSPECT_PROBLEMS = (TIE_FOR_BEST, BEST_UNCHANGED)
 
 
 def has_tie(magnitudes):
@@ -26,7 +36,17 @@ def best_change_problem(before, after):
         off-by-one, may be behind it), else ``None``.
     """
     if any(v is None for v in (*before.values(), *after.values())):
-        return "missing magnitude"
+        return MISSING_MAGNITUDE
     if max(before, key=before.get) != max(after, key=after.get):
         return None
-    return "tie for best" if has_tie(before) or has_tie(after) else "best tower unchanged"
+    return TIE_FOR_BEST if has_tie(before) or has_tie(after) else BEST_UNCHANGED
+
+
+def is_suspect(problem):
+    """True if a :func:`best_change_problem` result says the best tower did not change."""
+    return problem in SUSPECT_PROBLEMS
+
+
+def is_uncheckable(problem):
+    """True if a :func:`best_change_problem` result says a magnitude is missing."""
+    return problem == MISSING_MAGNITUDE
