@@ -15,7 +15,12 @@ from matplotlib.lines import Line2D
 
 from src.behavior_analysis.long_pokes_by_session import PokesBySession, summarize_pokes_by_session
 from src.behavior_import.sort_by_session import get_short_session_label
-from src.behavior_visualization.plot_helpers import despine, mouse_color_map, save_or_show
+from src.behavior_visualization.plot_helpers import (
+    axes_or_new,
+    despine,
+    mouse_color_map,
+    save_or_show,
+)
 
 _BAR_COLOR = "#999999"
 _JITTER = 0.03
@@ -104,18 +109,15 @@ def plot_num_pokes_panel(
         ax: Axes to draw into; a new 12 x 5.5 inch figure is created if ``None``.
         rng: Generator for the per-mouse x-jitter. Known issue: when ``None`` an
             unseeded generator is used, so the jitter differs on every call.
-
-    Known issue: when the figure is created here, it stays open if drawing raises.
     """
     summary = summarize_pokes_by_session(avg_num_pokes_across_subjects)
-    if ax is None:
-        _, ax = plt.subplots(figsize=(12, 5.5))
     x = np.arange(len(summary.sessions))
-    _plot_session_bars(ax, x, summary, y_text)
-    handles = _plot_mouse_lines(ax, x, summary, rng)
-    _style_axes(ax, x, summary, y_text)
-    if handles:
-        ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=10)
+    with axes_or_new(ax, figsize=(12, 5.5)) as ax:
+        _plot_session_bars(ax, x, summary, y_text)
+        handles = _plot_mouse_lines(ax, x, summary, rng)
+        _style_axes(ax, x, summary, y_text)
+        if handles:
+            ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=10)
     return ax
 
 
@@ -136,13 +138,11 @@ def plot_num_pokes_across_mice(
         y_text: Y-coordinate for bar-value annotations and the upper y-limit
             of the axis.
         save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output.  If ``None``, the figure is shown interactively.
-
-    Known issue: the parent directory of *save_path* is not created, so saving
-    into a missing directory raises (and leaves the figure open).
+            ``.png`` output, creating the parent directory if needed.  If ``None``,
+            the figure is shown interactively.
     """
     ax = plot_num_pokes_panel(avg_num_pokes_across_subjects, y_text)
     fig = ax.figure
     fig.tight_layout()
     # An empty save_path means "show" here, so it is passed on as None.
-    save_or_show(fig, save_path or None, make_parent=False)
+    save_or_show(fig, save_path or None)

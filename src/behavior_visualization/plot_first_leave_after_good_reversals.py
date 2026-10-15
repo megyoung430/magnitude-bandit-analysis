@@ -13,8 +13,12 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from src.behavior_analysis.first_leave_fractions import first_leave_fractions
-from src.behavior_visualization.plot_helpers import despine, save_or_show
-from src.behavior_visualization.plot_style import MOUSE_COLORS
+from src.behavior_visualization.plot_helpers import (
+    axes_or_new,
+    despine,
+    palette_color,
+    save_or_show,
+)
 
 _LABELS = ["New Best", "Third Arm"]
 _BAR_COLOR = "#999999"
@@ -49,8 +53,7 @@ def _plot_subject_lines(ax: plt.Axes, per_subject_counts: dict) -> list[Line2D]:
         if fractions is None:
             continue
         new_best, third = fractions
-        # Known issue: a 17th subject raises IndexError; the palette is indexed, not cycled.
-        c = MOUSE_COLORS[index]
+        c = palette_color(index)
         ax.plot(
             [0 + np.random.uniform(-_JITTER, _JITTER), 1 + np.random.uniform(-_JITTER, _JITTER)],
             [new_best, third],
@@ -106,20 +109,17 @@ def plot_first_leave_panel(
         per_subject_counts: ``{subject: {"new_best", "third", "total"}}``.
         p_value: Annotated above the bars when given.
         ax: Axes to draw into; a new 6.5 x 5.5 inch figure is created if ``None``.
-
-    Known issue: when the figure is created here, it stays open if drawing raises.
     """
     means = [mean["new_best"], mean["third"]]
     errs = [se["new_best"], se["third"]]
     x = np.arange(len(_LABELS))
-    if ax is None:
-        _, ax = plt.subplots(figsize=(6.5, 5.5))
-    _plot_mean_bars(ax, x, means, errs)
-    handles = _plot_subject_lines(ax, per_subject_counts)
-    ax.legend(handles=handles, fontsize=10, loc="upper right")
-    _style_axes(ax, x, mean, len(per_subject_counts))
-    if p_value is not None:
-        ax.text(0.5, 1.02, f"p-value: {p_value:.3f}", ha="center", va="bottom", fontsize=12)
+    with axes_or_new(ax, figsize=(6.5, 5.5)) as ax:
+        _plot_mean_bars(ax, x, means, errs)
+        handles = _plot_subject_lines(ax, per_subject_counts)
+        ax.legend(handles=handles, fontsize=10, loc="upper right")
+        _style_axes(ax, x, mean, len(per_subject_counts))
+        if p_value is not None:
+            ax.text(0.5, 1.02, f"p-value: {p_value:.3f}", ha="center", va="bottom", fontsize=12)
     return ax
 
 

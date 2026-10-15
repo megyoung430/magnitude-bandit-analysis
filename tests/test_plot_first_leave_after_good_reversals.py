@@ -215,7 +215,9 @@ def test_the_public_function_closes_its_figure_when_saving_raises(capture, monke
 
 
 def test_subject_colours_cycle_past_the_end_of_the_palette(capture):
-    counts = {f"s{i}": {"new_best": 3, "third": 1, "total": 4} for i in range(len(MOUSE_COLORS) + 1)}
+    counts = {
+        f"s{i}": {"new_best": 3, "third": 1, "total": 4} for i in range(len(MOUSE_COLORS) + 1)
+    }
     _, ax = draw(capture, counts=counts)
     colors = [ln.get_color() for ln in subject_lines(ax)]
     assert colors == [*MOUSE_COLORS, MOUSE_COLORS[0]]

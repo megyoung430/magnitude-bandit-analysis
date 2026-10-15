@@ -13,7 +13,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
-from src.behavior_visualization.plot_helpers import despine, mouse_color_map, save_or_show
+from src.behavior_visualization.plot_helpers import (
+    axes_or_new,
+    despine,
+    jittered,
+    mouse_color_map,
+    save_or_show,
+)
 
 _BAR_COLOR = "#999999"
 
@@ -105,8 +111,7 @@ def _plot_mouse_lines(
         xs, ys = _mouse_points(per_mouse_blocklens[m], blocks)
         if len(xs) == 0:
             continue
-        if jitter > 0:
-            xs = xs + np.random.uniform(-jitter, jitter, size=len(xs))
+        xs = jittered(xs, jitter)
         ax.plot(xs, ys, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=6, zorder=3)
         handles.append(
             Line2D([0], [0], color=c, lw=2.5, marker="o", label=f"{m} (n={len(ys)} blocks)")
@@ -141,8 +146,6 @@ def plot_block_length_panel(
             ``0`` disables it. The jitter comes from NumPy's global random state.
         annotate_y: Y of the bar-value labels; derived from the tallest bar if ``None``.
         ax: Axes to draw into; a new 10 x 4.8 inch figure is created if ``None``.
-
-    Known issue: when the figure is created here, it stays open if drawing raises.
     """
     blocks = block_lengths_summary["blocks"]
     meds = np.asarray(block_lengths_summary["meds"], dtype=float)
@@ -150,17 +153,16 @@ def plot_block_length_panel(
     per_mouse_blocklens = block_lengths_summary["per_mouse_blocklens"]
     mice = block_lengths_summary["mice"]
     mouse_to_color = mouse_color_map(mice)
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 4.8))
     x = np.arange(len(blocks))
-    _plot_median_bars(ax, x, meds, ses, len(blocks))
-    if annotate_y is None:
-        annotate_y = _annotation_height(meds, ses)
-    _annotate_medians(ax, x, meds, annotate_y)
-    handles = _plot_mouse_lines(ax, per_mouse_blocklens, mice, mouse_to_color, blocks, jitter)
-    ax.legend(handles=handles, fontsize=10, loc="upper right")
-    _style_axes(ax, x, blocks, len(mice))
-    ax.set_ylim(0, _y_upper_limit(annotate_y, meds, ses))
+    with axes_or_new(ax, figsize=(10, 4.8)) as ax:
+        _plot_median_bars(ax, x, meds, ses, len(blocks))
+        if annotate_y is None:
+            annotate_y = _annotation_height(meds, ses)
+        _annotate_medians(ax, x, meds, annotate_y)
+        handles = _plot_mouse_lines(ax, per_mouse_blocklens, mice, mouse_to_color, blocks, jitter)
+        ax.legend(handles=handles, fontsize=10, loc="upper right")
+        _style_axes(ax, x, blocks, len(mice))
+        ax.set_ylim(0, _y_upper_limit(annotate_y, meds, ses))
     return ax
 
 
