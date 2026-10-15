@@ -106,12 +106,52 @@ import automatically. Delete `.cache/` at any time; it only costs a re-import.
 
 ### Resumable cohort cross-validation and recovery runs
 
-`run_problem_cross_validation` (`src/agents/cohort_fitting.py`) and `run_recovery`
-(`src/agents/parameter_recovery.py`) save into a folder named by a hash of their
-manifest, which includes the source text of the module. Resuming therefore works only
-while that code is unchanged: **after any edit to those modules (including a refactor
-merge), an interrupted run restarts from zero in a new folder.** Finished results stay
-readable in the old folder.
+`run_problem_cross_validation` (`src/agents/cohort_fitting.py`), `run_recovery`
+(`src/agents/parameter_recovery.py`) and `run_paper_sweep` / `run_problem_sweep`
+(`src/agents/paper_rl_fitting.py`) save into a folder named by a hash of what
+determines their results, and an identical rerun resumes from the finished folds, runs
+or checkpoints in that folder. The shared helpers live in `src/agents/run_store.py`.
+
+The hash covers:
+
+- the module's `ALGORITHM_VERSION` (an integer, currently `1`), and the `MODEL_VERSION` of
+  each model module the run uses (`best_rl`, `released_rl`, `neural_bandit`,
+  `mouse_agents`, `drifting_bandit`);
+- the configuration: a fingerprint of the input sequences, the settings (seed, number
+  of starts, grid, models, problems), the bounds, constants such as the at-bound
+  tolerance, and the installed library versions (numpy and scipy for cohort
+  cross-validation and recovery; jax, jaxlib, optax, numpy and the JAX backend and
+  platform for the paper-style sweeps), so environments that resolve to different
+  versions never mix saved results;
+- for `run_recovery`, the source text of the `fit_function` and `loss_function` you pass
+  in, and the values of their closure variables when those are simple immutable
+  values (numbers, strings, booleans, `None`, and tuples of those). Redefining one in a notebook, or
+  building it from a factory with a different number (`make(0.2)` vs `make(0.7)`), starts
+  a new experiment. Only the function's own source is hashed: not the functions it calls,
+  the globals it reads, its default arguments, or closure variables holding arrays, lists,
+  dicts or objects. Change one of those and the directory does not move, so use a new output root
+  or edit the function's own text. A callable without retrievable source raises an error.
+
+It does **not** cover the source text of the modules themselves. Editing a comment,
+reformatting or refactoring keeps the folder, so an interrupted run resumes.
+`manifest.json` records the source text of the code that created the folder, as
+provenance only. It is written once and never overwritten; if you resume after the source
+has changed, a `ProvenanceMismatchWarning` (shown every time) names the modules that differ from the stored ones.
+
+**When to bump a version:** bump `ALGORITHM_VERSION` in the module whose results changed,
+and `MODEL_VERSION` in a model module when what it computes changes. A bump starts every
+affected run in a new folder; comments and refactors don't need one. Which version covers
+which code:
+
+| Run | Bump `ALGORITHM_VERSION` of | Bump `MODEL_VERSION` of |
+|---|---|---|
+| `run_problem_cross_validation` | `cohort_fitting.py` (the sticky model and the cross-validation) | `best_rl.py` for `best_rl` and `released_rl`; `released_rl.py` for `released_rl` |
+| `run_recovery` | `parameter_recovery.py` | `mouse_agents.py`, `drifting_bandit.py` |
+| `run_paper_sweep`, `run_problem_sweep` | `paper_rl_fitting.py` (includes its own sticky, Best RL and released CogMod models) | `neural_bandit.py` (neural models only) |
+
+A configuration change (a different seed, bounds, data or library version) moves the
+folder without any bump. Finished results always stay readable in the old folder. See
+`docs/issues/infra-run-store.md` for the one-time migration to this scheme.
 
 ## Code organisation
 
