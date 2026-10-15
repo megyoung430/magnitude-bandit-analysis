@@ -7,6 +7,7 @@ moving-average smoothing can be applied separately to the pre- and post-
 reversal segments so there is no smoothing bleed-through across the boundary.
 """
 
+import warnings
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from functools import partial
@@ -27,16 +28,14 @@ _MEAN_KEYS = {role: f"{role}_mean" for role in _TOWER_ROLES}
 
 
 def _keep_zero_then_skip(post_list: list, skip: int) -> list:
-    """Return *post_list* with index 0 kept and indices ``1 .. skip - 1`` dropped.
+    """Return *post_list* with index 0 kept and the next *skip* entries dropped.
 
-    That is ``skip - 1`` trials removed, not ``skip``.  Known issue: callers
-    that read "skip n trials" literally get one trial too few skipped, and the
-    result is one element longer than the shortened x axis, so the row's last
-    post trial is cut by :func:`_pad_to_length`.
+    Exactly *skip* trials are removed (indices ``1 .. skip``), so a full-length
+    list ends up with ``len(post_list) - skip`` entries, matching the x axis.
     """
     if skip <= 0:
         return post_list
-    return post_list[:1] + post_list[skip:]
+    return post_list[:1] + post_list[skip + 1 :]
 
 
 def _pad_to_length(arr: Sequence[float], length: int) -> np.ndarray:
@@ -52,8 +51,8 @@ def _reversal_choice_rows(reversal: dict, *, skip: int, length: int) -> dict[str
 
     Args:
         reversal: A reversal dict from ``get_good_reversal_info``.
-        skip: Post trial 0 (the reversal trial) is kept and post trials
-            ``1 .. skip - 1`` are dropped, i.e. ``skip - 1`` trials (see
+        skip: Post trial 0 (the reversal trial) is kept and the next *skip*
+            post trials (``1 .. skip``) are dropped (see
             :func:`_keep_zero_then_skip`).
         length: Row length; shorter windows are NaN-padded, longer truncated.
 
@@ -89,17 +88,28 @@ def _summarize_subject(matrices: dict[str, np.ndarray]) -> dict:
 def _mean_and_se(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """NaN-aware column mean and standard error of a ``(n_rows, n_bins)`` stack.
 
-    The standard error is zero when there is a single row.
-
-    Known issue: it divides by ``sqrt(n_rows)`` even where some rows are NaN in
-    a bin, so the SE is underestimated in bins where windows were truncated
-    (it should divide by the number of finite rows in that bin).
+    The standard error is the sample SD (``ddof=1``) over the non-NaN rows of a
+    bin divided by the square root of their number, and NaN in bins with fewer
+    than two such rows.  It is zero when there is a single row.
     """
     n_rows, n_bins = stack.shape
     mean = np.nanmean(stack, axis=0)
     if n_rows > 1:
-        return mean, np.nanstd(stack, axis=0, ddof=1) / np.sqrt(n_rows)
+        return mean, nan_standard_error(stack)
     return mean, np.zeros(n_bins)
+
+
+def nan_standard_error(stack: np.ndarray) -> np.ndarray:
+    """Per-column standard error of the mean over the non-NaN rows of *stack*.
+
+    NaN in columns with fewer than two non-NaN rows (the sample SD needs two).
+    """
+    n_valid = np.sum(~np.isnan(stack), axis=0)
+    with warnings.catch_warnings():
+        # nanstd warns for columns with < 2 values; those columns are set to NaN below.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        se = np.nanstd(stack, axis=0, ddof=1) / np.sqrt(n_valid)
+    return np.where(n_valid >= 2, se, np.nan)
 
 
 def _across_subject_curves(per_subject: dict[str, dict], keys_by_role: dict[str, str]) -> dict:
@@ -173,10 +183,9 @@ def get_choice_probs_around_good_reversals(
         pre: Number of trials before the reversal to include (default: 10).
         post: Number of trials after the reversal to include (default: 40).
         skip_n_trials_after_reversal: ``n``; post trial 0 (the reversal trial)
-            is always kept.  Known issue: this drops only post trials
-            ``1 .. n - 1``, i.e. ``n - 1`` trials (``n = 15`` skips 14), and
-            ``x`` is shortened by ``n``, so each row's last post trial is cut
-            as well.  Default: 0 (nothing skipped).
+            is always kept and the next ``n`` post trials (``1 .. n``) are
+            dropped, so ``x`` is ``n`` entries shorter.  Default: 0 (nothing
+            skipped).
 
     Returns:
         A three-tuple ``(x, per_subject, across)`` where:
@@ -223,6 +232,17 @@ def get_choice_probs_around_good_reversals(
 # ---------------------------------------------------------------------------
 
 
+def _centered_window_sum(values: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    """Sliding sum of *kernel* width, centred, with the same length as *values*.
+
+    Equal to ``np.convolve(values, kernel, "same")`` when *values* is at least as
+    long as *kernel*; that call returns ``len(kernel)`` entries for a shorter
+    input, which would not fit the segment it is written back to.
+    """
+    start = (len(kernel) - 1) // 2
+    return np.convolve(values, kernel, mode="full")[start : start + len(values)]
+
+
 def _nan_moving_average(
     y: Sequence[float], window: int | None, mode: str = "centered"
 ) -> np.ndarray:
@@ -247,11 +267,8 @@ def _nan_moving_average(
         num = np.convolve(y0, kernel, mode="full")[: len(y0)]
         den = np.convolve(valid, kernel, mode="full")[: len(y0)]
     else:
-        # Known issue: np.convolve(mode="same") returns max(len(y), len(kernel))
-        # values, so a centred window longer than the segment makes the masked
-        # assignment in _smooth_pre_post raise an IndexError.
-        num = np.convolve(y0, kernel, mode="same")
-        den = np.convolve(valid, kernel, mode="same")
+        num = _centered_window_sum(y0, kernel)
+        den = _centered_window_sum(valid, kernel)
 
     out = np.full_like(y0, np.nan, dtype=float)
     has_data = den > 0
@@ -330,8 +347,8 @@ def apply_moving_average_to_choice_probs(
             the convolution kernel is centred or trailing.  An even centred
             window of width ``w`` covers bins ``[i - w/2, i + w/2 - 1]`` (for
             ``w = 4``: two before, one after).  A centred window longer than
-            the pre or post segment raises ``IndexError``; use a shorter
-            window or ``"trailing"``.
+            the pre or post segment is averaged over every finite bin of
+            that segment.
         use_keys: Exactly three source keys in each subject dict, one per
             tower role in the order prev-best, next-best, third (default:
             ``("prev_best_mean", "next_best_mean", "third_mean")``).  Subjects

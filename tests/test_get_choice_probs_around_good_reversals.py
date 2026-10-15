@@ -132,8 +132,20 @@ def test_get_choice_probs_se_is_zero_for_one_subject_and_sample_sd_over_rows_oth
     }
     _, _, across = get_choice_probs_around_good_reversals(three, pre=1, post=2)
     np.testing.assert_allclose(across["mean"]["next_best"][-1], 0.5)
-    # Known issue: the SE divides by sqrt(3) although only 2 subjects have data in this bin.
-    np.testing.assert_allclose(across["se"]["next_best"][-1], np.sqrt(0.5) / np.sqrt(3))
+    # Only 2 subjects have data in this bin, so the SE divides by sqrt(2), not sqrt(3).
+    np.testing.assert_allclose(across["se"]["next_best"][-1], np.sqrt(0.5) / np.sqrt(2))
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_get_choice_probs_se_is_nan_where_fewer_than_two_subjects_have_data():
+    windows = {
+        "m1": [make_reversal(10, ["A"], ["B", "B"])],
+        "m2": [make_reversal(10, ["A"], ["B"])],
+    }
+    _, _, across = get_choice_probs_around_good_reversals(windows, pre=1, post=2)
+    assert across["mean"]["next_best"][-1] == 1.0  # a single value: mean defined, SE not
+    assert np.isnan(across["se"]["next_best"][-1])
+    assert np.isfinite(across["se"]["next_best"][:2]).all()
 
 
 def test_get_choice_probs_skip_shortens_the_axis():
@@ -160,10 +172,23 @@ def test_get_choice_probs_skip_keeps_the_reversal_trial():
     _, per_subject, _ = get_choice_probs_around_good_reversals(
         {"m1": [rev]}, pre=1, post=4, skip_n_trials_after_reversal=2
     )
-    # Known issue: skip=2 drops only post trial 1 (the post list becomes trials
-    # [0, 2, 3]), and the over-long row then loses its last trial (3) to padding.
-    np.testing.assert_array_equal(per_subject["m1"]["next_best"], [[0, 1, 1]])
-    np.testing.assert_array_equal(per_subject["m1"]["prev_best"], [[1, 0, 0]])
+    # skip=2 drops post trials 1 and 2; the row keeps trials [0, 3] (its last trial too).
+    np.testing.assert_array_equal(per_subject["m1"]["next_best"], [[0, 1, 0]])
+    np.testing.assert_array_equal(per_subject["m1"]["prev_best"], [[1, 0, 1]])
+
+
+@pytest.mark.parametrize("skip", [1, 2, 3, 4])
+def test_get_choice_probs_skip_removes_exactly_skip_trials_and_keeps_the_last(skip):
+    post = ["B", "A", "A", "A", "A", "C"]  # trial 0 is B, the last trial is C
+    rev = make_reversal(10, pre=["A"], post=post, prev_best="A", next_best="B")
+    _, per_subject, _ = get_choice_probs_around_good_reversals(
+        {"m1": [rev]}, pre=1, post=6, skip_n_trials_after_reversal=skip
+    )
+    third = per_subject["m1"]["third"][0]
+    assert len(third) == 1 + 6 - skip  # no row is cut or padded
+    assert third[-1] == 1.0  # the last post trial (tower C) is kept
+    assert not np.isnan(per_subject["m1"]["third"]).any()
+    assert per_subject["m1"]["next_best"][0, 1] == 1.0  # the reversal trial is kept
 
 
 @pytest.mark.parametrize("skip", [-1, 3, 4])
@@ -316,13 +341,12 @@ def test_apply_moving_average_all_nan_window_stays_nan():
     assert np.isnan(across["mean"]["prev_best"]).all()  # no finite bins is allowed here
 
 
-def test_apply_moving_average_centered_window_longer_than_segment_raises():
-    # Known issue: a centred window longer than a pre/post segment makes np.convolve
-    # return more values than the segment has bins, so the assignment fails.
+def test_apply_moving_average_centered_window_longer_than_segment_keeps_the_length():
+    # pre segment = [1], post segment = [0, 1]; each is averaged over its own finite bins
     x = np.array([-1, 0, 1])
-    with pytest.raises(IndexError):
-        smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="centered")
-    # a trailing window of the same width is fine
+    out = smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="centered")
+    np.testing.assert_allclose(out, [1, 0.5, 0.5])
+    # a trailing window of the same width gives the same-length output too
     out = smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="trailing")
     np.testing.assert_allclose(out, [1, 0, 0.5])
 
