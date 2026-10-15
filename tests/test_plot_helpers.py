@@ -23,6 +23,13 @@ from src.behavior_visualization.plot_style import MOUSE_COLORS
 from tests.plot_capture import capture_figures, was_tight_laid_out
 
 
+@pytest.fixture(autouse=True)
+def close_figures():
+    plt.close("all")
+    yield
+    plt.close("all")
+
+
 @pytest.fixture
 def capture(monkeypatch):
     return capture_figures(monkeypatch, write_files=True)
@@ -82,9 +89,7 @@ def test_outputs_are_built_only_when_the_previous_one_has_been_written(capture, 
     assert seen == [True, 0]
 
 
-def test_a_failing_builder_keeps_earlier_files_and_closes_the_figures_it_opened(
-    capture, tmp_path
-):
+def test_a_failing_builder_keeps_earlier_files_and_closes_the_figures_it_opened(capture, tmp_path):
     def outputs():
         yield TableOutput("first.csv", pd.DataFrame({"a": [1]}))
         yield FigureOutput("done", small_figure())
@@ -170,6 +175,12 @@ def test_save_or_show_without_make_parent_needs_an_existing_folder(capture, tmp_
     with pytest.raises(FileNotFoundError):
         save_or_show(fig, str(tmp_path / "missing" / "Fig"), make_parent=False)
     assert not (tmp_path / "missing").exists() and plt.get_fignums() == []
+
+
+def test_save_or_show_without_make_parent_needs_a_str_path(capture, tmp_path):
+    with pytest.raises(TypeError, match="must be a str"):
+        save_or_show(small_figure(), tmp_path / "Fig", make_parent=False)
+    assert capture.saved == [] and plt.get_fignums() == []
 
 
 def test_save_or_show_closes_the_figure_when_saving_raises(monkeypatch, tmp_path):
