@@ -57,7 +57,10 @@ def test_build_windows_with_magnitudes_matches_the_two_steps():
     data = {"m": make_mouse(1, pick=0)}
     built = build_windows_with_magnitudes(data, pre=10, post=6)
     expected = add_magnitude_windows(get_good_reversal_info(data, pre=10, post=6), data)
-    assert built == expected
+    recorded = {
+        s: [{**r, "window_pre": 10, "window_post": 6} for r in v] for s, v in expected.items()
+    }
+    assert built == recorded
     assert all(not rev["first_block"] for rev in built["m"])
 
 
@@ -181,3 +184,20 @@ def test_mixing_trials_and_windows_is_rejected(tmp_path):
 def test_no_problems_raise(tmp_path):
     with pytest.raises(ValueError, match="no problems"):
         run_reversal_aligned_arm_analysis({}, tmp_path, **KWARGS)
+
+
+def test_windows_built_with_other_pre_or_post_are_rejected(tmp_path):
+    small = {1: build_windows_with_magnitudes({"m": make_mouse(1)}, pre=3, post=4)}
+    with pytest.raises(ValueError, match="rebuild"):
+        run_reversal_aligned_arm_analysis(small, tmp_path, **KWARGS)
+
+
+def test_moving_avg_window_is_checked_before_any_work(tmp_path):
+    with pytest.raises(ValueError, match="moving_avg_window"):
+        run_reversal_aligned_arm_analysis({}, tmp_path, moving_avg_window=0)
+
+
+def test_numpy_integer_problem_numbers_name_the_scopes(tmp_path):
+    trials = {np.int64(4): {"m": make_mouse(1)}, np.int64(5): {"m": make_mouse(1, first_day=11)}}
+    result = run(trials, tmp_path)
+    assert list(result["results"]) == ["pooled", "problem-04", "problem-05"]

@@ -48,6 +48,14 @@ Modules: `src/behavior_analysis/reversal_arm_ranks.py` (rankings, labels, types,
 8. Moving-average mode: per-problem used "centered", pooled "trailing". Fixed: one explicit `moving_avg_mode` (default centered, validated) for all figures, shown in titles. `test_moving_average_mode_is_centered_by_default_and_selectable`.
 9. Also: a window longer than `pre`/`post` was silently truncated, now `ValueError`; a tower count other than three or a missing magnitude raises instead of returning "other".
 
+## Review fixes
+
+- Magnitude-window tests use magnitudes that drift within a block; shifting the pre or post slice by one trial now fails a test.
+- Prebuilt windows record the `pre`/`post` they were built with; `check_windows_built_with` raises on a mismatch or a pre window shorter than `min(pre, reversal_idx)`.
+- A tie is counted in a type-specific figure only if the reversal could be of that type; otherwise it is `wrong_type`.
+- `moving_avg_window` must be a positive int; numpy integer problem numbers name scopes `problem-NN`.
+- Plot: legend below the axes, no doubled bracket in the title, the last magnitude step spans one trial.
+
 ## Decisions to check
 
 - A tied label ranking drops the reversal from every type of that scheme, including `all`, so `n` of `all` can differ between `prev` and `new`. (`all` would otherwise label tied arms arbitrarily.)

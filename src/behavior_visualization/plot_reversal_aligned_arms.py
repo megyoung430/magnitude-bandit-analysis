@@ -56,7 +56,7 @@ def _title(result: ReversalAlignedArms, scope: str) -> str:
     return (
         f"{TYPE_LABELS[result.reversal_type]}{scope_text}: {SCHEME_DESCRIPTIONS[result.scheme]}\n"
         "(type defined by the prev ranking)\n"
-        f"(mean ± se across subjects | {detail} | {smoothing})"
+        f"mean ± se across subjects | {detail}\n{smoothing}"
     )
 
 
@@ -80,14 +80,20 @@ def _magnitude_ylim(result: ReversalAlignedArms) -> tuple[float, float]:
     return 0.0, max(MIN_MAGNITUDE_YMAX, math.ceil(max(tops)))
 
 
+def _step_edges(x: np.ndarray, *ys: np.ndarray) -> tuple[np.ndarray, ...]:
+    """*x* and each of *ys* with a last point one trial on, so the last step has a width."""
+    return (np.append(x, x[-1] + 1), *(np.append(y, y[-1]) for y in ys))
+
+
 def _draw_magnitude_curves(ax2: plt.Axes, result: ReversalAlignedArms) -> None:
     x = result.trial_offsets
     for role in result.roles:
         y, se = result.magnitude_mean[role], result.magnitude_se[role]
         shown = np.isfinite(y)
+        xs, ys = _step_edges(x[shown], y[shown])
         ax2.step(
-            x[shown],
-            y[shown],
+            xs,
+            ys,
             where="post",
             lw=1.5,
             ls="--",
@@ -97,8 +103,9 @@ def _draw_magnitude_curves(ax2: plt.Axes, result: ReversalAlignedArms) -> None:
         )
         banded = shown & np.isfinite(se)
         if banded.any():
+            xe, lo, hi, band = _step_edges(x, y - se, y + se, banded)
             ax2.fill_between(
-                x, y - se, y + se, where=banded, step="post", alpha=0.12, color=ROLE_COLORS[role]
+                xe, lo, hi, where=band, step="post", alpha=0.12, color=ROLE_COLORS[role]
             )
     ax2.set_ylim(*_magnitude_ylim(result))
     ax2.set_ylabel("Mean Reward Magnitude", rotation=-90, labelpad=15)
@@ -131,7 +138,7 @@ def plot_reversal_aligned_arms(
         _draw_choice_curves(ax, result)
         ax.axvline(0, color="black", ls="--", lw=1, zorder=4)
         ax.axhline(1 / 3, color="gray", ls=":", lw=1, zorder=1)
-        ax.set_xlim(result.trial_offsets[0], result.trial_offsets[-1])
+        ax.set_xlim(result.trial_offsets[0], result.trial_offsets[-1] + 1)
         ax.set_ylim(0, 1)
         ax.set_xlabel("Trials from Reversal")
         ax.set_ylabel("Choice Probability")
@@ -145,7 +152,15 @@ def plot_reversal_aligned_arms(
 
         handles, labels = ax.get_legend_handles_labels()
         handles2, labels2 = ax2.get_legend_handles_labels()
-        ax.legend(handles + handles2, labels + labels2, loc="upper right", fontsize=10)
+        ax.legend(
+            handles + handles2,
+            labels + labels2,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.14),
+            ncol=3,
+            fontsize=10,
+            frameon=False,
+        )
         ax.set_title(_title(result, scope), pad=12)
     return ax, ax2
 

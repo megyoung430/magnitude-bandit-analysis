@@ -123,16 +123,12 @@ def test_select_all_drops_only_reversals_whose_scheme_labels_are_tied():
     assert counts_prev.selected == counts_new.selected == 4
 
 
-def test_select_type_counts_labels_ties_then_type_ties_then_other_types():
+def test_select_type_counts_type_ties_and_other_types():
     sel, counts = select_reversals(windows_for_selection(), "new", "second_to_third")
-    # tied labels (new): the 4th reversal; tied type: the 3rd; other type: best_to_third and other
-    assert tuple(counts) == (
-        5,
-        1,
-        1,
-        2,
-        1,
-    )  # candidates, tied_labels, tied_type, wrong_type, selected
+    # tied type: the 3rd; other types: best_to_third, other, and the 4th (its tie after cannot
+    # make it second_to_third, so its tied labels are not counted here)
+    expected = dict(candidates=5, tied_labels=0, tied_type=1, wrong_type=3, selected=1)
+    assert counts._asdict() == expected
     assert list(sel) == ["m1"] and len(sel["m1"]) == 1
 
 
@@ -148,3 +144,13 @@ def test_select_rejects_the_first_block_record_and_unknown_types():
         )
     with pytest.raises(ValueError, match="reversal_type"):
         select_reversals({"m": []}, "prev", "third_to_best")
+
+
+def test_ties_are_not_counted_for_reversals_that_cannot_be_the_requested_type():
+    # Tie after (A and C), so the new labels are undefined; best_to_third or other, never
+    # second_to_third.
+    rev = reversal(abc(3, 2, 1), abc(2, 3, 2))
+    _, counts = select_reversals({"m": [rev]}, "new", "second_to_third")
+    assert (counts.tied_labels, counts.wrong_type) == (0, 1)
+    _, counts = select_reversals({"m": [rev]}, "new", "best_to_third")
+    assert (counts.tied_labels, counts.wrong_type) == (1, 0)

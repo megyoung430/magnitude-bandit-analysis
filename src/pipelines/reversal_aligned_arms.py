@@ -1,13 +1,13 @@
 """Entry point: reversal-aligned choice probability and reward magnitude of the three arms.
 
-Windows are computed per problem, then concatenated per subject for the pooled figures,
-as in the exploratory notebook. See
-:func:`run_reversal_aligned_arm_analysis`.
+Windows are computed per problem, then concatenated per subject for the pooled figures.
+See :func:`run_reversal_aligned_arm_analysis`.
 """
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.merge_across_problems import merge_windows_by_subject
@@ -15,6 +15,8 @@ from src.behavior_analysis.reversal_aligned_arms import (
     MOVING_AVG_MODES,
     ReversalAlignedArms,
     build_windows_with_magnitudes,
+    check_moving_avg_window,
+    check_windows_built_with,
     compute_reversal_aligned_arms,
 )
 from src.behavior_analysis.reversal_arm_ranks import LABEL_SCHEMES, REVERSAL_TYPES
@@ -25,10 +27,12 @@ POOLED = "pooled"
 
 
 def _problem_name(problem) -> str:
-    return f"problem-{problem:02d}" if isinstance(problem, int) else str(problem)
+    is_int = isinstance(problem, (int, np.integer)) and not isinstance(problem, bool)
+    return f"problem-{int(problem):02d}" if is_int else str(problem)
 
 
-def _check_choices(label_schemes, reversal_types, moving_avg_mode) -> None:
+def _check_choices(label_schemes, reversal_types, moving_avg_mode, moving_avg_window) -> None:
+    check_moving_avg_window(moving_avg_window)
     for name, chosen, allowed in (
         ("label scheme", label_schemes, LABEL_SCHEMES),
         ("reversal_type", reversal_types, REVERSAL_TYPES),
@@ -73,6 +77,8 @@ def _windows_by_problem(by_problem: Mapping, *, pre: int, post: int) -> dict:
                 f"windows of problems {missing} have no magnitude windows; "
                 "run add_magnitude_windows on them first"
             )
+        for windows in by_problem.values():
+            check_windows_built_with(windows, pre=pre, post=post)
         return dict(by_problem)
     return {
         problem: build_windows_with_magnitudes(trials, pre=pre, post=post)
@@ -166,7 +172,7 @@ def run_reversal_aligned_arm_analysis(
         ValueError: For unknown schemes, types or modes, no problems, mixed or incomplete
             inputs, windows longer than *pre*/*post*, or probabilities that do not sum to 1.
     """
-    _check_choices(label_schemes, reversal_types, moving_avg_mode)
+    _check_choices(label_schemes, reversal_types, moving_avg_mode, moving_avg_window)
     windows_by_problem = _windows_by_problem(windows_or_trials_by_problem, pre=pre, post=post)
     out_dir = Path(out_dir) if out_dir else None
     settings = dict(

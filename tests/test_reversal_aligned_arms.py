@@ -14,6 +14,8 @@ from src.behavior_analysis.reversal_aligned_arms import (
     EmptySelectionWarning,
     add_magnitude_windows,
     align_window_values,
+    build_windows_with_magnitudes,
+    check_windows_built_with,
     compute_reversal_aligned_arms,
 )
 from src.behavior_analysis.stats import nan_standard_error
@@ -252,6 +254,11 @@ def two_session_subject():
     """Two sessions whose towers' magnitudes differ, so the merge order shows in the values."""
     first = make_session()
     second = make_session()
+    # Magnitudes drift within every block (the rank order is unchanged), so a window cut one
+    # trial off shows in the values.
+    for session in (first, second):
+        for values in session["reward_magnitudes_by_tower"].values():
+            values[:] = [v + 0.01 * t for t, v in enumerate(values)]
     rewards = second["reward_magnitudes_by_tower"]
     rewards["A1"], rewards["B1"] = rewards["B1"], rewards["A1"]
     return {session_key(1, 1): first, session_key(2, 3): second}
@@ -271,6 +278,13 @@ def test_magnitude_windows_are_the_merged_series_over_the_window_indices():
         for tower, window in rev["magnitudes_by_tower"].items():
             assert window["pre"] == [merged[tower][i] for i in pre_idx]
             assert window["post"] == [merged[tower][i] for i in post_idx]
+
+
+def test_magnitude_windows_drift_within_blocks_so_the_slice_position_matters():
+    data = {"m": two_session_subject()}
+    (rev, *_) = add_magnitude_windows(get_good_reversal_info(data, pre=5, post=6), data)["m"]
+    post = rev["magnitudes_by_tower"]["A1"]["post"]
+    assert len(set(post)) == len(post)  # no two trials of the window share a magnitude
 
 
 def test_magnitude_windows_do_not_depend_on_the_dict_order_of_sessions():
@@ -329,3 +343,37 @@ def test_end_to_end_curves_from_sessions():
     # magnitudes: the best tower pays 4 before the change and 2 after (it moves to second)
     np.testing.assert_allclose(prev.magnitude_mean["prev_best"][2:10], 4.0)
     np.testing.assert_allclose(prev.magnitude_mean["prev_best"][10:], 2.0)
+
+
+def test_moving_avg_window_must_be_a_positive_int():
+    rev = make_reversal(["A"] * 4, ["C"] * 3)
+    for bad in (0, -2, 2.5, True, None):
+        with pytest.raises(ValueError, match="moving_avg_window"):
+            curves({"m": [rev]}, moving_avg_window=bad)
+    curves({"m": [rev]}, moving_avg_window=np.int64(2))
+
+
+def test_prebuilt_windows_must_match_pre_and_post():
+    data = {"m": make_mouse(1, pick=0)}
+    windows = build_windows_with_magnitudes(data, pre=3, post=4)
+    check_windows_built_with(windows, pre=3, post=4)
+    with pytest.raises(ValueError, match="rebuild"):
+        check_windows_built_with(windows, pre=10, post=30)
+    with pytest.raises(ValueError, match="rebuild"):
+        check_windows_built_with(windows, pre=3, post=30)
+
+
+def test_prebuilt_windows_without_recorded_settings_are_rejected():
+    data = {"m": make_mouse(1, pick=0)}
+    bare = add_magnitude_windows(get_good_reversal_info(data, pre=10, post=6), data)
+    with pytest.raises(ValueError, match="rebuild"):
+        check_windows_built_with(bare, pre=10, post=6)
+
+
+def test_a_pre_window_shorter_than_the_data_allows_is_rejected():
+    data = {"m": make_mouse(1, pick=0)}
+    windows = build_windows_with_magnitudes(data, pre=10, post=6)
+    for r in windows["m"]:
+        r["trial_window_idx"]["pre"] = r["trial_window_idx"]["pre"][1:]
+    with pytest.raises(ValueError, match="pre window"):
+        check_windows_built_with(windows, pre=10, post=6)

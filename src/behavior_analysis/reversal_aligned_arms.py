@@ -234,10 +234,53 @@ def build_windows_with_magnitudes(subjects_trials: dict, *, pre: int, post: int)
         pre, post: Trials before and from each reversal in the windows.
 
     Returns:
-        ``{subject: [reversal dict]}`` as :func:`add_magnitude_windows` returns it.
+        ``{subject: [reversal dict]}`` as :func:`add_magnitude_windows` returns it, each
+        reversal also recording the ``"window_pre"`` and ``"window_post"`` it was built with
+        (see :func:`check_windows_built_with`).
     """
     windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
-    return add_magnitude_windows(windows, subjects_trials)
+    enriched = add_magnitude_windows(windows, subjects_trials)
+    return {
+        subject: [{**r, "window_pre": pre, "window_post": post} for r in reversals]
+        for subject, reversals in enriched.items()
+    }
+
+
+def check_windows_built_with(windows: dict, *, pre: int, post: int) -> None:
+    """Raise unless every reversal was built with *pre* and *post* by the builder above.
+
+    Windows built with a smaller pre or post would be NaN-padded to the requested length and
+    look like ordinary data; each pre window must also be as long as the data before the
+    reversal allows.
+
+    Raises:
+        ValueError: Naming the first reversal whose settings or pre length do not fit.
+    """
+    for subject, reversals in windows.items():
+        for r in reversals:
+            built = (r.get("window_pre"), r.get("window_post"))
+            if built != (pre, post):
+                raise ValueError(
+                    f"{subject}: reversal at {r.get('reversal_idx')} was windowed with "
+                    f"(pre, post) = {built}, not ({pre}, {post}); rebuild it with "
+                    "build_windows_with_magnitudes"
+                )
+            expected_pre = min(pre, r["reversal_idx"])
+            if len(r["trial_window_idx"]["pre"]) != expected_pre:
+                raise ValueError(
+                    f"{subject}: reversal at {r['reversal_idx']} has a pre window of "
+                    f"{len(r['trial_window_idx']['pre'])} trials, expected {expected_pre}"
+                )
+
+
+def check_moving_avg_window(moving_avg_window) -> None:
+    """Raise ``ValueError`` unless *moving_avg_window* is a positive int (1 means no smoothing)."""
+    if (
+        isinstance(moving_avg_window, bool)
+        or not isinstance(moving_avg_window, (int, np.integer))
+        or moving_avg_window < 1
+    ):
+        raise ValueError(f"moving_avg_window must be a positive integer, got {moving_avg_window!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +399,7 @@ def compute_reversal_aligned_arms(
         pre, post: Trials before and from the reversal in each window.
         skip_n_trials_after_reversal: Post trial 0 is kept and the next *k* trials dropped.
         moving_avg_window: Width of the moving average of the per-subject choice probabilities
-            (``<= 1`` for none), applied separately before and after the reversal. Magnitudes
+            (1 for none), applied separately before and after the reversal. Magnitudes
             are not smoothed.
         moving_avg_mode: ``"centered"`` or ``"trailing"``; the two give different curves, so
             compare figures only if they use the same mode.
@@ -366,11 +409,13 @@ def compute_reversal_aligned_arms(
         :class:`EmptySelectionWarning` is raised.
 
     Raises:
-        ValueError: For an unknown scheme, type or mode, a window longer than *pre*/*post*, a
-            first-block record, or choice probabilities that do not sum to 1.
+        ValueError: For an unknown scheme, type or mode, a *moving_avg_window* that is not a
+            positive int, a window longer than *pre*/*post*, a first-block record, or choice
+            probabilities that do not sum to 1.
     """
     if scheme not in LABEL_SCHEMES:
         raise ValueError(f"scheme must be one of {LABEL_SCHEMES}, got {scheme!r}")
+    check_moving_avg_window(moving_avg_window)
     if moving_avg_mode not in MOVING_AVG_MODES:
         raise ValueError(
             f"moving_avg_mode must be one of {MOVING_AVG_MODES}, got {moving_avg_mode!r}"

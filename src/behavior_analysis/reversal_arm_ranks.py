@@ -39,7 +39,8 @@ class SelectionCounts(NamedTuple):
 
     ``tied_labels`` were left out because a tie leaves the scheme's labels undefined;
     ``tied_type`` because their type depends on a tie (type-specific sets only);
-    ``wrong_type`` are of another, unambiguous type.
+    ``wrong_type`` cannot be of the requested type under any ordering of ties. In a
+    type-specific set, ties are counted only for reversals that could be of that type.
     """
 
     candidates: int
@@ -82,6 +83,19 @@ def _type_under(prev_order: tuple, new_order: tuple) -> str:
     return OTHER
 
 
+def possible_reversal_types(reversal: dict) -> frozenset[str]:
+    """Every type the reversal has under some ordering of tied arms (one type if no tie).
+
+    Raises:
+        ValueError: As :func:`consistent_rankings`.
+    """
+    return frozenset(
+        _type_under(prev, new)
+        for prev in consistent_rankings(reversal[_BEFORE])
+        for new in consistent_rankings(reversal[_AFTER])
+    )
+
+
 def classify_reversal_type(reversal: dict) -> str:
     """Type of a reversal, defined by the prev ranking.
 
@@ -97,12 +111,8 @@ def classify_reversal_type(reversal: dict) -> str:
     Raises:
         ValueError: As :func:`consistent_rankings`.
     """
-    types = {
-        _type_under(prev, new)
-        for prev in consistent_rankings(reversal[_BEFORE])
-        for new in consistent_rankings(reversal[_AFTER])
-    }
-    return types.pop() if len(types) == 1 else AMBIGUOUS
+    types = possible_reversal_types(reversal)
+    return next(iter(types)) if len(types) == 1 else AMBIGUOUS
 
 
 def arm_labels(reversal: dict, scheme: str) -> tuple[str, str, str] | None:
@@ -132,15 +142,20 @@ def _check_selectable(reversal_type: str, reversals: list[dict]) -> None:
 
 
 def _verdict(reversal: dict, scheme: str, reversal_type: str) -> str:
-    """``"selected"`` or the field of :class:`SelectionCounts` that counts the reversal."""
-    if arm_labels(reversal, scheme) is None:
-        return "tied_labels"
+    """``"selected"`` or the field of :class:`SelectionCounts` that counts the reversal.
+
+    Ties are only reported for reversals that could be of the requested type: one that cannot
+    be (under any ordering of its ties) is simply of another type.
+    """
+    labels_tied = arm_labels(reversal, scheme) is None
     if reversal_type == "all":
-        return "selected"
-    kind = classify_reversal_type(reversal)
-    if kind == AMBIGUOUS:
-        return "tied_type"
-    return "selected" if kind == reversal_type else "wrong_type"
+        return "tied_labels" if labels_tied else "selected"
+    possible = possible_reversal_types(reversal)
+    if reversal_type not in possible:
+        return "wrong_type"
+    if labels_tied:
+        return "tied_labels"
+    return "tied_type" if len(possible) > 1 else "selected"
 
 
 def select_reversals(

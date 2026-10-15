@@ -117,3 +117,19 @@ def test_no_save_path_shows_the_figure(monkeypatch, save_path):
     capture = capture_figures(monkeypatch)
     save_reversal_aligned_arms(result_for("prev"), save_path)
     assert len(capture.shown) == 1 and capture.saved == []
+
+
+def test_the_last_magnitude_step_has_a_width_of_one_trial():
+    result = result_for("new")
+    _, ax2 = plot_reversal_aligned_arms(result)
+    step = next(line for line in ax2.lines if line.get_linestyle() == "--")
+    assert step.get_xdata()[-1] == result.trial_offsets[-1] + 1
+    assert step.get_ydata()[-1] == step.get_ydata()[-2]
+
+
+def test_the_legend_sits_below_the_axes_and_the_title_has_no_doubled_bracket():
+    ax, _ = plot_reversal_aligned_arms(result_for("prev", moving_avg_window=4))
+    ax.figure.canvas.draw()
+    legend_box = ax.get_legend().get_window_extent()
+    assert legend_box.y1 <= ax.get_window_extent().y0
+    assert "))" not in ax.get_title()
