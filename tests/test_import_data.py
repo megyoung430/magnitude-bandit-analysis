@@ -621,3 +621,37 @@ def test_split_segment_needing_review_warns_once_and_keeps_its_number(tmp_path):
     assert sessions["ses-2_date-20260102_part-02"]["problem"] == 2
     assert sessions["ses-2_date-20260102_part-02"]["problem_flag"] == "review_settings"
     assert len(ours) == 1 and "part-02" in str(ours[0].message)
+
+
+def test_a_split_segment_of_a_flagged_session_does_not_warn_a_second_time(tmp_path):
+    # S3's first recording (B) is a one-session layout between A and A: import_data flags the
+    # session and warns. The segment that starts with that recording keeps the flag without a
+    # second warning; the second segment (A) is fine.
+    write_split_session(tmp_path, 1, [A])
+    write_split_session(tmp_path, 2, [A])
+    write_split_session(tmp_path, 3, [B, A])
+    write_split_session(tmp_path, 4, [A])
+    sessions, _, ours = number_through_extract_trials(tmp_path)
+    assert assignments(sessions) == {
+        "ses-1_date-20260101": (1, None),
+        "ses-2_date-20260102": (1, None),
+        "ses-3_date-20260103_part-01": (None, "suspected_settings_error"),
+        "ses-3_date-20260103_part-02": (1, None),
+        "ses-4_date-20260104": (1, None),
+    }
+    assert [str(w.message).split(":")[0] for w in ours] == ["M1 ses-3_date-20260103"]
+
+
+def test_import_data_records_whether_a_problem_number_is_provisional(tmp_path):
+    # The final run is one session long: a later session could turn it into a settings error.
+    write_split_session(tmp_path, 1, [A])
+    write_split_session(tmp_path, 2, [A])
+    write_split_session(tmp_path, 3, [B])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ProblemNumberingWarning)
+        sessions = import_data(tmp_path)["M1"]
+    assert {k: s["problem_provisional"] for k, s in sessions.items()} == {
+        "ses-1_date-20260101": False,
+        "ses-2_date-20260102": False,
+        "ses-3_date-20260103": True,
+    }

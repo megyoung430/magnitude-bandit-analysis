@@ -29,8 +29,10 @@ session before it:
   that is the only layout in the data, or the last one, is problem 1.
 - The first problem of a subject is not evidence-checked: its first session is often
   mid-problem.
-- The number of a final run of one session is provisional (``ProblemAssignment.provisional``,
-  named in the warning): a later session can turn it into a settings error.
+- The number of a final run of one session is provisional (``ProblemAssignment.provisional``):
+  a later session can turn it into a settings error. ``import_data`` and
+  ``group_sessions_by_problem`` write it onto the session as ``"problem_provisional"``; a
+  warning names it when the session is also flagged.
 
 Sessions that are not bandit problems get problem ``None``, are ignored when comparing the
 sessions around them (A, skipped, A is 1, None, 1) and stay in the data:

@@ -823,12 +823,14 @@ def group_sessions_by_problem(data, copy_sessions=True):
     ``import_data``'s when such sessions exist. Flagged sessions stay in *data* for
     single-session analyses.
 
-    The assignment is written back onto every numbered session in *data* as ``"problem"``
-    and ``"problem_flag"``. This matters for sessions that :func:`extract_trials` split
-    into ``_part-NN`` segments: ``import_data`` numbered the unsplit session by its first
-    recording, so the segments (which get no problem of their own) are numbered here, and
-    only flags that are new here (differ from the recorded ``"problem_flag"``) warn, so
-    each flagged session warns once overall.
+    The assignment is written back onto every numbered session in *data* as ``"problem"``,
+    ``"problem_flag"`` and ``"problem_provisional"`` (``True`` for a final one-session run,
+    whose number a later session can turn into a settings error). This matters for sessions
+    that :func:`extract_trials` split into ``_part-NN`` segments: ``import_data`` numbered
+    the unsplit session by its first recording, so the segments (which get no problem of
+    their own) are numbered here, and only flags that are new here (differ from the recorded
+    ``"problem_flag"``) warn. The first segment keeps the flag ``import_data`` recorded for
+    its session, so each flagged session warns once overall.
 
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}`` after
@@ -854,6 +856,7 @@ def group_sessions_by_problem(data, copy_sessions=True):
         for session_id, assignment in zip(session_ids, assignments, strict=True):
             sess = subject_sessions[session_id]
             sess["problem"], sess["problem_flag"] = assignment.problem, assignment.flag
+            sess["problem_provisional"] = assignment.provisional
             if assignment.problem is None:
                 continue
             by_subject = problems.setdefault(assignment.problem, {})

@@ -78,6 +78,7 @@ def _build_session_record(df_list: list, towers: dict, assignment, evidence: dic
         "df": original_dfs[0] if len(original_dfs) == 1 else original_dfs,
         "problem": assignment.problem,
         "problem_flag": assignment.flag,
+        "problem_provisional": assignment.provisional,
         "settings_evidence": evidence,
         "task_name": evidence["task_name"],
         "choice_towers": towers.get("choice_towers", set()),
@@ -163,7 +164,8 @@ def import_data(root: str | Path) -> dict:
                   "df": DataFrame | list[DataFrame],    # original 4-column TSV
                   "problem": int | None,                # 1-based per subject; None if flagged
                   "problem_flag": str | None,           # "suspected_settings_error" or None
-                  "settings_evidence": dict,            # facts the flag rule used
+                  "problem_provisional": bool,          # final one-session run: may change
+                  "settings_evidence": dict,          # facts the flag rule used
                   "task_name": str | None,              # the file header's task_name row
                   "choice_towers": set,
                   "initiation_tower": str | None,
@@ -178,12 +180,16 @@ def import_data(root: str | Path) -> dict:
             folder, or a session's first ``run_start`` row is missing or not valid
             JSON (the message names subject, session and file).
 
+    ``"problem_provisional"`` is ``True`` for the number of a final run that is one session
+    long: a later session can turn it into a settings error.
+
     ``"problem"`` and ``"problem_flag"`` are the numbering of whole sessions, by the layout
     of each session's first recording.  ``extract_trials`` splits a session whose
     recordings have different tower layouts into ``_part-NN`` segments; those segments
     carry no problem, and ``extract_trials.group_sessions_by_problem`` (same function, layouts
     read from the trial data) renumbers all sessions, skipping those without trial
-    information, writes ``"problem"`` / ``"problem_flag"`` back onto every session and
+    information, writes ``"problem"`` / ``"problem_flag"`` / ``"problem_provisional"`` back
+    onto every session and
     segment, and warns about flags that are new to it.  So for sessions that are split
     or lack trials, its numbers are the ones to use.
     """
