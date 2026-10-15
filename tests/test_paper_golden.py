@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from src.agents import paper_rl_fitting as paper
+from src.agents.run_store import identity_hash
 
 pytestmark = pytest.mark.skipif(
     not (importlib.util.find_spec("jax") and importlib.util.find_spec("optax")),
@@ -201,17 +202,14 @@ class TestFitGolden:
         ]
 
     def test_manifest_is_written_with_sorted_keys_and_names_the_directory(self, sweep):
-        import hashlib
 
         _, output, _ = sweep
         text = (output / "manifest.json").read_text()
         manifest = json.loads(text)
         assert list(manifest) == sorted(manifest)
         assert text == json.dumps(manifest, sort_keys=True, indent=2)
-        provenance = {"implementation", "neural_implementation", "rl_implementations"}
-        identity = {k: v for k, v in manifest.items() if k not in provenance}
-        encoded = json.dumps(identity, sort_keys=True, indent=2)
-        assert output.name == hashlib.sha256(encoded.encode()).hexdigest()[:12]
+        identity = {k: v for k, v in manifest.items() if k != "implementation"}
+        assert output.name == identity_hash(identity)
         assert manifest["algorithm_version"] == paper.ALGORITHM_VERSION
 
     def test_schedule_ends_with_the_shorter_chunk(self, sweep):
@@ -367,15 +365,30 @@ class TestRunDirectoryIdentity:
         fits = []
         fit_run = paper._fit_run
         monkeypatch.setattr(paper, "_fit_run", lambda *a, **k: fits.append(a) or fit_run(*a, **k))
-        edit_module_text(paper, "SOURCE_URL =", "SOURCE_URL =  # edited\n_UNUSED =")
-        second = self.sweep(tmp_path)
+        original = json.loads((Path(first["output_dir"]) / "manifest.json").read_text())
+        url = 'SOURCE_URL = "https://github.com/google-deepmind/hybrid_rnns_reward_learning"'
+        edit_module_text(paper, url, url + "  # note")
+        with pytest.warns(UserWarning, match="implementation"):
+            second = self.sweep(tmp_path)
         assert second == first and second["output_dir"] == first["output_dir"]
         assert fits == []  # every run was loaded from disk
         manifest = json.loads((Path(first["output_dir"]) / "manifest.json").read_text())
-        assert "# edited" in manifest["implementation"]
+        assert manifest["implementation"] == original["implementation"]
 
-    def test_version_or_setting_change_starts_a_new_directory(self, tmp_path, monkeypatch):
-        first = self.sweep(tmp_path)
-        assert self.sweep(tmp_path, fit_seed=6)["output_dir"] != first["output_dir"]
+    def test_settings_data_and_version_changes_start_a_new_directory(self, tmp_path, monkeypatch):
+        first = self.sweep(tmp_path, max_new_runs=0)
+        assert self.sweep(tmp_path, max_new_runs=0)["output_dir"] == first["output_dir"]
+        other_grid = [dict(SWEEP["grid"][0], batch_size=2)]
+        changed = [
+            self.sweep(tmp_path, max_new_runs=0, fit_seed=6),
+            self.sweep(tmp_path, max_new_runs=0, grid=other_grid),
+            self.sweep(tmp_path, max_new_runs=0, max_steps=SWEEP["max_steps"] + 1),
+            self.sweep(tmp_path, max_new_runs=0, n_seeds=3),
+            self.sweep(tmp_path, max_new_runs=0, validation_every=3),
+        ]
+        towers = [dict(s, towers=["A", "B", "Z"]) for s in golden_sequences()]
+        changed.append(paper.run_paper_sweep(towers, tmp_path, max_new_runs=0, **SWEEP))
+        dirs = {first["output_dir"], *(r["output_dir"] for r in changed)}
+        assert len(dirs) == len(changed) + 1
         monkeypatch.setattr(paper, "ALGORITHM_VERSION", paper.ALGORITHM_VERSION + 1)
         assert self.sweep(tmp_path)["output_dir"] != first["output_dir"]

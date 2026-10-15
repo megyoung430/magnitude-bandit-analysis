@@ -114,25 +114,39 @@ or checkpoints in that folder. The shared helpers live in `src/agents/run_store.
 
 The hash covers:
 
-- the module's `ALGORITHM_VERSION` (an integer, currently `1`);
+- the module's `ALGORITHM_VERSION` (an integer, currently `1`), and the `MODEL_VERSION` of
+  each model module the run uses (`best_rl`, `released_rl`, `neural_bandit`,
+  `mouse_agents`, `drifting_bandit`);
 - the configuration: a fingerprint of the input sequences, the settings (seed, number
   of starts, grid, models, problems), the bounds, constants such as the at-bound
-  tolerance, and for the paper-style sweeps the jax, optax and numpy versions.
+  tolerance, and the installed library versions (numpy and scipy for cohort
+  cross-validation and recovery; jax, jaxlib, optax, numpy and the JAX backend and
+  platform for the paper-style sweeps), so environments that resolve to different
+  versions never mix saved results;
+- for `run_recovery`, the source text of the `fit_function` and `loss_function` you pass
+  in: they are inputs, so redefining one (even in a notebook) starts a new experiment.
+  A callable without retrievable source raises an error.
 
-It does **not** cover source text. Editing a comment, reformatting or refactoring keeps
-the folder, so an interrupted run resumes. `manifest.json` still records the source text
-of the code that wrote the folder, as provenance only.
+It does **not** cover the source text of the modules themselves. Editing a comment,
+reformatting or refactoring keeps the folder, so an interrupted run resumes.
+`manifest.json` records the source text of the code that created the folder, as
+provenance only. It is written once and never overwritten; if you resume after the source
+has changed, a warning names the modules that differ from the stored ones.
 
-**When to bump `ALGORITHM_VERSION`:** when a change alters results (the model, the loss,
-the optimiser, the simulated task or mouse, the scoring), including in code a module
-calls, such as `best_rl.py`, `released_rl.py` or `neural_bandit.py`. A bump starts every
-run in a new folder; comments and refactors don't need one. A configuration change (a
-different seed, bounds, data or library version) moves the folder without any bump.
-Finished results always stay readable in the old folder.
+**When to bump a version:** bump `ALGORITHM_VERSION` in the module whose results changed,
+and `MODEL_VERSION` in a model module when what it computes changes. A bump starts every
+affected run in a new folder; comments and refactors don't need one. Which version covers
+which code:
 
-**Migration.** The change that introduced the version scheme moved every folder one last
-time: runs started before it restart from zero in a new folder (finished results stay in
-the old one). From then on, only a version bump or a configuration change moves them.
+| Run | Bump `ALGORITHM_VERSION` of | Bump `MODEL_VERSION` of |
+|---|---|---|
+| `run_problem_cross_validation` | `cohort_fitting.py` (the sticky model and the cross-validation) | `best_rl.py` for `best_rl` and `released_rl`; `released_rl.py` for `released_rl` |
+| `run_recovery` | `parameter_recovery.py` | `mouse_agents.py`, `drifting_bandit.py` |
+| `run_paper_sweep`, `run_problem_sweep` | `paper_rl_fitting.py` (includes its own sticky, Best RL and released CogMod models) | `neural_bandit.py` (neural models only) |
+
+A configuration change (a different seed, bounds, data or library version) moves the
+folder without any bump. Finished results always stay readable in the old folder. See
+`docs/issues/infra-run-store.md` for the one-time migration to this scheme.
 
 ## Code organisation
 

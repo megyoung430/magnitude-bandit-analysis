@@ -18,6 +18,7 @@ from scipy.special import logsumexp
 from src.agents.run_store import (
     at_bound,
     fingerprint_sequences,
+    library_versions,
     manifest_dir,
     write_json_atomically,
 )
@@ -38,8 +39,9 @@ _AUDIT_COLUMNS = [
 ]
 # A bound is "hit" when the fitted value lies within this distance of it.
 _AT_BOUND_ATOL = 1e-4
-# Names the saved-run directory together with the configuration. It stands for the fitting
-# code here and in the best_rl and released_rl modules this one calls.
+# Names the saved-run directory together with the configuration. It stands for the code in
+# this module (the sticky RL model and the cross-validation); best_rl and released_rl have
+# their own MODEL_VERSION.
 # Bump when a change alters results; comments and refactors don't need a bump.
 ALGORITHM_VERSION = 1
 
@@ -205,9 +207,10 @@ class _ModelSpec(NamedTuple):
     parameter_names: list[str]
     fit_function: Callable
     prediction_function: Callable
-    # Manifest entries that make the saved folds depend on the model code.
+    # Source files of the model code, recorded as provenance (not hashed), and extra
+    # identity entries such as the model's MODEL_VERSION.
     manifest_sources: dict[str, Path]
-    manifest_fields: dict[str, str]
+    manifest_fields: dict
 
 
 def _model_spec(model: str, bounds: list) -> _ModelSpec:
@@ -227,10 +230,13 @@ def _model_spec(model: str, bounds: list) -> _ModelSpec:
             best_rl.fit_mouse_sessions,
             best_rl.sequence_log_probabilities,
             {"model_implementation": Path(best_rl.__file__)},
-            {"update_order": "choice_then_chosen_update_then_all_action_forgetting"},
+            {
+                "update_order": "choice_then_chosen_update_then_all_action_forgetting",
+                "model_versions": {"best_rl": best_rl.MODEL_VERSION},
+            },
         )
     if model == "released_rl":
-        from src.agents import released_rl
+        from src.agents import best_rl, released_rl
 
         if len(bounds) != 5:
             raise ValueError("Released CogMod requires five bounds.")
@@ -242,7 +248,12 @@ def _model_spec(model: str, bounds: list) -> _ModelSpec:
                 "model_implementation": Path(released_rl.__file__),
                 "value_update_implementation": Path(__file__).with_name("best_rl.py"),
             },
-            {},
+            {
+                "model_versions": {
+                    "released_rl": released_rl.MODEL_VERSION,
+                    "best_rl": best_rl.MODEL_VERSION,
+                }
+            },
         )
     raise ValueError("Unknown model.")
 
@@ -275,6 +286,7 @@ def _build_manifest(
         data_sha256=fingerprint_sequences(sequences),
         source=source_metadata,
         at_bound_atol=_AT_BOUND_ATOL,
+        versions=library_versions("numpy", "scipy"),
         **spec.manifest_fields,
     )
     provenance = dict(

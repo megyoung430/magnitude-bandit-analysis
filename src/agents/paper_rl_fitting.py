@@ -13,10 +13,17 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from src.agents.run_store import fingerprint_sequences, manifest_dir, write_atomically
+from src.agents.run_store import (
+    fingerprint_sequences,
+    library_versions,
+    manifest_dir,
+    write_atomically,
+    write_json_atomically,
+)
 
 # Names the sweep directory together with the settings, data and library versions. It stands
-# for the fitting code here and in the neural_bandit, best_rl and released_rl modules.
+# for the fitting code in this module, which includes its own sticky, Best RL and released
+# CogMod models; the neural models have their own MODEL_VERSION (neural_bandit).
 # Bump when a change alters results; comments and refactors don't need a bump.
 ALGORITHM_VERSION = 1
 SOURCE_COMMIT = "baf38da49fd1c1537affbc3745e961bbf0ae547d"
@@ -483,13 +490,11 @@ def _split_sequences(sequences, split_seed, test_problem=None, validation_proble
 
 def _read_source_snapshots(models):
     """Source text of the code that produced a sweep, recorded as provenance (not hashed)."""
-    from src.agents import best_rl, neural_bandit, released_rl
+    from src.agents import neural_bandit
 
     snapshots = dict(implementation=Path(__file__).read_text())
     if any(model in neural_bandit.NEURAL_MODELS for model in models):
         snapshots["neural_implementation"] = Path(neural_bandit.__file__).read_text()
-    modules = [("best_rl", best_rl), ("released_rl", released_rl)]
-    snapshots["rl_implementations"] = {m: Path(mod.__file__).read_text() for m, mod in modules}
     return snapshots
 
 
@@ -498,7 +503,10 @@ def _neural_identity(models):
     from src.agents import neural_bandit
 
     if any(model in neural_bandit.NEURAL_MODELS for model in models):
-        return dict(neural_initialization=_NEURAL_INITIALIZATION)
+        return dict(
+            neural_initialization=_NEURAL_INITIALIZATION,
+            model_versions=dict(neural_bandit=neural_bandit.MODEL_VERSION),
+        )
     return {}
 
 
@@ -726,7 +734,7 @@ def _sweep_fits(models, grid, *, n_seeds, config, output, max_new_runs):
                     best_raw=best_raw,
                     metadata=metadata,
                 )
-                done_file.write_text(json.dumps(record, indent=2, allow_nan=False))
+                write_json_atomically(done_file, record, indent=2)
                 records.append(record)
                 completed_now += 1
     return records
@@ -739,11 +747,8 @@ def _select_winner(records, model):
 
 def _save_selected_parameters(path, best_raw):
     """Save a winner's raw parameters; neural models are saved one array per key."""
-    with path.open("wb") as file:
-        if isinstance(best_raw, dict):
-            np.savez(file, **best_raw)
-        else:
-            np.savez(file, parameters=np.asarray(best_raw))
+    arrays = best_raw if isinstance(best_raw, dict) else dict(parameters=np.asarray(best_raw))
+    write_atomically(path, lambda file: np.savez(file, **arrays))
 
 
 def _selected_parameters_name(model):
@@ -789,7 +794,15 @@ def _sweep_result(records, expected, *, output, identities, split_details, selec
 def _library_versions():
     """Versions of the numerical libraries a run depends on, recorded in the manifest."""
     jax, _, optax = dependencies()
-    return dict(jax=jax.__version__, optax=optax.__version__, numpy=np.__version__)
+    # The backend matters because CPU, GPU and TPU runs round differently.
+    return dict(
+        jax=jax.__version__,
+        optax=optax.__version__,
+        numpy=np.__version__,
+        **library_versions("jaxlib"),
+        jax_backend=jax.default_backend(),
+        jax_platform=jax.devices()[0].platform,
+    )
 
 
 def _finish_sweep(models, records, *, expected, parts, output, identities, split_details):
@@ -813,7 +826,7 @@ def _finish_sweep(models, records, *, expected, parts, output, identities, split
         selected=[summary for summary, _ in scored],
         test_sessions=[row for _, rows in scored for row in rows],
     )
-    (output / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
+    write_json_atomically(output / "results.json", result, indent=2)
     return result
 
 
@@ -976,5 +989,5 @@ def run_problem_sweep(
         result["test_sessions"] = [
             dict(row, test_problem=f["test_problem"]) for f in folds for row in f["test_sessions"]
         ]
-    (output / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
+    write_json_atomically(output / "results.json", result, indent=2)
     return result

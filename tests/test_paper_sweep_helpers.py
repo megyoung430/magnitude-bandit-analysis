@@ -258,9 +258,22 @@ class TestManifest:
         assert identity["algorithm_version"] == paper.ALGORITHM_VERSION
 
     def test_identity_holds_no_source_text(self):
-        assert not {"implementation", "neural_implementation", "rl_implementations"} & set(
-            self.identity()
-        )
+        assert not {"implementation", "neural_implementation"} & set(self.identity())
+
+    @needs_jax
+    def test_neural_models_add_their_version_to_the_identity(self):
+        from src.agents import neural_bandit
+
+        assert paper._neural_identity(("sticky_rl",)) == {}
+        fields = paper._neural_identity(("sticky_rl", "rl_ann"))
+        assert fields["model_versions"] == dict(neural_bandit=neural_bandit.MODEL_VERSION)
+        assert fields["neural_initialization"] == paper._NEURAL_INITIALIZATION
+
+    @needs_jax
+    def test_library_versions_include_jaxlib_and_the_backend(self):
+        versions = paper._library_versions()
+        assert {"jax", "jaxlib", "optax", "numpy", "jax_backend", "jax_platform"} == set(versions)
+        assert versions["jax_platform"] in ("cpu", "gpu", "tpu", "cuda", "rocm")
 
     def test_overlapping_keys_fail_loudly_instead_of_overwriting(self):
         with pytest.raises(TypeError):
@@ -274,20 +287,23 @@ class TestManifest:
         assert manifest_dir(tmp_path, self.identity(data_sha256="other")) != base
         assert manifest_dir(tmp_path, self.identity(versions=dict(jax="1"))) != base
         assert manifest_dir(tmp_path, self.identity(settings=dict(profile="q"))) != base
+        assert (
+            manifest_dir(tmp_path, self.identity(settings=dict(grid=[{"batch_size": 2}]))) != base
+        )
         monkeypatch.setattr(paper, "ALGORITHM_VERSION", paper.ALGORITHM_VERSION + 1)
         assert manifest_dir(tmp_path, self.identity()) != base
 
     def test_source_text_is_provenance_only(self, tmp_path):
-        snapshots = dict(implementation="one", rl_implementations={"best_rl": "x"})
+        snapshots = dict(implementation="one", neural_implementation="x")
         first = manifest_dir(tmp_path, self.identity(), snapshots)
-        second = manifest_dir(tmp_path, self.identity(), dict(snapshots, implementation="two"))
+        with pytest.warns(UserWarning, match="implementation"):
+            second = manifest_dir(tmp_path, self.identity(), dict(snapshots, implementation="two"))
         assert first == second
 
     def test_read_source_snapshots_names_the_files_that_were_read(self):
         snapshots = paper._read_source_snapshots(("sticky_rl",))
         assert snapshots["implementation"] == Path(paper.__file__).read_text()
-        assert set(snapshots["rl_implementations"]) == {"best_rl", "released_rl"}
-        assert "neural_implementation" not in snapshots
+        assert set(snapshots) == {"implementation"}
 
 
 class TestRunMetadata:

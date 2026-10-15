@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
+# Bump when a change alters what this model computes; comments and refactors don't need a bump.
+# Runs that use this model record the version in their saved-run identity.
+MODEL_VERSION = 1
 class BaseMouse(ABC):
     """Abstract base class for all mouse agents."""
     

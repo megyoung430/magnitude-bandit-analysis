@@ -23,12 +23,27 @@ helpers.
   `TypeError` on it; the `Known issue:` comment there is gone.
 - Each module has `ALGORITHM_VERSION = 1` with the comment "Bump when a change alters
   results; comments and refactors don't need a bump."
-- The directory hash covers the version and the configuration: data fingerprint,
-  settings, model names, bounds, the at-bound tolerance, and (paper-style sweeps) jax,
-  optax and numpy versions. In `parameter_recovery` the fit and loss function names are
-  part of the configuration. Source text stays in `manifest.json` (`implementation`,
-  `model_implementation`, `value_update_implementation`, `neural_implementation`,
-  `rl_implementations`, `code`) as provenance, outside the hash.
+- The directory hash covers the algorithm version, the `MODEL_VERSION` of each model
+  module the run uses, and the configuration: data fingerprint, settings, model names,
+  bounds, the at-bound tolerance, and library versions (numpy and scipy for cohort and
+  recovery; jax, jaxlib, optax, numpy, JAX backend and platform for paper). In
+  `parameter_recovery` the source of the caller's fit and loss functions is part of the
+  identity, since they are inputs. Source text of this repository's modules stays in
+  `manifest.json` (`implementation`, `model_implementation`,
+  `value_update_implementation`, `neural_implementation`, `code`) as provenance, outside the
+  hash.
+- Provenance is written when the directory is created and never overwritten. A resume whose
+  current source differs from the stored one raises a `UserWarning` naming the changed
+  entries.
+- `MODEL_VERSION = 1` in `best_rl`, `released_rl`, `neural_bandit`, `mouse_agents` and
+  `drifting_bandit`.
+- Writes of resume markers and results go through `write_atomically` (temporary file named
+  after the full file name, fsync before the rename, temporary file removed on failure):
+  the paper sweep's per-run record, selected parameters, `results.json`, and checkpoints.
+- `identity_hash` canonicalises numbers (`1` and `1.0` hash alike) and rejects NaN;
+  `fingerprint_sequences` raises on a non-integral problem number.
+- The paper manifest no longer snapshots `best_rl.py` and `released_rl.py`
+  (`rl_implementations`): the paper sweep has its own implementations and never runs them.
 - Docs: README section "Resumable cohort cross-validation and recovery runs" rewritten;
   `docs/published_model_alignment.md` and the two earlier items' warnings updated.
 
@@ -54,11 +69,11 @@ This change moves every existing directory one last time.
 - To avoid losing progress, finish or pause interrupted runs on main before merging, or
   accept the restart. A finished old folder can be kept as the record of that run.
 - After this change only a version bump or a configuration change moves a directory.
-  Bump `ALGORITHM_VERSION` in the module whose results changed. For `cohort_fitting` that
-  includes edits to `best_rl.py` and `released_rl.py`; for `paper_rl_fitting`, edits to
-  `neural_bandit.py`, `best_rl.py` and `released_rl.py`; for `parameter_recovery`, edits to
-  the task or mouse. These modules are no longer in the hash, so forgetting a bump after
-  such an edit resumes stale results.
+  Bump `ALGORITHM_VERSION` in the module whose results changed, and `MODEL_VERSION` in a
+  model module whose computation changed (`best_rl` and `released_rl` for cohort,
+  `mouse_agents` and `drifting_bandit` for recovery, `neural_bandit` for paper's neural
+  models). Source text is no longer in the hash, so forgetting a bump after such an edit
+  resumes stale results; the resume warning is the safety net.
 - Descriptive strings in the manifest (for example the paper sweep's `objective` and
   `initialization` text) are still hashed: editing them moves directories.
 

@@ -14,13 +14,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.agents import parameter_recovery
+from src.agents import mouse_agents, parameter_recovery
 from src.agents.parameter_recovery import (
     NAMES,
     recovery_design,
     run_recovery,
     summarize_recovery,
 )
+from src.agents.run_store import identity_hash
+from src.tasks import drifting_bandit
 
 BOUNDS = [(0.001, 1.0), (0.01, 10.0), (0.0, 3.0)]
 
@@ -115,14 +117,16 @@ def test_run_writes_layout_and_complete_results(tmp_path):
     assert not [n for n in names if n.endswith(".tmp")]
     manifest = json.loads((output / "manifest.json").read_text())
     identity = {k: v for k, v in manifest.items() if k != "code"}
-    encoded = json.dumps(identity, sort_keys=True, indent=2)
-    assert output.name == hashlib.sha256(encoded.encode()).hexdigest()[:12]
+    assert output.name == identity_hash(identity)
     assert manifest["algorithm_version"] == parameter_recovery.ALGORITHM_VERSION
     assert manifest["at_bound_atol"] == parameter_recovery._AT_BOUND_ATOL
-    assert manifest["fit_function"].endswith("make_fit.<locals>.fit")
-    assert manifest["loss_function"].endswith("mean_choice_loss")
+    assert (
+        "def fit(" in manifest["fit_source"] and "def mean_choice_loss(" in manifest["loss_source"]
+    )
+    assert set(manifest["versions"]) == {"numpy", "scipy"}
+    assert set(manifest["model_versions"]) == {"drifting_bandit", "mouse_agents"}
     assert manifest["config"] == make_config() and manifest["bounds"] == [list(b) for b in BOUNDS]
-    assert {"task", "mouse", "runner", "module", "design", "fit", "loss"} <= set(manifest["code"])
+    assert {"task", "mouse", "runner", "module", "design"} <= set(manifest["code"])
     assert manifest["code"]["module"] == Path(parameter_recovery.__file__).read_text()
     pd.testing.assert_frame_equal(pd.read_csv(output / "design.csv"), design)
     saved = json.loads((output / "results.json").read_text())
@@ -244,16 +248,64 @@ def test_directory_changes_with_the_algorithm_version(tmp_path, monkeypatch):
     assert run(tmp_path)[1] != base
 
 
+def test_directory_changes_with_library_and_model_versions(tmp_path, monkeypatch):
+    base = run(tmp_path)[1]
+    for module in (drifting_bandit, mouse_agents):
+        monkeypatch.setattr(module, "MODEL_VERSION", module.MODEL_VERSION + 1)
+        changed = run(tmp_path)[1]
+        assert changed != base
+        monkeypatch.undo()
+    monkeypatch.setattr(parameter_recovery, "library_versions", lambda *n: dict.fromkeys(n, "0"))
+    assert run(tmp_path)[1] != base
+
+
+def _loss_returning_zero():
+    def loss(params, actions, rewards, num_arms):
+        return 0.0
+
+    return loss
+
+
+def _loss_returning_one():
+    def loss(params, actions, rewards, num_arms):
+        return 1.0
+
+    return loss
+
+
+def test_redefining_a_function_with_the_same_name_starts_a_new_directory(tmp_path):
+    first = run(tmp_path, loss=_loss_returning_zero())[1]
+    second = run(tmp_path, loss=_loss_returning_one())[1]
+    assert first != second
+    assert run(tmp_path, loss=_loss_returning_zero())[1] == first
+
+
+def test_function_without_source_fails_loudly(tmp_path):
+    class Loss:
+        def __call__(self, params, actions, rewards, num_arms):
+            return 0.0
+
+    with pytest.raises(ValueError, match="no retrievable source"):
+        run(tmp_path, loss=Loss())
+    namespace = {}
+    exec("def loss(params, actions, rewards, num_arms):\n    return 0.0", namespace)  # noqa: S102
+    with pytest.raises(ValueError, match="no retrievable source"):
+        run(tmp_path, loss=namespace["loss"])
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_editing_source_text_keeps_the_directory_and_resumes(tmp_path, edit_module_text):
     fit = make_fit()
     _, base = run(tmp_path, fit)
+    original = json.loads((base / "manifest.json").read_text())["code"]["module"]
     n_fits = len(fit.calls)
-    edit_module_text(parameter_recovery, "ATOL = 1e-4", "ATOL = 1e-3  # reformatted")
-    _, resumed = run(tmp_path, fit)
+    edit_module_text(parameter_recovery, "_AT_BOUND_ATOL = 1e-4", "_AT_BOUND_ATOL = 1e-4  # note")
+    with pytest.warns(UserWarning, match="code.module"):
+        _, resumed = run(tmp_path, fit)
     assert resumed == base
     assert len(fit.calls) == n_fits  # every session was loaded from the checkpoint
-    # the edited text is recorded as provenance, outside the hash
-    assert "reformatted" in json.loads((resumed / "manifest.json").read_text())["code"]["module"]
+    # the manifest keeps describing the code that produced the saved sessions
+    assert json.loads((resumed / "manifest.json").read_text())["code"]["module"] == original
 
 
 def test_unbounded_side_is_never_at_bound(tmp_path):

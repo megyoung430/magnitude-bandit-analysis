@@ -13,15 +13,24 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.agents import mouse_agents
 from src.agents.mouse_agents import QLearningMouse
-from src.agents.run_store import at_bound, manifest_dir, write_atomically, write_json_atomically
+from src.agents.run_store import (
+    at_bound,
+    library_versions,
+    manifest_dir,
+    write_atomically,
+    write_json_atomically,
+)
+from src.tasks import drifting_bandit
 from src.tasks.drifting_bandit import DriftingBanditTask
 
 NAMES = ["learning_rate", "beta", "alpha"]
 # A bound is "hit" when the recovered value lies within this distance of it.
 _AT_BOUND_ATOL = 1e-4
-# Names the experiment directory together with the configuration. It stands for the task,
-# the simulated mouse and the design code, which the manifest records only as provenance.
+# Names the experiment directory together with the configuration. It stands for this module's
+# runner and design; the task and mouse have their own MODEL_VERSION, and the fit and loss
+# functions are hashed by source.
 # Bump when a change alters results; comments and refactors don't need a bump.
 ALGORITHM_VERSION = 1
 
@@ -61,23 +70,31 @@ def recovery_design(config):
 # ---------------------------------------------------------------------------
 
 
-def _function_name(function: Callable) -> str:
-    return f"{function.__module__}.{function.__qualname__}"
+def _function_source(function: Callable) -> str:
+    """Source text of a caller-supplied function; raise if it has none.
+
+    The fit and loss functions are inputs to the experiment, so redefining one (even in a
+    notebook's ``__main__``) must start a new experiment rather than reuse old results.
+    """
+    try:
+        return inspect.getsource(function)
+    except (OSError, TypeError) as error:
+        raise ValueError(
+            f"Cannot hash {function!r}: it has no retrievable source. Pass a function defined "
+            "in a file or notebook cell, not a callable object or a function built with exec."
+        ) from error
 
 
 def _build_manifest(
     config: dict, *, bounds: list, fit_function: Callable, loss_function: Callable
 ) -> tuple[dict, dict]:
-    """The identity of an experiment, and the source of the code that produced it.
+    """The identity of an experiment, and the source of this module's code.
 
-    The identity (algorithm version, config, bounds, at-bound tolerance and the names of the
-    fit and loss functions) names the experiment directory. The source text is provenance
-    only, so editing a helper does not start a new experiment; a change to the task, the
-    mouse or a fit that alters results needs an ALGORITHM_VERSION bump, and a different fit
-    or loss function is a different experiment.
-
-    Known issue: inspect.getsource needs plain functions, so a callable object passed as
-    fit_function or loss_function raises TypeError.
+    The identity (algorithm version, model versions, library versions, config, bounds,
+    at-bound tolerance and the source of the fit and loss functions) names the experiment
+    directory. This module's own source is provenance only, so editing a helper does not
+    start a new experiment; a change to the runner or design that alters results needs an
+    ALGORITHM_VERSION bump.
     """
     code = {
         "task": inspect.getsource(DriftingBanditTask),
@@ -85,16 +102,18 @@ def _build_manifest(
         "runner": inspect.getsource(run_recovery),
         "module": Path(__file__).read_text(),
         "design": inspect.getsource(recovery_design),
-        "fit": inspect.getsource(fit_function),
-        "loss": inspect.getsource(loss_function),
     }
     identity = dict(
         algorithm_version=ALGORITHM_VERSION,
+        model_versions=dict(
+            drifting_bandit=drifting_bandit.MODEL_VERSION, mouse_agents=mouse_agents.MODEL_VERSION
+        ),
+        versions=library_versions("numpy", "scipy"),
         config=config,
         bounds=bounds,
         at_bound_atol=_AT_BOUND_ATOL,
-        fit_function=_function_name(fit_function),
-        loss_function=_function_name(loss_function),
+        fit_source=_function_source(fit_function),
+        loss_source=_function_source(loss_function),
     )
     return identity, dict(code=code)
 
