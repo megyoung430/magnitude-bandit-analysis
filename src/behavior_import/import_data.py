@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -542,7 +543,11 @@ def group_by_subj_and_ses(tsv_files: list) -> dict:
         if not subject_id:
             print(f"[WARN] Skipping {tsv_path}: no subject_id parsed.")
             continue
-        session_num, session_date, session_key = create_session_key(tsv_path)
+        try:
+            session_num, session_date, session_key = create_session_key(tsv_path)
+        except UnnumberedSessionError as err:
+            warnings.warn(f"Skipping non-task session file: {err}", stacklevel=2)
+            continue
         file_ts = parse_file_timestamp(tsv_path, df)
         grouped.setdefault((subject_id, session_key), []).append((file_ts, tsv_path, df))
     # If there are multiple files for a session, sort each session's files chronologically
@@ -583,6 +588,9 @@ def create_subject_id(tsv_path) -> tuple:
     subject_key = f"sub-{subject_number}_id-{subject_id}"
     return subject_id, subject_number, subject_key
 
+class UnnumberedSessionError(ValueError):
+    """The file sits in a session folder whose label is not a number
+    (e.g. ses-test, ses-baseplating, ses-histology): not a task session."""
 
 def create_session_key(tsv_path) -> tuple:
     """Parse a standardised session key from a file path.
@@ -612,6 +620,11 @@ def create_session_key(tsv_path) -> tuple:
         if part.startswith("ses-") and "date-" in part:
             m = re.match(r"ses-(\d+)_date-(\d{8})", part)
             if m:
+                label = m.group(1)
+                if not label.isdigit():
+                    raise UnnumberedSessionError(
+                        f"{tsv_path} is in session folder 'ses-{label}', which has no number"
+                    )
                 session_num = int(m.group(1))
                 try:
                     session_date = datetime.strptime(m.group(2), "%Y%m%d")
