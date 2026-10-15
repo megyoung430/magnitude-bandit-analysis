@@ -41,3 +41,35 @@ status: in review
 - Any figure or table that uses `get_choice_probs_around_good_reversals` (also through `average_choice_probs`) changes only if some reversal lies within `pre` trials of the start of the data it was cut from; for those reversals the pre and post points move to the right offsets. Reversals with a full pre window are bit-identical.
 - Sample session (MY_72_L, reversals at 22/53/86, all with 10 pre trials): outputs are bit-identical to main for `(pre, post) = (10, 30)` and `(10, 40)`.
 - Synthetic sessions (gap 15-40, `pre=10`, `post=30`, 8 mice x 10 sessions): with the first boundary also 15-40 trials in, no pre window is short (0%) and curves are bit-identical; 61% of post windows are short (cut by the next boundary) and were already correct. If sessions may start mid-block (first boundary 1-40), 1.7% of reversals have a short pre window and the mean curves move by at most 0.010 (prev-best, at offset +2) and 0.006 (third).
+
+## Follow-up: shared alignment module and pre windows that stop at the previous block change
+
+`src/behavior_analysis/reversal_alignment.py` (public, no `_` names) now holds the pieces the choice-probability analysis and the reversal-aligned arm plots share:
+
+```
+keep_zero_then_skip(post_list, skip) -> list
+bin_offsets(*, pre, post, skip=0) -> ndarray            # -pre..-1, 0..post-skip-1; no skip shift
+true_trial_offsets(*, pre, post, skip=0) -> ndarray     # bin_offsets with bins >= 1 shifted by skip
+align_window_values(pre_values, post_values, *, pre, post, skip=0, truncate=False) -> ndarray
+window_indices(boundaries, k, n_trials, *, pre, post, block_changes=()) -> (pre_idx, post_idx)
+nan_moving_average(y, window, mode="centered") -> ndarray
+smooth_pre_post(y, pre_mask, window, mode="centered") -> ndarray
+```
+
+Decisions:
+
+- Offset convention: `true_trial_offsets` is the documented "trials from the reversal" axis. `get_choice_probs_around_good_reversals` keeps returning the unshifted `bin_offsets` as `x` (the plot adds `skip` back), so its figures are unchanged.
+- `align_window_values` raises on a window longer than the axis; `truncate=True` cuts instead (the choice-probability function keeps its truncating behaviour).
+- The private copies in `get_choice_probs_around_good_reversals.py` are deleted; `_window_indices` in `get_good_reversal_info.py` is replaced by `window_indices`.
+- Pre windows stop at the previous boundary or block change. The limit is built in `get_good_reversal_info` (which both the prev-ranked and the arm analyses read), so the `pre` lists, `choices_by_*` and `trial_window_idx` are all shortened, and the right-aligned rows leave the earlier bins NaN. "Block change" is every `num_blocks` increment (else every `blocks` change), so bad reversals count as well as the good-reversal boundaries.
+- Post windows already stop at the next boundary, so they cannot cross the next good reversal. They can still cross a bad reversal that is not a good-reversal boundary; `remove_trials_after_bad_rev` handles that and is opt-in in the pipeline, so it is left alone.
+- `get_bad_reversal_info` keeps its own `_window_indices` (not used by any aligned analysis).
+
+Results change (baseline: the commit before this follow-up):
+
+| Case | Pre windows shortened | Effect |
+|---|---|---|
+| Sample session, pre=10, post=30 or 40 | none (blocks of 31+ trials) | bit-identical |
+| Sample session, pre=35, post=30 | 3 of 3 (was 1 of 3) | prev-best pre bins up to 0.50 lower/higher; 2 earliest bins become NaN instead of block-before-last values; post bins identical |
+| Synthetic blocks of 4-12 trials, pre=10, post=30 | 71% (was 3%) | prev-best pre bins differ by up to 0.44 (mean 0.17), third by up to 0.20 (mean 0.07); post bins identical |
+| Synthetic gaps 15-40, pre=10, post=30 | 0% | bit-identical |

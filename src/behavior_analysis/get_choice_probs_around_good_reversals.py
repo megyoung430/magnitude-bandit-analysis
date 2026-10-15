@@ -17,6 +17,11 @@ from src.behavior_analysis.get_good_reversal_info import (
     classify_towers_at_good_reversals,
     exclude_best_unchanged,
 )
+from src.behavior_analysis.reversal_alignment import (
+    align_window_values,
+    bin_offsets,
+    smooth_pre_post,
+)
 from src.behavior_analysis.stats import nan_standard_error
 
 # Roles of the three towers around a good reversal, in the order returned by
@@ -30,55 +35,16 @@ _MEAN_KEYS = {role: f"{role}_mean" for role in _TOWER_ROLES}
 # ---------------------------------------------------------------------------
 
 
-def _keep_zero_then_skip(post_list: list, skip: int) -> list:
-    """Return *post_list* with index 0 kept and the next *skip* entries dropped.
-
-    Exactly *skip* trials are removed (indices ``1 .. skip``), so a full-length
-    list ends up with ``len(post_list) - skip`` entries, matching the x axis.
-    """
-    if skip <= 0:
-        return post_list
-    return post_list[:1] + post_list[skip + 1 :]
-
-
-def _right_aligned(values: Sequence[float], length: int) -> np.ndarray:
-    """Last *length* entries of *values* in a length-*length* row, NaN at the front.
-
-    The final entry always sits in the last slot, so a window cut short at the
-    start of the data keeps every trial at its true offset before the reversal.
-    """
-    out = np.full(length, np.nan, dtype=float)
-    kept = list(values)[len(values) - length :] if length > 0 else []
-    if kept:
-        out[length - len(kept) :] = kept
-    return out
-
-
-def _left_aligned(values: Sequence[float], length: int) -> np.ndarray:
-    """First *length* entries of *values* in a length-*length* row, NaN at the end."""
-    out = np.full(length, np.nan, dtype=float)
-    kept = list(values)[:length]
-    out[: len(kept)] = kept
-    return out
-
-
 def _reversal_choice_rows(
     reversal: dict, *, skip: int, pre: int, post: int
 ) -> dict[str, np.ndarray]:
     """One-hot choice row per tower role (pre + post window) for one reversal.
 
-    The pre segment is right-aligned (last pre trial at offset -1) and the post
-    segment left-aligned (reversal trial at offset 0), so each trial lands at its
-    true offset whatever the window lengths; missing positions are NaN.
-
     Args:
         reversal: A reversal dict from ``get_good_reversal_info``.
-        skip: Post trial 0 (the reversal trial) is kept and the next *skip*
-            post trials (``1 .. skip``) are dropped (see
-            :func:`_keep_zero_then_skip`).
+        skip: Post trials ``1 .. skip`` are dropped (see :func:`align_window_values`).
         pre: Number of pre-reversal bins; a longer window keeps its last *pre* trials.
-        post: Number of post-reversal trials before skipping; the row has
-            ``post - skip`` post bins and a longer window is truncated.
+        post: Post-reversal trials before skipping; a longer window is truncated.
 
     Returns:
         ``{role: 1-D float array of length pre + post - skip}`` for ``prev_best``,
@@ -87,11 +53,13 @@ def _reversal_choice_rows(
     towers = classify_towers_at_good_reversals(reversal)
     by_tower = reversal["choices_by_tower"]
     return {
-        role: np.concatenate(
-            [
-                _right_aligned(by_tower[tower]["pre"], pre),
-                _left_aligned(_keep_zero_then_skip(by_tower[tower]["post"], skip), post - skip),
-            ]
+        role: align_window_values(
+            by_tower[tower]["pre"],
+            by_tower[tower]["post"],
+            pre=pre,
+            post=post,
+            skip=skip,
+            truncate=True,
         )
         for role, tower in zip(_TOWER_ROLES, towers, strict=True)
     }
@@ -167,21 +135,6 @@ def _assert_probabilities_sum_to_one(
     assert np.isclose(finite_sums, 1.0, atol=1e-6).all(), f"{label} do not sum to 1 (finite bins)."
 
 
-def _trial_offsets(*, pre: int, post: int, skip: int) -> np.ndarray:
-    """Trial offsets ``[-pre, 0)`` followed by ``[0, post - skip)``.
-
-    Raises:
-        ValueError: If *skip* is negative or leaves no post window (``skip >= post``).
-    """
-    if skip < 0:
-        raise ValueError("skip_n_trials_after_reversal must be >= 0")
-    if skip >= post:
-        raise ValueError(
-            "skip_n_trials_after_reversal must be < post (otherwise post window is empty)."
-        )
-    return np.concatenate([np.arange(-pre, 0), np.arange(0, post - skip)])
-
-
 def get_choice_probs_around_good_reversals(
     reversal_windows, pre=10, post=40, skip_n_trials_after_reversal=0
 ):
@@ -230,7 +183,7 @@ def get_choice_probs_around_good_reversals(
             all finite time-bins.
     """
     skip = skip_n_trials_after_reversal
-    x = _trial_offsets(pre=pre, post=post, skip=skip)
+    x = bin_offsets(pre=pre, post=post, skip=skip)
 
     per_subject = {}
     for subj, reversals in reversal_windows.items():
@@ -255,62 +208,6 @@ def get_choice_probs_around_good_reversals(
 # ---------------------------------------------------------------------------
 # Moving-average smoothing
 # ---------------------------------------------------------------------------
-
-
-def _centered_window_sum(values: np.ndarray, kernel: np.ndarray) -> np.ndarray:
-    """Sliding sum of *kernel* width, centred, with the same length as *values*.
-
-    Equal to ``np.convolve(values, kernel, "same")`` when *values* is at least as
-    long as *kernel*; that call returns ``len(kernel)`` entries for a shorter
-    input, which would not fit the segment it is written back to.
-    """
-    start = (len(kernel) - 1) // 2
-    return np.convolve(values, kernel, mode="full")[start : start + len(values)]
-
-
-def _nan_moving_average(
-    y: Sequence[float], window: int | None, mode: str = "centered"
-) -> np.ndarray:
-    """Apply a NaN-aware moving average of *window* width to array *y*.
-
-    Each output bin is the mean of the finite values inside its window; bins
-    whose window holds no finite value are NaN.  ``mode="trailing"`` averages
-    the current and previous ``window - 1`` bins, anything else is centred.
-    A centred window of even width ``w`` covers bins ``[i - w/2, i + w/2 - 1]``
-    (two before and one after for ``w = 4``).
-    A *window* of ``None`` or ``<= 1`` returns *y* as a float array.
-    """
-    y = np.asarray(y, dtype=float)
-    if window is None or window <= 1:
-        return y
-
-    valid = np.isfinite(y).astype(float)
-    y0 = np.nan_to_num(y, nan=0.0)
-    kernel = np.ones(int(window), dtype=float)
-
-    if mode == "trailing":
-        num = np.convolve(y0, kernel, mode="full")[: len(y0)]
-        den = np.convolve(valid, kernel, mode="full")[: len(y0)]
-    else:
-        num = _centered_window_sum(y0, kernel)
-        den = _centered_window_sum(valid, kernel)
-
-    out = np.full_like(y0, np.nan, dtype=float)
-    has_data = den > 0
-    out[has_data] = num[has_data] / den[has_data]
-    return out
-
-
-def _smooth_pre_post(
-    y: Sequence[float], pre_mask: np.ndarray, window: int | None, mode: str = "centered"
-) -> np.ndarray:
-    """Smooth *y* separately on the ``pre_mask`` and ``~pre_mask`` segments."""
-    y = np.asarray(y, dtype=float)
-    out = np.full_like(y, np.nan, dtype=float)
-    for segment in (pre_mask, ~pre_mask):
-        if segment.any():
-            out[segment] = _nan_moving_average(y[segment], window, mode=mode)
-    return out
 
 
 def _add_smoothed_means(
@@ -393,7 +290,7 @@ def apply_moving_average_to_choice_probs(
         with the same structure as :func:`get_choice_probs_around_good_reversals`
         but with smoothed means.
     """
-    smooth = partial(_smooth_pre_post, pre_mask=x < split_at, window=moving_avg_window, mode=mode)
+    smooth = partial(smooth_pre_post, pre_mask=x < split_at, window=moving_avg_window, mode=mode)
     per_subject_moving_avg = {
         subj: _add_smoothed_means(curves, use_keys, out_keys, smooth)
         for subj, curves in per_subject.items()

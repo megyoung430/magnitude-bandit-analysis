@@ -67,16 +67,6 @@ def test_find_boundaries_priority(fields, any_good, expected):
     assert mod._find_boundaries(series(**fields), any_good) == expected
 
 
-def test_window_indices_clip_to_next_boundary_and_trial_count():
-    # post=None runs to the next boundary; the last boundary runs to n_trials.
-    assert mod._window_indices([3, 6], 0, 10, pre=2, post=None) == ([1, 2], [3, 4, 5])
-    assert mod._window_indices([3, 6], 1, 10, pre=5, post=None) == ([1, 2, 3, 4, 5], [6, 7, 8, 9])
-    # an explicit post is clipped by both the next boundary and the trial count.
-    assert mod._window_indices([3, 6], 0, 10, pre=0, post=2) == ([], [3, 4])
-    assert mod._window_indices([3, 6], 0, 10, pre=1, post=100) == ([2], [3, 4, 5])
-    assert mod._window_indices([3, 6], 1, 8, pre=1, post=100) == ([5], [6, 7])
-
-
 def test_slice_choices_drops_indices_past_array_end():
     sliced = mod._slice_choices({"A": [0, 1, 0], "B": []}, [1, 2], [2, 3, 4])
     assert sliced == {"A": {"pre": [1, 0], "post": [0]}, "B": {"pre": [], "post": []}}
@@ -603,3 +593,16 @@ def test_subject_with_no_reversal_counters_still_uses_block_changes():
         warnings.simplefilter("error")
         (rev,) = mod.get_good_reversal_info({"m": {"ses-1": legacy_session()}}, pre=1)["m"]
     assert rev["boundary_source"] == "blocks" and rev["reversal_idx"] == 5
+
+
+def test_pre_window_stops_at_the_previous_block_change():
+    # Reversals at 4 and 7 make a 3-trial block; pre=6 must not reach back into the block before it.
+    a = [4] * 4 + [0] * 3 + [4] * 7
+    b = [0] * 4 + [4] * 3 + [0] * 7
+    rewards = {"A": a, "B": b, "C": [1] * 14}
+    sess = make_session(14, good=[0] * 4 + [1] * 3 + [2] * 7, rewards=rewards)
+    first, last = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=6, post=4)["m"]
+    assert first["trial_window_idx"]["pre"] == [0, 1, 2, 3]
+    assert last["trial_window_idx"]["pre"] == [4, 5, 6]
+    assert last["choices_by_tower"]["A"]["pre"] == [104, 105, 106]
+    assert last["trial_window_idx"]["post"] == [7, 8, 9, 10]

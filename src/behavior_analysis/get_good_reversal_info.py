@@ -15,6 +15,7 @@ from pathlib import PurePath
 from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.reversal_alignment import window_indices
 from src.behavior_analysis.reversal_format import check_formats_agree
 from src.behavior_analysis.suspect_reversals import good_event_counts
 from src.behavior_import.session_order import ordered_session_keys
@@ -194,15 +195,13 @@ def _block_id_at(blocks, idx):
     return blocks[idx] if idx < len(blocks) else None
 
 
-def _window_indices(boundaries, k, n_trials, *, pre, post):
-    """Absolute ``(pre_idx, post_idx)`` trial indices around boundary number *k*.
-
-    The post-window never extends past the next boundary (or the last trial).
-    """
-    idx = boundaries[k]
-    next_boundary = boundaries[k + 1] if k + 1 < len(boundaries) else n_trials
-    post_end = next_boundary if post is None else min(n_trials, idx + post, next_boundary)
-    return list(range(max(0, idx - pre), idx)), list(range(idx, post_end))
+def _block_change_indices(series):
+    """Every block change of the session (good or bad reversals), from the best available series."""
+    if len(series.num_blocks) >= 2:
+        return find_increment_indices(series.num_blocks)
+    if len(series.blocks) >= 2:
+        return _find_change_indices(series.blocks)
+    return []
 
 
 def _slice_choices(choices, pre_idx, post_idx):
@@ -370,6 +369,7 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
     if include_first_block:
         boundaries = [0] + boundaries
 
+    block_changes = _block_change_indices(series)
     events = _events_at(spans)
     reversals, dropped = [], []
     for k, idx in enumerate(boundaries):
@@ -406,7 +406,9 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
             continue
         # Windows come from the full boundary list, so a kept reversal's post-window
         # still stops at a neighbouring boundary that was skipped, masked or dropped.
-        pre_idx, post_idx = _window_indices(boundaries, k, n_trials, pre=pre, post=post)
+        pre_idx, post_idx = window_indices(
+            boundaries, k, n_trials, pre=pre, post=post, block_changes=block_changes
+        )
         reversals.append(
             _build_reversal(
                 series,
