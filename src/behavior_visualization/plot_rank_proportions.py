@@ -29,8 +29,9 @@ from matplotlib.lines import Line2D
 from src.behavior_analysis import rank_proportions as _summary
 from src.behavior_visualization import plot_helpers as _helpers
 
-# Notebooks star-import this module and expect MOUSE_COLORS from it.
-from src.behavior_visualization.plot_style import MOUSE_COLORS  # noqa: F401
+# Read at call time (not copied): notebooks reassign this module's MOUSE_COLORS to extend the
+# palette, and they star-import it.
+from src.behavior_visualization.plot_style import MOUSE_COLORS
 
 BLOCK_COLORS = [
     "#1B9E77",
@@ -234,7 +235,7 @@ def plot_average_across_mice(
         _draw_line(
             ax,
             [v[rank] for rank in _summary.RANKS],
-            _helpers.palette_color(i),
+            _helpers.palette_color(i, MOUSE_COLORS),
             subj,
             **_MOUSE_LINES,
         )
@@ -352,7 +353,7 @@ def plot_block_panel(
         _draw_line(
             ax,
             _summary.row_props(rows[block_idx]),
-            _helpers.palette_color(si),
+            _helpers.palette_color(si, MOUSE_COLORS),
             _block_legend_label(subject, rows[block_idx]),
             **_BLOCK_PANEL_LINES,
         )
@@ -427,6 +428,9 @@ def plot_rank_proportions_average(
     )
     plot_average_across_blocks(rank_counts_by_good_reversal, ax=axes[1])
     fig.tight_layout()
+    if save_path and not isinstance(save_path, str):
+        plt.close(fig)
+        raise TypeError(f"save_path must be a str, got {save_path!r}")
     _helpers.save_or_show(fig, save_path or None, make_parent=False)
 
 

@@ -177,10 +177,29 @@ def test_save_or_show_without_make_parent_needs_an_existing_folder(capture, tmp_
     assert not (tmp_path / "missing").exists() and plt.get_fignums() == []
 
 
-def test_save_or_show_without_make_parent_needs_a_str_path(capture, tmp_path):
-    with pytest.raises(TypeError, match="must be a str"):
-        save_or_show(small_figure(), tmp_path / "Fig", make_parent=False)
-    assert capture.saved == [] and plt.get_fignums() == []
+def test_save_or_show_without_make_parent_uses_the_path_as_given(capture, tmp_path):
+    save_or_show(small_figure(), tmp_path / "Fig", make_parent=False)
+    assert capture.saved_names() == ["Fig.pdf", "Fig.png"]
+
+
+def test_palette_color_uses_the_palette_it_is_given():
+    assert palette_color(3, ["#111111", "#222222"]) == "#222222"
+
+
+def test_a_pre_existing_figure_closed_during_consumption_does_not_hide_a_builders_figure(
+    capture, tmp_path
+):
+    bystander = small_figure()
+
+    def outputs():
+        yield from ()  # makes this a generator, consumed lazily by write_outputs
+        plt.close(bystander)  # frees the bystander's figure number for reuse
+        small_figure()  # a builder's figure that reuses that number, then it raises
+        raise KeyError("boom")
+
+    with pytest.raises(KeyError):
+        write_outputs(outputs(), tmp_path, show=False)
+    assert plt.get_fignums() == []
 
 
 def test_save_or_show_closes_the_figure_when_saving_raises(monkeypatch, tmp_path):

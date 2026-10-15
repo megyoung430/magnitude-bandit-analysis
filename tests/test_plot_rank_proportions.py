@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from matplotlib.colors import to_hex, to_rgba
 
+from src.behavior_visualization import plot_rank_proportions as rank_module
 from src.behavior_visualization.plot_rank_proportions import (
     _MOUSE_PANEL_BAR_STYLE,
     BLOCK_COLORS,
@@ -602,3 +603,17 @@ def test_star_import_exposes_plot_functions_but_not_drawing_constants():
         not {"X", "RANK_LABELS", "BAR_WIDTH", "Y_LIMITS", "BAR_STYLE", "MOUSE_LINES", "RANKS"}
         & public
     )
+
+
+# ---- a notebook may replace the module's palette -----------------------------------
+
+
+def test_replacing_the_module_palette_changes_the_mouse_line_colours(counts, monkeypatch):
+    palette = ["#010101", "#020202", "#030303"]
+    monkeypatch.setattr(rank_module, "MOUSE_COLORS", palette)
+    _, ax = plt.subplots()
+    plot_average_across_mice(counts, ax=ax)
+    assert [to_hex(line.get_color()) for line in data_lines(ax)] == palette
+    _, ax = plt.subplots()
+    plot_block_panel(counts, 0, ax=ax)
+    assert [to_hex(line.get_color()) for line in data_lines(ax)] == palette

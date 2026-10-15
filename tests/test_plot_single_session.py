@@ -314,3 +314,13 @@ def test_drawing_emits_no_layout_warning(session, draw):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         draw(session, choice_probabilities_by_tower={t: [1 / 3] * 12 for t in TOWERS})
+
+
+def test_an_empty_save_path_shows_the_figure_instead_of_writing_files(
+    session, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(plt.gcf()))
+    plot_single_session(session, save_path="")
+    assert len(shown) == 1 and list(tmp_path.iterdir()) == [] and plt.get_fignums() == []

@@ -204,5 +204,4 @@ def plot_choice_probs_with_fraction_removed_axis(
     )
     fig = ax.figure
     fig.tight_layout()
-    # Unlike the other plots, only None means "show": an empty save_path is used as a path.
-    save_or_show(fig, save_path)
+    save_or_show(fig, save_path or None)  # an empty path means "show"

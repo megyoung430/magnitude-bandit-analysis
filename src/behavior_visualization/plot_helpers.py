@@ -7,7 +7,7 @@ saving raises; figures passed in through ``ax=`` belong to the caller and are ne
 closed here.
 """
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from types import MappingProxyType
@@ -16,6 +16,7 @@ from typing import NamedTuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib._pylab_helpers import Gcf
 
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 
@@ -23,9 +24,14 @@ from src.behavior_visualization.plot_style import MOUSE_COLORS
 DEFAULT_DPI = MappingProxyType({"png": 300})
 
 
-def palette_color(index: int) -> str:
-    """Palette colour for the *index*-th item, cycling past the end of the palette."""
-    return MOUSE_COLORS[index % len(MOUSE_COLORS)]
+def palette_color(index: int, palette: Sequence[str] | None = None) -> str:
+    """Colour of the *index*-th item, cycling past the end of *palette* (default: ``MOUSE_COLORS``).
+
+    A module whose palette a notebook may replace passes its own module-level palette
+    here, looked up at call time.
+    """
+    palette = MOUSE_COLORS if palette is None else palette
+    return palette[index % len(palette)]
 
 
 def mouse_color_map(mice: Iterable[str]) -> dict[str, str]:
@@ -96,22 +102,16 @@ def save_or_show(
     (saved as ``<save_path><suffix>.<format>``). With no path they are all shown together,
     in a single ``plt.show()``. Every figure is closed afterwards, also when saving
     raises. With ``make_parent=False`` the parent directory must already exist and
-    *save_path* must be a ``str``, used as given.
+    *save_path* is used as given.
     """
     named = {"": figures} if isinstance(figures, plt.Figure) else dict(figures)
     try:
         if save_path is None:
             plt.show()
         else:
+            base = Path(save_path) if make_parent else save_path
             if make_parent:
-                base = Path(save_path)
                 base.parent.mkdir(parents=True, exist_ok=True)
-            elif isinstance(save_path, str):
-                base = save_path
-            else:
-                raise TypeError(
-                    f"save_path must be a str with make_parent=False, got {save_path!r}"
-                )
             for suffix, fig in named.items():
                 _write_figure_files(fig, f"{base}{suffix}", formats, dpi)
     finally:
@@ -134,6 +134,11 @@ class FigureOutput(NamedTuple):
     figure: plt.Figure
 
 
+def _open_figures() -> set[plt.Figure]:
+    """The figure objects pyplot currently holds open (by identity, not by number)."""
+    return {manager.canvas.figure for manager in Gcf.get_all_fig_managers()}
+
+
 def write_outputs(
     outputs: Iterable[TableOutput | FigureOutput], directory: Path, *, show: bool
 ) -> list[Path]:
@@ -143,13 +148,13 @@ def write_outputs(
     output is built, so the builders do no file I/O and this is the only place that
     touches the disk. If anything raises part-way, the files written so far are kept
     and every figure opened while *outputs* was being consumed is closed (a builder
-    that raises cannot hand back its unfinished figure, so it is found by number).
+    that raises cannot hand back its unfinished figure, so it is found in pyplot).
     Figures that were already open beforehand are left alone.
 
     Returns:
         The saved figure paths, PNG then PDF for each figure.
     """
-    already_open = set(plt.get_fignums())
+    already_open = _open_figures()
     paths: list[Path] = []
     try:
         for output in outputs:
@@ -162,8 +167,8 @@ def write_outputs(
                     f"expected TableOutput or FigureOutput, got {type(output).__name__}"
                 )
     except BaseException:
-        for number in set(plt.get_fignums()) - already_open:
-            plt.close(number)
+        for fig in _open_figures() - already_open:
+            plt.close(fig)
         raise
     return paths
 

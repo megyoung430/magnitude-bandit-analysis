@@ -12,6 +12,7 @@ functions compose those panels into the standard figures and save them.
 """
 
 import math
+from pathlib import Path  # noqa: F401  # public to star-importing notebooks
 
 import matplotlib.pyplot as plt
 import numpy as np

@@ -20,6 +20,9 @@ from src.behavior_visualization.plot_helpers import (
     save_or_show,
 )
 
+# Notebooks star-import this module and expect MOUSE_COLORS from it.
+from src.behavior_visualization.plot_style import MOUSE_COLORS  # noqa: F401
+
 _LABELS = ["New Best", "Third Arm"]
 _BAR_COLOR = "#999999"
 _JITTER = 0.03

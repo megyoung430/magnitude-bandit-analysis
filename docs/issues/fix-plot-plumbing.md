@@ -25,7 +25,9 @@ All in `src/behavior_visualization/plot_helpers.py`:
 - `axes_or_new(ax, **subplots_kwargs)`: context manager for panel functions; yields `ax`, or a new figure's axes that is closed if the body raises.
 - `palette_color` / `mouse_color_map` (the one colour helper), `despine`, and `jittered(xs, half_width)` (global `np.random` stream, as before).
 
-`plot_rank_proportions_average` keeps its documented quirks (a `str` path in an existing folder): `make_parent=False` requires a `str` and raises `TypeError` otherwise.
+`save_or_show(make_parent=False)` is general (the path is used as given, any type). `plot_rank_proportions_average` keeps its documented quirk (a `str` path in an existing folder) itself: it closes its figure and raises `TypeError` for a non-`str` path.
+
+`palette_color(index, palette=None)` takes an optional palette. `plot_rank_proportions` passes its module-level `MOUSE_COLORS`, looked up at call time, because `scripts/session_behav_funcimg_trial_summary.ipynb` replaces it through `plot_rank_proportions.__globals__["MOUSE_COLORS"]` to extend the palette (the only notebook that patches a module palette). Names that notebooks star-import (`MOUSE_COLORS`, `Path`) stay importable from the figure modules.
 
 ## Acceptance criteria
 
@@ -51,6 +53,8 @@ No numbers change. Figure content, file names, dpi and bbox are identical. Diffe
 | Figures left open after drawing or saving raises (created in the function) | 1 or more | 0 |
 | `plot_num_pokes_across_mice(save_path=<missing folder>/x)` | `FileNotFoundError` | folder created, files saved |
 | First-leave plot with 17 subjects | `IndexError` | palette cycles |
+| `save_path` with a trailing slash, e.g. `plot_num_pokes_across_mice(..., "out/")` | wrote `out/.pdf` and `out/.png` | writes `out.pdf` and `out.png` (the path is normalised through `Path`) |
+| `save_path=""` in `plot_metric_by_problem`, `plot_problem_lengths`, the problem-summary rank figures and `plot_choice_probs_with_fraction_removed_axis` | wrote `.pdf` and `.png` into the working directory | shows the figure, as every other wrapper already did |
 
 Sample data (`data/3x3_field_blocked_reward_bandit/cohort-01/rawdata`, one mouse, one session): `plot_num_reversals`, `plot_num_reversals_over_time`, `plot_moving_avg_reversals_over_time` (with their by-trial companions) and `plot_single_session` wrote 20 files; all 20 are byte-identical on `main` and here. The sample does not exercise the bugs (it saves, never raises, and uses no cumulative-axis choice-probability figure), so only the identical-output claim is shown on it.
 

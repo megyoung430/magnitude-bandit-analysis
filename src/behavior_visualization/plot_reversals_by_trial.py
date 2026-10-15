@@ -1,6 +1,7 @@
 """Trial-based companion figures for the session-based reversal plots."""
 
 import math
+from pathlib import Path  # noqa: F401  # public to star-importing notebooks
 
 import matplotlib.pyplot as plt
 import numpy as np
