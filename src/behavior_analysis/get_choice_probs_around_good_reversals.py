@@ -85,18 +85,14 @@ def _summarize_subject(matrices: dict[str, np.ndarray]) -> dict:
     return summary
 
 
-def _mean_and_se(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def mean_and_se(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """NaN-aware column mean and standard error of a ``(n_rows, n_bins)`` stack.
 
     The standard error is the sample SD (``ddof=1``) over the non-NaN rows of a
     bin divided by the square root of their number, and NaN in bins with fewer
-    than two such rows.  It is zero when there is a single row.
+    than two such rows (so always NaN for a single row).
     """
-    n_rows, n_bins = stack.shape
-    mean = np.nanmean(stack, axis=0)
-    if n_rows > 1:
-        return mean, nan_standard_error(stack)
-    return mean, np.zeros(n_bins)
+    return np.nanmean(stack, axis=0), nan_standard_error(stack)
 
 
 def nan_standard_error(stack: np.ndarray) -> np.ndarray:
@@ -107,7 +103,9 @@ def nan_standard_error(stack: np.ndarray) -> np.ndarray:
     n_valid = np.sum(~np.isnan(stack), axis=0)
     with warnings.catch_warnings():
         # nanstd warns for columns with < 2 values; those columns are set to NaN below.
-        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.filterwarnings(
+            "ignore", message="Degrees of freedom <= 0", category=RuntimeWarning
+        )
         se = np.nanstd(stack, axis=0, ddof=1) / np.sqrt(n_valid)
     return np.where(n_valid >= 2, se, np.nan)
 
@@ -125,7 +123,7 @@ def _across_subject_curves(per_subject: dict[str, dict], keys_by_role: dict[str,
     across = {"mean": {}, "se": {}}
     for role, key in keys_by_role.items():
         stack = np.vstack([curves[key] for curves in per_subject.values()])
-        across["mean"][role], across["se"][role] = _mean_and_se(stack)
+        across["mean"][role], across["se"][role] = mean_and_se(stack)
     across["num_subjects"] = len(per_subject)
     # Curves supplied without a count (e.g. hand-built dicts) contribute 0 reversals.
     across["num_reversals"] = sum(curves.get("num_reversals", 0) for curves in per_subject.values())
@@ -191,7 +189,9 @@ def get_choice_probs_around_good_reversals(
         A three-tuple ``(x, per_subject, across)`` where:
 
         - ``x`` – 1-D int array of trial offsets, length
-          ``pre + (post - skip_n_trials_after_reversal)``.
+          ``pre + (post - skip_n_trials_after_reversal)``.  With a skip
+          ``k > 0``, post bin ``i >= 1`` holds trial ``i + k`` after the
+          reversal (the plotting layer adds ``k`` back to the axis).
         - ``per_subject[subj]`` – dict with keys ``"prev_best"``,
           ``"next_best"``, ``"third"`` (raw matrices), ``"prev_best_mean"``,
           ``"next_best_mean"``, ``"third_mean"`` (per-subject means), and
@@ -347,8 +347,10 @@ def apply_moving_average_to_choice_probs(
             the convolution kernel is centred or trailing.  An even centred
             window of width ``w`` covers bins ``[i - w/2, i + w/2 - 1]`` (for
             ``w = 4``: two before, one after).  A centred window longer than
-            the pre or post segment is averaged over every finite bin of
-            that segment.
+            the pre or post segment is truncated at the segment edges:
+            each bin averages the finite bins of its window that lie inside
+            the segment (the whole segment only once ``w >= 2n - 1`` for a
+            segment of ``n`` bins).
         use_keys: Exactly three source keys in each subject dict, one per
             tower role in the order prev-best, next-best, third (default:
             ``("prev_best_mean", "next_best_mean", "third_mean")``).  Subjects

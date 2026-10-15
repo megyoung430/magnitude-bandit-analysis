@@ -104,30 +104,38 @@ def _session_trial_variables(tv_list):
     return tv_list[0] if len(tv_list) == 1 else merge_trial_variables(tv_list)
 
 
+def _check_equal_lengths(tv):
+    """Raise ValueError unless the three per-trial lists of one recording are equally long."""
+    lengths = (
+        len(tv.get("reward_magnitudes", [])),
+        len(tv.get("chosen_rank", [])),
+        len(tv.get("choice", [])),
+    )
+    if len(set(lengths)) > 1:
+        raise ValueError(
+            "trial lists differ in length: "
+            f"reward_magnitudes={lengths[0]}, chosen_rank={lengths[1]}, choice={lengths[2]}"
+        )
+
+
 def _session_trial_lists(sess):
     """``(reward_magnitudes, chosen_ranks, choices)`` over all recordings, or ``None``.
 
     ``None`` when the session has no trial variables or no trials.
 
     Raises:
-        ValueError: If the three lists differ in length.
+        ValueError: If the three lists of any recording differ in length.
     """
     tv_list = sess.get("trial_variables", [])
     if not tv_list:
         return None
+    for tv in tv_list:  # per recording: equal totals could hide misaligned recordings
+        _check_equal_lengths(tv)
     tv = _session_trial_variables(tv_list)
     reward_magnitudes = tv.get("reward_magnitudes", [])
-    chosen_ranks = tv.get("chosen_rank", [])
-    choices = tv.get("choice", [])
-    lengths = (len(reward_magnitudes), len(chosen_ranks), len(choices))
-    if len(set(lengths)) > 1:
-        raise ValueError(
-            "trial lists differ in length: "
-            f"reward_magnitudes={lengths[0]}, chosen_rank={lengths[1]}, choice={lengths[2]}"
-        )
-    if lengths[0] == 0:
+    if len(reward_magnitudes) == 0:
         return None
-    return reward_magnitudes, chosen_ranks, choices
+    return reward_magnitudes, tv.get("chosen_rank", []), tv.get("choice", [])
 
 
 def _session_contributions(sess, *, use_believed):

@@ -91,11 +91,11 @@ def test_num_problems_is_zero_when_no_problem_has_a_curve():
     assert avg["num_problems"] == 0 and avg["problems_used"] == []
 
 
-def test_average_single_problem_has_zero_se():
+def test_average_single_problem_has_nan_se():
     _, avg = average_across_problem_curves(
         {7: problem_curve([0.6, 0.5, 0.4], [0.3, 0.3, 0.3], [0.1, 0.2, 0.3], {"a"}, 2)}
     )
-    np.testing.assert_array_equal(avg["se"]["third"], np.zeros(3))
+    assert np.isnan(avg["se"]["third"]).all()
     np.testing.assert_allclose(avg["mean"]["third"], [0.1, 0.2, 0.3])
 
 
@@ -328,3 +328,57 @@ def test_fraction_removed_skips_problems_without_curves_or_windows():
 def test_fraction_removed_is_all_nan_when_no_problem_contributes():
     frac, used = fraction_removed_by_problem({1: {}}, {1: {"across": {}}}, FX)
     assert used == [] and np.isnan(frac).all() and frac.shape == FX.shape
+
+
+# ---------------------------------------------------------------- problems that contribute
+
+
+def test_totals_and_problem_count_cover_only_the_contributing_problems(three_problems):
+    three_problems[2]["across"]["mean"] = {}  # problem 2 (subject "a", no reversals) has no curve
+    three_problems[3]["across"]["mean"] = {"prev_best": [0.6, 0.5, 0.4]}
+    del three_problems[3]["subjects"]
+    three_problems[3]["subjects"] = {"d"}
+    _, avg = average_across_problem_curves(three_problems)
+    assert avg["problems_used"] == [1, 3]
+    assert avg["num_subjects"] == 3  # b, c from problem 1 and d from problem 3; "a" is not counted
+    assert avg["num_reversals"] == 9  # 4 + 5
+
+
+def test_a_problem_whose_curves_are_entirely_nan_is_not_used(three_problems):
+    three_problems[2]["across"]["mean"] = {
+        k: [NAN] * 3 for k in ("prev_best", "next_best", "third")
+    }
+    _, avg = average_across_problem_curves(three_problems)
+    assert avg["problems_used"] == [1, 3]
+    assert avg["num_problems"] == 2
+    assert avg["num_reversals"] == 9
+    assert avg["num_subjects"] == 3  # a, b, c from problems 1 and 3
+
+
+def test_a_problem_supplying_only_next_best_counts_as_used():
+    curves = {
+        1: problem_curve([0.5] * 3, [0.3] * 3, [0.2] * 3, {"a"}, 1),
+        2: problem_curve([0.5] * 3, [0.3] * 3, [0.2] * 3, {"b"}, 1),
+    }
+    curves[2]["across"]["mean"] = {"next_best": [0.1, 0.2, 0.3]}
+    _, avg = average_across_problem_curves(curves)
+    assert avg["problems_used"] == [1, 2] and avg["num_problems"] == 2
+    curves[2]["across"]["mean"] = {"third": [0.1, 0.2, 0.3]}
+    _, avg = average_across_problem_curves(curves)
+    assert avg["problems_used"] == [1, 2]
+    np.testing.assert_allclose(avg["mean"]["third"], [0.15, 0.2, 0.25])
+
+
+# ---------------------------------------------------------------- mean without an SE band
+
+
+def test_mean_line_is_drawn_where_the_se_is_nan_and_only_the_band_is_left_out():
+    se = {k: np.array([NAN, 0.05, 0.05, NAN, NAN]) for k in ACROSS["se"]}
+    across = {**ACROSS, "se": se}
+    fig, ax = plt.subplots()
+    module._plot_choice_curves(ax, AX, across)
+    (line,) = lines_by_label(ax, "Previous Best")
+    np.testing.assert_array_equal(line.get_xdata(), AX)  # every finite mean is drawn
+    band_x = ax.collections[0].get_paths()[0].vertices[:, 0]
+    assert band_x.min() == -1 and band_x.max() == 0  # only the two bins with a finite SE
+    plt.close(fig)

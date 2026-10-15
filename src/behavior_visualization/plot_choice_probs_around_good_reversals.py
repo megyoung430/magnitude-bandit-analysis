@@ -75,13 +75,16 @@ def _draw_choice_curves(ax: plt.Axes, x_disp, across: dict, xlim, ylim) -> None:
         y = np.asarray(y, dtype=float)
         s = np.asarray(s, dtype=float)
 
-        m = np.isfinite(x_disp) & np.isfinite(y) & np.isfinite(s)
+        m = np.isfinite(x_disp) & np.isfinite(y)
         m &= (x_disp >= xlim[0]) & (x_disp <= xlim[1])
         if not np.any(m):
             continue
 
         ax.plot(x_disp[m], y[m], linewidth=2, color=COLOR_MAP[key], label=label)
-        ax.fill_between(x_disp, y - s, y + s, where=m, alpha=0.2, color=COLOR_MAP[key])
+        # the band is left out where the SE is undefined; the mean line stays
+        ax.fill_between(
+            x_disp, y - s, y + s, where=m & np.isfinite(s), alpha=0.2, color=COLOR_MAP[key]
+        )
 
     ax.axvline(0, color="black", linestyle="--", linewidth=1)
     ax.axhline(1 / 3, color="gray", linestyle=":", linewidth=1)

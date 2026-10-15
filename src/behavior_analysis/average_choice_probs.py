@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.behavior_analysis.get_choice_probs_around_good_reversals import nan_standard_error
+from src.behavior_analysis.get_choice_probs_around_good_reversals import mean_and_se
 
 # The three choice-probability curves computed around each good reversal.
 CHOICE_KEYS = ("prev_best", "next_best", "third")
@@ -28,20 +28,10 @@ def _check_same_x(curves_by_problem: dict, probs: list) -> np.ndarray:
 
 
 def _problem_means(curves_by_problem: dict, probs: list, key: str) -> dict:
-    """``{problem: mean curve for key}`` for the problems that have *key*."""
+    """``{problem: mean curve for key}`` for the problems with at least one finite value."""
     means = {p: curves_by_problem[p]["across"]["mean"].get(key) for p in probs}
-    return {p: np.asarray(y, dtype=float) for p, y in means.items() if y is not None}
-
-
-def _mean_and_se_over_problems(stacked: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """NaN-aware mean and standard error across the rows (problems) of *stacked*.
-
-    The SE uses the number of non-NaN problems at each offset (NaN with fewer than
-    two) and is zero for a single problem.
-    """
-    mean = np.nanmean(stacked, axis=0)
-    se = nan_standard_error(stacked) if stacked.shape[0] > 1 else np.zeros_like(mean)
-    return mean, se
+    curves = {p: np.asarray(y, dtype=float) for p, y in means.items() if y is not None}
+    return {p: y for p, y in curves.items() if np.isfinite(y).any()}
 
 
 def _problem_totals(curves_by_problem: dict, probs: list) -> tuple[int, int]:
@@ -69,8 +59,8 @@ def compute_curve_from_windows(
         reversal_windows: ``{subject: list[reversal_dict]}`` for one problem.
         pre: Number of trials before the reversal to include.
         post: Number of trials after the reversal to include.
-        skip_n: Number of trials immediately after the reversal to mark as
-            missing (default: 0).
+        skip_n: Number of post-reversal trials, after the reversal trial itself,
+            that are left out of the curves (default: 0).
         do_moving_avg: If ``True``, apply a centred moving average to the
             curves (default: False).
         moving_avg_window: Window size for the moving average (default: 4).
@@ -155,8 +145,9 @@ def average_across_problem_curves(curves_by_problem: dict) -> tuple:
     Returns:
         ``(x, across_avg)`` where *across_avg* contains keys
         ``"mean"``, ``"se"``, ``"num_subjects"``, ``"num_reversals"``,
-        ``"num_problems"``, and ``"problems_used"`` (only the problems that
-        supplied at least one curve).
+        ``"num_problems"``, and ``"problems_used"``.  Only problems with
+        at least one finite mean value count as used, and the subject and
+        reversal totals are taken over those problems.
 
     Raises:
         ValueError: If *curves_by_problem* is empty or if the x-arrays do not
@@ -177,10 +168,10 @@ def average_across_problem_curves(curves_by_problem: dict) -> tuple:
             mean_out[key] = se_out[key] = None
         else:
             stacked = np.vstack(list(means.values()))
-            mean_out[key], se_out[key] = _mean_and_se_over_problems(stacked)
+            mean_out[key], se_out[key] = mean_and_se(stacked)
     problems_used = [p for p in probs if p in contributing]
 
-    num_subjects, num_reversals = _problem_totals(curves_by_problem, probs)
+    num_subjects, num_reversals = _problem_totals(curves_by_problem, problems_used)
     across_avg = {
         "mean": mean_out,
         "se": se_out,

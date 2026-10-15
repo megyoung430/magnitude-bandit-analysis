@@ -350,3 +350,12 @@ def test_png_is_saved_at_300_dpi(shown, across, tmp_path):
     )
     with Image.open(tmp_path / "fig.png") as img:
         assert round(img.info["dpi"][0]) == 300
+
+
+def test_mean_line_is_drawn_where_the_se_is_nan_and_only_the_band_is_left_out(across):
+    across["se"]["prev_best"] = np.where((X >= 0) & (X < 3), 0.05, np.nan)
+    ax = plot_choice_probs(X, across)
+    line = next(ln for ln in ax.lines if ln.get_label() == "Previous Best")
+    np.testing.assert_array_equal(line.get_xdata(), X)  # all means are finite
+    band_x = ax.collections[0].get_paths()[0].vertices[:, 0]
+    assert band_x.min() == 0 and band_x.max() == 2  # the band covers only the finite SEs

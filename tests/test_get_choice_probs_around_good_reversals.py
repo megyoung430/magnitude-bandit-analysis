@@ -119,10 +119,11 @@ def test_get_choice_probs_truncates_long_post_windows_to_the_axis():
 
 
 @pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
-def test_get_choice_probs_se_is_zero_for_one_subject_and_sample_sd_over_rows_otherwise():
+def test_get_choice_probs_se_is_nan_for_one_subject_and_sample_sd_over_rows_otherwise():
     one = {"m1": [make_reversal(10, ["A"], ["B", "B"])]}
     _, _, across = get_choice_probs_around_good_reversals(one, pre=1, post=2)
-    np.testing.assert_array_equal(across["se"]["next_best"], [0, 0, 0])
+    assert np.isnan(across["se"]["next_best"]).all()
+    np.testing.assert_allclose(across["mean"]["next_best"], [0, 1, 1])
 
     # next-best last bin across subjects: 1, 0 and a truncated (NaN) third subject
     three = {
@@ -132,7 +133,7 @@ def test_get_choice_probs_se_is_zero_for_one_subject_and_sample_sd_over_rows_oth
     }
     _, _, across = get_choice_probs_around_good_reversals(three, pre=1, post=2)
     np.testing.assert_allclose(across["mean"]["next_best"][-1], 0.5)
-    # Only 2 subjects have data in this bin, so the SE divides by sqrt(2), not sqrt(3).
+    # Two subjects have data in this bin, so the SE divides by sqrt(2).
     np.testing.assert_allclose(across["se"]["next_best"][-1], np.sqrt(0.5) / np.sqrt(2))
 
 

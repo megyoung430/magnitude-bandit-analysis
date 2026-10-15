@@ -251,3 +251,37 @@ def test_use_believed_defaults_to_false_and_is_accepted_positionally():
     believed = accumulate_choice_probs(data, True)
     pd.testing.assert_frame_equal(default[0], explicit[0])
     assert not default[0].equals(believed[0])
+
+
+def test_believed_binning_depends_on_the_recording_order():
+    high = {"A": 4, "B": 3, "C": 1}
+    low = {"A": 2, "B": 1, "C": 0}
+    rec_high = session([high] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    rec_low = session([low] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    for first, second, mags in [
+        (rec_high, rec_low, [high, high, low, low]),
+        (rec_low, rec_high, [low, low, high, high]),
+    ]:
+        merged = accumulate_choice_probs(
+            one_session({"trial_variables": [first, second]}), use_believed=True
+        )
+        single = accumulate_choice_probs(
+            one_session(session(mags, ["best"] * 4, ["A", "B", "A", "B"])), use_believed=True
+        )
+        pd.testing.assert_frame_equal(merged[2]["m1"], single[2]["m1"])
+        pd.testing.assert_frame_equal(merged[3]["m1"], single[3]["m1"])
+        if first is rec_high:
+            high_first = merged
+        else:
+            low_first = merged
+    # beliefs carry across the boundary, so the two orders fill different cells
+    assert not high_first[2]["m1"].equals(low_first[2]["m1"])
+
+
+def test_lengths_are_checked_per_recording_before_merging():
+    mags = {"A": 4, "B": 3, "C": 0}
+    # 3 magnitudes / 2 ranks plus 2 / 3 would merge to equal totals of 5 and 5
+    first = {"reward_magnitudes": [mags] * 3, "chosen_rank": ["best"] * 2, "choice": ["A"] * 3}
+    second = {"reward_magnitudes": [mags] * 2, "chosen_rank": ["best"] * 3, "choice": ["A"] * 2}
+    with pytest.raises(ValueError, match="reward_magnitudes=3, chosen_rank=2"):
+        accumulate_choice_probs(one_session({"trial_variables": [first, second]}))
