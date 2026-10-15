@@ -27,6 +27,7 @@ from src.behavior_analysis.poke_counts import (
     session_choice_ports,
     session_poke_counts,
 )
+from src.behavior_analysis.poke_events import PokeParseError
 from src.behavior_analysis.single_session import (
     Reversals,
     choice_counts_by_tower,
@@ -301,18 +302,30 @@ def _make_axes(
 
 
 def poke_maps_for_session(
-    session_data: Mapping[str, Any], previous_choice_towers: Collection[str] | None
+    session_data: Mapping[str, Any],
+    previous_choice_towers: Collection[str] | None,
+    *,
+    label: str = "session",
 ) -> PokeMaps | None:
-    """The data of the two maze panels, or ``None`` when the session has no raw recordings.
+    """The data of the two maze panels, or ``None`` when there is nothing to draw.
+
+    ``None`` when the session has no raw recordings, and when its raw events cannot be read
+    (a :class:`~src.behavior_analysis.poke_events.PokeParseError`): that warns with *label* and
+    the reason, so the standard panels are still drawn.
 
     Raises:
-        ValueError: As :func:`src.behavior_analysis.poke_counts.session_poke_counts` and
-            :func:`src.behavior_analysis.poke_counts.session_choice_ports`.
+        ValueError: From :func:`src.behavior_analysis.poke_counts.session_choice_ports` if the
+            session has no choice towers.
     """
     if "df" not in session_data:
         return None
+    try:
+        counts = session_poke_counts(dict(session_data), label=label)
+    except PokeParseError as error:
+        warnings.warn(f"{label}: maze maps not drawn: {error}", UserWarning, stacklevel=2)
+        return None
     return PokeMaps(
-        counts=session_poke_counts(dict(session_data)),
+        counts=counts,
         current_ports=session_choice_ports(session_data),
         previous_ports=None
         if previous_choice_towers is None
@@ -394,9 +407,7 @@ def _draw_session(
     _style_spines((ax1, ax2, ax3, ax4))
     if poke_maps is not None:
         plot_poke_maps(poke_maps, map_axes)
-        handles = outline_legend_handles(
-            True, poke_maps.previous_ports is not None, poke_maps.initiation_port
-        )
+        handles = outline_legend_handles(True, poke_maps.previous_ports is not None, True)
         fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False)
     # The GridSpecs set hspace/wspace explicitly, which tight_layout reports as
     # "This figure includes Axes that are not compatible with tight_layout"
@@ -454,9 +465,8 @@ def plot_single_session(
     Raises:
         KeyError: if *mag_key* or *choice_key* is missing from *session_data*.
         TypeError: if *session_data* is not a mapping.
-        ValueError: if the raw events do not line up with the session's trials, the session has
-            no choice towers, or *previous_choice_towers* names a port other than A1..C3; if
-            *choice_probabilities_by_tower* does not use the
+        ValueError: if the session has no choice towers, or *previous_choice_towers* names
+            a port other than A1..C3; if *choice_probabilities_by_tower* does not use the
             session's tower labels, or is not finite, within [0, 1], aligned
             to every trial and normalized on each trial; also from matplotlib
             when one EMA key holds data and another is ``None``.
@@ -467,11 +477,17 @@ def plot_single_session(
         the cumulative ``good_reversals`` / ``bad_reversals`` counters did not
         mark; any kind other than ``"good"`` is drawn as a bad reversal.
 
+        Raw events that cannot be read as trials (``PokeParseError``, e.g. misaligned
+        with the session's choices) warn with the title and the reason, and the figure
+        is drawn without the maze maps.
+
         The figure is closed on success and when saving it raises, but left open
         in pyplot when an error is raised while drawing it.
     """
-    # Parsed before the figure exists, so a misaligned recording leaves nothing open.
-    poke_maps = poke_maps_for_session(session_data, previous_choice_towers)
+    # Parsed before the figure exists; unreadable raw events warn and skip the maps.
+    poke_maps = poke_maps_for_session(
+        session_data, previous_choice_towers, label=title or "session"
+    )
     fig = _draw_session(
         session_data,
         mag_key=mag_key,

@@ -5,9 +5,7 @@ figure); :func:`plot_maze_heatmaps_across_mice` makes the one-panel-per-mouse fi
 
 Layout. The ports sit on a 3 x 3 grid, letters running left to right (A, B, C) and numbers
 running bottom to top (1 at the bottom, 3 at the top), so A1 is the bottom-left port and C3 the
-top-right one. That is the layout the original notebook drew; the notebook's own comment says
-"row 1 is top", but its coordinates put row 1 at the bottom. Whether this matches the physical
-maze has not been checked against the rig (see :data:`MAZE_POSITIONS`).
+top-right one (see :data:`MAZE_POSITIONS`).
 
 Scale. Each map is coloured from 0 to its own maximum count, and its colorbar says so with real
 numbers at both ends.
@@ -38,7 +36,7 @@ import src.behavior_visualization.plot_style  # noqa: F401  # applies rcParams
 from src.behavior_analysis.poke_events import ARMS9
 from src.behavior_visualization.plot_helpers import axes_or_new, save_or_show
 
-# (column, row) of each port on the grid; row 0 is the bottom. Same as the notebook's drawing.
+# (column, row) of each port on the grid; row 0 is the bottom.
 MAZE_POSITIONS: dict[str, tuple[int, int]] = {
     f"{letter}{number}": (column, number - 1)
     for column, letter in enumerate("ABC")
@@ -238,13 +236,13 @@ def _per_mouse(value: Mapping | None, mice: list[str], name: str) -> Mapping:
 
 
 def outline_legend_handles(
-    uses_current: bool, uses_previous: bool, initiation_port: str | None
+    uses_current: bool, uses_previous: bool, uses_initiation: bool
 ) -> list[Line2D]:
     """Legend handles for the outlines in use (green current, red previous, blue initiation)."""
     entries = [
         (uses_current, CURRENT_COLOR, "Current problem choice ports"),
         (uses_previous, PREVIOUS_COLOR, "Previous problem choice ports"),
-        (initiation_port is not None, INITIATION_COLOR, "Initiation port"),
+        (uses_initiation, INITIATION_COLOR, "Initiation port"),
     ]
     return [
         Line2D(
@@ -268,7 +266,7 @@ def plot_maze_heatmaps_across_mice(
     colorbar_label: str,
     current_ports: Mapping[str, Collection[str]] | None = None,
     previous_ports: Mapping[str, Collection[str] | None] | None = None,
-    initiation_port: str | None = None,
+    initiation_port: str | Mapping[str, str | None] | None = None,
     titles: Mapping[str, str] | None = None,
     suptitle: str | None = None,
     cmap: str = "Blues",
@@ -283,7 +281,8 @@ def plot_maze_heatmaps_across_mice(
             ``None`` draws no green outlines.
         previous_ports: ``{mouse: ports or None}`` to outline in red; every mouse needs an
             entry (``None`` for a mouse without a previous problem). ``None`` draws no red.
-        initiation_port: Port to outline in blue on every map, or ``None``.
+        initiation_port: Port to outline in blue: one port for every map, or
+            ``{mouse: port or None}`` with an entry for every mouse; ``None`` draws none.
         titles: ``{mouse: panel title}``; default is the mouse id.
         suptitle: Figure title.
         cmap: Name of a matplotlib colormap.
@@ -298,6 +297,11 @@ def plot_maze_heatmaps_across_mice(
         raise ValueError("per_mouse_counts has no mice.")
     current = _per_mouse(current_ports, mice, "current_ports")
     previous = _per_mouse(previous_ports, mice, "previous_ports")
+    initiation = (
+        dict.fromkeys(mice, initiation_port)
+        if initiation_port is None or isinstance(initiation_port, str)
+        else _per_mouse(initiation_port, mice, "initiation_port")
+    )
     nrows = min(2, len(mice))
     ncols = math.ceil(len(mice) / nrows)
     fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4.4, nrows * 4.2), squeeze=False)
@@ -310,7 +314,7 @@ def plot_maze_heatmaps_across_mice(
                 title=(titles or {}).get(mouse, mouse),
                 current_ports=current[mouse] or (),
                 previous_ports=previous[mouse],
-                initiation_port=initiation_port,
+                initiation_port=initiation[mouse],
                 cmap=cmap,
             )
         for j in range(len(mice), nrows * ncols):
@@ -318,7 +322,7 @@ def plot_maze_heatmaps_across_mice(
         handles = outline_legend_handles(
             current_ports is not None and any(current[m] for m in mice),
             previous_ports is not None and any(previous[m] for m in mice),
-            initiation_port,
+            any(initiation[m] is not None for m in mice),
         )
         if handles:
             fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False)

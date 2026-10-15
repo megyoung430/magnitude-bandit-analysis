@@ -30,34 +30,58 @@ initiation, per mouse and problem, plus the two session-level maps in the single
   previous_choice_towers: dict | None = None) -> dict`. `subjects_trials_by_problem` is the sessions
   of ONE problem, `{mouse: {session_key: session_dict}}` (what `run_problem` receives); a dict keyed
   by problem raises. `previous_choice_towers` is `{mouse: frozenset | None}` and must cover every
-  mouse when given. Returns `long_pokes`, `counts`, `per_session`, `cross_check`, `files`. Writes
-  into `out_dir` (the runner should pass the problem's `long-pokes` folder).
+  mouse when given. Returns `long_pokes`, `counts`, `per_session`, `cross_check`, `files` (only the
+  files this call wrote). Writes into `out_dir` (the runner should pass the problem's `long-pokes`
+  folder). `Poke Trial Summary.csv` columns: `mouse, session, n_trials, n_trials_counted,
+  n_trials_dropped_no_print, n_trials_dropped_inconsistent, n_open_after_choice_windows,
+  n_long_poke_checked, n_long_poke_agree`.
 - `src.behavior_analysis.poke_counts.previous_problem_choice_towers(all_problems) ->
   {mouse: {overall_problem: frozenset | None}}` and
   `previous_choice_towers_for_problem(subjects_sessions, previous) -> {mouse: frozenset | None}`
-  (reads each session's `"problem"`, so it works on task-type-regrouped problems). Runner use:
-  `prev = previous_problem_choice_towers(trials_by_problem)`, then per grouped problem
-  `run_poke_analysis(subs, out, previous_choice_towers=previous_choice_towers_for_problem(subs, prev))`.
+  (reads each session's `"problem"`, so it works on task-type-regrouped problems; a mouse or problem
+  missing from `previous` raises a `ValueError` naming it).
 - `plot_single_session(..., previous_choice_towers=None)`.
 
+## What the runner (a later integration item) must call
+No runner is wired here (`cohort_analysis.py` and `open_field.py` are untouched), so a cohort run does
+not yet produce the `long-pokes` folder or red outlines. The wiring is:
+1. Once per cohort, from the full `{overall problem: {mouse: sessions}}` dict (before regrouping by
+   task type): `previous = previous_problem_choice_towers(trials_by_problem)`.
+2. For every (task type, k) problem `subs = {mouse: sessions}`:
+   `prev_ports = previous_choice_towers_for_problem(subs, previous)`, then
+   `run_poke_analysis(subs, <problem folder>/"long-pokes", previous_choice_towers=prev_ports)`.
+3. In the single-session loop, for each mouse and session:
+   `plot_single_session(session, ..., previous_choice_towers=prev_ports[mouse])`.
+`tests/test_poke_analysis_pipeline.py::test_red_outlines_of_the_previous_problem_appear_in_problem_two_only`
+and `..._single_session_of_problem_two_draws_red_outlines_...` run exactly this sequence on two
+problems and assert red outline patches and pixels in problem 2 only.
+
 ## Design decisions (PI to check)
-- **Layout** (`MAZE_POSITIONS`): letters left to right, number 1 at the BOTTOM (A1 bottom-left, C3
-  top-right). This is what the notebook drew (`WELL_MAP` + `(x, y) = (col, 2 - row)`); its comment
-  says "row 1 is top", which contradicts its own coordinates. Not checked against the physical maze.
+- **Layout** (`MAZE_POSITIONS`, confirmed by the PI): letters left to right, number 1 at the bottom
+  (A1 bottom-left, C3 top-right).
 - **Equal visibility**: concentric octagonal rings of identical radial width (data units), green
   innermost, then red, then blue. A split ring would hide half of each colour on a small port; the
   only asymmetry is that the outer ring is longer. Green/red is as requested but is hard for
   red-green colour-blind readers.
-- **Open windows**: the last trial of a recording has no following initiation, so its after-choice
-  window is excluded (counted in `n_open_windows` and the cross-check table), not run to the end of
-  the log.
+- **Open windows**: only the last trial of a recording may have no following initiation; its
+  after-choice window is excluded (`n_open_after_choice_windows`), not run to the end of the log.
+- **Dropped trials** (PI decision): a trial's pokes are dropped, with one warning per session giving
+  the count and reasons, when it ended without a summary print (timeout/abort: ITI with no print, or a
+  plain-text print), when the held choice port differs from the printed `chosen_tow`, or when it went
+  back to `wait_init` with no ITI. Aligned printed trials keep their place so the merged-choice check
+  still holds. Impossible logs raise `PokeParseError` (a `ValueError`).
+- **Single-session figure** catches only `PokeParseError`: it warns with the title and draws the
+  four standard panels without the maze row.
+- **After-choice window** starts at the `ITI` state; pokes during the rewarded `choice` state are
+  excluded (documented in `poke_events`). A non-initiating B2 poke in the ITI counts as "elsewhere"
+  (PI decision; pinned by a test).
+- **Initiation outline** is per mouse (the mouse's sessions must agree).
 - Trials are the recording's `print` rows (same rule as the importer, non-bandit recordings skipped);
   the k-th trial is checked against the session's merged `choice` list and a mismatch raises.
 - Initiation tower: session `initiation_tower`, protocol default `B2` when unlogged. The initiating
   poke is the `_in` that triggers `wait_init -> wait_choice`; if it is at another port the parser raises.
-- Pokes during the rewarded `choice` state are outside the window (window starts at `ITI`).
 - Single-session figure: maps appear whenever the session has `"df"`, in a row added below; standard
-  panels keep size and distance from the top (tested). Parse errors there now raise.
+  panels keep size and distance from the top (tested).
 - Mean long pokes per problem is trial-pooled per mouse (`problem_mean_by_mouse`); the figure is per
   relative session as in the notebook.
 

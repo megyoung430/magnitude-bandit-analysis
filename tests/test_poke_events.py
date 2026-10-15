@@ -1,9 +1,12 @@
 """Parsing of raw pyControl recordings into per-trial pokes, and the two counting rules."""
 
+import warnings
+
 import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import (
+    PokeParseError,
     cross_check_long_pokes,
     parse_recording,
     parse_session,
@@ -239,3 +242,121 @@ def test_cross_check_reports_a_mismatch_with_its_trial():
     check = cross_check_long_pokes(parse_recording(frame))
     assert check.n_agree == 0
     assert check.mismatches == [(1, ("A3", "A1"), ("A2", "A1"))]
+
+
+# ------------------------------------------------- non-initiating B2 pokes count as elsewhere
+
+
+def test_a_non_initiating_b2_poke_counts_as_elsewhere_for_the_chosen_tower_rule():
+    assert pokes_after_choice(("A1", "B2", "A1", "A1"), "A1") == ["B2", "A1", "A1"]
+
+
+def test_b2_poke_in_the_iti_lets_later_chosen_tower_pokes_count_in_a_parsed_trial():
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["A1", "B2", "A1"])
+    full_trial(rec, choice="B1")
+    first = parse_recording(rec.to_frame())[0]
+    assert pokes_after_choice(first.window_pokes, first.chosen) == ["B2", "A1"]
+
+
+# ------------------------------------------------------------------ dropped trials
+
+
+def test_parser_errors_are_poke_parse_errors_and_value_errors():
+    assert issubclass(PokeParseError, ValueError)
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    rec.initiate()
+    rec.poke_in("A1").state("poked_in")
+    with pytest.raises(PokeParseError):
+        parse_recording(rec.to_frame())
+
+
+def test_aborted_trial_without_a_print_is_dropped_and_not_a_session_trial():
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["C3"])
+    rec.initiate()  # initiated, then the trial times out: ITI with no print
+    rec.iti().state("wait_init")
+    full_trial(rec, choice="B1")
+    trials = parse_recording(rec.to_frame())
+    assert [(t.chosen, t.drop_reason is None, t.has_print) for t in trials] == [
+        ("A1", True, True),
+        (None, False, False),
+        ("B1", True, True),
+    ]
+    # The first trial's window is closed by the aborted trial's initiation.
+    assert trials[0].window_pokes == ("C3",)
+    session = session_record([rec.to_frame()], choice=["A1", "B1"])
+    with pytest.warns(UserWarning, match="dropped 1 trial"):
+        assert len(parse_session(session)) == 3
+
+
+def test_plain_text_print_is_a_dropped_trial_that_keeps_the_alignment():
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    rec.initiate()
+    rec.long_poke("A3")
+    rec._long("B1")
+    rec.text_print()
+    rec.iti().state("wait_init")
+    full_trial(rec, choice="C1")
+    session = session_record([rec.to_frame()], choice=["A1", None, "C1"])
+    with pytest.warns(UserWarning, match="no summary print"):
+        trials = parse_session(session)
+    assert [t.drop_reason is None for t in trials] == [True, False, True]
+
+
+def test_trial_that_returns_to_wait_init_without_an_iti_is_dropped_not_open():
+    rec = Recording()
+    rec.initiate()
+    rec.choose("A1")
+    rec.state("wait_init")  # no ITI
+    full_trial(rec, choice="B1", after_choice=["C3"])
+    full_trial(rec, choice="C1")
+    first, second, third = parse_recording(rec.to_frame())
+    assert first.drop_reason is not None and "ITI" in first.drop_reason
+    assert second.window_pokes == ("C3",) and third.window_pokes is None
+
+
+def test_choice_poke_port_different_from_the_printed_choice_drops_the_trial():
+    rec = Recording()
+    rec.initiate()
+    rec.choose("A1", held="A2")
+    rec.iti().state("wait_init")
+    full_trial(rec, choice="B1")
+    first, _ = parse_recording(rec.to_frame())
+    assert first.drop_reason is not None and "A2" in first.drop_reason
+    assert first.chosen == "A1"
+
+
+def test_drops_warn_once_per_session_with_the_count():
+    rec = Recording()
+    rec.initiate()
+    rec.choose("A1", held="A2")
+    rec.iti().state("wait_init")
+    rec.initiate()
+    rec.choose("B1", held="B3")
+    rec.iti().state("wait_init")
+    full_trial(rec, choice="C1")
+    with pytest.warns(UserWarning, match="dropped 2 trials") as caught:
+        parse_session(session_record([rec.to_frame()]))
+    assert len(caught) == 1
+
+
+def test_clean_session_does_not_warn():
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    full_trial(rec, choice="B1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        parse_session(session_record([rec.to_frame()]))
+
+
+def test_cross_check_ignores_dropped_trials():
+    rec = Recording()
+    rec.initiate()
+    rec.choose("A1", held="A2")
+    rec.iti().state("wait_init")
+    full_trial(rec, choice="B1")
+    check = cross_check_long_pokes(parse_recording(rec.to_frame()))
+    assert (check.n_trials, check.n_agree) == (1, 1)

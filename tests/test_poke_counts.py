@@ -122,6 +122,16 @@ def test_previous_choice_towers_for_a_problem_uses_each_sessions_overall_problem
     }
 
 
+def test_mouse_or_problem_missing_from_previous_raises_a_clear_error():
+    previous = previous_problem_choice_towers(three_problems())
+    unknown_mouse = {"m9": {"ses-1_date-20260101": {**ports_session("C1"), "problem": 3}}}
+    with pytest.raises(ValueError, match="no entry for m9 problem 3"):
+        previous_choice_towers_for_problem(unknown_mouse, previous)
+    unknown_problem = {"m1": {"ses-1_date-20260101": {**ports_session("C1"), "problem": 7}}}
+    with pytest.raises(ValueError, match="no entry for m1 problem 7"):
+        previous_choice_towers_for_problem(unknown_problem, previous)
+
+
 def test_sessions_of_one_mouse_and_problem_must_share_one_problem_number():
     previous = previous_problem_choice_towers(three_problems())
     mixed = {

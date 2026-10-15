@@ -148,8 +148,18 @@ def test_unknown_previous_port_raises():
         plot_single_session(session_with_pokes(), previous_choice_towers={"Z9"})
 
 
-def test_misaligned_raw_events_raise_instead_of_drawing_the_wrong_trials(figures):
+def test_misaligned_raw_events_warn_and_the_figure_is_drawn_without_maps(figures):
     session = session_with_pokes()
     session["choice"] = ["A1", "C1", "B1"]
-    with pytest.raises(ValueError, match="trial 2"):
+    with pytest.warns(UserWarning, match="x.*maze maps not drawn.*trial 2"):
+        plot_single_session(session, title="x")
+    (fig,) = figures
+    assert len(fig.axes) == 4  # the standard panels only
+    assert fig.get_size_inches().tolist() == [14, 11]
+
+
+def test_only_parser_errors_are_caught(figures):
+    session = session_with_pokes()
+    session["choice_towers"] = []
+    with pytest.raises(ValueError, match="choice towers"):
         plot_single_session(session)

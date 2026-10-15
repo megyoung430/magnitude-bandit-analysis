@@ -73,14 +73,15 @@ class Recording:
     def _long(self, port):
         return self.poke_in(port).state("hold_poke").timer("poke_hold_timer").state("poked_in")
 
-    def choose(self, port, *, rewarded=True, choice_pokes=()):
+    def choose(self, port, *, rewarded=True, choice_pokes=(), held=None):
         """The choice long poke, the trial print row, and the ``choice`` state when rewarded.
 
         *choice_pokes* are ``_in`` events logged during the ``choice`` state (drinking at the
-        chosen port), which lie before the ``ITI`` window.
+        chosen port), which lie before the ``ITI`` window. *held* is the port actually held
+        when it differs from the printed chosen *port* (a log inconsistency).
         """
         self.num_t += 1
-        self._long(port)
+        self._long(held or port)
         printed = {
             "num_t": self.num_t,
             "chosen_tow": port,
@@ -97,6 +98,11 @@ class Recording:
             for p in choice_pokes:
                 self.poke_in(p)
         return self
+
+    def text_print(self, text="trial done"):
+        """A plain-text print row, which parses to an empty trial dict."""
+        self.num_t += 1
+        return self._add("variable", "print", text)
 
     def iti(self):
         return self.state("ITI")

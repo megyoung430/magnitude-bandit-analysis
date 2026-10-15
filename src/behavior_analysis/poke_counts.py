@@ -12,6 +12,7 @@ from typing import NamedTuple
 
 from src.behavior_analysis.poke_events import (
     ARMS9,
+    NO_PRINT,
     LongPokeCheck,
     TrialPokes,
     cross_check_long_pokes,
@@ -30,9 +31,14 @@ class SessionPokeCounts(NamedTuple):
     """Poke counts of one session.
 
     ``after_initiation`` and ``after_choice`` map each of the nine ports to a count.
-    ``n_trials`` is the number of trials; ``n_open_windows`` how many of them have no closed
-    after-choice window (so are missing from ``after_choice``). ``long_poke_check`` compares the
-    raw long pokes with the printed lists.
+    ``n_trials`` is the number of trials with a print row (the session's trials);
+    ``n_valid`` how many of them were analysed (the others were dropped, see
+    :mod:`src.behavior_analysis.poke_events`); ``n_open_windows`` how many analysed trials have
+    no closed after-choice window (so are missing from ``after_choice``).
+    ``n_dropped_no_print`` counts trials dropped for having no usable summary print (including
+    aborted trials that have no print row, which are not in ``n_trials``) and
+    ``n_dropped_inconsistent`` the other drops. ``long_poke_check`` compares the raw long
+    pokes of the analysed trials with the printed lists.
     """
 
     after_initiation: dict[str, int]
@@ -40,6 +46,9 @@ class SessionPokeCounts(NamedTuple):
     n_trials: int
     n_open_windows: int
     long_poke_check: LongPokeCheck
+    n_valid: int
+    n_dropped_no_print: int
+    n_dropped_inconsistent: int
 
 
 def count_ports(sequences: Iterable[Iterable[str]]) -> dict[str, int]:
@@ -52,12 +61,18 @@ def count_ports(sequences: Iterable[Iterable[str]]) -> dict[str, int]:
 
 
 def _after_initiation_sequences(trials: list[TrialPokes], initiation_tower: str) -> list[list[str]]:
-    return [pokes_after_initiation(t.long_pokes, initiation_tower) for t in trials]
+    return [
+        pokes_after_initiation(t.long_pokes, initiation_tower)
+        for t in trials
+        if t.drop_reason is None
+    ]
 
 
 def _after_choice_sequences(trials: list[TrialPokes]) -> list[list[str]]:
     return [
-        pokes_after_choice(t.window_pokes, t.chosen) for t in trials if t.window_pokes is not None
+        pokes_after_choice(t.window_pokes, t.chosen)
+        for t in trials
+        if t.drop_reason is None and t.window_pokes is not None
     ]
 
 
@@ -70,17 +85,22 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
         label: Names the session in error messages.
 
     Returns:
-        A :class:`SessionPokeCounts`. Trials whose after-choice window never closed (the last
-        trial of a recording) are left out of ``after_choice`` only.
+        A :class:`SessionPokeCounts`. Dropped trials are left out of both counts; trials
+        whose after-choice window never closed (the last trial of a recording) are left out of
+        ``after_choice`` only.
     """
     initiation = session.get("initiation_tower") or DEFAULT_INITIATION_TOWER
     trials = parse_session(session, initiation, label=label)
+    valid = [t for t in trials if t.drop_reason is None]
     return SessionPokeCounts(
         after_initiation=count_ports(_after_initiation_sequences(trials, initiation)),
         after_choice=count_ports(_after_choice_sequences(trials)),
-        n_trials=len(trials),
-        n_open_windows=sum(t.window_pokes is None for t in trials),
+        n_trials=sum(t.has_print for t in trials),
+        n_open_windows=sum(t.window_pokes is None for t in valid),
         long_poke_check=cross_check_long_pokes(trials),
+        n_valid=len(valid),
+        n_dropped_no_print=sum(t.drop_reason == NO_PRINT for t in trials),
+        n_dropped_inconsistent=sum(t.drop_reason not in (None, NO_PRINT) for t in trials),
     )
 
 
@@ -180,7 +200,7 @@ def previous_choice_towers_for_problem(
 
     Raises:
         ValueError: If a mouse's sessions name more than one problem, or no problem.
-        KeyError: If the mouse or its problem is not in *previous*.
+        ValueError: If the mouse or its problem is not in *previous*.
     """
     result = {}
     for mouse, sessions in subjects_sessions.items():
@@ -190,5 +210,11 @@ def previous_choice_towers_for_problem(
                 f"{mouse}: sessions of one problem must name exactly one problem number, "
                 f"got {sorted(map(str, numbers))}; found more than one problem or none"
             )
-        result[mouse] = previous[mouse][problem_to_int(next(iter(numbers)))]
+        problem = problem_to_int(next(iter(numbers)))
+        if problem not in previous.get(mouse, {}):
+            raise ValueError(
+                f"previous has no entry for {mouse} problem {problem}; build it with "
+                "previous_problem_choice_towers from all problems that include this one"
+            )
+        result[mouse] = previous[mouse][problem]
     return result

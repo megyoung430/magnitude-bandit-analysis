@@ -73,7 +73,7 @@ def test_writes_all_figures_and_tables(tmp_path):
         "Long Pokes by Session.csv",
         "Poke Counts by Port.csv",
         "Poke Counts by Session.csv",
-        "Long Poke Cross-check.csv",
+        "Poke Trial Summary.csv",
     ):
         assert table in names
     assert set(result) >= {"long_pokes", "counts", "per_session", "cross_check", "files"}
@@ -203,3 +203,148 @@ def test_csv_tables_hold_the_returned_numbers(tmp_path):
         "mean_long_pokes",
     ]
     assert np.isclose(sessions.mean_long_pokes.sum(), 1 / 3)
+
+
+def test_each_mouse_gets_its_own_initiation_outline(tmp_path, captured):
+    data = problem_data()
+    rec = Recording(init="B3")
+    for choice in ("A1", "B1", "B1"):
+        full_trial(rec, choice=choice)
+    session = session_record([rec.to_frame()], problem=1, initiation_tower="B3")
+    extract_session_trials(session, "m2", "ses-7_date-20260107")
+    data["m2"] = {"ses-7_date-20260107": session}
+    run_poke_analysis(data, tmp_path)
+    after_initiation_fig = captured[1]
+    gids = [p.get_gid() for ax in after_initiation_fig.axes for p in ax.patches if p.get_gid()]
+    assert sorted(g for g in gids if g.endswith(":initiation")) == [
+        "ring:B2:initiation",
+        "ring:B3:initiation",
+    ]
+
+
+def test_mouse_with_two_initiation_towers_in_one_problem_raises(tmp_path):
+    data = problem_data()
+    data["m1"]["ses-1_date-20260101"]["initiation_tower"] = "B3"
+    with pytest.raises(ValueError, match="m1.*several initiation towers"):
+        run_poke_analysis(data, tmp_path)
+
+
+def test_files_lists_exactly_what_this_call_wrote(tmp_path):
+    (tmp_path / "unrelated.csv").write_text("a\n1\n")
+    result = run_poke_analysis(problem_data(), tmp_path)
+    assert tmp_path / "unrelated.csv" not in result["files"]
+    assert all(p.exists() for p in result["files"])
+    assert len(result["files"]) == 4 + 6
+
+
+def test_trial_summary_reports_dropped_trials(tmp_path):
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    rec.initiate()
+    rec.choose("B1", held="B3")  # held port differs from the printed choice
+    rec.iti().state("wait_init")
+    rec.initiate()  # aborted: ITI with no print
+    rec.iti().state("wait_init")
+    full_trial(rec, choice="C1")
+    data = {"m1": {"ses-1_date-20260101": imported_session([rec.to_frame()], 1, 1)}}
+    with pytest.warns(UserWarning, match="dropped 2 trials") as caught:
+        result = run_poke_analysis(data, tmp_path)
+    assert len([w for w in caught if "dropped" in str(w.message)]) == 1
+    summary = pd.read_csv(tmp_path / "Poke Trial Summary.csv")
+    assert list(summary.columns) == [
+        "mouse",
+        "session",
+        "n_trials",
+        "n_trials_counted",
+        "n_trials_dropped_no_print",
+        "n_trials_dropped_inconsistent",
+        "n_open_after_choice_windows",
+        "n_long_poke_checked",
+        "n_long_poke_agree",
+    ]
+    row = summary.iloc[0]
+    assert (row.n_trials, row.n_trials_counted) == (3, 2)
+    assert (row.n_trials_dropped_no_print, row.n_trials_dropped_inconsistent) == (1, 1)
+    assert result["counts"]["after_initiation"]["m1"]["B3"] == 0
+
+
+# ---------------------------------------------- two problems end to end: previous-problem outlines
+
+PREVIOUS_RGB = (209, 57, 61)
+
+
+def problem_sessions(towers, problem, mouse="m1"):
+    rec = Recording(towers=towers)
+    for i, choice in enumerate(towers):
+        full_trial(rec, choice=choice, after_choice=["B2"] if i == 0 else ())
+    session = session_record([rec.to_frame()], problem=problem)
+    extract_session_trials(session, mouse, "ses-1_date-20260101")
+    return {mouse: {f"ses-{problem}_date-2026010{problem}": session}}
+
+
+def count_pixels(fig, rgb):
+    fig.canvas.draw()
+    image = np.asarray(fig.canvas.buffer_rgba())[..., :3]
+    return int((image == np.array(rgb)).all(axis=-1).sum())
+
+
+def test_red_outlines_of_the_previous_problem_appear_in_problem_two_only(tmp_path, captured):
+    from src.behavior_analysis.poke_counts import (
+        previous_choice_towers_for_problem,
+        previous_problem_choice_towers,
+    )
+
+    all_problems = {
+        2: problem_sessions(["A3", "B3", "C3"], 2),
+        1: problem_sessions(["A1", "B1", "C1"], 1),
+    }
+    previous = previous_problem_choice_towers(all_problems)
+    for problem in (1, 2):
+        subjects = all_problems[problem]
+        run_poke_analysis(
+            subjects,
+            tmp_path / f"problem-{problem}",
+            previous_choice_towers=previous_choice_towers_for_problem(subjects, previous),
+        )
+    problem_one_fig, problem_two_fig = captured[0], captured[2]  # after-choice figures
+
+    def red_ports(fig):
+        return sorted(
+            p.get_gid().split(":")[1]
+            for ax in fig.axes
+            for p in ax.patches
+            if (p.get_gid() or "").endswith(":previous")
+        )
+
+    assert red_ports(problem_one_fig) == []
+    assert red_ports(problem_two_fig) == ["A1", "B1", "C1"]
+    assert count_pixels(problem_one_fig, PREVIOUS_RGB) == 0
+    assert count_pixels(problem_two_fig, PREVIOUS_RGB) > 0
+
+
+def test_single_session_of_problem_two_draws_red_outlines_from_the_same_helper(monkeypatch):
+    from src.behavior_analysis.poke_counts import (
+        previous_choice_towers_for_problem,
+        previous_problem_choice_towers,
+    )
+    from src.behavior_visualization import plot_single_session as single_session_module
+
+    figures = []
+    monkeypatch.setattr(
+        single_session_module, "save_or_show", lambda fig, path: figures.append(fig)
+    )
+    all_problems = {
+        1: problem_sessions(["A1", "B1", "C1"], 1),
+        2: problem_sessions(["A3", "B3", "C3"], 2),
+    }
+    previous = previous_problem_choice_towers(all_problems)
+    prev_ports = previous_choice_towers_for_problem(all_problems[2], previous)["m1"]
+    (session,) = all_problems[2]["m1"].values()
+    single_session_module.plot_single_session(session, previous_choice_towers=prev_ports)
+    single_session_module.plot_single_session(
+        session,
+        previous_choice_towers=previous_choice_towers_for_problem(all_problems[1], previous)["m1"],
+    )
+    with_red, without_red = figures
+    assert count_pixels(with_red, PREVIOUS_RGB) > 0
+    assert count_pixels(without_red, PREVIOUS_RGB) == 0

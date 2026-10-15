@@ -15,7 +15,8 @@ Files written to ``out_dir`` (PNG and PDF for the figures):
 - ``Maze Heatmaps - Pokes After Choice`` and ``Maze Heatmaps - Pokes After Initiation``: one map
   per mouse, all sessions of the problem together.
 - ``Long Pokes by Session.csv``, ``Poke Counts by Port.csv``, ``Poke Counts by Session.csv``,
-  ``Long Poke Cross-check.csv``.
+  ``Poke Trial Summary.csv`` (trials counted and dropped per session, and the raw-versus-
+  printed long-poke agreement).
 """
 
 from __future__ import annotations
@@ -57,6 +58,12 @@ from src.behavior_visualization.plot_num_long_pokes import (
 LONG_POKES_STEM = "Long Pokes by Relative Session"
 AFTER_CHOICE_STEM = "Maze Heatmaps - Pokes After Choice"
 AFTER_INITIATION_STEM = "Maze Heatmaps - Pokes After Initiation"
+TABLE_FILES = (
+    "Long Pokes by Session.csv",
+    "Poke Counts by Port.csv",
+    "Poke Counts by Session.csv",
+    "Poke Trial Summary.csv",
+)
 _SCALE_NOTE = "colour scale: 0 to each mouse's own maximum count"
 _JITTER_SEED = 0
 
@@ -96,16 +103,21 @@ def _previous_ports(
     return {m: previous[m] for m in mice}
 
 
-def _initiation_port(subjects_trials: Mapping) -> str:
-    """The one initiation tower of the problem's sessions (default ``"B2"`` when unlogged)."""
-    ports = {
-        session.get("initiation_tower") or DEFAULT_INITIATION_TOWER
-        for sessions in subjects_trials.values()
-        for session in sessions.values()
-    }
-    if len(ports) != 1:
-        raise ValueError(f"sessions of one problem use several initiation towers: {sorted(ports)}")
-    return next(iter(ports))
+def _initiation_ports(subjects_trials: Mapping) -> dict[str, str]:
+    """Each mouse's initiation tower (default ``"B2"`` when unlogged).
+
+    Raises:
+        ValueError: If one mouse's sessions of the problem use several initiation towers.
+    """
+    ports = {}
+    for mouse, sessions in subjects_trials.items():
+        towers = {s.get("initiation_tower") or DEFAULT_INITIATION_TOWER for s in sessions.values()}
+        if len(towers) != 1:
+            raise ValueError(
+                f"{mouse}: sessions of one problem use several initiation towers: {sorted(towers)}"
+            )
+        ports[mouse] = next(iter(towers))
+    return ports
 
 
 def _warn_on_disagreement(per_session: Mapping[str, Mapping[str, SessionPokeCounts]]) -> None:
@@ -133,7 +145,7 @@ def _long_poke_ymax(summary) -> float:
 
 def _panel_titles(per_session, kind: str) -> dict[str, str]:
     def n_trials(counts: SessionPokeCounts) -> int:
-        return counts.n_trials - (counts.n_open_windows if kind == "after_choice" else 0)
+        return counts.n_valid - (counts.n_open_windows if kind == "after_choice" else 0)
 
     return {
         mouse: f"{mouse} (n={sum(n_trials(c) for c in by_session.values())} trials)"
@@ -183,7 +195,7 @@ def run_poke_analysis(
     out_dir = Path(out_dir)
     mice = sorted(subjects_trials_by_problem)
     previous = _previous_ports(mice, previous_choice_towers)
-    initiation_port = _initiation_port(subjects_trials_by_problem)
+    initiation_ports = _initiation_ports(subjects_trials_by_problem)
 
     per_session = {
         mouse: mouse_poke_counts(mouse, subjects_trials_by_problem[mouse]) for mouse in mice
@@ -198,12 +210,10 @@ def run_poke_analysis(
     problem_means = problem_mean_long_pokes(subjects_trials_by_problem)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    long_pokes_by_session_table(means, per_session).to_csv(
-        out_dir / "Long Pokes by Session.csv", index=False
-    )
-    counts_by_port_table(counts).to_csv(out_dir / "Poke Counts by Port.csv", index=False)
-    counts_by_session_table(per_session).to_csv(out_dir / "Poke Counts by Session.csv", index=False)
-    cross_check_table(per_session).to_csv(out_dir / "Long Poke Cross-check.csv", index=False)
+    long_pokes_by_session_table(means, per_session).to_csv(out_dir / TABLE_FILES[0], index=False)
+    counts_by_port_table(counts).to_csv(out_dir / TABLE_FILES[1], index=False)
+    counts_by_session_table(per_session).to_csv(out_dir / TABLE_FILES[2], index=False)
+    cross_check_table(per_session).to_csv(out_dir / TABLE_FILES[3], index=False)
 
     plot_num_pokes_across_mice(
         relative,
@@ -228,7 +238,7 @@ def run_poke_analysis(
         colorbar_label="Long pokes after initiation (count per port)",
         current_ports=current,
         previous_ports=previous,
-        initiation_port=initiation_port,
+        initiation_port=initiation_ports,
         titles=_panel_titles(per_session, "after_initiation"),
         suptitle=f"Long pokes after initiation (up to and including the choice)\n{_SCALE_NOTE}",
         save_path=out_dir / AFTER_INITIATION_STEM,
@@ -247,6 +257,6 @@ def run_poke_analysis(
             mouse: {s: c.long_poke_check for s, c in by_session.items()}
             for mouse, by_session in per_session.items()
         },
-        "files": sorted(out_dir.glob("*.csv"))
+        "files": [out_dir / name for name in TABLE_FILES]
         + [out_dir / f"{s}.{e}" for s in stems for e in ("png", "pdf")],
     }

@@ -46,17 +46,12 @@ def rings(ax):
 # ------------------------------------------------------------------ layout
 
 
-def test_maze_layout_is_the_one_the_notebook_drew():
-    # The notebook's WELL_MAP gives (row, column) of the networkx grid node, which it plotted at
-    # (x, y) = (column, 2 - row): letters run left to right and number 1 is the bottom row.
-    notebook_well_map = {
-        "A1": (2, 0), "B1": (2, 1), "C1": (2, 2),
-        "A2": (1, 0), "B2": (1, 1), "C2": (1, 2),
-        "A3": (0, 0), "B3": (0, 1), "C3": (0, 2),
+def test_maze_layout_has_letters_left_to_right_and_number_one_at_the_bottom():
+    assert MAZE_POSITIONS == {
+        "A1": (0, 0), "B1": (1, 0), "C1": (2, 0),
+        "A2": (0, 1), "B2": (1, 1), "C2": (2, 1),
+        "A3": (0, 2), "B3": (1, 2), "C3": (2, 2),
     }  # fmt: skip
-    drawn = {port: (c, 2 - r) for port, (r, c) in notebook_well_map.items()}
-    assert MAZE_POSITIONS == drawn
-    assert MAZE_POSITIONS["A1"] == (0, 0) and MAZE_POSITIONS["C3"] == (2, 2)
 
 
 # ------------------------------------------------------------- normalisation

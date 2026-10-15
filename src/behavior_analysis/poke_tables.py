@@ -72,14 +72,28 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
         {
             "mouse": mouse,
             "session": session,
-            "n_trials": counts.long_poke_check.n_trials,
-            "n_agree": counts.long_poke_check.n_agree,
+            "n_trials": counts.n_trials,
+            "n_trials_counted": counts.n_valid,
+            "n_trials_dropped_no_print": counts.n_dropped_no_print,
+            "n_trials_dropped_inconsistent": counts.n_dropped_inconsistent,
             "n_open_after_choice_windows": counts.n_open_windows,
+            "n_long_poke_checked": counts.long_poke_check.n_trials,
+            "n_long_poke_agree": counts.long_poke_check.n_agree,
         }
         for mouse, by_session in per_session.items()
         for session, counts in by_session.items()
     ]
     return pd.DataFrame(
         rows,
-        columns=["mouse", "session", "n_trials", "n_agree", "n_open_after_choice_windows"],
+        columns=[
+            "mouse",
+            "session",
+            "n_trials",
+            "n_trials_counted",
+            "n_trials_dropped_no_print",
+            "n_trials_dropped_inconsistent",
+            "n_open_after_choice_windows",
+            "n_long_poke_checked",
+            "n_long_poke_agree",
+        ],
     )
