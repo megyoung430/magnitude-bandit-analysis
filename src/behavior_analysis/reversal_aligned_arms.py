@@ -29,6 +29,7 @@ from src.behavior_analysis.get_choice_probs_around_good_reversals import (
     _smooth_pre_post,
     _trial_offsets,
 )
+from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.reversal_arm_ranks import (
     LABEL_SCHEMES,
@@ -223,6 +224,20 @@ def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict
                 {**reversal, "magnitudes_by_tower": _magnitude_windows(reward_by_tower, reversal)}
             )
     return enriched
+
+
+def build_windows_with_magnitudes(subjects_trials: dict, *, pre: int, post: int) -> dict:
+    """Reversal windows of one problem, without the first block, with magnitude windows.
+
+    Args:
+        subjects_trials: ``{subject: {session: session dict}}`` of one problem.
+        pre, post: Trials before and from each reversal in the windows.
+
+    Returns:
+        ``{subject: [reversal dict]}`` as :func:`add_magnitude_windows` returns it.
+    """
+    windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
+    return add_magnitude_windows(windows, subjects_trials)
 
 
 # ---------------------------------------------------------------------------
