@@ -620,11 +620,6 @@ def create_session_key(tsv_path) -> tuple:
         if part.startswith("ses-") and "date-" in part:
             m = re.match(r"ses-(\d+)_date-(\d{8})", part)
             if m:
-                label = m.group(1)
-                if not label.isdigit():
-                    raise UnnumberedSessionError(
-                        f"{tsv_path} is in session folder 'ses-{label}', which has no number"
-                    )
                 session_num = int(m.group(1))
                 try:
                     session_date = datetime.strptime(m.group(2), "%Y%m%d")
@@ -633,14 +628,20 @@ def create_session_key(tsv_path) -> tuple:
                         f"Invalid date in session folder {part!r} of {tsv_path}"
                     ) from err
 
-    if session_date is None:
+    if session_num is None:
+        for part in tsv_path.parts:
+            m = re.match(r"^ses-(?P<label>[^_]+)_date-\d{8}$", part)
+            if m and not m["label"].isdigit():
+                raise UnnumberedSessionError(
+                    f"{tsv_path} is in session folder 'ses-{m['label']}', which has no number"
+                )
         raise ValueError(
             f"No ses-<N>_date-<YYYYMMDD> folder in the path of {tsv_path}; "
             "cannot assign the file to a session."
         )
+
     session_key = f"ses-{session_num}_date-{session_date.strftime('%Y%m%d')}"
     return session_num, session_date, session_key
-
 
 # Sessions are ordered by date, then session number: the key shared with
 # ``group_sessions_by_problem`` (see ``session_order.session_sort_key``).
