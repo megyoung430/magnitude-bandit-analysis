@@ -3,6 +3,10 @@
 - suspect: checked, and the best tower is unchanged or tied;
 - uncheckable: a magnitude is missing, or the reversal happened while nothing was recording
   (between runs, after a run's last trial), so there is no trial pair that straddles only it.
+
+Every reversal that is suspect or uncheckable is dropped by get_good_reversal_info, counted
+per reversal (a jump of two on one trial is two), except those the zero-reward gate or the
+missing-tower check skips first.
 """
 
 import re
@@ -75,10 +79,10 @@ def test_a_missing_magnitude_is_uncheckable_not_suspect():
     assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
 
 
-def test_events_while_nothing_recorded_are_uncheckable_and_never_dropped_as_unchanged():
+def test_events_while_nothing_recorded_are_uncheckable_and_still_dropped():
     sessions = mixed_subject()
     # A reversal after ses-1's last trial: the counter of ses-2 starts one higher, and ses-1's
-    # best (A) is also ses-2's first best, so a check across the gap would call it unchanged.
+    # best (A) is also ses-2's first best, so the best tower looks unchanged across the gap.
     sessions["ses-1"]["reversal_boundary_events"] = [
         dict(kind="good", index=6, count=1, source="run_end")
     ]
@@ -90,8 +94,46 @@ def test_events_while_nothing_recorded_are_uncheckable_and_never_dropped_as_unch
     totals = get_total_reversals(sessions)
     # suspect: the tie only; uncheckable: the missing magnitude plus the two events
     assert (totals["suspect_good_reversals"], totals["uncheckable_good_reversals"]) == (1, 3)
-    # dropped: the tie and the missing magnitude; the two events are kept
-    assert dropped_count({"m": sessions}) == 1 + (3 - 2)
+    # every one of them is dropped: the tie, the missing magnitude and both events
+    assert dropped_count({"m": sessions}) == 1 + 3
+
+
+def test_a_terminal_event_and_a_between_run_event_on_one_boundary_are_two_dropped_reversals():
+    # ses-1 ends with a reversal after its last trial; ses-2 starts one higher because another
+    # one happened between runs. Both enter the merged counter at ses-2's first trial.
+    first = session(
+        [0] * 4,
+        [A_BEST] * 4,
+        reversal_boundary_events=[dict(kind="good", index=4, count=1, source="run_end")],
+        reversal_totals={"good": 1},
+    )
+    second = session(
+        [1] * 4,
+        [A_BEST] * 4,
+        reversal_boundary_events=[dict(kind="good", index=0, count=1, source="between_runs")],
+        reversal_totals={"good": 1},
+    )
+    sessions = {"ses-1": first, "ses-2": second}
+    totals = get_total_reversals(sessions)
+    assert (totals["suspect_good_reversals"], totals["uncheckable_good_reversals"]) == (0, 2)
+    assert dropped_count({"m": sessions}) == 2
+
+
+def test_a_jump_of_two_on_one_trial_is_two_dropped_reversals():
+    sess = session([0, 0, 2, 2], [A_BEST] * 4)
+    assert count_suspect_good_reversals(sess) == {"suspect": 2, "uncheckable": 0}
+    assert dropped_count({"m": {"ses-1": sess}}) == 2
+
+
+def test_a_reversal_skipped_by_the_zero_reward_gate_is_counted_but_not_dropped():
+    # The gate (more than max_zero_count towers at zero before the reversal) skips the
+    # boundary before the best-tower check, so it is in neither the drop warning nor the
+    # windows, while the counts still classify it. This is the one documented exclusion of
+    # "dropped = suspect + uncheckable".
+    zeros = (4, 0, 0)
+    sess = session([0, 0, 1, 1], [zeros] * 4)
+    assert count_suspect_good_reversals(sess)["suspect"] == 1
+    assert dropped_count({"m": {"ses-1": sess}}) == 0
 
 
 @pytest.mark.parametrize(

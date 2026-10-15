@@ -88,7 +88,13 @@ def get_all_reversal_indices(subjects_trials):
         - ``all_good[subj]`` – sorted list of good-reversal trial indices.
         - ``all_bad[subj]`` – sorted list of bad-reversal trial indices.
         - ``all_blocks[subj]`` – merged blocks list for optional block logic.
+
+    Raises:
+        ValueError: If a subject mixes counter and blocks-only sessions
+            (:func:`src.behavior_analysis.reversal_format.check_formats_agree`).
     """
+    for subject, sessions in subjects_trials.items():
+        check_formats_agree(subject, sessions)
     merged, _ = get_vars_across_all_sessions(subjects_trials)
 
     all_good = {}
@@ -125,9 +131,9 @@ def get_unclassified_reversal_indices(subjects_trials):
         ValueError: If a session's ``blocks`` and ``trial`` differ in length
             (missing counts as empty); the merged block axis would no longer
             line up with the merged trial axis. Also if a subject mixes
-            good-counter and blocks-only sessions
+            counter and blocks-only sessions
             (:func:`src.behavior_analysis.reversal_format.check_formats_agree`), which keeps
-            the unclassified indices disjoint from the good ones.
+            the unclassified indices disjoint from the good and bad ones.
     """
     for subject, sessions in subjects_trials.items():
         check_formats_agree(subject, sessions)

@@ -8,14 +8,12 @@ Importing this module sets the ``"always"`` warnings filter for :class:`Reversal
 """
 
 import warnings
-from collections import Counter
 from dataclasses import dataclass
 
-from src.behavior_analysis.best_change import best_change_problem, is_suspect
+from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.reversal_format import check_formats_agree
-from src.behavior_analysis.suspect_reversals import good_event_counts
 from src.behavior_import.session_order import ordered_session_keys
 
 
@@ -277,31 +275,14 @@ class _Dropped:
 
     where: _Where
     reason: str
+    count: int = 1  # reversals on the boundary trial: a jump of two in the counter is two
 
 
-def _unrecorded_event_positions(subj, sessions):
-    """``{merged trial index: good reversals logged while nothing was recording}``.
-
-    Events between runs and after a run's last trial enter the merged good counter at the
-    next trial, which is where a boundary for them appears.
-    """
-    positions, start = Counter(), 0
-    for key in ordered_session_keys(subj, sessions):
-        for local, count in good_event_counts(sessions[key]).items():
-            positions[start + local] += count
-        start += len(sessions[key].get("trial") or [])
-    return positions
-
-
-def _only_unrecorded_events(series, boundary_source, events, idx):
-    """True if every good reversal at boundary *idx* was logged while nothing was recording.
-
-    The trials on either side of such a reversal may be separated by any number of unlogged
-    reversals, so the unchanged-best check does not apply to it.
-    """
+def _reversals_at(series, boundary_source, idx):
+    """Good reversals that the boundary at *idx* stands for (the counter's jump there)."""
     if boundary_source != "good_reversals":
-        return False
-    return events.get(idx, 0) >= series.good[idx] - series.good[idx - 1]
+        return 1
+    return int(series.good[idx] - series.good[idx - 1])
 
 
 def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block, max_zero_count):
@@ -327,7 +308,6 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
     boundaries, boundary_source = _find_boundaries(series, any_good)
     if include_first_block:
         boundaries = [0] + boundaries
-    events = _unrecorded_event_positions(subj, sessions)
 
     reversals, dropped = [], []
     for k, idx in enumerate(boundaries):
@@ -346,12 +326,10 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
         # The first block is not a reversal: its "before" and "after" both come from trial 0,
         # so an unchanged best tower there is expected.
         problem = None if first_block else best_change_problem(before, after)
-        if is_suspect(problem) and _only_unrecorded_events(series, boundary_source, events, idx):
-            problem = None
         if problem is not None:
             # A dropped reversal is still a real block change in the data, so (like a
             # skipped one) it keeps ending the window of the reversal before it.
-            dropped.append(_Dropped(where, problem))
+            dropped.append(_Dropped(where, problem, _reversals_at(series, boundary_source, idx)))
             continue
         # Windows come from the full boundary list, so a kept reversal's post-window
         # still stops at a neighbouring boundary that was skipped, masked or dropped.
@@ -401,10 +379,13 @@ def _check_aligned(subj, merged):
 def _warn_dropped(dropped):
     """One warning listing every dropped reversal (a list of ``_Dropped``) and their count."""
     listing = "; ".join(
-        f"{d.where.text()} [merged trial {d.where.merged}, {d.reason}]" for d in dropped
+        f"{d.where.text()} [merged trial {d.where.merged}, {d.reason}"
+        + (f", {d.count} reversals on this trial" if d.count > 1 else "")
+        + "]"
+        for d in dropped
     )
     warnings.warn(
-        f"dropped {len(dropped)} good reversal(s) because the best tower did not change "
+        f"dropped {sum(d.count for d in dropped)} good reversal(s) because the best tower did not change "
         f"(a tied best counts) or a reward magnitude was missing: {listing}. A good reversal "
         "should change the best tower; these are left out of every analysis but still end "
         "the windows of their neighbours.",
@@ -427,15 +408,13 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
       3. ``blocks`` value-change.
     Steps 2 and 3 treat every block change as good, which only holds for
     sessions from before the counters existed (blocks-only sessions). A subject
-    that mixes sessions with the good counter and blocks-only sessions raises
+    that mixes counter sessions (good or bad) with blocks-only sessions raises
     ``ValueError`` naming the subject and the sessions of each kind
-    (:func:`src.behavior_analysis.reversal_format.check_formats_agree`): the good
-    counter would lose the blocks-only sessions' block changes. A bad-only
+    (:func:`src.behavior_analysis.reversal_format.check_formats_agree`). A bad-only
     session (``has_bad`` set, no ``has_good``) has no recorded good reversals:
     its block changes are given no record (a ``ReversalWarning`` names the
     subject and session), but they still end the post-window of the reversal
-    before them. Blocks-only sessions of the same subject keep their block
-    changes.
+    before them.
 
     A good reversal should change the best-rewarding tower. A reversal where it
     does not (including a tie for best) is a suspected data or detection bug and
@@ -450,13 +429,16 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     A reversal with a missing reward magnitude on either side (an unlogged trial,
     a tower with no magnitude, or arrays that end before the trial) is dropped the
     same way, with the reason "missing magnitude".
-    :mod:`src.behavior_analysis.suspect_reversals` counts the same reversals with
-    the same rule: of the reversals dropped inside a recording run, the ones with
-    reason "tie for best" or "best tower unchanged" are its *suspect* count and
-    "missing magnitude" its *uncheckable* count. Reversals logged while nothing
-    was recording (between runs, after a run's last trial) are uncheckable in both:
-    they are never dropped for an unchanged best tower, only for a missing
-    magnitude.
+    The warning counts reversals: a jump of two in the counter on one trial is two.
+    :mod:`src.behavior_analysis.suspect_reversals` counts with the same rule:
+    every dropped reversal is either *suspect* (a checked tie or unchanged best
+    tower) or *uncheckable* (a missing magnitude, or logged while nothing was
+    recording: between runs, after a run's last trial). Events logged while
+    nothing was recording are uncheckable, not suspect, but they are dropped
+    like the rest when their best tower looks unchanged. One exclusion: a
+    reversal skipped before the check (more than ``max_zero_count`` zero
+    rewards, or missing towers) is neither dropped nor in the warning, but the
+    counts still classify it.
 
     Counters (good/bad reversals, block number) are assumed to restart at each
     session, as the rig's do; the merge across sessions offsets them accordingly.

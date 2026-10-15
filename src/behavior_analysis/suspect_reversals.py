@@ -12,9 +12,11 @@ them, with the rule that :func:`get_good_reversal_info` uses when it drops rever
 
 A reversal logged while nothing was recording is uncheckable, not suspect, because the trials
 on either side of it may be separated by any number of unlogged reversals, so an unchanged best
-tower is not evidence of a bug. :func:`get_good_reversal_info` agrees: it never drops such a
-reversal for an unchanged best tower. For the increments inside a run, the dropped reversals
-are exactly the suspect ones plus those with a missing magnitude.
+tower is not evidence of a bug on its own. :func:`get_good_reversal_info` still drops such a
+reversal when its best tower looks unchanged (or a magnitude is missing), so every dropped
+reversal is suspect or uncheckable, counted per reversal. A reversal that the zero-reward gate
+or the missing-tower check skips before that check is neither dropped nor in its warning, but is
+classified here.
 """
 
 from collections import Counter
@@ -64,13 +66,18 @@ def count_suspect_good_reversals(session):
         ``{"suspect": int, "uncheckable": int}``. *suspect* counts the within-run increments of
         the good counter where the best tower is unchanged or tied. *uncheckable* counts the
         increments with a missing magnitude (all of them if the session has no reward
-        magnitudes), plus every event logged while nothing was recording. A session without a
+        magnitudes), any reversal on the first trial, plus every event logged while nothing was recording. A session without a
         good counter has neither.
     """
     rewards = session.get("reward_magnitudes_by_tower") or {}
     events = good_event_counts(session)
+    counter = session.get("good_reversals") or []
     suspect, uncheckable = 0, sum(events.values())
-    for i, size in _increments(session.get("good_reversals") or []):
+    # A counter that starts above what the events at trial 0 explain has a reversal on the
+    # first trial, with no earlier trial in this session to compare it with.
+    if counter and counter[0] is not None:
+        uncheckable += max(0, counter[0] - events.get(0, 0))
+    for i, size in _increments(counter):
         # The counter also jumps where an event enters; that part is counted above.
         size -= events.get(i, 0)
         if size <= 0:

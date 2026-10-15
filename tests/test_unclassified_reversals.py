@@ -59,7 +59,7 @@ def test_subjects_are_classified_per_session_format_on_the_merged_trial_axis():
 
 def test_a_subject_mixing_counter_and_blocks_only_sessions_raises():
     data = {"m": {"ses-1": with_counters([1, 1, 2, 2], [0, 0, 1, 1]), "ses-2": blocks_only([1, 2])}}
-    with pytest.raises(ValueError, match="m: sessions mix the good-counter format"):
+    with pytest.raises(ValueError, match="m: sessions mix the counter format"):
         get_reversal_indices_by_kind(data)
 
 

@@ -2,20 +2,21 @@
 
 A session with trials records reversals in one of two formats:
 
-- **good-counter format**: ``has_good`` is set, so the cumulative ``good_reversals`` counter
-  says which block changes are good reversals.
-- **blocks-only format**: neither ``has_good`` nor ``has_bad`` is set (sessions from before the
-  counters existed, or without any). Only the ``blocks`` series is there, and every block
-  change is a reversal of unknown kind.
+- **counter format**: ``has_good`` or ``has_bad`` is set. The cumulative ``good_reversals`` and
+  ``bad_reversals`` counters say which block changes are good or bad reversals. A bad-only
+  session (``has_bad`` without ``has_good``) is counter format too: its block changes are bad
+  reversals, not reversals of unknown kind.
+- **blocks-only format**: neither is set (sessions from before the counters existed, or
+  without any). Only the ``blocks`` series is there, and every block change is a reversal of
+  unknown kind.
 
-A bad-only session (``has_bad`` without ``has_good``) is neither: its block changes are bad
-reversals, and next to a blocks-only session the windows and the unclassified indices both fall
-back to block changes and agree, so it is not part of the check. Sessions without trials are
-ignored.
+Sessions without trials are ignored.
 
-When one subject has both formats, the good-reversal windows would follow the good counter and
-drop the block changes of the blocks-only sessions, while the unclassified indices would count
-them. :func:`check_formats_agree` refuses that mix.
+Analyses that treat block changes as reversals (the windows, the unclassified indices, the
+good/bad indices, the cumulative reversal series) read counter sessions from the counters and
+blocks-only sessions from the blocks, and merge both on one trial axis. A subject with both
+formats would count the same kind of event two different ways, so
+:func:`check_formats_agree` refuses that mix.
 """
 
 from src.behavior_import.session_order import ordered_session_keys
@@ -25,9 +26,9 @@ def _has_trials(session):
     return bool(session.get("trial"))
 
 
-def is_good_counter_session(session):
-    """True for a session with trials that logs the good-reversal counter."""
-    return _has_trials(session) and bool(session.get("has_good"))
+def is_counter_session(session):
+    """True for a session with trials that logs the good or the bad reversal counter."""
+    return _has_trials(session) and bool(session.get("has_good") or session.get("has_bad"))
 
 
 def is_blocks_only_session(session):
@@ -36,7 +37,7 @@ def is_blocks_only_session(session):
 
 
 def check_formats_agree(subject, sessions):
-    """Raise if *subject* has both good-counter and blocks-only sessions.
+    """Raise if *subject* has both counter and blocks-only sessions.
 
     Args:
         subject: Subject id, named in the error.
@@ -46,12 +47,12 @@ def check_formats_agree(subject, sessions):
         ValueError: Naming the subject and the sessions of each format, in session order.
     """
     keys = ordered_session_keys(subject, sessions)
-    good = [k for k in keys if is_good_counter_session(sessions[k])]
+    counter = [k for k in keys if is_counter_session(sessions[k])]
     blocks_only = [k for k in keys if is_blocks_only_session(sessions[k])]
-    if good and blocks_only:
+    if counter and blocks_only:
         raise ValueError(
-            f"{subject}: sessions mix the good-counter format with the blocks-only format "
-            f"(good-counter sessions {good}, blocks-only sessions {blocks_only}). Windows "
-            "would follow the good counter and lose the block changes of the blocks-only "
-            "sessions, so analyse the two kinds of session separately."
+            f"{subject}: sessions mix the counter format with the blocks-only format "
+            f"(counter sessions {counter}, blocks-only sessions {blocks_only}). Reversals "
+            "would be classified two ways within one subject, so analyse the two kinds of "
+            "session separately."
         )

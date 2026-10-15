@@ -566,31 +566,15 @@ def test_bad_only_session_warns_with_subject_and_session():
     assert caught[0].filename == __file__
 
 
-def test_legacy_session_keeps_block_changes_next_to_a_bad_only_session():
-    for first, second, expected in [
-        (legacy_session(), bad_only_session(8, [1] * 3 + [2] * 5), [(5, "blocks")]),
-        (bad_only_session(8, [1] * 3 + [2] * 5), legacy_session(), [(13, "blocks")]),
+def test_legacy_session_next_to_a_bad_only_session_raises():
+    # A bad-only session is counter format; beside a blocks-only (legacy) session its block
+    # changes would be bad reversals in one session and good ones in the other.
+    for first, second in [
+        (legacy_session(), bad_only_session(8, [1] * 3 + [2] * 5)),
+        (bad_only_session(8, [1] * 3 + [2] * 5), legacy_session()),
     ]:
-        data = {"m": {"ses-1": first, "ses-2": second}}
-        assert boundaries(data) == expected
-        with pytest.warns(mod.ReversalWarning, match="no good reversals"):
-            mod.get_good_reversal_info(data, pre=1)
-
-
-def test_masked_bad_only_boundary_still_ends_the_window_of_the_legacy_reversal():
-    # The bad-only session's block change (merged trial 11) is not a good reversal, but it
-    # is still where the legacy reversal's block ends.
-    data = {"m": {"ses-1": legacy_session(), "ses-2": bad_only_session(8, [1] * 3 + [2] * 5)}}
-    (rev,) = reversals(data)
-    assert rev["reversal_idx"] == 5
-    assert rev["trial_window_idx"]["post"] == [5, 6, 7, 8, 9, 10]
-
-
-def test_legacy_window_after_a_bad_only_session_runs_to_the_last_trial():
-    data = {"m": {"ses-1": bad_only_session(8, [1] * 3 + [2] * 5), "ses-2": legacy_session()}}
-    (rev,) = reversals(data)
-    assert rev["reversal_idx"] == 13
-    assert rev["trial_window_idx"]["post"] == [13, 14, 15]
+        with pytest.raises(ValueError, match="m: sessions mix the counter format"):
+            mod.get_good_reversal_info({"m": {"ses-1": first, "ses-2": second}}, pre=1)
 
 
 def test_bad_only_session_yields_no_first_block_record():
@@ -598,15 +582,6 @@ def test_bad_only_session_yields_no_first_block_record():
     # function does not treat as a boundary, so it has no valid post window.
     data = {"m": {"ses-1": bad_only_session(8, [1] * 3 + [2] * 5)}}
     assert boundaries(data, include_first_block=True) == []
-
-
-def test_first_block_record_is_kept_for_a_legacy_session_beside_a_bad_only_one():
-    data = {"m": {"ses-1": legacy_session(), "ses-2": bad_only_session(8, [1] * 3 + [2] * 5)}}
-    first, second = reversals(data, include_first_block=True)
-    assert (first["reversal_idx"], first["first_block"]) == (0, True)
-    assert second["reversal_idx"] == 5
-    # The first block ends at the legacy reversal, as before.
-    assert first["trial_window_idx"]["post"] == [0, 1, 2, 3, 4]
 
 
 def test_mixed_subject_takes_good_reversals_only_from_sessions_that_log_them():
