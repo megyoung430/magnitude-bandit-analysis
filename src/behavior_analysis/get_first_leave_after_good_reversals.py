@@ -5,7 +5,13 @@ previously the best.  The functions here find the very first trial in the post
 window where a non-previous-best arm is chosen, classify it as new-best or
 third, and aggregate these classifications across reversals and subjects.
 """
+
 import numpy as np
+
+from src.behavior_analysis.get_good_reversal_info import (
+    classify_towers_at_good_reversals,
+    exclude_best_unchanged,
+)
 
 
 def get_first_leave_after_good_reversals(reversal_windows):
@@ -25,13 +31,19 @@ def get_first_leave_after_good_reversals(reversal_windows):
         where ``"total"`` is the number of reversals examined, ``"new_best"``
         is the count where the animal first left toward the new best arm, and
         ``"third"`` is the count where it left toward the third arm.
+        Reversals whose best tower did not change are left out of all three
+        counts, and a ``UserWarning`` reports how many per subject.
     """
     per_subject = {}
 
     for subj, revs in reversal_windows.items():
         counts = {"new_best": 0, "third": 0, "total": 0}
 
-        for r in revs:
+        # A reversal that leaves the best tower unchanged has no third arm to count.
+        classifiable = exclude_best_unchanged(
+            revs, subject=subj, caller="get_first_leave_after_good_reversals"
+        )
+        for r in classifiable:
             prev_best, new_best, third = classify_towers_at_good_reversals(r)
             towers = [prev_best, new_best, third]
 
@@ -54,6 +66,7 @@ def get_first_leave_after_good_reversals(reversal_windows):
         per_subject[subj] = counts
     return per_subject
 
+
 def average_first_leave_across_subjects(per_subject_counts):
     """Compute mean and SE of first-leave fractions across subjects.
 
@@ -74,7 +87,7 @@ def average_first_leave_across_subjects(per_subject_counts):
     new_vals = []
     third_vals = []
 
-    for subj, c in per_subject_counts.items():
+    for c in per_subject_counts.values():
         if c["total"] == 0:
             continue
         new_vals.append(c["new_best"] / c["total"])
@@ -87,32 +100,13 @@ def average_first_leave_across_subjects(per_subject_counts):
     }
     se = {
         "new_best": np.std(new_vals, ddof=1) / np.sqrt(len(new_vals)) if len(new_vals) > 1 else 0.0,
-        "third": np.std(third_vals, ddof=1) / np.sqrt(len(third_vals)) if len(third_vals) > 1 else 0.0,
+        "third": np.std(third_vals, ddof=1) / np.sqrt(len(third_vals))
+        if len(third_vals) > 1
+        else 0.0,
     }
 
     return mean, se, len(new_vals)
 
-# ========== Classifying Towers at Good Reversals ==========
-def classify_towers_at_good_reversals(reversal):
-    """Classify towers as prev-best, next-best, and third around a good reversal.
-
-    Args:
-        reversal: A reversal dict containing ``"reward_magnitudes_by_tower_before"``
-            and ``"reward_magnitudes_by_tower_after"`` keys (tower → magnitude).
-
-    Returns:
-        Three-tuple ``(prev_best, next_best, third)`` of tower key strings.
-    """
-    before = reversal["reward_magnitudes_by_tower_before"]
-    after  = reversal["reward_magnitudes_by_tower_after"]
-
-    prev_best = max(before, key=before.get)
-    next_best = max(after, key=after.get)
-
-    towers = set(before.keys())
-    third = list(towers - {prev_best, next_best})[0]
-
-    return prev_best, next_best, third
 
 # ========== Get Chosen Tower from Dictionary of One Hots ==========
 def chosen_tower_from_onehots(reversal, trial_idx, towers):

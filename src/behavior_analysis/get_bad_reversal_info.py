@@ -68,16 +68,11 @@ def _before_trial(idx):
 def _window_indices(boundaries, k, n_trials, *, pre, post):
     """Absolute ``(pre_idx, post_idx)`` trial indices around boundary number *k*.
 
-    With ``post=None`` the post-window stops at the next boundary (or the last
-    trial); an explicit *post* is only clipped to the last trial.
+    The post-window never extends past the next boundary (or the last trial).
     """
-    # Known issue: an explicit *post* can run past the next boundary, unlike
-    # ``get_good_reversal_info`` where the post-window never crosses it.
     idx = boundaries[k]
-    if post is None:
-        post_end = boundaries[k + 1] if k + 1 < len(boundaries) else n_trials
-    else:
-        post_end = min(n_trials, idx + post)
+    next_boundary = boundaries[k + 1] if k + 1 < len(boundaries) else n_trials
+    post_end = next_boundary if post is None else min(n_trials, idx + post, next_boundary)
     return list(range(max(0, idx - pre), idx)), list(range(idx, post_end))
 
 
@@ -127,13 +122,11 @@ def _build_reversal(series, towers, idx, *, pre_idx, post_idx):
     reward array reaches the trial before *idx*.
     """
     before = _before_trial(idx)
-    # Known issue: every reversal of a subject holds the same ``towers`` list object, so
-    # mutating it in one record changes all of them.
     return {
         "reversal_idx": idx,
         "bad_reversal_number": series.bad[idx],
         "block_id": _block_id_at(series.blocks, idx),
-        "towers": towers,
+        "towers": list(towers),  # own copy: records must not alias each other
         "trial_window_idx": {"pre": pre_idx, "post": post_idx},
         "reward_magnitudes_by_tower_before": {t: series.reward_by_tower[t][before] for t in towers},
         "reward_magnitudes_by_tower_after": _rewards_at(series.reward_by_tower, towers, idx),
@@ -169,8 +162,8 @@ def _subject_reversals(subj, series, *, pre, post, include_first_block, required
         if message is not None:
             print(message)
             continue
-        # Windows are computed from the full boundary list, so with ``post=None`` a kept
-        # reversal's post-window still stops at a neighbouring boundary that was skipped.
+        # Windows are computed from the full boundary list, so a kept reversal's
+        # post-window still stops at a neighbouring boundary that was skipped.
         pre_idx, post_idx = _window_indices(boundaries, k, n_trials, pre=pre, post=post)
         reversals.append(_build_reversal(series, towers, idx, pre_idx=pre_idx, post_idx=post_idx))
     return reversals
@@ -190,9 +183,9 @@ def get_bad_reversal_info(
         data: Nested dict ``{subject: {session_key: session_dict}}``.
         pre: Number of trials before the reversal index to include in the
             pre-window (default: 5).
-        post: Number of trials after the reversal index to include in the
-            post-window.  If ``None``, extends to the next bad reversal
-            (default: ``None``).
+        post: Maximum number of trials after the reversal index to include in
+            the post-window.  The window never extends past the next bad
+            reversal; if ``None``, it extends exactly to it (default: ``None``).
         include_first_block: If ``True``, prepend index ``0`` to the boundary
             list (default: ``False``).
         required_reward_pattern: Multiset of reward values that must be
