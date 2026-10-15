@@ -8,7 +8,10 @@ third, and aggregate these classifications across reversals and subjects.
 
 import numpy as np
 
-from src.behavior_analysis.get_good_reversal_info import classify_towers_at_good_reversals
+from src.behavior_analysis.get_good_reversal_info import (
+    classify_towers_at_good_reversals,
+    exclude_best_unchanged,
+)
 
 
 def get_first_leave_after_good_reversals(reversal_windows):
@@ -28,13 +31,19 @@ def get_first_leave_after_good_reversals(reversal_windows):
         where ``"total"`` is the number of reversals examined, ``"new_best"``
         is the count where the animal first left toward the new best arm, and
         ``"third"`` is the count where it left toward the third arm.
+        Reversals whose best tower did not change are left out of all three
+        counts, and a ``UserWarning`` reports how many per subject.
     """
     per_subject = {}
 
     for subj, revs in reversal_windows.items():
         counts = {"new_best": 0, "third": 0, "total": 0}
 
-        for r in revs:
+        # A reversal that leaves the best tower unchanged has no third arm to count.
+        classifiable = exclude_best_unchanged(
+            revs, subject=subj, caller="get_first_leave_after_good_reversals"
+        )
+        for r in classifiable:
             prev_best, new_best, third = classify_towers_at_good_reversals(r)
             towers = [prev_best, new_best, third]
 
