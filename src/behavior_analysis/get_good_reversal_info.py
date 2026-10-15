@@ -57,11 +57,15 @@ def _list_towers(series):
     return list(by_tower.keys())
 
 
-def _find_boundaries(series, any_good):
+def _find_boundaries(series, any_good, any_bad=False):
     """Return ``(boundary_indices, boundary_source)`` using the priority in the public docstring."""
     good = series.good
     if any_good and good is not None and len(good) >= 2:
         return find_increment_indices(good), "good_reversals"
+    if any_bad and not any_good:
+        # Block changes mix good and bad reversals. A subject that logs bad reversals
+        # but never good ones has no recorded good reversals to stand in for them.
+        return [], None
     if len(series.num_blocks) >= 2:
         return find_increment_indices(series.num_blocks), "num_blocks"
     if len(series.blocks) >= 2:
@@ -174,7 +178,8 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
         return []
 
     any_good = any(sess.get("has_good", False) for sess in sessions.values())
-    boundaries, boundary_source = _find_boundaries(series, any_good)
+    any_bad = any(sess.get("has_bad", False) for sess in sessions.values())
+    boundaries, boundary_source = _find_boundaries(series, any_good, any_bad)
     if include_first_block:
         boundaries = [0] + boundaries
 
@@ -203,8 +208,13 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     Boundary detection priority (first match wins):
       1. ``good_reversals`` increment — used when the subject has at least one
          session with ``has_good == True`` and a valid ``good_reversals`` array.
+         Sessions of that subject without the counter contribute no reversals.
       2. ``num_blocks`` increment.
       3. ``blocks`` value-change.
+    Steps 2 and 3 treat every block change as good, which only holds for
+    sessions from before the counters existed. A subject with ``has_bad`` set
+    but no ``has_good`` session has no recorded good reversals, so it yields
+    none.
 
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}``.
@@ -274,17 +284,25 @@ def classify_towers_at_good_reversals(reversal):
 
     Returns:
         A three-tuple ``(prev_best, next_best, third)`` of tower key strings.
+        ``third`` is the first tower, in the session's tower order (the key
+        order of the reward dicts), that is neither best. When the best tower
+        is unchanged two towers qualify; the earlier-listed one is taken, so
+        the result is the same on every run. Ties for best also resolve to the
+        earlier-listed tower.
+
+    Raises:
+        ValueError: If every tower is one of the two best towers.
     """
-    # Known issue: when prev_best == next_best, the third tower is taken from a set
-    # difference holding the two other towers, so which one is returned depends on
-    # PYTHONHASHSEED (e.g. ('A', 'A', 'C') in one run, ('A', 'A', 'B') in another).
     before = reversal["reward_magnitudes_by_tower_before"]
     after = reversal["reward_magnitudes_by_tower_after"]
 
     prev_best = max(before, key=before.get)
     next_best = max(after, key=after.get)
 
-    towers = set(before.keys())
-    third = list(towers - {prev_best, next_best})[0]
+    third = next((t for t in before if t not in (prev_best, next_best)), None)
+    if third is None:
+        raise ValueError(
+            f"no remaining tower besides {prev_best!r} and {next_best!r} in {list(before)}"
+        )
 
     return prev_best, next_best, third

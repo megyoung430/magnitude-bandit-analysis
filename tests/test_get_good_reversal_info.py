@@ -1,5 +1,10 @@
 """Tests for get_good_reversal_info on synthetic sessions, plus edge cases of its helpers."""
 
+import json
+import os
+import subprocess
+import sys
+
 import pytest
 
 from src.behavior_analysis import get_good_reversal_info as mod
@@ -221,3 +226,89 @@ def test_boundary_beyond_blocks_array_yields_no_good_reversal_number(monkeypatch
     monkeypatch.setattr(mod, "get_vars_across_all_sessions", lambda data: (merged, None))
     (rev,) = mod.get_good_reversal_info({"m": {"ses-1": {}}})["m"]
     assert rev["good_reversal_number"] is None
+
+
+# --- classify_towers_at_good_reversals ---
+
+
+def reversal_with(before, after):
+    return {
+        "reward_magnitudes_by_tower_before": before,
+        "reward_magnitudes_by_tower_after": after,
+    }
+
+
+def test_classify_towers_gives_the_remaining_tower_when_best_towers_differ():
+    rev = reversal_with({"A": 4, "B": 1, "C": 0}, {"A": 0, "B": 4, "C": 1})
+    assert mod.classify_towers_at_good_reversals(rev) == ("A", "B", "C")
+
+
+@pytest.mark.parametrize(
+    "order, expected_third",
+    [(("A", "B", "C"), "B"), (("C", "B", "A"), "C"), (("B", "A", "C"), "B")],
+)
+def test_classify_towers_same_best_picks_first_other_tower_in_session_order(order, expected_third):
+    # prev_best == next_best == A leaves two candidates; the one listed first in the
+    # session's tower order is the third.
+    before = {t: {"A": 4, "B": 1, "C": 0}[t] for t in order}
+    after = {t: {"A": 4, "B": 0, "C": 1}[t] for t in order}
+    assert mod.classify_towers_at_good_reversals(reversal_with(before, after)) == (
+        "A",
+        "A",
+        expected_third,
+    )
+
+
+def test_classify_towers_raises_when_no_tower_is_left():
+    rev = reversal_with({"A": 4, "B": 1}, {"A": 1, "B": 4})
+    with pytest.raises(ValueError, match="no remaining tower"):
+        mod.classify_towers_at_good_reversals(rev)
+
+
+def test_classify_towers_does_not_depend_on_hash_seed():
+    # PYTHONHASHSEED is fixed at interpreter start, so each seed needs its own process.
+    code = (
+        "import json;"
+        "from src.behavior_analysis.get_good_reversal_info import "
+        "classify_towers_at_good_reversals as f;"
+        "r = {'reward_magnitudes_by_tower_before': {'T1': 4, 'T2': 1, 'T3': 0, 'T4': 0},"
+        " 'reward_magnitudes_by_tower_after': {'T1': 4, 'T2': 0, 'T3': 1, 'T4': 0}};"
+        "print(json.dumps(f(r)))"
+    )
+    results = set()
+    for seed in range(8):
+        env = {**os.environ, "PYTHONHASHSEED": str(seed)}
+        out = subprocess.run(
+            [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+        ).stdout
+        results.add(tuple(json.loads(out)))
+    assert results == {("T1", "T1", "T2")}
+
+
+# --- subjects that log bad but not good reversals ---
+
+
+def test_subject_logging_only_bad_reversals_has_no_good_reversals():
+    # Block changes of such a subject are bad reversals (or unrecorded), so they must not
+    # stand in for good reversals.
+    sess = make_session(8, blocks=[1] * 3 + [2] * 5, has_good=False)
+    sess["has_bad"] = True
+    sess["bad_reversals"] = [0] * 3 + [1] * 5
+    assert mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1) == {"m": []}
+
+
+def test_mixed_subject_takes_good_reversals_only_from_sessions_that_log_them():
+    logged = make_session(8, good=[0, 0, 0, 1, 1, 1, 1, 1], blocks=[1] * 3 + [2] * 5)
+    unlogged = make_session(8, blocks=[1] * 4 + [2] * 4, has_good=False)
+    unlogged["has_bad"] = True
+    unlogged["bad_reversals"] = [0] * 4 + [1] * 4
+    data = {"m": {"ses-1": logged, "ses-2": unlogged}}
+    revs = mod.get_good_reversal_info(data, pre=1)["m"]
+    assert [(r["reversal_idx"], r["boundary_source"]) for r in revs] == [(3, "good_reversals")]
+
+
+def test_subject_with_no_reversal_counters_still_uses_block_changes():
+    # Sessions from before the good/bad counters existed have only block numbers.
+    sess = make_session(8, blocks=[1] * 5 + [2] * 3, has_good=False)
+    (rev,) = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)["m"]
+    assert rev["boundary_source"] == "blocks" and rev["reversal_idx"] == 5
