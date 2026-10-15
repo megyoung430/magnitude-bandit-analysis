@@ -25,6 +25,7 @@ import pandas as pd
 from src.behavior_import.problem_numbering import (
     SessionFacts,
     number_subject_sessions,
+    session_sort_key,
     tower_layout,
 )
 
@@ -95,10 +96,9 @@ def _session_run_start(df_list: list, subject_id: str, session_key: str) -> dict
 def _session_facts(towers: dict, evidence: dict) -> SessionFacts:
     return SessionFacts(
         tower_layout(towers["choice_towers"], towers["initiation_tower"]),
-        evidence["has_num_t_found"],
         evidence["starts_found_ports_false"],
-        evidence["task_name"],
         evidence["has_port_finding_trials"],
+        evidence["task_name"],
     )
 
 
@@ -115,10 +115,12 @@ def _import_subject_sessions(grouped_tsv_files: dict, subject_id: str) -> dict:
         settings_evidence(df_list, run_start)
         for df_list, run_start in zip(df_lists, run_starts, strict=True)
     ]
+    # stacklevel 4: number_subject_sessions, this function, import_data, then the caller.
     assignments = number_subject_sessions(
         subject_id,
         [key[1] for key in keys],
         [_session_facts(t, e) for t, e in zip(towers, evidence, strict=True)],
+        stacklevel=4,
     )
     return {
         key[1]: _build_session_record(df_list, t, assignment, e)
@@ -185,10 +187,11 @@ def import_data(root: str | Path) -> dict:
     grouped_tsv_files = group_by_subj_and_ses(collect_tsv_files(root))
 
     unique_subjects = sorted({subj for subj, _ in grouped_tsv_files.keys()})
-    subjects = {
-        subject_id: _import_subject_sessions(grouped_tsv_files, subject_id)
-        for subject_id in unique_subjects
-    }
+    # A plain loop, not a comprehension, so the warning stacklevel in
+    # _import_subject_sessions does not depend on the Python version.
+    subjects = {}
+    for subject_id in unique_subjects:
+        subjects[subject_id] = _import_subject_sessions(grouped_tsv_files, subject_id)
 
     total = sum(len(s) for s in subjects.values())
     print(f"[INFO] Processed {len(subjects)} subjects(s), {total} session(s).")
@@ -285,11 +288,11 @@ def settings_evidence(df_list, run_start: dict) -> dict:
         run_start: The parsed ``run_start`` of the earliest recording.
 
     Returns:
-        ``{"has_num_t_found": bool, "starts_found_ports_false": bool,
-        "has_port_finding_trials": bool, "task_name": str | None}``.
+        ``{"starts_found_ports_false": bool, "has_port_finding_trials": bool,
+        "task_name": str | None}``.
         ``has_port_finding_trials`` is true if any recording prints a trial dict with
-        ``num_t_found`` (the port-finding trials).  ``has_num_t_found`` is that, or the
-        first ``run_start`` having a ``num_t_found`` key.  ``starts_found_ports_false``
+        ``num_t_found`` (the port-finding trials); the ``num_t_found`` key of
+        ``run_start`` is always present and is ignored.  ``starts_found_ports_false``
         is true only if the first ``run_start`` has ``found_ports`` equal to ``false``;
         a missing or null value is not false.  ``task_name`` is the earliest
         recording's ``task_name`` info row, or ``None``.
@@ -301,7 +304,6 @@ def settings_evidence(df_list, run_start: dict) -> dict:
     )
     port_finding = any(isinstance(d, dict) and "num_t_found" in d for d in printed)
     return {
-        "has_num_t_found": "num_t_found" in run_start or port_finding,
         "starts_found_ports_false": run_start.get("found_ports") is False,
         "has_port_finding_trials": port_finding,
         "task_name": read_task_name(df_list[0]),
@@ -540,18 +542,6 @@ def create_session_key(tsv_path) -> tuple:
     return session_num, session_date, session_key
 
 
-def sort_session_key(session_key: str) -> tuple:
-    """Return a sort key for a session string of the form ``ses-N_date-YYYYMMDD``.
-
-    Args:
-        session_key: Session identifier string, e.g. ``"ses-3_date-20240115"``.
-
-    Returns:
-        A ``(date_int, session_number)`` tuple suitable for use as a sort key,
-        where *date_int* is the date as a plain integer (``YYYYMMDD``) and
-        *session_number* is the integer session index.
-    """
-    match = re.search(r"ses-(\d+)_date-(\d{8})", session_key)
-    ses_num = int(match.group(1))
-    date = int(match.group(2))
-    return (date, ses_num)
+# Sessions are ordered by date, then session number: the key shared with
+# ``group_sessions_by_problem`` (see ``problem_numbering.session_sort_key``).
+sort_session_key = session_sort_key

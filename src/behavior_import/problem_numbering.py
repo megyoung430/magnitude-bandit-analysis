@@ -1,34 +1,38 @@
 """One problem-numbering rule, shared by ``import_data`` and ``group_sessions_by_problem``.
 
 A *problem* is a tower layout: the set of choice towers plus the initiation tower.
-Per subject, in session order:
+Sessions are taken per subject in :func:`session_sort_key` order (date, then session
+number). Sessions that are not bandit problems are skipped first (below); the rest are cut
+into *runs* of consecutive sessions with the same layout, and each run is compared with the
+**last unflagged layout**, not with the session before it:
 
-- A session whose layout equals the previous unflagged session's layout belongs to
-  the same problem.
-- A different layout starts a new problem, including a return to an earlier layout
-  (A, B, A -> 1, 2, 3 when B is real).
-- A session whose layout differs from the session before it is a *suspected settings
-  error* (problem ``None``, flag :data:`SUSPECTED_SETTINGS_ERROR`) if any of these hold:
+- Same layout as the last unflagged one: the run continues that problem (so
+  A, flagged B, A is problems 1, None, 1, whatever the evidence of the resumed A).
+- A new layout that lasts exactly one session before the layout changes again is a
+  *suspected settings error*: problem ``None``, flag :data:`SUSPECTED_SETTINGS_ERROR`.
+  It is neither a new problem nor pooled with another, and does not become the last
+  unflagged layout.
+- A new layout that lasts two or more sessions (or is the final run of the data, whose
+  duration is not yet known) is a real problem, numbered from its first session, even
+  after a return to an earlier layout (A, B, B, A is 1, 2, 2, 3). If its first session
+  fails the evidence checks, it keeps the number but gets flag :data:`REVIEW_SETTINGS`
+  and a warning for manual review. Checks, on the first ``run_start`` and printed trials:
 
-  a. the new layout lasts only that one session before changing again;
-  b. the session has no ``num_t_found`` (neither in its first ``run_start`` nor in a
-     printed trial);
-  c. the session does not start with ``found_ports`` false (first ``run_start``).
+  c. the session starts with ``found_ports`` false;
+  b. port finding happened: a printed trial dict carries ``num_t_found`` (the
+     ``num_t_found`` key of ``run_start`` is always present and says nothing). Not
+     checked when (c) already failed.
 
-  A flagged session is neither a new problem nor pooled with another one, and it is
-  ignored when deciding whether the next session changed problem: A, flagged B, A is
-  problems 1, None, 1.
-- Sessions that are not bandit problems are skipped (problem ``None``) and are ignored
-  when comparing the sessions around them, so they never break pooling
-  (A, skipped, A is problem 1, 1). In this order:
+- The first run of a subject is problem 1 and is not checked: its first session is
+  often mid-problem.
 
-  1. *Pretraining* (task name, see :func:`is_pretraining`): flag :data:`PRETRAINING`,
-     no warning.
-  2. No choice towers and port-finding trials printed: flag :data:`PORT_FINDING`, with
-     a warning.
-  3. No choice towers otherwise: flag :data:`NO_CHOICE_TOWERS`, with a warning, rather
-     than guessing what the session was.
-- The first session with a layout is never flagged.
+Sessions that are not bandit problems get problem ``None``, are ignored when comparing the
+sessions around them (A, skipped, A is 1, None, 1) and stay in the data:
+
+1. *Pretraining* (task name, see :func:`is_pretraining`): flag :data:`PRETRAINING`, no
+   warning.
+2. No choice towers and port-finding trials printed: flag :data:`PORT_FINDING`, warning.
+3. No choice towers otherwise: flag :data:`NO_CHOICE_TOWERS`, warning, rather than guessing.
 """
 
 import re
@@ -36,6 +40,7 @@ import warnings
 from typing import NamedTuple
 
 SUSPECTED_SETTINGS_ERROR = "suspected_settings_error"
+REVIEW_SETTINGS = "review_settings"
 PRETRAINING = "pretraining"
 PORT_FINDING = "port_finding"
 NO_CHOICE_TOWERS = "no_choice_towers"
@@ -49,6 +54,14 @@ PRETRAINING_TASK_NAMES = frozenset({"mag"})
 PRETRAINING_TASK_NAME_PARTS = ("pretraining",)
 DEFAULT_INITIATION_TOWER = "B2"
 
+
+class ProblemNumberingWarning(UserWarning):
+    """A session was flagged or skipped by the numbering rule."""
+
+
+# Always shown, so rerunning an import in a notebook warns again.
+warnings.simplefilter("always", ProblemNumberingWarning)
+
 TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
 
 
@@ -56,14 +69,13 @@ class SessionFacts(NamedTuple):
     """What the numbering rule needs to know about one session."""
 
     layout: tuple | None  # from :func:`tower_layout`; ``None`` without choice towers
-    has_num_t_found: bool
     starts_found_ports_false: bool
+    has_port_finding_trials: bool  # a printed trial dict carries ``num_t_found``
     task_name: str | None = None
-    has_port_finding_trials: bool = False  # a printed trial dict carries ``num_t_found``
 
 
 class ProblemAssignment(NamedTuple):
-    problem: int | None  # ``None`` for a flagged session
+    problem: int | None  # ``None`` for a skipped or settings-error session
     flag: str | None
     reasons: tuple  # which of the checks fired, for the warning text
 
@@ -194,35 +206,38 @@ def _skip_assignment(session):
     return ProblemAssignment(None, NO_CHOICE_TOWERS, ("no choice towers",))
 
 
-def _settings_error_reasons(facts, position, layouts):
-    """Why the session at *position* of *layouts* is a suspected settings error (maybe empty).
+def session_sort_key(session_id):
+    """Chronological sort key for session keys such as ``ses-3_date-20260102``.
 
-    *layouts* is ``[(index, layout)]`` for the sessions that have a layout; the session at
-    *position* must differ from the one before it.
+    Date first, then session number, then the key itself (so ``_part-01`` segments keep
+    recording order). Keys without a date or number sort last. Both ``import_data`` and
+    ``group_sessions_by_problem`` use this key, so they number sessions in the same order.
     """
-    reasons = []
-    following = layouts[position + 1][1] if position + 1 < len(layouts) else None
-    if following is not None and following != layouts[position][1]:
-        reasons.append("layout lasts one session before changing again")
-    if not facts.has_num_t_found:
-        reasons.append("no num_t_found")
-    if not facts.starts_found_ports_false:
-        reasons.append("does not start with found_ports false")
-    return tuple(reasons)
+    m_date = re.search(r"date-(\d{8})", session_id)
+    m_ses = re.search(r"ses-(\d+)", session_id)
+    date = int(m_date.group(1)) if m_date else float("inf")
+    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
+    return (date, ses_num, session_id)
 
 
-def _flagged_reasons(facts, skipped):
-    """``{session index: reasons}`` for sessions that changed layout and look like errors."""
-    layouts = [(i, f.layout) for i, f in enumerate(facts) if i not in skipped]
-    flagged = {}
-    for position in range(1, len(layouts)):
-        index, layout = layouts[position]
-        if layout == layouts[position - 1][1]:
-            continue
-        reasons = _settings_error_reasons(facts[index], position, layouts)
-        if reasons:
-            flagged[index] = reasons
-    return flagged
+def _evidence_reasons(session):
+    """Why the first session of a new problem needs review (empty if it passes)."""
+    if not session.starts_found_ports_false:
+        return ("does not start with found_ports false",)
+    if not session.has_port_finding_trials:
+        return ("no port-finding trials (num_t_found) printed",)
+    return ()
+
+
+def _layout_runs(facts, indices):
+    """Group *indices* (session positions, in order) into runs of equal layout."""
+    runs = []
+    for index in indices:
+        if runs and facts[runs[-1][0]].layout == facts[index].layout:
+            runs[-1].append(index)
+        else:
+            runs.append([index])
+    return runs
 
 
 def assign_problems(facts):
@@ -231,32 +246,53 @@ def assign_problems(facts):
     See the module docstring for the rule. Returns one :class:`ProblemAssignment` per
     session.
     """
-    skipped = {i: a for i, f in enumerate(facts) if (a := _skip_assignment(f))}
-    flagged = _flagged_reasons(facts, skipped)
-    assignments = []
+    assignments = {i: a for i, f in enumerate(facts) if (a := _skip_assignment(f))}
+    runs = _layout_runs(facts, [i for i in range(len(facts)) if i not in assignments])
     problem, last_layout = 0, None
-    # Each number depends on the last unflagged layout, so this is a loop.
-    for index, session in enumerate(facts):
-        if index in skipped:
-            assignments.append(skipped[index])
-        elif index in flagged:
-            assignments.append(ProblemAssignment(None, SUSPECTED_SETTINGS_ERROR, flagged[index]))
+    # Each run is judged against the last unflagged layout, so this is a loop.
+    for position, run in enumerate(runs):
+        layout = facts[run[0]].layout
+        if layout == last_layout:
+            first = ProblemAssignment(problem, None, ())
+        elif last_layout is not None and len(run) == 1 and position < len(runs) - 1:
+            reasons = ("layout lasts one session before changing again",)
+            assignments[run[0]] = ProblemAssignment(None, SUSPECTED_SETTINGS_ERROR, reasons)
+            continue
         else:
-            if session.layout != last_layout:
-                problem, last_layout = problem + 1, session.layout
-            assignments.append(ProblemAssignment(problem, None, ()))
-    return assignments
+            problem, last_layout = problem + 1, layout
+            reasons = _evidence_reasons(facts[run[0]]) if problem > 1 else ()
+            first = ProblemAssignment(problem, REVIEW_SETTINGS if reasons else None, reasons)
+        assignments[run[0]] = first
+        for index in run[1:]:
+            assignments[index] = ProblemAssignment(problem, None, ())
+    return [assignments[i] for i in range(len(facts))]
 
 
-def number_subject_sessions(subject, session_ids, facts):
-    """:func:`assign_problems` plus one warning per flagged session, naming it."""
+def number_subject_sessions(subject, session_ids, facts, *, warn=True, stacklevel=2):
+    """:func:`assign_problems` plus one :class:`ProblemNumberingWarning` per flagged session.
+
+    Args:
+        subject: Subject id, named in the warnings.
+        session_ids: Session keys, in the same order as *facts*.
+        facts: One :class:`SessionFacts` per session.
+        warn: ``False`` to stay silent (for a caller whose data was already warned about).
+        stacklevel: Passed to ``warnings.warn``; 2 points at this function's caller.
+    """
     assignments = assign_problems(facts)
+    if not warn:
+        return assignments
     for session_id, assignment in zip(session_ids, assignments, strict=True):
         if assignment.flag and assignment.flag != PRETRAINING:
+            outcome = (
+                "excluded from problem numbering"
+                if assignment.problem is None
+                else f"kept as problem {assignment.problem}"
+            )
             warnings.warn(
                 f"{subject} {session_id}: {assignment.flag.replace('_', ' ')} ("
                 + "; ".join(assignment.reasons)
-                + "); excluded from problem numbering.",
-                stacklevel=2,
+                + f"); {outcome}.",
+                ProblemNumberingWarning,
+                stacklevel=stacklevel,
             )
     return assignments

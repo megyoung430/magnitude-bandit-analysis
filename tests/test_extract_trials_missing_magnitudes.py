@@ -39,7 +39,7 @@ class MissingMagnitudeTests(unittest.TestCase):
             'chosen_rank': 'best', 'rank_counts': {'best': 1, 'second': 0},
         }])
         evidence = {
-            'has_num_t_found': True, 'starts_found_ports_false': True,
+            'starts_found_ports_false': True,
             'has_port_finding_trials': False, 'task_name': None,
         }
         data = {'mouse': {

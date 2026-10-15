@@ -1,6 +1,7 @@
 """Unit tests for the small helpers behind ``src.behavior_import.extract_trials``."""
 
 import json
+import warnings
 from copy import deepcopy
 
 import pandas as pd
@@ -32,9 +33,8 @@ from src.behavior_import.extract_trials import (
 
 # Facts that ``import_data`` stores on every session; a clean first session of a layout.
 EVIDENCE = {
-    "has_num_t_found": True,
     "starts_found_ports_false": True,
-    "has_port_finding_trials": False,
+    "has_port_finding_trials": True,
     "task_name": "Meg\\3x3_field_drifting_value_bandit",
 }
 
@@ -136,12 +136,12 @@ def session_with_towers(towers, *, trials=True, **extra):
     }
 
 
-def test_session_sort_key_orders_by_session_number_then_date():
+def test_session_sort_key_orders_by_date_then_session_number():
     keys = ["ses-10_date-20260101", "ses-2_date-20260301", "other", "ses-2_date-20260201"]
     assert sorted(keys, key=session_sort_key) == [
+        "ses-10_date-20260101",
         "ses-2_date-20260201",
         "ses-2_date-20260301",
-        "ses-10_date-20260101",
         "other",
     ]
 
@@ -204,7 +204,8 @@ def test_group_sessions_by_problem_leaves_out_a_flagged_session_and_pools_around
             "ses-3": session_with_towers(["A1"]),
         }
     }
-    with pytest.warns(UserWarning, match=r"m ses-2.*suspected settings error"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # import_data warns; grouping does not repeat it
         grouped = group_sessions_by_problem(data)
     assert by_problem(grouped) == {1: ["ses-1", "ses-3"]}
     assert "ses-2" in data["m"]  # still available for single-session analyses

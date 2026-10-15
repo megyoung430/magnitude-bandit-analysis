@@ -10,47 +10,46 @@ Fixes known issues in `behavior_import` and puts problem numbering behind one sh
 
 ## Acceptance criteria
 
-1. **One problem rule** (`src/behavior_import/problem_numbering.py`), used by `import_data` (`problem`) and `group_sessions_by_problem`, decided by the PI:
-   - A problem is the full tower layout: choice towers plus initiation tower (default `B2`). Tower order and case do not matter. Changing only the initiation tower starts a new problem. `has_good` no longer splits problems.
-   - A session whose layout differs from the layout-bearing session before it is a suspected settings error if (a) its layout lasts only that one session before changing again, or (b) it has no `num_t_found`, or (c) it does not start with `found_ports` false.
-   - Flagged sessions get `problem = None`, `problem_flag = "suspected_settings_error"` and a `warnings.warn` naming subject and session. `group_sessions_by_problem` leaves them out (neither a new problem nor pooled); they stay in the data for single-session analyses.
-   - A, flagged B, A: both A sessions are problem 1. A, B, A with a real B: 1, 2, 3.
-   - The first layout-bearing session is never flagged. Evidence is only checked on sessions that change the layout.
-   - Sessions that are not bandit problems are skipped (PI decision), never break pooling (A, skipped, A is problem 1, 1) and stay in the data. Pretraining: `problem_flag: "pretraining"`, no warning. Port finding: `"port_finding"` plus a warning. Any other session without choice towers: `"no_choice_towers"` plus a warning.
+1. **One problem rule** (`src/behavior_import/problem_numbering.py`), used by `import_data` (`problem`, `problem_flag`) and `group_sessions_by_problem`, decided by the PI:
+   - A problem is the full layout: choice towers plus initiation tower (default `B2`); order and case do not matter. `has_good` no longer splits problems.
+   - Sessions are taken per subject in one shared order, `session_sort_key`: date, then session number (then the key, so `_part-NN` segments keep recording order).
+   - Skipped sessions (below) are removed first. The rest are cut into runs of consecutive equal layouts; each run is compared with the **last unflagged layout**, not the session before it.
+   - Same as the last unflagged layout: continues that problem, with no evidence check. A, flagged B, resumed A is 1, None, 1.
+   - A new layout lasting exactly one session before the layout changes again is a suspected settings error: `problem` None, `problem_flag: "suspected_settings_error"`, a warning. It is not a new problem and not pooled; it stays in the data. It does not become the last unflagged layout.
+   - A new layout lasting two or more sessions, or the final run of the data (duration unknown), is a real problem numbered from its first session, also on a return to an earlier layout (A, B, B, A is 1, 2, 2, 3). If its first session fails the evidence checks it keeps its number but gets `problem_flag: "review_settings"` and a warning (A, B failing, B, B is 1, 2 flagged, 2, 2).
+   - Evidence checks on that first session: (c) `found_ports` is `false` in the first `run_start`; (b) port finding happened, meaning a printed trial dict carries `num_t_found`. The `num_t_found` key of `run_start` is always present (0) and is ignored. When (c) fails, (b) is not reported.
+   - The first run of a subject is problem 1 and is not checked (the sample session is mid-problem).
+   - Not bandit problems, skipped with problem None, ignored when comparing neighbours (A, skipped, A is 1, None, 1), kept in the data: pretraining (`"pretraining"`, no warning); no choice towers with printed port-finding trials (`"port_finding"`, warning); any other session without choice towers (`"no_choice_towers"`, warning).
    - `merge_recurring_problems` is removed: A, B, A to 1, 2, 1 contradicts the rule.
 2. `import_data` returns subjects sorted.
-3. A path with no valid `ses-<N>_date-<YYYYMMDD>` folder, or one whose date is not a calendar date (`ses-1_date-20261340`), raises a `ValueError` naming the path.
-4. A missing, empty or corrupt first `run_start` row raises a `ValueError` naming subject, session and file, in `import_data` and in `split_recording_configurations`. `reconcile_reversals` raises a `ValueError` naming subject, session and run index for an unparseable `run_start`.
+3. A path with no valid `ses-<N>_date-<YYYYMMDD>` folder, or an invalid calendar date, raises a `ValueError` naming the path.
+4. A missing, empty or corrupt first `run_start` row raises a `ValueError` naming subject, session and file, in `import_data` and `split_recording_configurations`; `reconcile_reversals` names subject, session and run index.
 5. An unparseable `run_end` is still skipped (pinned by a test).
-6. `testing_code.ipynb`: the `plot_distributions_per_mouse` / `plot_distributions_per_problem_all_mice` calls pass `drop_last_problem`, their real parameter. (The `compute_problem_blocklen_summary(..., drop_last_problem_per_mouse=False)` call in cell 24 is correct and unchanged.)
-
-## What is checked, exactly
-
-- `num_t_found` (real representation): `run_start` of the session's earliest recording is a JSON dict that carries a `num_t_found` counter (0 on the sample data); port-finding trials are printed dicts that carry `num_t_found` (`recording_trial_info` drops them). Present means the first `run_start` has the key, or any recording of the session prints a dict with it.
-- `found_ports`: the first `run_start` has `"found_ports": false` (JSON false). Missing or null counts as not false. The sample session is mid-problem (`found_ports` true), which is why evidence is only checked on sessions that change layout.
-- Layout in `import_data` comes from `run_start`; in `group_sessions_by_problem` from the trial-level `choice_towers` and the session's `initiation_tower`. Both feed the same function.
+6. `testing_code.ipynb`: the `plot_distributions_*` calls pass `drop_last_problem`, their real parameter. (Cell 24's `compute_problem_blocklen_summary(..., drop_last_problem_per_mouse=False)` is correct.)
+7. Both entry points agree, including through the real `extract_trials` path with session numbers that run opposite to the dates.
+8. Split segments do not inherit the parent's `problem` / `problem_flag`; `group_sessions_by_problem` assigns problems.
+9. Each flagged session warns once, at the `import_data` call site, with `ProblemNumberingWarning` (shown always, so a notebook rerun warns again). `group_sessions_by_problem` does not warn again.
+10. The RL notebook metadata records `"problem_numbering": "layout_v2"` and no longer lists `merge_recurring_problems`.
 
 ## How each kind is recognised
 
-- **Task name** is the pyControl header row `info task_name`, e.g. `Meg\3x3_field_drifting_value_bandit` in the sample files. `import_data` now stores it as `task_name` on each session (and in `settings_evidence`).
-- **Pretraining** (`PRETRAINING_TASK_NAMES = {"mag"}`, `PRETRAINING_TASK_NAME_PARTS = ("pretraining",)` in `problem_numbering.py`): the last path component of the task name, case-insensitive, equals `mag` or contains `pretraining` (covers `initiation_pretraining`). Chosen from the lab's cohort-fitting notebook, which excludes task names containing "mag" or "pretraining"; "mag" is matched as a whole name so a `..._magnitude_bandit` task is not caught. The sample data has only a bandit task, so this rests on the notebook and the PI's examples. Pretraining wins even if the run_start lists choice towers.
-- **Port finding**: no choice towers, not pretraining, and a printed trial dict carries `num_t_found` (the same port-finding trials `recording_trial_info` drops). `run_start` always carries a `num_t_found` counter (0 on the sample), so only printed dicts count as evidence. No task name for port finding is known from the data, so none is guessed.
-- **No choice towers, neither of the above**: `no_choice_towers`.
-- In `group_sessions_by_problem` an empty trial-level tower list now counts as no layout.
+- **Task name**: the pyControl header row `info task_name`, e.g. `Meg\3x3_field_drifting_value_bandit` in the sample files. `import_data` stores it as `task_name` on each session (and in `settings_evidence`); split segments get their own.
+- **Pretraining** (`PRETRAINING_TASK_NAMES = {"mag"}`, `PRETRAINING_TASK_NAME_PARTS = ("pretraining",)`): the last path component of the task name, case-insensitive, equals `mag` or contains `pretraining`. Taken from the lab's cohort-fitting notebook, which excludes task names containing "mag" or "pretraining"; `mag` is matched as a whole name so a `..._magnitude_bandit` task is not caught. The sample data has only a bandit task, so this rests on the notebook and the PI's examples. It wins even if `run_start` lists choice towers.
+- **Port finding**: no choice towers, not pretraining, and a printed trial dict carries `num_t_found` (the dicts `recording_trial_info` drops). No port-finding task name is known from the data, so none is guessed.
+- **No choice towers, neither**: `no_choice_towers`. An empty trial-level tower list counts as no layout in `group_sessions_by_problem`.
 
 ## Decisions
 
-- Later sessions of a flagged layout are not "changes" (their previous session has the same layout) so they are not checked; they are numbered against the last unflagged layout. A flagged B followed by B, B gives A, None, 2, 2.
-- Skipped sessions are removed from the sequence before layouts are compared, so they are not "the session before" a change and do not count towards "lasts one session".
-- A no-choice-towers session that is neither pretraining nor port finding is flagged, not guessed (was: joined the current problem).
-- `group_sessions_by_problem` still skips sessions without `trial_info` before numbering, so its numbers can differ from `import_data`'s when such sessions exist.
-- Sessions that did not come from `import_data` (no `settings_evidence`) are rejected by `group_sessions_by_problem` with a `ValueError`, not given a default.
+- A single-session layout at the very end of the data is treated as a real problem (it has not "changed again"); it gets the evidence checks.
+- The first run is never checked or flagged.
+- `group_sessions_by_problem` still skips sessions without `trial_info` before numbering, so its numbers can differ from `import_data`'s when such sessions exist. Sessions without `settings_evidence` are rejected with a `ValueError`.
 - `run_end`: an unparseable one is skipped, unlike `run_start`. A crashed recording can end with a truncated `run_end`, and the end snapshot only adds events after the last trial, which the trial counters and `run_start` totals still bound. A missing baseline (`run_start`) double counts; a missing end does not.
-- A session with no `run_start` row at all now also raises a `ValueError` (was an `IndexError`).
+- A session with no `run_start` row at all raises a `ValueError` (was an `IndexError`).
+- `import_data.sort_session_key` is now an alias of the shared `session_sort_key`.
 
 ## Results change
 
-Sample data (`cohort-01/rawdata`): one subject, one session (`ses-91`, mid-problem), so no layout change occurs and no flag fires.
+Sample data (`cohort-01/rawdata`): one subject, one session (`ses-91`, mid-problem, task `Meg\3x3_field_drifting_value_bandit`, not pretraining), so no layout change occurs and no flag fires.
 
 | quantity | main | fixed |
 | --- | --- | --- |
@@ -58,6 +57,4 @@ Sample data (`cohort-01/rawdata`): one subject, one session (`ses-91`, mid-probl
 | `group_sessions_by_problem` sizes | {1: 1} | {1: 1} |
 | `reconcile_reversals` totals (md5) | 593f4783... | 593f4783... |
 
-The sample's `task_name` is `Meg\3x3_field_drifting_value_bandit`: not pretraining.
-
-Elsewhere, numbers change as follows (synthetic cases in the tests): `import_data` `problem` now increments (was always 1); `group_sessions_by_problem` splits on initiation tower, no longer splits on `has_good`, drops flagged sessions, and A, none, A is one problem (was 1, 1, 2 there). Re-run any saved per-problem results; cohort data with one-session layouts will lose those sessions from problem analyses.
+Elsewhere (synthetic cases in the tests): `import_data` `problem` now increments (was always 1); `group_sessions_by_problem` splits on initiation tower, no longer splits on `has_good`, orders by date then session number (was session number then date), leaves out settings-error, pretraining, port-finding and tower-less sessions, and keeps review-flagged sessions. Re-run saved per-problem results; one-session layouts drop out of problem analyses.

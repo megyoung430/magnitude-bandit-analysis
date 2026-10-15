@@ -20,6 +20,15 @@ class ConfigurationTests(unittest.TestCase):
         split_recording_configurations(data)
         self.assertEqual(list(data['mouse']),keys)
 
+    def test_segments_do_not_inherit_the_parents_problem_or_flag(self):
+        a,b=frame(['C1','A1','B3']),frame(['C2','A1','B3'])
+        session={'data':[a,b],'df':[a.copy(),b.copy()],'problem':2,'problem_flag':'review_settings'}
+        data={'mouse':{'ses-1_date-20260101':session}}
+        split_recording_configurations(data)
+        for segment in data['mouse'].values():
+            self.assertNotIn('problem',segment)
+            self.assertNotIn('problem_flag',segment)
+
     def test_same_towers_stay_one_session(self):
         a,b=frame(['C1','A1','B3']),frame(['B3','C1','A1'])
         data={'mouse':{'ses-1':{'data':[a,b]}}}

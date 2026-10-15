@@ -1,8 +1,6 @@
 """Extract and process trial-by-trial data from behavioral experiment recordings."""
 
-import re
 from copy import deepcopy
-from datetime import datetime
 
 import pandas as pd
 
@@ -12,6 +10,7 @@ from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
     normalize_tower_token,
     number_subject_sessions,
     permutation_invariant_signature,
+    session_sort_key,
 )
 from src.behavior_import.reconcile_reversals import reconcile_reversals
 from src.behavior_import.split_recording_configurations import split_recording_configurations
@@ -758,18 +757,6 @@ def choice_towers_signature(session_data):
     return (towers_part, init_tower)
 
 
-def session_sort_key(session_id):
-    """Sort key putting sessions in chronological order: ``ses-N`` number, then ``date-YYYYMMDD``.
-
-    Keys without a session number or date sort last; the key string breaks ties.
-    """
-    m_ses = re.search(r"ses-(\d+)", session_id)
-    m_date = re.search(r"date-(\d{8})", session_id)
-    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
-    dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
-    return (ses_num, dt, session_id)
-
-
 def problem_signature(session_data):
     """Return the session's tower layout (choice towers, initiation tower), or ``None``.
 
@@ -792,10 +779,9 @@ def session_facts(subject_id, session_id, session_data):
         )
     return SessionFacts(
         problem_signature(session_data),
-        evidence["has_num_t_found"],
         evidence["starts_found_ports_false"],
-        evidence["task_name"],
         evidence["has_port_finding_trials"],
+        evidence["task_name"],
     )
 
 
@@ -820,7 +806,8 @@ def signed_sessions(subject_id, subject_sessions):
 def group_sessions_by_problem(data, copy_sessions=True):
     """Group sessions into numbered problems per subject's tower layouts.
 
-    Within each subject, sessions are sorted chronologically and numbered by
+    Within each subject, sessions are sorted by date, then session number (the same
+    key ``import_data`` uses) and numbered by
     :func:`src.behavior_import.problem_numbering.number_subject_sessions`, the same
     rule ``import_data`` uses for its ``"problem"`` field: a problem is the choice
     towers plus the initiation tower, a return to an earlier layout is a new problem,
@@ -844,8 +831,12 @@ def group_sessions_by_problem(data, copy_sessions=True):
     problems = {}
     for subject_id, subject_sessions in data.items():
         signed = signed_sessions(subject_id, subject_sessions)
+        # import_data has already warned about flagged sessions; do not warn again.
         assignments = number_subject_sessions(
-            subject_id, [session_id for session_id, _ in signed], [facts for _, facts in signed]
+            subject_id,
+            [session_id for session_id, _ in signed],
+            [facts for _, facts in signed],
+            warn=False,
         )
         for (session_id, _), assignment in zip(signed, assignments, strict=True):
             if assignment.problem is None:
