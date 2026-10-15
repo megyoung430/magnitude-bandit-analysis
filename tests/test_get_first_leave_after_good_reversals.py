@@ -5,6 +5,7 @@ import pytest
 from src.behavior_analysis.get_first_leave_after_good_reversals import (
     get_first_leave_after_good_reversals,
 )
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning
 
 
 def reversal(prev_best, next_best, first_choices, **flags):
@@ -39,13 +40,14 @@ def test_reversals_with_unchanged_best_tower_are_excluded_and_counted():
     windows = {
         "mouse1": [
             reversal("A", "B", ["A", "B"]),
-            reversal("A", "A", ["A", "B"], best_unchanged=True),
-            reversal("A", "A", ["A", "C"], best_unchanged=True),
+            reversal("A", "A", ["A", "B"]),
+            reversal("A", "A", ["A", "C"]),
         ],
-        "mouse2": [reversal("A", "A", ["A", "B"], best_unchanged=True)],
+        "mouse2": [reversal("A", "A", ["A", "B"])],
     }
-    with pytest.warns(UserWarning) as caught:
+    with pytest.warns(ReversalWarning) as caught:
         out = get_first_leave_after_good_reversals(windows)
+    assert all(w.filename == __file__ for w in caught)  # stacklevel: the caller's line
     messages = [str(w.message) for w in caught]
     assert any("excluded 2 reversal" in m and "mouse1" in m and "unchanged" in m for m in messages)
     assert any("excluded 1 reversal" in m and "mouse2" in m for m in messages)
@@ -53,14 +55,6 @@ def test_reversals_with_unchanged_best_tower_are_excluded_and_counted():
         "mouse1": {"new_best": 1, "third": 0, "total": 1},
         "mouse2": {"new_best": 0, "third": 0, "total": 0},
     }
-
-
-def test_unflagged_hand_built_reversal_with_unchanged_best_is_still_excluded():
-    # The exclusion follows the classification, not only the flag on the record.
-    windows = {"mouse1": [reversal("A", "A", ["A", "B"])]}
-    with pytest.warns(UserWarning, match="excluded 1 reversal"):
-        out = get_first_leave_after_good_reversals(windows)
-    assert out == {"mouse1": {"new_best": 0, "third": 0, "total": 0}}
 
 
 def test_first_block_records_are_dropped_without_a_warning(recwarn):

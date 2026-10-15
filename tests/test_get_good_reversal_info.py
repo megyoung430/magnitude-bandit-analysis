@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import warnings
+from pathlib import Path
 
 import pytest
 
@@ -62,7 +63,7 @@ def test_list_towers_prefers_reward_keys():
     ],
 )
 def test_find_boundaries_priority(fields, any_good, expected):
-    assert mod._find_boundaries(series(**fields), any_good, []) == expected
+    assert mod._find_boundaries(series(**fields), any_good) == expected
 
 
 def test_window_indices_clip_to_next_boundary_and_trial_count():
@@ -106,7 +107,7 @@ def test_get_good_reversal_info_end_to_end_from_blocks(monkeypatch):
     merged = {
         "x": dict(
             blocks=[1, 1, 2, 2, 2],
-            reward_magnitudes_by_tower={t: [1] * 5 for t in "ABC"},
+            reward_magnitudes_by_tower=rewards_swapping_best_at(2, 5),
             choices_by_tower={t: [0, 1, 0, 1, 0] for t in "ABC"},
         )
     }
@@ -152,6 +153,8 @@ def test_next_kept_reversal_post_window_stops_at_skipped_boundary(capsys):
         "C": [30 + i for i in range(N)],
     }
     rewards["A"][4] = rewards["B"][4] = 0
+    # C is best until trial 9; from trial 10 A is, so only the reversal at 10 changes the best.
+    rewards["A"] = [a + 100 if i >= 10 else a for i, a in enumerate(rewards["A"])]
     good = [0] * 5 + [1] * 5 + [2] * 5
     data = {"m": {"ses-1": make_session(good=good, rewards=rewards)}}
 
@@ -169,7 +172,7 @@ def test_next_kept_reversal_post_window_stops_at_skipped_boundary(capsys):
     assert last["reversal_idx"] == 10 and last["good_reversal_number"] == 2
     assert last["trial_window_idx"] == {"pre": [8, 9], "post": [10, 11, 12, 13, 14]}
     assert last["reward_magnitudes_by_tower_before"] == {"A": 19, "B": 29, "C": 39}
-    assert last["reward_magnitudes_by_tower_after"] == {"A": 20, "B": 30, "C": 40}
+    assert last["reward_magnitudes_by_tower_after"] == {"A": 120, "B": 30, "C": 40}
     assert last["choices_by_rank"] == {"best": {"pre": [8, 9], "post": [10, 11, 12, 13, 14]}}
     assert last["choices_by_tower"]["B"] == {"pre": [108, 109], "post": [110, 111, 112, 113, 114]}
 
@@ -177,7 +180,15 @@ def test_next_kept_reversal_post_window_stops_at_skipped_boundary(capsys):
 def test_good_reversals_counter_takes_priority_over_block_changes():
     good = [0, 0, 0, 1, 1, 1, 1, 1]
     blocks = [1, 1, 1, 1, 1, 2, 2, 2]
-    data = {"m": {"ses-1": make_session(8, good=good, blocks=blocks, has_good=True)}}
+    # The best tower changes at the good reversal (3) and again at the block change (5).
+    rewards = {
+        "A": [4, 4, 4, 0, 0, 4, 4, 4],
+        "B": [0, 0, 0, 4, 4, 0, 0, 0],
+        "C": [1] * 8,
+    }
+    data = {
+        "m": {"ses-1": make_session(8, good=good, blocks=blocks, rewards=rewards, has_good=True)}
+    }
     (rev,) = mod.get_good_reversal_info(data, pre=1)["m"]
     assert rev["boundary_source"] == "good_reversals" and rev["reversal_idx"] == 3
     assert rev["good_reversal_number"] == 1 and rev["block_id"] == 1
@@ -192,10 +203,10 @@ def test_good_reversals_counter_takes_priority_over_block_changes():
 
 def test_reversal_at_the_last_trial_has_a_one_trial_post_window():
     good = [0] * 7 + [1]
-    data = {"m": {"ses-1": make_session(8, good=good)}}
+    data = {"m": {"ses-1": make_session(8, good=good, rewards=rewards_swapping_best_at(7, 8))}}
     (rev,) = mod.get_good_reversal_info(data, pre=2, post=5)["m"]
     assert rev["trial_window_idx"] == {"pre": [5, 6], "post": [7]}
-    assert rev["reward_magnitudes_by_tower_after"] == {"A": 17, "B": 27, "C": 37}
+    assert rev["reward_magnitudes_by_tower_after"] == {"A": 0, "B": 4, "C": 1}
 
 
 def test_subject_without_towers_gets_an_empty_list(capsys):
@@ -221,7 +232,7 @@ def test_boundary_beyond_blocks_array_yields_no_good_reversal_number(monkeypatch
     merged = {
         "m": dict(
             num_blocks=[0, 0, 1, 1],
-            reward_magnitudes_by_tower={t: [1] * 4 for t in "ABC"},
+            reward_magnitudes_by_tower=rewards_swapping_best_at(2, 4),
         )
     }
     monkeypatch.setattr(mod, "get_vars_across_all_sessions", lambda data: (merged, None))
@@ -290,32 +301,110 @@ def rewards_swapping_best_at(trial, n=N):
     return {"A": a, "B": b, "C": [1] * n}
 
 
-def test_reversal_where_best_tower_changes_is_not_flagged():
+def test_reversal_where_best_tower_changes_is_kept_without_a_warning():
     sess = make_session(
         8, good=[0] * 4 + [1] * 4, rewards=rewards_swapping_best_at(4, 8), blocks=[1] * 8
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         (rev,) = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)["m"]
-    assert rev["best_unchanged"] is False and rev["first_block"] is False
+    assert rev["first_block"] is False
+    assert (rev["subject"], rev["session"], rev["session_trial"]) == ("m", "ses-1", 4)
     assert mod.classify_towers_at_good_reversals(rev) == ("A", "B", "C")
 
 
-def test_reversal_where_best_tower_is_unchanged_is_flagged_and_warns():
-    # Default rewards keep C best throughout, so the reversal at trial 3 of ses-2 does not
-    # change the best tower. ses-1 has 5 trials, so its merged index is 8.
+def test_reversal_where_best_tower_is_unchanged_is_dropped_with_one_warning():
+    # Default rewards keep C best throughout. ses-1 has 5 trials, so the reversal at
+    # trial 3 of ses-2 has merged index 8.
     first = make_session(5, good=[0] * 5, blocks=[1] * 5)
     second = make_session(8, good=[0] * 3 + [1] * 5, blocks=[1] * 8)
     data = {"m": {"ses-1": first, "ses-2": second}}
-    with pytest.warns(UserWarning, match=r"m.*ses-2.*trial 3.*best tower.*unchanged") as caught:
-        (rev,) = mod.get_good_reversal_info(data, pre=1)["m"]
-    assert len(caught) == 1
-    assert rev["reversal_idx"] == 8
-    assert rev["best_unchanged"] is True and rev["first_block"] is False
-    assert mod.classify_towers_at_good_reversals(rev)[2] is None
+    with pytest.warns(mod.ReversalWarning) as caught:
+        out = mod.get_good_reversal_info(data, pre=1)
+    assert out == {"m": []}
+    (warning,) = caught
+    message = str(warning.message)
+    assert "dropped 1 good reversal" in message
+    assert "m ses-2 trial 3" in message and "merged trial 8" in message
+    assert "best tower unchanged" in message
+    # stacklevel points at the caller of the public function
+    assert warning.filename == __file__
 
 
-def test_first_block_record_is_not_flagged_even_though_its_best_is_unchanged():
+def test_one_warning_lists_the_dropped_reversals_of_every_subject():
+    def flagged_subject():
+        return {"ses-1": make_session(8, good=[0] * 3 + [1] * 5, blocks=[1] * 8)}
+
+    data = {"m1": flagged_subject(), "m2": flagged_subject()}
+    with pytest.warns(mod.ReversalWarning) as caught:
+        mod.get_good_reversal_info(data, pre=1)
+    (warning,) = caught
+    message = str(warning.message)
+    assert "dropped 2 good reversal" in message and "m1 ses-1 trial 3" in message
+    assert "m2 ses-1 trial 3" in message
+
+
+def test_warning_gives_the_recording_run_of_the_flagged_trial():
+    sess = make_session(8, good=[0] * 5 + [1] * 3, blocks=[1] * 8)
+    sess["trial_variables"] = [{"trial": [1, 2, 3, 4]}, {"trial": [1, 2, 3, 4]}]
+    with pytest.warns(mod.ReversalWarning, match=r"m ses-1 trial 5 \(run 1\)"):
+        mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)
+
+
+def test_tie_for_best_after_the_reversal_is_flagged_as_a_tie():
+    rewards = {"A": [4] * 4 + [4] * 4, "B": [0] * 4 + [4] * 4, "C": [1] * 8}
+    sess = make_session(8, good=[0] * 4 + [1] * 4, rewards=rewards, blocks=[1] * 8)
+    with pytest.warns(mod.ReversalWarning, match="tie for best") as caught:
+        out = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)
+    assert out == {"m": []}
+    assert "best tower unchanged" not in str(caught[0].message)
+
+
+def test_warning_is_shown_on_every_run_not_only_the_first():
+    # Python's default filter reports a warning once per location; ReversalWarning is
+    # registered as "always" so a rerun in the same session shows it again.
+    code = (
+        "import warnings\n"
+        "from tests.test_get_good_reversal_info import make_session\n"
+        "from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info\n"
+        "data = {'m': {'ses-1': make_session(8, good=[0]*3 + [1]*5, blocks=[1]*8)}}\n"
+        "with warnings.catch_warnings(record=True) as caught:\n"
+        "    for _ in range(2):\n"
+        "        get_good_reversal_info(data)\n"
+        "print(len(caught))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=Path(__file__).parents[1],
+    ).stdout
+    assert out.strip() == "2"
+
+
+def test_dropped_reversal_still_ends_the_window_of_the_one_before_it():
+    # Best tower changes at trial 3 only; the reversal at 6 is dropped but is still a
+    # real block change, so the window of the reversal at 3 stops there.
+    sess = make_session(
+        10, good=[0] * 3 + [1] * 3 + [2] * 4, rewards=rewards_swapping_best_at(3, 10)
+    )
+    with pytest.warns(mod.ReversalWarning):
+        (rev,) = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)["m"]
+    assert rev["reversal_idx"] == 3
+    assert rev["trial_window_idx"] == {"pre": [2], "post": [3, 4, 5]}
+
+
+def test_dropped_reversal_leaves_the_numbering_of_the_others_unchanged():
+    sess = make_session(
+        10, good=[0] * 3 + [1] * 3 + [2] * 4, rewards=rewards_swapping_best_at(6, 10)
+    )
+    with pytest.warns(mod.ReversalWarning, match="dropped 1 good reversal"):
+        (rev,) = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)["m"]
+    assert (rev["reversal_idx"], rev["good_reversal_number"]) == (6, 2)
+
+
+def test_first_block_record_is_not_dropped_even_though_its_best_is_unchanged():
     # Trial 0 supplies both "before" and "after", so prev_best == next_best by construction.
     sess = make_session(
         8, good=[0] * 4 + [1] * 4, rewards=rewards_swapping_best_at(4, 8), blocks=[1] * 8
@@ -325,27 +414,57 @@ def test_first_block_record_is_not_flagged_even_though_its_best_is_unchanged():
         first, second = mod.get_good_reversal_info(
             {"m": {"ses-1": sess}}, pre=1, include_first_block=True
         )["m"]
-    assert first["reversal_idx"] == 0
-    assert first["first_block"] is True and first["best_unchanged"] is False
+    assert first["reversal_idx"] == 0 and first["first_block"] is True
     assert mod.classify_towers_at_good_reversals(first) == ("A", "A", None)
-    assert second["first_block"] is False and second["best_unchanged"] is False
+    assert second["first_block"] is False
+
+
+def test_missing_magnitude_next_to_a_reversal_raises_naming_the_location():
+    rewards = rewards_swapping_best_at(4, 8)
+    rewards["C"][4] = None
+    sess = make_session(8, good=[0] * 4 + [1] * 4, rewards=rewards, blocks=[1] * 8)
+    with pytest.raises(ValueError, match=r"m ses-1 trial 4.*'C'"):
+        mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)
+
+
+def test_classifier_raises_on_a_missing_magnitude_naming_the_location():
+    rev = reversal_with({"A": 4, "B": 1, "C": 0}, {"A": 4, "B": None, "C": 1})
+    rev.update(subject="m", session="ses-3", session_trial=7, reversal_idx=27)
+    with pytest.raises(ValueError, match=r"m ses-3 trial 7.*'B'"):
+        mod.classify_towers_at_good_reversals(rev)
+    del rev["session"]
+    with pytest.raises(ValueError, match=r"merged trial 27"):
+        mod.classify_towers_at_good_reversals(rev)
 
 
 # --- sessions that log bad but not good reversals ---
 
 
-def bad_only_session(n, blocks):
-    sess = make_session(n, blocks=blocks, has_good=False)
+def bad_only_session(n, blocks, **kwargs):
+    sess = make_session(n, blocks=blocks, has_good=False, **kwargs)
     sess["has_bad"] = True
     sess["bad_reversals"] = [b - 1 for b in blocks]
     return sess
 
 
-def boundaries(data, **kwargs):
+def legacy_session(n=8, change_at=5):
+    """Block change at *change_at*, with the best tower changing there."""
+    return make_session(
+        n,
+        blocks=[1] * change_at + [2] * (n - change_at),
+        rewards=rewards_swapping_best_at(change_at, n),
+        has_good=False,
+    )
+
+
+def reversals(data, **kwargs):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        revs = mod.get_good_reversal_info(data, pre=1, **kwargs)["m"]
-    return [(r["reversal_idx"], r["boundary_source"]) for r in revs]
+        return mod.get_good_reversal_info(data, pre=1, **kwargs)["m"]
+
+
+def boundaries(data, **kwargs):
+    return [(r["reversal_idx"], r["boundary_source"]) for r in reversals(data, **kwargs)]
 
 
 def test_subject_logging_only_bad_reversals_has_no_good_reversals():
@@ -356,20 +475,36 @@ def test_subject_logging_only_bad_reversals_has_no_good_reversals():
 
 def test_bad_only_session_warns_with_subject_and_session():
     data = {"m": {"ses-1": bad_only_session(8, [1] * 3 + [2] * 5)}}
-    with pytest.warns(UserWarning, match=r"m.*ses-1.*no good reversals"):
+    with pytest.warns(mod.ReversalWarning, match=r"m ses-1.*no good reversals") as caught:
         mod.get_good_reversal_info(data, pre=1)
+    assert caught[0].filename == __file__
 
 
 def test_legacy_session_keeps_block_changes_next_to_a_bad_only_session():
-    legacy = make_session(8, blocks=[1] * 5 + [2] * 3, has_good=False)
     for first, second, expected in [
-        (legacy, bad_only_session(8, [1] * 3 + [2] * 5), [(5, "blocks")]),
-        (bad_only_session(8, [1] * 3 + [2] * 5), legacy, [(13, "blocks")]),
+        (legacy_session(), bad_only_session(8, [1] * 3 + [2] * 5), [(5, "blocks")]),
+        (bad_only_session(8, [1] * 3 + [2] * 5), legacy_session(), [(13, "blocks")]),
     ]:
         data = {"m": {"ses-1": first, "ses-2": second}}
         assert boundaries(data) == expected
-        with pytest.warns(UserWarning, match="no good reversals"):
+        with pytest.warns(mod.ReversalWarning, match="no good reversals"):
             mod.get_good_reversal_info(data, pre=1)
+
+
+def test_masked_bad_only_boundary_still_ends_the_window_of_the_legacy_reversal():
+    # The bad-only session's block change (merged trial 11) is not a good reversal, but it
+    # is still where the legacy reversal's block ends.
+    data = {"m": {"ses-1": legacy_session(), "ses-2": bad_only_session(8, [1] * 3 + [2] * 5)}}
+    (rev,) = reversals(data)
+    assert rev["reversal_idx"] == 5
+    assert rev["trial_window_idx"]["post"] == [5, 6, 7, 8, 9, 10]
+
+
+def test_legacy_window_after_a_bad_only_session_runs_to_the_last_trial():
+    data = {"m": {"ses-1": bad_only_session(8, [1] * 3 + [2] * 5), "ses-2": legacy_session()}}
+    (rev,) = reversals(data)
+    assert rev["reversal_idx"] == 13
+    assert rev["trial_window_idx"]["post"] == [13, 14, 15]
 
 
 def test_bad_only_session_yields_no_first_block_record():
@@ -380,38 +515,30 @@ def test_bad_only_session_yields_no_first_block_record():
 
 
 def test_first_block_record_is_kept_for_a_legacy_session_beside_a_bad_only_one():
-    legacy = make_session(8, blocks=[1] * 5 + [2] * 3, has_good=False)
-    data = {"m": {"ses-1": legacy, "ses-2": bad_only_session(8, [1] * 3 + [2] * 5)}}
-    assert boundaries(data, include_first_block=True) == [(0, "blocks"), (5, "blocks")]
+    data = {"m": {"ses-1": legacy_session(), "ses-2": bad_only_session(8, [1] * 3 + [2] * 5)}}
+    first, second = reversals(data, include_first_block=True)
+    assert (first["reversal_idx"], first["first_block"]) == (0, True)
+    assert second["reversal_idx"] == 5
+    # The first block ends at the legacy reversal, as before.
+    assert first["trial_window_idx"]["post"] == [0, 1, 2, 3, 4]
 
 
 def test_mixed_subject_takes_good_reversals_only_from_sessions_that_log_them():
-    logged = make_session(8, good=[0, 0, 0, 1, 1, 1, 1, 1], blocks=[1] * 3 + [2] * 5)
+    logged = make_session(
+        8,
+        good=[0, 0, 0, 1, 1, 1, 1, 1],
+        blocks=[1] * 3 + [2] * 5,
+        rewards=rewards_swapping_best_at(3, 8),
+    )
     data = {"m": {"ses-1": logged, "ses-2": bad_only_session(8, [1] * 4 + [2] * 4)}}
     assert boundaries(data) == [(3, "good_reversals")]
-    with pytest.warns(UserWarning, match=r"m.*ses-2.*no good reversals"):
+    with pytest.warns(mod.ReversalWarning, match=r"m ses-2.*no good reversals"):
         mod.get_good_reversal_info(data, pre=1)
 
 
 def test_subject_with_no_reversal_counters_still_uses_block_changes():
     # Sessions from before the good/bad counters existed have only block numbers.
-    sess = make_session(
-        8, blocks=[1] * 5 + [2] * 3, rewards=rewards_swapping_best_at(5, 8), has_good=False
-    )
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        (rev,) = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)["m"]
+        (rev,) = mod.get_good_reversal_info({"m": {"ses-1": legacy_session()}}, pre=1)["m"]
     assert rev["boundary_source"] == "blocks" and rev["reversal_idx"] == 5
-
-
-def test_find_boundaries_requires_the_masked_spans():
-    with pytest.raises(TypeError):
-        mod._find_boundaries(series(blocks=[1, 1, 2]), False)
-
-
-def test_find_boundaries_drops_block_changes_inside_masked_spans():
-    s = series(blocks=[1, 1, 2, 2, 3, 3])
-    assert mod._find_boundaries(s, False, [(0, 3)]) == ([4], "blocks")
-    # The good counter is not masked: only sessions without it can fall back to blocks.
-    s = series(good_reversals=[0, 1, 1], blocks=[1, 2, 2])
-    assert mod._find_boundaries(s, True, [(0, 3)]) == ([1], "good_reversals")

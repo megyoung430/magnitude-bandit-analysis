@@ -12,6 +12,7 @@ from src.behavior_analysis.get_choice_probs_around_good_reversals import (
     get_choice_probs_around_good_reversals,
     remove_trials_after_bad_rev,
 )
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning
 
 ROLES = ("prev_best", "next_best", "third")
 
@@ -53,7 +54,9 @@ def test_reversals_with_unchanged_best_tower_are_excluded_and_counted():
     kept = make_reversal(10, ["A", "A"], ["B", "B", "C"])
     unchanged = make_reversal(40, ["A", "A"], ["A", "A", "A"], prev_best="A", next_best="A")
     windows = {"m1": [kept, unchanged], "m2": [unchanged]}
-    with pytest.warns(UserWarning, match=r"excluded 1 reversal.*m1.*best tower.*unchanged") as w:
+    with pytest.warns(
+        ReversalWarning, match=r"excluded 1 reversal.*m1.*best tower.*unchanged"
+    ) as w:
         _, per_subject, across = get_choice_probs_around_good_reversals(windows, pre=2, post=3)
     assert any("excluded 1 reversal" in str(x.message) and "m2" in str(x.message) for x in w)
     assert set(per_subject) == {"m1"}
