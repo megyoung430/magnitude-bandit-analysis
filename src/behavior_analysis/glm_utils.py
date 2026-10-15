@@ -161,6 +161,7 @@ class _Subject:
     name: str
     data: dict[str, Any]
     session_lengths: list[int]
+    session_keys: list[str]
 
 
 def _design_labels(
@@ -281,7 +282,12 @@ def _tower_set_text(towers: set[str]) -> str:
     return "{" + ", ".join(repr(t) for t in sorted(towers)) + "}"
 
 
-def _check_session_towers(subject: str, unmerged: dict[str, list]) -> None:
+def _session_label(keys: list[str], i: int) -> str:
+    """``session 'ses-3' (2 of 2 non-empty)``: the key and its position among non-empty sessions."""
+    return f"session {keys[i]!r} ({i + 1} of {len(keys)} non-empty)"
+
+
+def _check_session_towers(subject: str, unmerged: dict[str, list], keys: list[str]) -> None:
     """Raise unless every session has the tower set of the first session.
 
     Sessions are merged tower by tower, so a session lacking a tower would make
@@ -295,13 +301,17 @@ def _check_session_towers(subject: str, unmerged: dict[str, list]) -> None:
             towers = set(dict(unmerged[key][i]))
             if towers != expected:
                 raise ValueError(
-                    f"subject {subject!r}: session {i + 1} of {n_sessions} has towers "
+                    f"subject {subject!r}: {_session_label(keys, i)} has towers "
                     f"{_tower_set_text(towers)}, expected {_tower_set_text(expected)} ({kind})"
                 )
 
 
 def _check_sessions_aligned(
-    subject: str, unmerged: dict[str, list], *, allow_missing_final_reward: bool
+    subject: str,
+    unmerged: dict[str, list],
+    keys: list[str],
+    *,
+    allow_missing_final_reward: bool,
 ) -> None:
     """Raise unless every session has exactly one choice and one reward per trial.
 
@@ -315,7 +325,7 @@ def _check_sessions_aligned(
     n_trials = [len(trials) for trials in unmerged["trial"]]
     if not n_trials:
         return
-    _check_session_towers(subject, unmerged)
+    _check_session_towers(subject, unmerged, keys)
     last = len(n_trials) - 1
     for kind, key in (("choices", "choices_by_tower"), ("rewards", "reward_magnitudes_by_tower")):
         for i, (n, series_by_tower) in enumerate(zip(n_trials, unmerged[key], strict=True)):
@@ -325,7 +335,7 @@ def _check_sessions_aligned(
             for tower, values in dict(series_by_tower).items():
                 if not shortest_ok <= len(values or []) <= n:
                     raise ValueError(
-                        f"subject {subject!r}: session {i + 1} of {len(n_trials)} has "
+                        f"subject {subject!r}: {_session_label(keys, i)} has "
                         f"{len(values or [])} {kind} for tower {tower!r} but {n} trials; "
                         "every session needs one entry per trial"
                         + (
@@ -336,15 +346,39 @@ def _check_sessions_aligned(
                     )
 
 
+def _session_keys(sessions: dict[str, Any], merged_trial_lists: list[list]) -> list[str]:
+    """Keys of the non-empty sessions, in merge order.
+
+    The merge keeps each session's own ``trial`` list object, so the keys are
+    recovered by identity instead of repeating the merge's ordering rule.
+    """
+    key_of = {
+        id(session["trial"]): key for key, session in sessions.items() if session.get("trial")
+    }
+    return [key_of[id(trials)] for trials in merged_trial_lists]
+
+
 def _subjects(data: dict[str, Any], *, allow_missing_final_reward: bool) -> list[_Subject]:
-    """Merge every subject's sessions and keep the session lengths for history resets."""
+    """Merge every subject's sessions and keep the session lengths for history resets.
+
+    A subject without any trial is skipped with a warning; if no subject has
+    trials there is nothing to build and a ``ValueError`` is raised.
+    """
     merged, unmerged = get_vars_across_all_sessions(data)
+    subjects = []
     for name, parts in unmerged.items():
-        _check_sessions_aligned(name, parts, allow_missing_final_reward=allow_missing_final_reward)
-    return [
-        _Subject(name, merged[name], [len(trials) for trials in unmerged[name]["trial"]])
-        for name in merged
-    ]
+        if not parts["trial"]:
+            logger.warning("subject %s: skipped, none of its sessions has trials", name)
+            continue
+        keys = _session_keys(data[name], parts["trial"])
+        _check_sessions_aligned(
+            name, parts, keys, allow_missing_final_reward=allow_missing_final_reward
+        )
+        lengths = [len(trials) for trials in parts["trial"]]
+        subjects.append(_Subject(name, merged[name], lengths, keys))
+    if not subjects:
+        raise ValueError("no subject has any trials, so there is nothing to build a design from")
+    return subjects
 
 
 def _positions_in_session(session_lengths: list[int], n_trials: int) -> np.ndarray:
@@ -461,7 +495,8 @@ def _check_one_choice_per_trial(subject: _Subject) -> None:
         session = int(np.searchsorted(starts, first, side="right"))
         picked = [t for t, row in zip(towers, chosen, strict=True) if row[first]]
         raise ValueError(
-            f"subject {subject.name!r}: session {session} of {len(subject.session_lengths)}, "
+            f"subject {subject.name!r}: "
+            f"{_session_label(subject.session_keys, session - 1)}, "
             f"trial {first - starts[session - 1] + 1} (1-based): expected exactly one chosen "
             f"tower, got {picked}"
         )
@@ -625,7 +660,8 @@ def _get_believed_rank_at_trial(
     """
     For each trial, return a dict mapping tower -> believed rank label
     ("best", "second", "third") based on last-seen magnitudes, or None
-    if any arm has never been visited yet.
+    if any arm has never been visited yet, or if any last-seen magnitude is NaN
+    (the order is unknown until that arm is chosen again with a real magnitude).
 
     The believed rank at trial t reflects what the mouse believed
     BEFORE making its choice on trial t (i.e. last_seen is updated

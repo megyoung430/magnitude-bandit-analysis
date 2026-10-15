@@ -116,4 +116,4 @@ there: rows and coefficients are as in the table above for every setting.
   session and the session's own (1-based) trial.
 - NaN-row drops are logged at WARNING.
 - `scripts/to_integrate/testing_code.ipynb` passes `reset_history_per_session=True`
-  explicitly (cell sources only); `False` reproduces the old concatenated behaviour.
+  explicitly (cell sources only); `False` concatenates sessions.

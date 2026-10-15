@@ -389,7 +389,10 @@ def test_format_glm_input_rejects_trial_without_single_choice():
 def test_trial_without_single_choice_names_subject_session_and_local_trial():
     data = two_scaled_sessions()
     data["m"]["ses-3"]["choices_by_tower"]["A"][1] = 1  # chosen twice: B and A
-    with pytest.raises(ValueError, match=r"subject 'm': session 2 of 2, trial 2 .*exactly one"):
+    with pytest.raises(
+        ValueError,
+        match=r"subject 'm': session 'ses-3' \(2 of 2 non-empty\), trial 2 .*exactly one",
+    ):
         g.format_glm_input(data)
 
 
@@ -448,7 +451,9 @@ def test_short_reward_list_in_a_non_final_session_is_rejected(fmt, reset):
     data = two_scaled_sessions()
     for rewards in data["m"]["ses-2"]["reward_magnitudes_by_tower"].values():
         rewards.pop()
-    with pytest.raises(ValueError, match=r"subject 'm'.*session 1 of 2.*2 rewards.*3 trials"):
+    with pytest.raises(
+        ValueError, match=r"subject 'm'.*session 'ses-2' \(1 of 2 non-empty\).*2 rewards.*3 trials"
+    ):
         getattr(g, fmt)(data, n_lags=1, reset_history_per_session=reset)
 
 
@@ -457,7 +462,9 @@ def test_short_choice_list_in_a_non_final_session_is_rejected(reset):
     data = two_scaled_sessions()
     for choices in data["m"]["ses-2"]["choices_by_tower"].values():
         choices.pop()
-    with pytest.raises(ValueError, match=r"session 1 of 2.*2 choices.*3 trials"):
+    with pytest.raises(
+        ValueError, match=r"session 'ses-2' \(1 of 2 non-empty\).*2 choices.*3 trials"
+    ):
         g.format_glm_input(data, n_lags=1, reset_history_per_session=reset)
 
 
@@ -769,7 +776,10 @@ def test_reward_list_two_short_in_the_only_session_is_a_value_error():
     data = constant_subjects(["A", "B", "C", "A"])
     for rewards in data["m"]["ses-1"]["reward_magnitudes_by_tower"].values():
         del rewards[-2:]
-    with pytest.raises(ValueError, match=r"subject 'm'.*session 1 of 1 has 2 rewards.*4 trials"):
+    with pytest.raises(
+        ValueError,
+        match=r"subject 'm'.*session 'ses-1' \(1 of 1 non-empty\) has 2 rewards.*4 trials",
+    ):
         g.format_glm_input(data, n_lags=1)
 
 
@@ -777,7 +787,9 @@ def test_reward_list_two_short_in_the_last_of_two_sessions_names_that_session():
     data = two_scaled_sessions()
     for rewards in data["m"]["ses-3"]["reward_magnitudes_by_tower"].values():
         del rewards[-2:]
-    with pytest.raises(ValueError, match=r"session 2 of 2 has 1 rewards.*3 trials"):
+    with pytest.raises(
+        ValueError, match=r"session 'ses-3' \(2 of 2 non-empty\) has 1 rewards.*3 trials"
+    ):
         g.format_glm_input(data, n_lags=1)
 
 
@@ -795,7 +807,9 @@ def shorten(data, session_key, field, by):
 def test_last_session_reward_list_three_short_is_rejected(fmt):
     data = two_scaled_sessions()
     shorten(data, "ses-3", "reward_magnitudes_by_tower", 3)
-    with pytest.raises(ValueError, match=r"session 2 of 2 has 0 rewards.*3 trials"):
+    with pytest.raises(
+        ValueError, match=r"session 'ses-3' \(2 of 2 non-empty\) has 0 rewards.*3 trials"
+    ):
         getattr(g, fmt)(data, n_lags=1)
 
 
@@ -803,7 +817,9 @@ def test_rank_design_needs_every_reward_of_the_last_session():
     # The own rank of the last trial is computed from all towers' magnitudes there.
     data = two_scaled_sessions()
     shorten(data, "ses-3", "reward_magnitudes_by_tower", 1)
-    with pytest.raises(ValueError, match=r"session 2 of 2 has 2 rewards.*3 trials"):
+    with pytest.raises(
+        ValueError, match=r"session 'ses-3' \(2 of 2 non-empty\) has 2 rewards.*3 trials"
+    ):
         g.format_glm_input_by_rank(data, n_lags=1)
     g.format_glm_input(data, n_lags=1)  # the arm design never reads the final reward
 
@@ -812,7 +828,9 @@ def test_rank_design_needs_every_reward_of_the_last_session():
 def test_trial_list_shorter_than_the_choice_lists_is_rejected(fmt):
     data = constant_subjects(["A", "B", "C", "A", "B", "C"])
     data["m"]["ses-1"]["trial"] = [1, 2, 3]
-    with pytest.raises(ValueError, match=r"session 1 of 1 has 6 choices.*3 trials"):
+    with pytest.raises(
+        ValueError, match=r"session 'ses-1' \(1 of 1 non-empty\) has 6 choices.*3 trials"
+    ):
         getattr(g, fmt)(data, n_lags=1)
 
 
@@ -823,7 +841,10 @@ def test_last_session_with_fewer_towers_is_rejected_naming_both_sets(fmt):
         del data["m"]["ses-3"][field]["C"]
     with pytest.raises(
         ValueError,
-        match=r"subject 'm': session 2 of 2 has towers \{'A', 'B'\}, expected \{'A', 'B', 'C'\}",
+        match=(
+            r"subject 'm': session 'ses-3' \(2 of 2 non-empty\) has towers \{'A', 'B'\}, "
+            r"expected \{'A', 'B', 'C'\}"
+        ),
     ):
         getattr(g, fmt)(data, n_lags=1)
 
@@ -833,14 +854,16 @@ def test_first_session_with_fewer_towers_is_rejected(fmt):
     data = two_scaled_sessions()
     for field in ("choices_by_tower", "reward_magnitudes_by_tower"):
         del data["m"]["ses-2"][field]["C"]
-    with pytest.raises(ValueError, match=r"session 2 of 2 has towers"):
+    with pytest.raises(ValueError, match=r"session 'ses-3' \(2 of 2 non-empty\) has towers"):
         getattr(g, fmt)(data, n_lags=1)
 
 
 def test_reward_towers_that_differ_from_the_choice_towers_are_rejected():
     data = two_scaled_sessions()
     del data["m"]["ses-3"]["reward_magnitudes_by_tower"]["C"]
-    with pytest.raises(ValueError, match=r"session 2 of 2 has towers .*reward"):
+    with pytest.raises(
+        ValueError, match=r"session 'ses-3' \(2 of 2 non-empty\) has towers .*reward"
+    ):
         g.format_glm_input(data, n_lags=1)
 
 
@@ -886,3 +909,50 @@ def test_nan_row_drops_are_logged_as_warnings(caplog):
         g.format_glm_input(data, n_lags=1)
     assert [r.levelname for r in caplog.records] == ["WARNING"]
     assert "subject m: dropped 1 of 5" in caplog.records[0].getMessage()
+
+
+# ---- empty sessions and subjects ---------------------------------------------
+
+
+def empty_session():
+    return {
+        "trial": [],
+        "blocks": [],
+        "trials_in_block": [],
+        "choices_by_tower": {},
+        "reward_magnitudes_by_tower": {},
+        "choices_by_rank": {},
+    }
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_subject_without_trials_is_skipped_with_a_warning(fmt, caplog):
+    data = {**constant_subjects(list("ABCAB")), "empty": {"ses-1": empty_session()}}
+    with caplog.at_level("WARNING", logger=g.logger.name):
+        x, y, _ = getattr(g, fmt)(data, n_lags=1)
+    assert list(x) == list(y) == ["m"]
+    assert any("subject empty" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_all_subjects_without_trials_is_a_value_error(fmt):
+    data = {"a": {"ses-1": empty_session()}, "b": {}}
+    with pytest.raises(ValueError, match="no subject has any trials"):
+        getattr(g, fmt)(data)
+    with pytest.raises(ValueError, match="no subject has any trials"):
+        getattr(g, fmt)({})
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_errors_name_the_session_key_not_its_position_among_non_empty_sessions(fmt):
+    data = {
+        "m": {
+            "ses-1": empty_session(),
+            "ses-92_date-20260330": session(list("ABC"), [CONST] * 3),
+            "ses-93_date-20260331": session(list("ABC"), [CONST] * 3),
+        }
+    }
+    del data["m"]["ses-93_date-20260331"]["choices_by_tower"]["C"]
+    del data["m"]["ses-93_date-20260331"]["reward_magnitudes_by_tower"]["C"]
+    with pytest.raises(ValueError, match=r"session 'ses-93_date-20260331' \(2 of 2 non-empty\)"):
+        getattr(g, fmt)(data, n_lags=1)
