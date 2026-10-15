@@ -322,7 +322,8 @@ def plot_cohort_comparison(
     Returns:
         The saved PNG and PDF paths, in figure order (PNG first for each figure).
 
-    Known issue: a figure that raises while being drawn or saved stays open.
+    If drawing or saving raises, the files already written are kept and no figure is
+    left open.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

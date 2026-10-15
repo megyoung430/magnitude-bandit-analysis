@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from matplotlib.colors import to_hex, to_rgba
 
+from src.behavior_visualization import plot_rank_proportions as rank_module
 from src.behavior_visualization.plot_rank_proportions import (
     _MOUSE_PANEL_BAR_STYLE,
     BLOCK_COLORS,
@@ -448,14 +449,14 @@ def test_average_figure_does_not_create_missing_folders(counts, tmp_path):
     with pytest.raises(FileNotFoundError):
         plot_rank_proportions_average(counts, save_path=str(tmp_path / "missing" / "RP"))
     assert not (tmp_path / "missing").exists()
-    assert len(plt.get_fignums()) == 1  # left open by the failure
+    assert plt.get_fignums() == []  # closed although saving failed
 
 
 def test_average_figure_save_path_must_be_a_str(counts, tmp_path):
     """Characterises the average figure's save behaviour: a Path raises TypeError."""
     with pytest.raises(TypeError):
         plot_rank_proportions_average(counts, save_path=tmp_path / "RP")
-    assert len(plt.get_fignums()) == 1
+    assert plt.get_fignums() == []
 
 
 def test_average_figure_saves_to_an_existing_folder(counts, tmp_path):
@@ -622,3 +623,17 @@ def test_star_import_exposes_plot_functions_but_not_drawing_constants():
         not {"X", "RANK_LABELS", "BAR_WIDTH", "Y_LIMITS", "BAR_STYLE", "MOUSE_LINES", "RANKS"}
         & public
     )
+
+
+# ---- a notebook may replace the module's palette -----------------------------------
+
+
+def test_replacing_the_module_palette_changes_the_mouse_line_colours(counts, monkeypatch):
+    palette = ["#010101", "#020202", "#030303"]
+    monkeypatch.setattr(rank_module, "MOUSE_COLORS", palette)
+    _, ax = plt.subplots()
+    plot_average_across_mice(counts, ax=ax)
+    assert [to_hex(line.get_color()) for line in data_lines(ax)] == palette
+    _, ax = plt.subplots()
+    plot_block_panel(counts, 0, ax=ax)
+    assert [to_hex(line.get_color()) for line in data_lines(ax)] == palette

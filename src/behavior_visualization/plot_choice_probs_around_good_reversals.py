@@ -37,6 +37,7 @@ from src.behavior_analysis.cumulative_reversal_removal import (
     good_bad_removal_curves,
     total_removal_curves,
 )
+from src.behavior_visualization.plot_helpers import save_or_show
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR_MAP
 
 CURVE_LABELS = [("prev_best", "Previous Best"), ("next_best", "New Best"), ("third", "Third Arm")]
@@ -317,18 +318,6 @@ def plot_choice_probs_with_removal(
 # ---------------------------------------------------------------------------
 
 
-def _save_or_show(fig: plt.Figure, save_path) -> None:
-    """Save *fig* as ``<save_path>.pdf/.png``, or show it if there is no path; then close it."""
-    if save_path:
-        base = Path(save_path)
-        base.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(str(base) + ".pdf", bbox_inches="tight")
-        fig.savefig(str(base) + ".png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
-    plt.close(fig)
-
-
 def _plain_figure(x: ArrayLike, across: dict) -> plt.Figure:
     ax = plot_choice_probs(x, across)
     ax.figure.tight_layout()
@@ -400,10 +389,6 @@ def plot_choice_probs_around_good_reversals(
     if skip_n_trials_after_reversal > 0:
         fig = _broken_axis_figure(x, across, skip_n_trials_after_reversal)
     elif add_cumulative_axis:
-        # Known issue: this plain figure is never saved or closed, so it is shown as a
-        # duplicate alongside the cumulative figure (or, when saving, leaks one open
-        # figure per call). Only the cumulative figure is output.
-        _plain_figure(x, across)
         add_cumulative_rev_axis(
             x,
             across,
@@ -418,7 +403,7 @@ def plot_choice_probs_around_good_reversals(
         return
     else:
         fig = _plain_figure(x, across)
-    _save_or_show(fig, save_path)
+    save_or_show(fig, save_path or None)  # an empty path means "show"
 
 
 def add_cumulative_rev_axis(
@@ -487,7 +472,7 @@ def add_cumulative_rev_axis(
         ax=ax,
     )
     fig.tight_layout()
-    _save_or_show(fig, save_path)
+    save_or_show(fig, save_path or None)  # an empty path means "show"
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ from src.behavior_analysis.single_session import (
     percent_of_total,
     reversal_event_indices,
 )
+from src.behavior_visualization.plot_helpers import save_or_show
 
 # Figure styling, not part of the module API.
 _TOWER_COLORS = ["#A6CEE3", "#FDBF6F", "#B2DF8A"]
@@ -333,8 +334,8 @@ def plot_single_session(
         the cumulative ``good_reversals`` / ``bad_reversals`` counters did not
         mark; any kind other than ``"good"`` is drawn as a bad reversal.
 
-        The figure is closed on success but left open in pyplot when an error
-        is raised while drawing or saving it.
+        The figure is closed on success and when saving it raises, but left open
+        in pyplot when an error is raised while drawing it.
     """
     fig = _draw_session(
         session_data,
@@ -344,11 +345,4 @@ def plot_single_session(
         title=title,
         choice_probabilities_by_tower=choice_probabilities_by_tower,
     )
-    if save_path:
-        base = Path(save_path)
-        base.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(str(base) + ".pdf", bbox_inches="tight")
-        fig.savefig(str(base) + ".png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
-    plt.close(fig)
+    save_or_show(fig, save_path or None)  # an empty path means "show"

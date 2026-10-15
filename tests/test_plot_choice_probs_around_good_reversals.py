@@ -243,11 +243,10 @@ def test_public_plot_with_cumulative_axis_saves_the_removal_figure(across, tmp_p
         save_path=save_path,
     )
     assert sorted(p.name for p in tmp_path.iterdir()) == ["cum.pdf", "cum.png"]
-    # Known issue pinned here: the plain figure made first is never saved or closed
-    assert len(plt.get_fignums()) == 1
+    assert plt.get_fignums() == []  # no stray plain figure is left open
 
 
-def test_public_plot_with_cumulative_axis_shows_the_plain_figure_too(across, shown, monkeypatch):
+def test_public_plot_with_cumulative_axis_shows_only_the_removal_figure(across, shown, monkeypatch):
     open_at_show = []
     monkeypatch.setattr(plt, "show", lambda: open_at_show.append(len(plt.get_fignums())))
     plot_choice_probs_around_good_reversals(
@@ -258,9 +257,9 @@ def test_public_plot_with_cumulative_axis_shows_the_plain_figure_too(across, sho
         all_bad_idx=BAD,
         all_unclassified_idx=NONE,
     )
-    # Known issue pinned here: the plain figure is open too, so a real show displays both
-    assert open_at_show == [2]
-    assert len(plt.get_fignums()) == 1  # and the plain one is never closed
+    # a real show displays every open figure, so exactly one must be open
+    assert open_at_show == [1]
+    assert plt.get_fignums() == []
 
 
 def test_public_plot_with_cumulative_axis_appearance(across, shown):

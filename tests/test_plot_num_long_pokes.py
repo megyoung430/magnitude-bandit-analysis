@@ -7,6 +7,7 @@ import pytest
 from matplotlib.container import ErrorbarContainer
 
 from src.behavior_analysis.long_pokes_by_session import summarize_pokes_by_session
+from src.behavior_visualization import plot_num_long_pokes as module
 from src.behavior_visualization.plot_num_long_pokes import (
     plot_num_pokes_across_mice,
     plot_num_pokes_panel,
@@ -168,13 +169,22 @@ def test_show_when_no_path_and_figure_closed(capture):
     assert not plt.fignum_exists(fig.number)
 
 
-def test_save_path_writes_pdf_and_png_without_creating_directories(capture, tmp_path):
+def test_save_path_writes_pdf_and_png(capture, tmp_path):
     base = tmp_path / "Pokes"
     plot_num_pokes_across_mice(POKES, 6, save_path=base)
     pdf, png = capture.saved
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert capture.shown == []
+
+
+def test_save_path_creates_missing_parent_directories(monkeypatch, tmp_path):
+    capture_figures(monkeypatch, write_files=True)
+    base = tmp_path / "nested" / "deeper" / "Pokes"
+    plot_num_pokes_across_mice(POKES, 6, save_path=base)
+    assert (tmp_path / "nested" / "deeper" / "Pokes.pdf").stat().st_size > 0
+    assert (tmp_path / "nested" / "deeper" / "Pokes.png").stat().st_size > 0
+    assert plt.get_fignums() == []
 
 
 def test_empty_input_is_rejected():
@@ -212,3 +222,42 @@ def test_panel_jitter_comes_from_the_given_generator(capture):
     jitter = np.random.Generator(np.random.PCG64(7))
     for line, xs in zip(mouse_lines(ax), ([0, 1], [0, 2]), strict=True):
         np.testing.assert_allclose(line.get_xdata(), xs + jitter.uniform(-0.03, 0.03, 2))
+
+
+def raise_while_drawing(monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module, "_plot_mouse_lines", boom)
+
+
+def test_a_figure_created_by_the_panel_is_closed_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_num_pokes_panel(POKES, 6)
+    assert plt.get_fignums() == []
+
+
+def test_a_figure_given_to_the_panel_stays_open_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    fig, ax = plt.subplots()
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_num_pokes_panel(POKES, 6, ax=ax)
+    assert plt.get_fignums() == [fig.number]
+
+
+def test_the_public_function_closes_its_figure_when_drawing_or_saving_raises(
+    capture, monkeypatch, tmp_path
+):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_num_pokes_across_mice(POKES, 6)
+    monkeypatch.undo()
+
+    def cannot_save(self, fname, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(plt.Figure, "savefig", cannot_save)
+    with pytest.raises(OSError, match="disk full"):
+        plot_num_pokes_across_mice(POKES, 6, save_path=tmp_path / "x")
+    assert plt.get_fignums() == []

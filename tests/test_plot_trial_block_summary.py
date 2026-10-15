@@ -15,6 +15,7 @@ from src.behavior_analysis.trial_count_summaries import (
     mice_by_subject_number,
     summarize_trials_by_problem,
 )
+from src.behavior_visualization import plot_trial_block_summary as pbs
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from src.behavior_visualization.plot_trial_block_summary import (
     _plot_problem_means,
@@ -346,6 +347,35 @@ def test_problem_means_use_capped_error_bars(capture, tables, tmp_path):
     (ax,) = figures["Trials per session - across problems"].axes
     (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
     assert cap_size(errorbar) == 4
+
+
+def test_a_figure_that_raises_while_drawing_leaves_no_figure_open(
+    capture, tables, tmp_path, monkeypatch
+):
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pbs, "_plot_daily_means", boom)
+    sessions, blocks = tables
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_trial_block_summaries(sessions, blocks, tmp_path / "figs", show=False)
+    assert plt.get_fignums() == []
+    # the distribution figure was saved before the failure
+    assert [s.path.rsplit("/", 1)[-1] for s in capture.saved] == [
+        "Trials per session - distributions.png",
+        "Trials per session - distributions.pdf",
+    ]
+
+
+def test_a_figure_that_cannot_be_saved_is_closed(capture, tables, tmp_path, monkeypatch):
+    def cannot_save(self, fname, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(plt.Figure, "savefig", cannot_save)
+    sessions, blocks = tables
+    with pytest.raises(OSError, match="disk full"):
+        plot_trial_block_summaries(sessions, blocks, tmp_path / "figs", show=False)
+    assert plt.get_fignums() == []
 
 
 def test_problem_means_draw_the_mean_without_error_bar_for_a_single_mouse():

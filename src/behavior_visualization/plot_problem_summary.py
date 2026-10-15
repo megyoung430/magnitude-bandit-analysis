@@ -34,7 +34,15 @@ from src.behavior_analysis.rank_proportions_summary import (
     mean_rank_proportions_by_subject,
     rank_mean_and_se,
 )
-from src.behavior_visualization.plot_style import MOUSE_COLORS
+from src.behavior_visualization.plot_helpers import (
+    despine,
+    jittered,
+    mouse_color_map,
+    save_or_show,
+)
+
+# Notebooks star-import this module and expect MOUSE_COLORS from it.
+from src.behavior_visualization.plot_style import MOUSE_COLORS  # noqa: F401
 
 RANK_LABELS = ["Best", "Second", "Third"]
 # Keys checked after blocks, means and ses (which are read, and so checked, first).
@@ -45,45 +53,9 @@ _OTHER_SUMMARY_KEYS = ("ns", "per_mouse_blocklens", "mice")
 # ---------------------------------------------------------------------------
 
 
-def _despine(ax: plt.Axes) -> None:
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
-
-def _save_or_show(fig: plt.Figure, base: str | Path | None, formats: tuple[str, ...]) -> None:
-    """Save *fig* as ``<base>.<fmt>`` for each of *formats* (in order), or show it if no base.
-
-    The figure is closed afterwards either way.
-    """
-    if base is not None:
-        base = Path(base)
-        base.parent.mkdir(parents=True, exist_ok=True)
-        for fmt in formats:
-            extra = {"dpi": 300} if fmt == "png" else {}
-            fig.savefig(f"{base}.{fmt}", bbox_inches="tight", **extra)
-    else:
-        plt.show()
-    plt.close(fig)
-
-
-def _mouse_color_map(mice: list) -> dict:
-    """Assign each mouse a colour from ``MOUSE_COLORS``, cycling if there are more mice."""
-    return {m: MOUSE_COLORS[i % len(MOUSE_COLORS)] for i, m in enumerate(mice)}
-
-
 def _value_range(values: np.ndarray) -> tuple[float, float] | None:
     """``(min, max)`` of *values*, or ``None`` if there are none."""
     return (np.nanmin(values), np.nanmax(values)) if values.size > 0 else None
-
-
-def _jittered(xs: np.ndarray, *, jitter: float) -> np.ndarray:
-    """*xs* plus uniform noise of half-width *jitter* (unchanged if ``jitter <= 0``).
-
-    Draws from the global ``np.random`` stream, so ``np.random.seed`` makes it repeatable.
-    """
-    if jitter > 0:
-        return xs + np.random.uniform(-jitter, jitter, size=len(xs))
-    return xs
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +183,7 @@ def _draw_mouse_lines(
         if xs.size == 0:
             continue
         ax.plot(
-            _jittered(xs, jitter=jitter),
+            jittered(xs, jitter),
             ys,
             color=colors[m],
             linewidth=2.5,
@@ -261,7 +233,7 @@ def plot_problem_bars(
         style: Number format, legend and spacing choices.
     """
     blocks, means, ses = _read_bar_values(summary)
-    colors = _mouse_color_map(summary["mice"])
+    colors = mouse_color_map(summary["mice"])
     # Everything above is read before the figure exists, so a malformed summary
     # raises without leaving an empty figure open.
     if ax is None:
@@ -273,7 +245,7 @@ def plot_problem_bars(
     finite_top, annotate_y = _annotation_ceiling(means, ses, annotate_y=annotate_y)
     _label_bar_values(ax, len(blocks), means, annotate_y=annotate_y, value_fmt=style.value_fmt)
     _draw_mouse_lines(ax, summary, colors, jitter=jitter, style=style)
-    _despine(ax)
+    despine(ax)
     ax.set_xticks(np.arange(len(blocks)))
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
     ax.set_xlabel("Problem Number", fontsize=12)
@@ -319,7 +291,7 @@ def plot_metric_by_problem(
         style=METRIC_STYLE,
     )
     ax.figure.tight_layout()
-    _save_or_show(ax.figure, save_path, ("pdf", "png"))
+    save_or_show(ax.figure, save_path or None, formats=("pdf", "png"))
 
 
 def plot_problem_lengths(
@@ -359,7 +331,7 @@ def plot_problem_lengths(
         style=LENGTHS_STYLE,
     )
     ax.figure.tight_layout()
-    _save_or_show(ax.figure, save_path, ("pdf", "png"))
+    save_or_show(ax.figure, save_path or None, formats=("pdf", "png"))
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +418,7 @@ def plot_blocklen_histogram(
     if vals.size == 0:
         ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes, fontsize=10)
         ax.set_title(title, fontsize=11)
-        _despine(ax)
+        despine(ax)
         return ax
     ax.hist(
         vals,
@@ -468,7 +440,7 @@ def plot_blocklen_histogram(
         bbox=dict(boxstyle="round,pad=0.25", facecolor="white", alpha=0.85, edgecolor="none"),
     )
     ax.set_title(title, fontsize=11)
-    _despine(ax)
+    despine(ax)
     if xlim is not None:
         ax.set_xlim(xlim)
     return ax
@@ -560,7 +532,7 @@ def plot_distributions_per_mouse(
     for m in mice:
         fig = _mouse_histogram_figure(data, m, problems, ncols=ncols, sharex=sharex, sharey=sharey)
         stem = None if save_dir is None else Path(save_dir) / f"blocklen_distributions_mouse_{m}"
-        _save_or_show(fig, stem, ("png", "pdf"))
+        save_or_show(fig, stem, formats=("png", "pdf"))
 
 
 def plot_distributions_per_problem_all_mice(
@@ -594,7 +566,7 @@ def plot_distributions_per_problem_all_mice(
         problems, mice, data = drop_last_problem_per_mouse_raw(problems, mice, data)
 
     fig = _pooled_histogram_figure(data, problems, mice, ncols=ncols, sharex=sharex, sharey=sharey)
-    _save_or_show(fig, save_path, ("png", "pdf"))
+    save_or_show(fig, save_path or None, formats=("png", "pdf"))
 
 
 # ---------------------------------------------------------------------------
@@ -655,11 +627,11 @@ def _draw_rank_mouse_lines(ax: plt.Axes, per_mouse: dict, *, jitter: float) -> N
     mouse order fixes which noise each line gets.
     """
     x = np.arange(len(RANK_LABELS))
-    colors = _mouse_color_map(list(per_mouse))
+    colors = mouse_color_map(list(per_mouse))
     handles = []
     for subj, v in per_mouse.items():
         ax.plot(
-            _jittered(x, jitter=jitter),
+            jittered(x, jitter),
             [v[rank] for rank in RANKS],
             color=colors[subj],
             linewidth=2.5,
@@ -702,7 +674,7 @@ def plot_rank_proportions_average_panel(
     ax.set_xticklabels(RANK_LABELS)
     ax.set_ylabel("Proportion of Choices")
     ax.set_ylim(0.0, 1.07)
-    _despine(ax)
+    despine(ax)
     return ax
 
 
@@ -734,4 +706,4 @@ def plot_rank_proportions_average_without_blocks(
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
     plot_rank_proportions_average_panel(per_mouse, ax=ax, pvalues=average_across_mice_pvalues)
     fig.tight_layout()
-    _save_or_show(fig, save_path, ("pdf", "png"))
+    save_or_show(fig, save_path or None, formats=("pdf", "png"))

@@ -19,7 +19,7 @@ from src.behavior_analysis.average_choice_probs import (  # noqa: F401
     compute_curve_from_windows,
     curves_by_problem_from_windows_dict,
 )
-from src.behavior_visualization.plot_helpers import despine, save_or_show
+from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR_MAP
 
 _CURVE_LABELS = {"prev_best": "Previous Best", "next_best": "New Best", "third": "Third Arm"}
@@ -185,20 +185,17 @@ def plot_choice_probs_with_fraction_removed_panel(
 
     Returns:
         The left (choice-probability) axes; the twin axis shares its figure.
-
-    Known issue: when the figure is created here, it stays open if drawing raises.
     """
     x = np.asarray(x, float)
     frac_removed = np.asarray(frac_removed, float)
-    if ax is None:
-        _, ax = plt.subplots(figsize=(10, 6))
-    _plot_choice_curves(ax, x, across)
-    _style_choice_axis(ax, x)
-    ax2 = _plot_fraction_removed(ax, x, frac_removed)
-    ax.set_title(_figure_title(across, title_extra), pad=20)
-    handles, labels = ax.get_legend_handles_labels()
-    handles2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(handles + handles2, labels + labels2, loc="upper left", fontsize=10)
+    with axes_or_new(ax, figsize=(10, 6)) as ax:
+        _plot_choice_curves(ax, x, across)
+        _style_choice_axis(ax, x)
+        ax2 = _plot_fraction_removed(ax, x, frac_removed)
+        ax.set_title(_figure_title(across, title_extra), pad=20)
+        handles, labels = ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(handles + handles2, labels + labels2, loc="upper left", fontsize=10)
     return ax
 
 
@@ -226,5 +223,4 @@ def plot_choice_probs_with_fraction_removed_axis(
     )
     fig = ax.figure
     fig.tight_layout()
-    # Unlike the other plots, only None means "show": an empty save_path is used as a path.
-    save_or_show(fig, save_path)
+    save_or_show(fig, save_path or None)  # an empty path means "show"

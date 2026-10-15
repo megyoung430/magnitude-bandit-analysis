@@ -200,7 +200,8 @@ def plot_trial_block_summaries(
     Returns:
         The saved PNG and PDF paths, in figure order (PNG first for each figure).
 
-    Known issue: a figure that raises while being drawn or saved stays open.
+    If drawing or saving raises, the files already written are kept and no figure is
+    left open.
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
