@@ -235,7 +235,10 @@ def _reconcile_run(df, variables, previous, carried, trial_offset, run_index):
         trial_offset: Number of trials in earlier runs of this session.
         run_index: Position of this run in the session (for diagnostics only).
     """
-    start, end = _snapshots(df)
+    try:
+        start, end = _snapshots(df)
+    except _SnapshotError as err:
+        raise _SnapshotError(f"run {run_index}: {err}") from err
     n_trials = len(variables.get("trial", []))
     incoming, events, diagnostics = _between_runs(previous, start, trial_offset, run_index)
     corrected, run_totals, observed = {}, {}, {}
