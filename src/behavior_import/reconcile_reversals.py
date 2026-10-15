@@ -12,6 +12,10 @@ from typing import NamedTuple
 KINDS = ("good", "bad")
 
 
+class _SnapshotError(ValueError):
+    """A run snapshot that must be parsed could not be; the caller adds the session."""
+
+
 def _state(raw):
     aliases = {
         "good": ("num_good_reversals", "num_good_rev"),
@@ -33,11 +37,13 @@ def _snapshots(df):
         if row["subtype"] not in ("run_start", "run_end"):
             continue
         content = row["content"]
-        # Known issue: a run_start snapshot that fails to parse is skipped, so the
-        # baseline becomes 0 and events from earlier runs can be counted again.
         try:
             raw = content if isinstance(content, dict) else json.loads(content)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as err:
+            if row["subtype"] == "run_start":
+                # Without the start snapshot the baseline would be 0 and counters that
+                # persist across recording restarts would be counted again.
+                raise _SnapshotError(f"run_start snapshot is not parseable: {content!r}") from err
             continue
         if row["subtype"] == "run_start":
             start = _state(raw)
@@ -330,9 +336,16 @@ def reconcile_reversals(data):
     late subsets. Re-running is safe: raw per-run trial variables are the source.
     Positive cumulative-total changes between runs identify additional events;
     negative changes and magnitude-only changes are diagnostics, not reversals.
+
+    Raises:
+        ValueError: If a run's ``run_start`` snapshot cannot be parsed; the message
+            names the subject and session.
     """
-    for sessions in data.values():
+    for subject, sessions in data.items():
         previous = None
         for key in sorted(sessions, key=_session_order):
-            previous = _reconcile_session(sessions[key], previous)
+            try:
+                previous = _reconcile_session(sessions[key], previous)
+            except _SnapshotError as err:
+                raise ValueError(f"{subject} {key}: {err}") from err
     return data

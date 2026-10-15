@@ -278,3 +278,19 @@ def test_combine_runs_does_not_mutate_its_input():
     before = copy.deepcopy(run)
     _combine_runs([run, run])
     assert run == before
+
+
+def test_unparseable_run_start_raises_naming_the_session():
+    # Skipping the snapshot would make the baseline 0 and count earlier events again.
+    sess = {
+        "data": frame("{not json", state(num_good_reversals=1)),
+        "trial_variables": [run_variables([1], [0])],
+    }
+    with pytest.raises(ValueError, match=r"M1.*ses-1_date-20260101.*run_start"):
+        reconcile_reversals({"M1": {"ses-1_date-20260101": sess}})
+
+
+def test_non_string_run_start_content_raises():
+    sess = {"data": frame(float("nan"), "{}"), "trial_variables": [run_variables([], [])]}
+    with pytest.raises(ValueError, match="run_start"):
+        reconcile_reversals({"M1": {"ses-1": sess}})
