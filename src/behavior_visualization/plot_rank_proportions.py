@@ -20,14 +20,17 @@ and the imports below are public; every other module-level name starts with ``_`
 
 import math
 from collections.abc import Hashable
-from pathlib import Path
+from pathlib import Path  # noqa: F401  # public to star-importing notebooks
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 
 from src.behavior_analysis import rank_proportions as _summary
-from src.behavior_visualization.plot_style import MOUSE_COLORS
+from src.behavior_visualization import plot_helpers as _helpers
+
+# Notebooks star-import this module and expect MOUSE_COLORS from it.
+from src.behavior_visualization.plot_style import MOUSE_COLORS  # noqa: F401
 
 BLOCK_COLORS = [
     "#1B9E77",
@@ -148,7 +151,7 @@ def _label_means(ax, means, fontsize, *, finite_only=True):
 def _draw_line(ax, y, color, label, *, jitter, linewidth, **style):
     """Plot one jittered rank line and return its legend handle."""
     ax.plot(
-        _X + np.random.uniform(-jitter, jitter, size=len(_X)),
+        _helpers.jittered(_X, jitter),
         y,
         color=color,
         linewidth=linewidth,
@@ -192,26 +195,6 @@ def _annotate_pvalues(ax, labelled_x, pvalues):
             )
 
 
-def _save_or_show(fig, save_path, *, create_folders):
-    """Save ``<save_path>.pdf/.png`` or show the figure, then close *fig*.
-
-    With *create_folders* the folder is created and *save_path* may be a
-    ``Path``. Without it the suffixes are appended to *save_path* as given, so
-    the folder must exist and *save_path* must be a ``str``. If saving raises,
-    *fig* is left open.
-    """
-    if save_path:
-        if create_folders:
-            base = Path(save_path)
-            base.parent.mkdir(parents=True, exist_ok=True)
-            save_path = str(base)
-        fig.savefig(save_path + ".pdf", bbox_inches="tight")
-        fig.savefig(save_path + ".png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
-    plt.close(fig)
-
-
 # ---------------------------------------------------------------------------
 # Panels
 # ---------------------------------------------------------------------------
@@ -251,7 +234,7 @@ def plot_average_across_mice(
         _draw_line(
             ax,
             [v[rank] for rank in _summary.RANKS],
-            MOUSE_COLORS[i % len(MOUSE_COLORS)],
+            _helpers.palette_color(i),
             subj,
             **_MOUSE_LINES,
         )
@@ -369,7 +352,7 @@ def plot_block_panel(
         _draw_line(
             ax,
             _summary.row_props(rows[block_idx]),
-            MOUSE_COLORS[si % len(MOUSE_COLORS)],
+            _helpers.palette_color(si),
             _block_legend_label(subject, rows[block_idx]),
             **_BLOCK_PANEL_LINES,
         )
@@ -418,8 +401,8 @@ def plot_rank_proportions_average(
     - Single-mouse or empty data emit numpy ``RuntimeWarning``s (degrees of
       freedom, empty slice).
     - ``save_path`` must be a ``str`` in an existing folder (``Path`` raises
-      ``TypeError``, a missing folder ``FileNotFoundError``, either with the
-      figure left open); the other two figures accept a ``Path`` and create the folder.
+      ``TypeError``, a missing folder ``FileNotFoundError``); the other two figures
+      accept a ``Path`` and create the folder.
 
     Args:
         rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
@@ -444,7 +427,7 @@ def plot_rank_proportions_average(
     )
     plot_average_across_blocks(rank_counts_by_good_reversal, ax=axes[1])
     fig.tight_layout()
-    _save_or_show(fig, save_path, create_folders=False)
+    _helpers.save_or_show(fig, save_path or None, make_parent=False)
 
 
 def plot_rank_proportions_by_mouse(
@@ -499,7 +482,7 @@ def plot_rank_proportions_by_mouse(
     for ax in axes.flat[len(subjects) :]:
         ax.axis("off")
     fig.tight_layout()
-    _save_or_show(fig, save_path, create_folders=True)
+    _helpers.save_or_show(fig, save_path or None)
 
 
 def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None):
@@ -545,4 +528,4 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
     for ax in axes[n_blocks:]:
         ax.axis("off")
     fig.tight_layout()
-    _save_or_show(fig, save_path, create_folders=True)
+    _helpers.save_or_show(fig, save_path or None)

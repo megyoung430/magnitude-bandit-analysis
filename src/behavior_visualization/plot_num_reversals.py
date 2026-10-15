@@ -12,7 +12,6 @@ functions compose those panels into the standard figures and save them.
 """
 
 import math
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,6 +27,7 @@ from src.behavior_analysis.reversals_by_session import (
     reversal_kinds,
     reversal_totals_by_subject,
 )
+from src.behavior_visualization.plot_helpers import despine, save_or_show
 from src.behavior_visualization.plot_reversals_by_trial import plot_reversals_by_trial
 from src.behavior_visualization.plot_style import BAD_COLOR, GOOD_COLOR, TOTAL_COLOR
 
@@ -39,11 +39,6 @@ THRESHOLD_STYLE = dict(color="#DCDCDC", linewidth=2, linestyle="--", alpha=0.7)
 # ---------------------------------------------------------------------------
 # Panels
 # ---------------------------------------------------------------------------
-
-
-def _despine(ax: plt.Axes) -> None:
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
 
 
 def plot_reversal_totals(
@@ -70,7 +65,7 @@ def plot_reversal_totals(
         ax.bar(x_pos, totals["total"].astype(int), color=TOTAL_COLOR, edgecolor="black")
     ax.set_xticks(x_pos)
     ax.set_xticklabels(totals.index, rotation=45, ha="right")
-    _despine(ax)
+    despine(ax)
     ax.spines["left"].set_linewidth(1)
     ax.spines["bottom"].set_linewidth(1)
     ax.set_ylabel("Number of Reversals", fontsize=12)
@@ -121,7 +116,7 @@ def plot_reversal_curves_across_mice(
         ax.axhline(threshold, label="Threshold", **THRESHOLD_STYLE)
     ax.set_xlabel("Session Number")
     ax.set_ylabel(ylabel)
-    _despine(ax)
+    despine(ax)
     ax.set_title(title)
     ax.legend(fontsize=10)
     return ax
@@ -160,7 +155,7 @@ def plot_reversal_curves_for_mouse(
     tick_idx = list(range(0, len(session_labels), max(1, len(session_labels) // 10)))
     ax.set_xticks(tick_idx)
     ax.set_xticklabels([session_labels[j] for j in tick_idx], rotation=45, ha="right")
-    _despine(ax)
+    despine(ax)
     return ax
 
 
@@ -208,20 +203,6 @@ def _kinds_title(kinds: tuple[str, ...]) -> str:
     return "Good and Bad" if kinds == ("good", "bad") else "Total"
 
 
-def _save_or_show(figures: dict[str, plt.Figure], save_path) -> None:
-    """Save each figure as ``<save_path><suffix>.pdf/.png``, or show them if no path."""
-    if save_path:
-        base = Path(save_path)
-        base.parent.mkdir(parents=True, exist_ok=True)
-        for suffix, fig in figures.items():
-            fig.savefig(f"{base}{suffix}.pdf", bbox_inches="tight")
-            fig.savefig(f"{base}{suffix}.png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
-    for fig in figures.values():
-        plt.close(fig)
-
-
 def _print_subject_totals(subjects_trials: dict) -> None:
     for subject in sorted(subjects_trials):
         print(f"{subject}: {get_total_reversals(subjects_trials[subject])}")
@@ -240,7 +221,7 @@ def plot_num_reversals(subjects_trials, save_path=None):
     fig, ax = plt.subplots(figsize=(10, 5))
     plot_reversal_totals(totals, reversal_kinds(totals), ax=ax)
     fig.tight_layout()
-    _save_or_show({"": fig}, save_path)
+    save_or_show(fig, save_path or None)
 
 
 def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
@@ -285,7 +266,7 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
         title_suffix="sessions",
         suptitle=f"Cumulative {name} Reversals by Subject",
     )
-    _save_or_show({" Across Mice": fig1, " By Mouse": fig2}, save_path)
+    save_or_show({" Across Mice": fig1, " By Mouse": fig2}, save_path or None)
 
     plot_reversals_by_trial(
         subjects_trials,
@@ -338,7 +319,7 @@ def plot_moving_avg_reversals_over_time(
         title_suffix=f"sessions; window={window}",
         suptitle=f"Moving-Average {name} Reversals by Subject",
     )
-    _save_or_show({" Across Mice": fig1, " By Mouse": fig2}, save_path)
+    save_or_show({" Across Mice": fig1, " By Mouse": fig2}, save_path or None)
 
     plot_reversals_by_trial(
         subjects_trials,
