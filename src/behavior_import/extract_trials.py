@@ -1,12 +1,18 @@
 """Extract and process trial-by-trial data from behavioral experiment recordings."""
 
-import re
 from copy import deepcopy
-from datetime import datetime
 
 import pandas as pd
 
 from src.behavior_import.import_data import parse_content_json
+from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
+    SessionFacts,
+    assign_problems,
+    normalize_tower_token,
+    permutation_invariant_signature,
+    session_sort_key,
+    warn_flagged,
+)
 from src.behavior_import.reconcile_reversals import reconcile_reversals
 from src.behavior_import.split_recording_configurations import split_recording_configurations
 
@@ -55,8 +61,6 @@ CUMULATIVE_NUMERIC_VARS = {"good_reversals", "bad_reversals", "blocks"}
 CUMULATIVE_DICTLIST_VARS = {"rank_counts", "choice_counts"}
 SPECIAL_VARS = {"trials_in_block"}
 
-TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
-
 # Standard rank labels, best first.
 RANK_KEYS = ("best", "second", "third")
 
@@ -73,29 +77,23 @@ RANK_LABEL_MAP = {
 }
 
 
-def extract_trials_grouped_by_problem(data, merge_recurring_problems=False):
-    """Extract trial variables and group sessions into problems by choice tower set.
+def extract_trials_grouped_by_problem(data):
+    """Extract trial variables and group sessions into problems by tower layout.
 
     A convenience wrapper that calls :func:`extract_trials` to parse all
     trial-level variables, then :func:`group_sessions_by_problem` to split
-    sessions into contiguous problems whenever the set of available choice
-    towers changes.
+    sessions into problems (see :mod:`src.behavior_import.problem_numbering`).
 
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}`` as returned
             by :func:`src.behavior_import.import_data.import_data`.
-        merge_recurring_problems: Passed to :func:`group_sessions_by_problem`. If
-            ``True``, a signature that recurs later reuses its first problem id.
 
     Returns:
-        Dict ``{problem_id: {subject: {session_key: session_dict}}}`` where
-        *problem_id* is a 1-based integer that increments each time a new choice
-        tower signature appears within a subject (and, if
-        *merge_recurring_problems* is ``False``, each time the signature
-        changes from the previous session's).
+        Dict ``{problem_id: {subject: {session_key: session_dict}}}``; sessions
+        flagged as suspected settings errors are left out.
     """
     data = extract_trials(data)
-    problems = group_sessions_by_problem(data, merge_recurring_problems=merge_recurring_problems)
+    problems = group_sessions_by_problem(data)
     return problems
 
 
@@ -726,7 +724,7 @@ def choice_towers_signature(session_data):
 
     Returns:
         A hashable tuple representing the tower set, or ``None`` if
-        ``"choice_towers"`` is absent or all values are ``None``.
+        ``"choice_towers"`` is absent, all values are ``None`` or the first is empty.
     """
     towers_seq = session_data.get("choice_towers", None)
     if not towers_seq:
@@ -749,6 +747,9 @@ def choice_towers_signature(session_data):
     else:
         towers_part = (repr(first),)
 
+    if not towers_part:
+        return None
+
     default_initiation_tower = "B2"
     init_tower = session_data.get("initiation_tower", None)
     if init_tower is None:
@@ -757,189 +758,36 @@ def choice_towers_signature(session_data):
     return (towers_part, init_tower)
 
 
-def normalize_tower_token(x):
-    """Normalise a single tower token into a sortable, comparable tuple.
-
-    Converts letter+digit tokens (e.g. ``"A1"``, ``" b02 "``) to
-    ``(LETTER, int)`` tuples for robust comparison.  Falls back gracefully
-    for raw strings, numbers, and nested tuples.
-
-    Args:
-        x: A tower token — typically a string like ``"A1"`` or ``"C3"``, a
-            number, or a tuple of such values.
-
-    Returns:
-        A normalised ``(prefix, value)`` tuple:
-
-        - String matching ``[A-Za-z]+[0-9]+`` → ``(UPPER_LETTER, int)``.
-        - Other strings → ``("RAW", stripped_string)``.
-        - Integers/floats → ``("NUM", x)``.
-        - Tuples → recursively normalised tuple.
-
-    Raises:
-        TypeError: If *x* is an unsupported type.
-    """
-    if isinstance(x, str):
-        s = x.strip()
-        m = TOWER_TOKEN_RE.match(s)
-        if m:
-            return (m.group(1).upper(), int(m.group(2)))
-        return ("RAW", s)
-
-    # If your signature can include richer token types, extend this section.
-    # For now, keep numbers comparable as-is.
-    if isinstance(x, (int, float)):
-        return ("NUM", x)
-
-    # If you already produce normalized tuples in choice_towers_signature,
-    # keep them comparable by normalizing elements recursively.
-    if isinstance(x, tuple):
-        return tuple(normalize_tower_token(e) for e in x)
-
-    # Fail fast for unsupported objects so you don't silently create bad grouping.
-    raise TypeError(f"Unsupported tower token type: {type(x)!r} (value={x!r})")
-
-
-def permutation_invariant_signature(raw_sig):
-    """Canonicalise a tower-set signature to be permutation-invariant.
-
-    Normalises each token with :func:`normalize_tower_token` and sorts the
-    result so that two tower sets with the same members but different orderings
-    produce identical signatures.
-
-    Rule of thumb:
-
-    - Sequence-like (list/tuple/set/frozenset) → unordered multiset,
-      canonicalised by normalising each token and sorting.
-    - Dict → sort normalised ``(key, value)`` pairs.
-    - Single string → normalise it.
-    - ``None`` → kept as ``None``.
-
-    Args:
-        raw_sig: A raw signature as returned by :func:`choice_towers_signature`:
-            a sequence, dict, string, or ``None``.
-
-    Returns:
-        A sorted, normalised tuple suitable for equality comparison, or
-        ``None`` if *raw_sig* is ``None``.
-    """
-    if raw_sig is None:
-        return None
-
-    if (
-        isinstance(raw_sig, tuple)
-        and len(raw_sig) == 2
-        and isinstance(raw_sig[0], tuple)
-        and isinstance(raw_sig[1], str)
-    ):
-        towers_norm = tuple(sorted(normalize_tower_token(x) for x in raw_sig[0]))
-        init_norm = normalize_tower_token(raw_sig[1])
-        return (towers_norm, init_norm)
-
-    if isinstance(raw_sig, (list, tuple, set, frozenset)):
-        normalized = [normalize_tower_token(x) for x in raw_sig]
-        return tuple(sorted(normalized))
-
-    if isinstance(raw_sig, dict):
-        items = [(normalize_tower_token(k), normalize_tower_token(v)) for k, v in raw_sig.items()]
-        return tuple(sorted(items))
-
-    if isinstance(raw_sig, str):
-        return normalize_tower_token(raw_sig)
-
-    return raw_sig
-
-
-def session_sort_key(session_id):
-    """Sort key putting sessions in chronological order: ``ses-N`` number, then ``date-YYYYMMDD``.
-
-    Keys without a session number or date sort last; the key string breaks ties.
-    """
-    m_ses = re.search(r"ses-(\d+)", session_id)
-    m_date = re.search(r"date-(\d{8})", session_id)
-    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
-    dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
-    return (ses_num, dt, session_id)
-
-
 def problem_signature(session_data):
-    """Return ``(tower signature, has_good)`` identifying a session's problem, or ``None``.
+    """Return the session's tower layout (choice towers, initiation tower), or ``None``.
 
-    Sessions with and without performance-dependent reversals count as
-    different problems even when they offer the same towers. ``None`` means
-    the session logged no choice towers.
+    ``None`` means the session logged no choice towers.
     """
-    sig = permutation_invariant_signature(choice_towers_signature(session_data))
-    if sig is None:
-        return None
-    return (sig, bool(session_data.get("has_good", False)))
+    return permutation_invariant_signature(choice_towers_signature(session_data))
 
 
-def merged_problem_ordinals(full_sigs):
-    """Number problems so a recurring signature reuses its first ordinal (A, B, A -> 1, 2, 1).
+def session_facts(subject_id, session_id, session_data):
+    """The :class:`SessionFacts` for one extracted session.
 
-    A ``None`` signature stays on the current problem.
+    The layout comes from the trial-level ``choice_towers``; the settings evidence is the
+    ``"settings_evidence"`` entry that ``import_data`` stores on every session.
     """
-    ordinals = []
-    first_ordinal = {}
-    # Each ordinal depends on all earlier signatures, so this is a loop.
-    for full_sig in full_sigs:
-        if full_sig is None:
-            ordinal = max(len(first_ordinal), 1)
-        else:
-            ordinal = first_ordinal.setdefault(full_sig, len(first_ordinal) + 1)
-        ordinals.append(ordinal)
-    return ordinals
-
-
-def consecutive_problem_ordinals(full_sigs):
-    """Number problems so only consecutive equal signatures share one (A, B, A -> 1, 2, 3).
-
-    A ``None`` signature stays on the current problem.
-    """
-    ordinals = []
-    next_ordinal = 1
-    previous = None
-    # Each ordinal depends on all earlier signatures, so this is a loop.
-    for full_sig in full_sigs:
-        if full_sig is None:
-            ordinal = max(next_ordinal - 1, 1)
-        elif full_sig == previous:
-            ordinal = next_ordinal - 1
-        else:
-            ordinal = next_ordinal
-            next_ordinal += 1
-        ordinals.append(ordinal)
-        # Known issue: a None signature also sets `previous`, so ["A", None, "A"] gives
-        # [1, 1, 2]; keeping A's problem across the gap would give [1, 1, 1].
-        previous = full_sig
-    return ordinals
-
-
-def assign_problem_ordinals(full_sigs, merge_recurring_problems):
-    """Number the problems in a subject's chronological sequence of signatures.
-
-    Each new signature gets the next ordinal (1, 2, 3, ...). A ``None``
-    signature stays on the current problem. A signature seen before gets its
-    old ordinal back if *merge_recurring_problems* (A, B, A -> 1, 2, 1);
-    otherwise it only keeps the ordinal when it equals the previous session's
-    signature (A, B, A -> 1, 2, 3).
-
-    Args:
-        full_sigs: Signatures from :func:`problem_signature`, in session order.
-        merge_recurring_problems: Whether a recurring signature rejoins its
-            original problem.
-
-    Returns:
-        List of 1-based ordinals, one per signature.
-    """
-    if merge_recurring_problems:
-        return merged_problem_ordinals(full_sigs)
-    return consecutive_problem_ordinals(full_sigs)
+    evidence = session_data.get("settings_evidence")
+    if evidence is None:
+        raise ValueError(
+            f"{subject_id} {session_id}: no 'settings_evidence'; "
+            "sessions must come from import_data"
+        )
+    return SessionFacts(
+        problem_signature(session_data),
+        evidence["starts_found_ports_false"],
+        evidence["has_port_finding_trials"],
+        evidence["task_name"],
+    )
 
 
 def signed_sessions(subject_id, subject_sessions):
-    """Return ``[(session_id, signature)]`` in chronological order.
+    """Return ``[(session_id, SessionFacts)]`` in chronological order.
 
     Sessions without trial information are skipped with a warning.
     """
@@ -952,31 +800,38 @@ def signed_sessions(subject_id, subject_sessions):
                 "due to missing trial information."
             )
             continue
-        signed.append((session_id, problem_signature(sess)))
+        signed.append((session_id, session_facts(subject_id, session_id, sess)))
     return signed
 
 
-def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems=False):
-    """Group sessions into numbered problems based on per-subject problem ordinal.
+def group_sessions_by_problem(data, copy_sessions=True):
+    """Group sessions into numbered problems per subject's tower layouts.
 
-    Within each subject, sessions are sorted chronologically. The problem key is
-    the tower signature plus ``has_good`` (see :func:`problem_signature`), so
-    sessions with and without performance-dependent reversals are different
-    problems. Each time a new (previously unseen) signature appears for that subject, it is assigned
-    the next ordinal (1, 2, 3, ...). If a signature recurs later for the same
-    subject, behaviour depends on *merge_recurring_problems*: if ``True``, the
-    session is folded back into its original ordinal (A -> B -> A yields
-    ordinals 1, 2, 1); if ``False``, it is treated as a new problem
-    (A -> B -> A yields ordinals 1, 2, 3).
+    Within each subject, sessions are sorted by date, then session number (the same
+    key ``import_data`` uses) and numbered by
+    :func:`src.behavior_import.problem_numbering.assign_problems`, the same
+    rule ``import_data`` uses for its ``"problem"`` field: a problem is the choice
+    towers plus the initiation tower, a return to an earlier layout is a new problem,
+    and a session that changes layout but looks like a settings error is left out
+    (with a warning), neither a new problem nor pooled with another. Pretraining,
+    port-finding and other tower-less sessions are left out too (see
+    :mod:`src.behavior_import.problem_numbering`). Sessions without
+    trial information are skipped before numbering, so the numbers can differ from
+    ``import_data``'s when such sessions exist. Flagged sessions stay in *data* for
+    single-session analyses.
+
+    The assignment is written back onto every numbered session in *data* as ``"problem"``
+    and ``"problem_flag"``. This matters for sessions that :func:`extract_trials` split
+    into ``_part-NN`` segments: ``import_data`` numbered the unsplit session by its first
+    recording, so the segments (which get no problem of their own) are numbered here, and
+    only flags that are new here (differ from the recorded ``"problem_flag"``) warn, so
+    each flagged session warns once overall.
 
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}`` after
             :func:`extract_trials` has been applied.
         copy_sessions: If ``True`` (default), each session dict is deep-copied
             into the output to avoid aliasing the input.
-        merge_recurring_problems: If ``True``, recurring signatures are folded
-            back into their original ordinal.  If ``False`` (default), every
-            new occurrence of a signature gets a fresh ordinal.
 
     Returns:
         Dict ``{problem_id: {subject: {session_key: session_dict}}}``.
@@ -984,10 +839,21 @@ def group_sessions_by_problem(data, copy_sessions=True, merge_recurring_problems
     problems = {}
     for subject_id, subject_sessions in data.items():
         signed = signed_sessions(subject_id, subject_sessions)
-        ordinals = assign_problem_ordinals([sig for _, sig in signed], merge_recurring_problems)
-        for (session_id, _), ordinal in zip(signed, ordinals, strict=True):
+        session_ids = [session_id for session_id, _ in signed]
+        assignments = assign_problems([facts for _, facts in signed])
+        # import_data already warned about the flags it recorded on the sessions; warn only
+        # about flags that are new here (e.g. on split segments, which import_data never saw).
+        newly_flagged = [
+            subject_sessions[session_id].get("problem_flag") != assignment.flag
+            for session_id, assignment in zip(session_ids, assignments, strict=True)
+        ]
+        warn_flagged(subject_id, session_ids, assignments, report=newly_flagged, stacklevel=3)
+        for session_id, assignment in zip(session_ids, assignments, strict=True):
             sess = subject_sessions[session_id]
-            by_subject = problems.setdefault(ordinal, {})
+            sess["problem"], sess["problem_flag"] = assignment.problem, assignment.flag
+            if assignment.problem is None:
+                continue
+            by_subject = problems.setdefault(assignment.problem, {})
             by_subject.setdefault(subject_id, {})[session_id] = (
                 deepcopy(sess) if copy_sessions else sess
             )
