@@ -10,6 +10,14 @@ import warnings
 import numpy as np
 
 
+def nan_mean(stack: np.ndarray, axis: int = 0) -> np.ndarray:
+    """Mean over the non-NaN entries along *axis*; NaN, without a warning, where all are NaN."""
+    n_valid = np.sum(~np.isnan(stack), axis=axis)
+    total = np.nansum(stack, axis=axis)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(n_valid > 0, total / np.maximum(n_valid, 1), np.nan)
+
+
 def nan_standard_error(stack: np.ndarray) -> np.ndarray:
     """Per-column standard error of the mean over the non-NaN rows of *stack*.
 

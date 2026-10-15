@@ -24,8 +24,38 @@ def _rank_label(choice, ranked: list) -> str | None:
     return None
 
 
+def rank_position_shares(chosen_magnitude: float, magnitudes) -> tuple[float, float]:
+    """Share of the best and of the second rank position held by an arm of *chosen_magnitude*.
+
+    *magnitudes* are the values of all ranked arms, the chosen arm's included. Arms with equal
+    magnitude occupy their rank positions together, so each gets an equal share of every
+    position the group covers (a three-way tie gives each arm 1/3 of best and 1/3 of second).
+    The shares depend only on the magnitudes, never on arm names.
+
+    Args:
+        chosen_magnitude (float): Magnitude of the arm that was chosen.
+        magnitudes (Iterable[float]): Magnitudes of every ranked arm.
+
+    Returns:
+        tuple[float, float]: ``(best_share, second_share)``, each in [0, 1].
+    """
+    values = list(magnitudes)
+    above = sum(v > chosen_magnitude for v in values)
+    tied = sum(v == chosen_magnitude for v in values)
+    # the tied arms hold rank positions above .. above + tied - 1
+    shares = [1.0 / tied if above <= position < above + tied else 0.0 for position in (0, 1)]
+    return shares[0], shares[1]
+
+
+def _chosen_shares(choice, believed: dict) -> tuple[float | None, float | None]:
+    """``(best_share, second_share)`` of the chosen arm, ``(None, None)`` if it is unseen."""
+    if choice not in believed:
+        return None, None
+    return rank_position_shares(believed[choice], believed.values())
+
+
 def _trial_belief(choice, believed: dict) -> dict:
-    """The believed best/second magnitudes and chosen-arm rank for one trial."""
+    """The believed best/second magnitudes, chosen-arm rank and rank shares for one trial."""
     ranked = _rank_arms(believed)
     n_seen = len(believed)
     best_mag = ranked[0][1] if n_seen >= 1 else None
@@ -33,12 +63,15 @@ def _trial_belief(choice, believed: dict) -> dict:
     # an arm that has never been seen has no believed rank
     rank_of_choice = _rank_label(choice, ranked) if choice in believed else None
     tied = best_mag is not None and second_mag is not None and best_mag == second_mag
+    best_share, second_share = _chosen_shares(choice, believed)
     return {
         "believed_best_mag": best_mag,
         "believed_second_mag": second_mag,
         "believed_chosen_rank": rank_of_choice,
         "tied": tied,
         "n_seen": n_seen,
+        "believed_best_share": best_share,
+        "believed_second_share": second_share,
     }
 
 
@@ -51,8 +84,10 @@ def compute_believed_value(choices, reward_magnitudes):
         the ranking entirely.
       - The believed best and second-best magnitudes (by believed rank order).
 
-    Ties in believed magnitude are flagged via the 'tied' field. Tied trials
-    are handled downstream by splitting contributions evenly across best/second.
+    Ties in believed magnitude are flagged via the 'tied' field (best and second equal).
+    'believed_chosen_rank' breaks ties by arm name, so it depends on arm labels when
+    magnitudes tie; use 'believed_best_share' / 'believed_second_share' for anything that
+    must not: they split each rank position evenly among the arms tied for it.
 
     Parameters
     ----------
@@ -69,6 +104,9 @@ def compute_believed_value(choices, reward_magnitudes):
         tied                : bool          (True if best and second believed
                                              magnitudes are equal)
         n_seen              : int           (number of arms with a believed value)
+        believed_best_share : float | None  (share of "best" held by the chosen arm;
+                                             None if the chosen arm is unseen)
+        believed_second_share: float | None (share of "second", likewise)
     """
     last_seen = {}
     results = []

@@ -15,6 +15,8 @@ def test_nothing_is_believed_before_the_first_choice():
         "believed_chosen_rank": None,
         "tied": False,
         "n_seen": 0,
+        "believed_best_share": None,
+        "believed_second_share": None,
     }
 
 
