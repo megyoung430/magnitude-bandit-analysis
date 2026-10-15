@@ -109,10 +109,13 @@ class RowCounts:
     ``n_trials = n_dropped_no_history + n_dropped_nan + n_rows``.
 
     Attributes:
-        n_trials: Trials of the subject across all sessions.
-        n_dropped_no_history: Trials whose lags reach before the start of the
-            data (``reset_history_per_session=False``) or before the start of
-            their session (``True``).
+        n_trials: Trials of the subject across all sessions (``len(trial)``).
+        n_dropped_no_history: Trials set aside because a lag has no real trial
+            behind it. With ``reset_history_per_session=True``: the first
+            ``n_lags`` trials of every session. With ``False``: the arm design
+            drops only trial 0 (the next ``n_lags - 1`` trials are kept, their
+            lags reaching before the start filled with zeros); the rank design
+            drops the first ``max(n_lags, 1)`` trials.
         n_dropped_nan: Remaining trials with a NaN response (true choice) or a
             NaN in any regressor.
         n_rows: Rows returned.
@@ -274,34 +277,70 @@ def _rank_labels(n_lags: int) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _check_sessions_aligned(subject: str, unmerged: dict[str, list]) -> None:
-    """Raise unless every session but the last has exactly one entry per trial.
+def _tower_set_text(towers: set[str]) -> str:
+    return "{" + ", ".join(repr(t) for t in sorted(towers)) + "}"
+
+
+def _check_session_towers(subject: str, unmerged: dict[str, list]) -> None:
+    """Raise unless every session has the tower set of the first session.
+
+    Sessions are merged tower by tower, so a session lacking a tower would make
+    that tower's list shorter than the trial list.
+    """
+    kinds = (("choices", "choices_by_tower"), ("rewards", "reward_magnitudes_by_tower"))
+    n_sessions = len(unmerged["trial"])
+    expected = set(dict(unmerged["choices_by_tower"][0]))
+    for i in range(n_sessions):
+        for kind, key in kinds:
+            towers = set(dict(unmerged[key][i]))
+            if towers != expected:
+                raise ValueError(
+                    f"subject {subject!r}: session {i + 1} of {n_sessions} has towers "
+                    f"{_tower_set_text(towers)}, expected {_tower_set_text(expected)} ({kind})"
+                )
+
+
+def _check_sessions_aligned(
+    subject: str, unmerged: dict[str, list], *, allow_missing_final_reward: bool
+) -> None:
+    """Raise unless every session has exactly one choice and one reward per trial.
 
     Sessions are merged by concatenating their lists, so a list that is too
     short or too long in one session moves every later session's entries onto
-    the wrong trials. Only the last session is exempt: nothing follows it, and
-    its final reward is never part of any history.
+    the wrong trials, and in the last session it silently changes which trials
+    are used. The one exception, with ``allow_missing_final_reward``: the last
+    session's reward list may lack the final trial, whose reward is never part
+    of any history.
     """
     n_trials = [len(trials) for trials in unmerged["trial"]]
+    if not n_trials:
+        return
+    _check_session_towers(subject, unmerged)
+    last = len(n_trials) - 1
     for kind, key in (("choices", "choices_by_tower"), ("rewards", "reward_magnitudes_by_tower")):
-        per_session = [dict(d) for d in unmerged[key]]
-        towers = sorted({tower for d in per_session for tower in d})
-        for i, (n, series_by_tower) in enumerate(zip(n_trials[:-1], per_session, strict=False)):
-            for tower in towers:
-                n_values = len(series_by_tower.get(tower) or [])
-                if n_values != n:
+        for i, (n, series_by_tower) in enumerate(zip(n_trials, unmerged[key], strict=True)):
+            shortest_ok = (
+                n - 1 if (kind == "rewards" and i == last and allow_missing_final_reward) else n
+            )
+            for tower, values in dict(series_by_tower).items():
+                if not shortest_ok <= len(values or []) <= n:
                     raise ValueError(
-                        f"subject {subject!r}: session {i + 1} of {len(n_trials)} has {n_values} "
-                        f"{kind} for tower {tower!r} but {n} trials; concatenating the sessions "
-                        "would misalign every later session"
+                        f"subject {subject!r}: session {i + 1} of {len(n_trials)} has "
+                        f"{len(values or [])} {kind} for tower {tower!r} but {n} trials; "
+                        "every session needs one entry per trial"
+                        + (
+                            " (the last session may lack the final reward)"
+                            if shortest_ok < n
+                            else ""
+                        )
                     )
 
 
-def _subjects(data: dict[str, Any]) -> list[_Subject]:
+def _subjects(data: dict[str, Any], *, allow_missing_final_reward: bool) -> list[_Subject]:
     """Merge every subject's sessions and keep the session lengths for history resets."""
     merged, unmerged = get_vars_across_all_sessions(data)
     for name, parts in unmerged.items():
-        _check_sessions_aligned(name, parts)
+        _check_sessions_aligned(name, parts, allow_missing_final_reward=allow_missing_final_reward)
     return [
         _Subject(name, merged[name], [len(trials) for trials in unmerged[name]["trial"]])
         for name in merged
@@ -364,12 +403,14 @@ def _build_design(
     n_lags: int,
     reset: bool,
     reset_beliefs: bool | None = None,
+    allow_missing_final_reward: bool,
 ) -> GlmDesign:
     """Apply ``design_fn`` to every subject and drop the redundant columns of all of them.
 
     The returned labels are those of the returned columns.
     """
-    per_subject = {s.name: design_fn(s) for s in _subjects(data)}
+    subjects = _subjects(data, allow_missing_final_reward=allow_missing_final_reward)
+    per_subject = {s.name: design_fn(s) for s in subjects}
     keep = (
         _keep_mask(full_labels, redundant_patterns=redundant_patterns)
         if drop_redundant_cols
@@ -377,7 +418,7 @@ def _build_design(
     )
     for name, (_, _, counts) in per_subject.items():
         if counts.n_dropped_nan:
-            logger.info(
+            logger.warning(
                 "subject %s: dropped %d of %d trials with a NaN response or regressor",
                 name,
                 counts.n_dropped_nan,
@@ -408,31 +449,21 @@ def _check_three_towers(subject: str, towers: Any) -> None:
         )
 
 
-def _check_choices_cover_trials(
-    subject: str, choices_by_tower: dict[str, list[int]], *, n_trials: int
-) -> None:
-    """Raise if a tower has fewer choices than there are trials."""
-    for tower, choices in choices_by_tower.items():
-        if len(choices) < n_trials:
-            raise ValueError(
-                f"subject {subject!r}: tower {tower!r} has {len(choices)} choices "
-                f"but there are {n_trials} trials"
-            )
-
-
-def _check_rewards_cover_history(subject: _Subject, *, n_lags: int, n_rewards: int) -> None:
-    """Raise if the last session lacks rewards that enter a lag.
-
-    Every trial but the last is part of some row's history, so with lags the
-    rewards must cover all trials but the last (one missing final reward is fine).
-    """
-    n_trials = sum(subject.session_lengths)
-    if n_lags >= 1 and n_rewards < n_trials - 1:
-        last = len(subject.session_lengths)
-        n_in_last = n_rewards - sum(subject.session_lengths[:-1])
+def _check_one_choice_per_trial(subject: _Subject) -> None:
+    """Raise, naming the session and its own trial number, at the first trial without one choice."""
+    choices_by_tower = subject.data["choices_by_tower"]
+    towers = list(choices_by_tower)
+    chosen = np.array([[v == 1 for v in choices_by_tower[t]] for t in towers])
+    bad = np.flatnonzero(chosen.sum(axis=0) != 1)
+    if bad.size:
+        first = int(bad[0])
+        starts = np.cumsum([0, *subject.session_lengths])
+        session = int(np.searchsorted(starts, first, side="right"))
+        picked = [t for t, row in zip(towers, chosen, strict=True) if row[first]]
         raise ValueError(
-            f"subject {subject.name!r}: session {last} of {last} has {n_in_last} rewards "
-            f"for {subject.session_lengths[-1]} trials; at most the final reward may be missing"
+            f"subject {subject.name!r}: session {session} of {len(subject.session_lengths)}, "
+            f"trial {first - starts[session - 1] + 1} (1-based): expected exactly one chosen "
+            f"tower, got {picked}"
         )
 
 
@@ -452,12 +483,10 @@ def _arm_design_for_subject(
     choices_by_tower = subject.data["choices_by_tower"]
     n_trials = len(subject.data["trial"])
     _check_three_towers(subject.name, choices_by_tower)
-    _check_choices_cover_trials(subject.name, choices_by_tower, n_trials=n_trials)
+    _check_one_choice_per_trial(subject)
     chosen_rewards = get_chosen_reward_per_trial(
         choices_by_tower, subject.data["reward_magnitudes_by_tower"]
     )
-
-    _check_rewards_cover_history(subject, n_lags=n_lags, n_rewards=len(chosen_rewards))
 
     choices_by_arm = remap_tower_dict_to_arms(choices_by_tower, make_arm_mapping(choices_by_tower))
     series = [choices_by_arm[f"Arm{a}"] for a in range(1, _N_ARMS + 1)]
@@ -496,6 +525,7 @@ def format_glm_input_with_info(
         drop_redundant_cols=drop_redundant_cols,
         n_lags=n_lags,
         reset=reset_history_per_session,
+        allow_missing_final_reward=True,
     )
 
 
@@ -532,7 +562,7 @@ def format_glm_input(
               dropped, and lags reaching before it are zero-filled.
 
     Rows with a NaN regressor (for example a NaN reward in the history) or a
-    NaN true choice are dropped in both settings; use
+    NaN true choice are dropped whatever ``reset_history_per_session`` is; use
     :func:`format_glm_input_with_info` to get the number of dropped rows and the
     settings used.
 
@@ -547,13 +577,11 @@ def format_glm_input(
           ``drop_redundant_cols=False``).
 
     Raises:
-        ValueError: For malformed subjects: a tower count other than three, a
-            trial without exactly one chosen tower, a choice series shorter
-            than ``trial``, or a session other than the last whose choice or
-            reward lists do not have one entry per trial (concatenation would
-            shift every later session), or a last session whose reward list is
-            more than one entry short (``n_lags >= 1``).
-        KeyError: If the choices lack a tower that has rewards.
+        ValueError: For malformed subjects: a tower count other than three,
+            sessions with different tower sets, a trial without exactly one
+            chosen tower (naming session and trial), or a choice or reward list
+            that does not have one entry per trial of its session. Only the
+            last session's reward list may lack its final entry.
         TypeError: If the reward of a chosen tower that enters a lag is missing
             (``None``) and ``n_lags >= 1``.
     """
@@ -583,6 +611,13 @@ def _ranks_from_magnitudes(magnitudes: dict[str, float]) -> dict[str, str]:
     }
 
 
+def _rank_or_none(magnitudes: dict[str, float]) -> dict[str, str] | None:
+    """:func:`_ranks_from_magnitudes`, or ``None`` if a magnitude is NaN (the order is unknown)."""
+    if any(m != m for m in magnitudes.values()):
+        return None
+    return _ranks_from_magnitudes(magnitudes)
+
+
 def _get_believed_rank_at_trial(
     choices: list,
     reward_magnitudes_list: list[dict],
@@ -601,7 +636,7 @@ def _get_believed_rank_at_trial(
 
     for choice, rm in zip(choices, reward_magnitudes_list, strict=True):
         if all(arm in last_seen for arm in rm):
-            result.append(_ranks_from_magnitudes(last_seen))
+            result.append(_rank_or_none(last_seen))
         else:
             result.append(None)
 
@@ -684,15 +719,12 @@ def _rank_design_for_subject(
     _check_three_towers(subject.name, choices_by_tower)
     towers = list(choices_by_tower)
 
-    n_trials = min(
-        min(len(choices_by_tower[t]) for t in towers),
-        min(len(reward_magnitudes_by_tower[t]) for t in towers),
-    )
+    n_trials = len(subject.data["trial"])
     positions = _positions_in_session(subject.session_lengths, n_trials)
     chosen = _chosen_tower_per_trial(choices_by_tower, towers, n_trials=n_trials)
     magnitudes = _reward_magnitudes_per_trial(reward_magnitudes_by_tower, towers, n_trials=n_trials)
     if not use_believed:
-        rank_at_trial = [_ranks_from_magnitudes(rm) for rm in magnitudes]
+        rank_at_trial = [_rank_or_none(rm) for rm in magnitudes]
     elif reset_beliefs:
         rank_at_trial = _believed_ranks_by_session(chosen, magnitudes, positions)
     else:
@@ -742,6 +774,7 @@ def format_glm_input_by_rank_with_info(
         n_lags=n_lags,
         reset=reset_history_per_session,
         reset_beliefs=reset_beliefs_per_session,
+        allow_missing_final_reward=False,
     )
 
 
@@ -810,13 +843,19 @@ def format_glm_input_by_rank(
 
                              All four combinations are valid. With both options
                              False the result equals concatenating the sessions
-                             and building one design.
+                             and building one design. ``False`` is meant for
+                             sessions of one problem (the same towers and
+                             magnitude schedule); the caller's grouping by
+                             problem must ensure this, because last-seen
+                             magnitudes of another problem are meaningless.
 
     Rows are kept only when the history and the row's own outcome (true choice)
     are known: a row with no single chosen tower, or with ``use_believed`` no
-    believed rank yet, is dropped in both settings, as is a row with a NaN in
-    any regressor. Use :func:`format_glm_input_by_rank_with_info` to get the
-    number of dropped rows and the settings used.
+    believed rank yet, is dropped whatever the two reset options are, as is a
+    row with a NaN in any regressor or a NaN magnitude that makes the ranking
+    of its trial (or of a trial in its history) unknown. Use
+    :func:`format_glm_input_by_rank_with_info` to get the number of dropped rows
+    and the settings used.
 
     Returns:
         A three-tuple ``(regressors, true_choices, col_labels)`` where:
@@ -827,9 +866,11 @@ def format_glm_input_by_rank(
         - *col_labels* is a list of strings describing each column.
 
     Raises:
-        ValueError: If a subject does not have exactly three towers, or a
-            session other than the last has choice or reward lists without one
-            entry per trial (concatenation would shift every later session).
+        ValueError: If a subject does not have exactly three towers, sessions
+            have different tower sets, or a choice or reward list does not have
+            one entry per trial of its session (unlike the arm design, the last
+            session's rewards must be complete: the own rank of each trial needs
+            every tower's magnitude).
         TypeError: If a magnitude that has to be sorted or multiplied into the
             history is missing (``None``).
     """

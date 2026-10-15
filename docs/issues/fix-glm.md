@@ -95,3 +95,25 @@ Second*Reward at t-1) and `y` (best, second, third).
 
 The sample data has one session, so `reset_beliefs_per_session` changes nothing
 there: rows and coefficients are as in the table above for every setting.
+
+## Review follow-ups
+
+- Sessions are validated up front for both designs: every session must have the
+  tower set of the first session (`session 2 of 2 has towers {'A', 'B'}, expected
+  {'A', 'B', 'C'}`), and each choice and reward list must have one entry per trial
+  of its session. The last session's reward list may lack its final entry in the
+  arm design only; the rank design needs every tower's magnitude on every trial.
+  Previously the rank design used the shortest list as its trial count and
+  dropped trials silently. `RowCounts.n_trials` is now always `len(trial)`.
+  This is stricter than main also for `n_lags=0`.
+- `reset_beliefs_per_session=False` carries last-seen magnitudes from one session
+  into the next. It is meant for the sessions of one problem. The function cannot
+  tell problems apart, so the caller's grouping (`load_trials_by_problem` yields
+  `{problem: {subject: sessions}}`) must pass one problem at a time.
+- A NaN magnitude makes the ranking of that trial unknown; the trial gets no rank
+  and its row (and rows using it as history) are dropped.
+- The arm design's "expected exactly one chosen tower" error names subject,
+  session and the session's own (1-based) trial.
+- NaN-row drops are logged at WARNING.
+- `scripts/to_integrate/testing_code.ipynb` passes `reset_history_per_session=True`
+  explicitly (cell sources only); `False` reproduces the old concatenated behaviour.

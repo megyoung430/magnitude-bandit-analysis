@@ -386,6 +386,13 @@ def test_format_glm_input_rejects_trial_without_single_choice():
         g.format_glm_input(data)
 
 
+def test_trial_without_single_choice_names_subject_session_and_local_trial():
+    data = two_scaled_sessions()
+    data["m"]["ses-3"]["choices_by_tower"]["A"][1] = 1  # chosen twice: B and A
+    with pytest.raises(ValueError, match=r"subject 'm': session 2 of 2, trial 2 .*exactly one"):
+        g.format_glm_input(data)
+
+
 # ---- format_glm_input: malformed input fails as it always has --------------
 
 
@@ -762,15 +769,120 @@ def test_reward_list_two_short_in_the_only_session_is_a_value_error():
     data = constant_subjects(["A", "B", "C", "A"])
     for rewards in data["m"]["ses-1"]["reward_magnitudes_by_tower"].values():
         del rewards[-2:]
-    with pytest.raises(ValueError, match=r"subject 'm'.*session 1 of 1 has 2 rewards for 4 trials"):
+    with pytest.raises(ValueError, match=r"subject 'm'.*session 1 of 1 has 2 rewards.*4 trials"):
         g.format_glm_input(data, n_lags=1)
-    x, _, _ = g.format_glm_input(data, n_lags=0)  # no history, no rewards read
-    assert x["m"].shape[0] == 4
 
 
 def test_reward_list_two_short_in_the_last_of_two_sessions_names_that_session():
     data = two_scaled_sessions()
     for rewards in data["m"]["ses-3"]["reward_magnitudes_by_tower"].values():
         del rewards[-2:]
-    with pytest.raises(ValueError, match=r"session 2 of 2 has 1 rewards for 3 trials"):
+    with pytest.raises(ValueError, match=r"session 2 of 2 has 1 rewards.*3 trials"):
         g.format_glm_input(data, n_lags=1)
+
+
+# ---- sessions that do not fit their trial list or each other ----------------
+
+BOTH_DESIGNS = ["format_glm_input", "format_glm_input_by_rank"]
+
+
+def shorten(data, session_key, field, by):
+    for series in data["m"][session_key][field].values():
+        del series[len(series) - by :]
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_last_session_reward_list_three_short_is_rejected(fmt):
+    data = two_scaled_sessions()
+    shorten(data, "ses-3", "reward_magnitudes_by_tower", 3)
+    with pytest.raises(ValueError, match=r"session 2 of 2 has 0 rewards.*3 trials"):
+        getattr(g, fmt)(data, n_lags=1)
+
+
+def test_rank_design_needs_every_reward_of_the_last_session():
+    # The own rank of the last trial is computed from all towers' magnitudes there.
+    data = two_scaled_sessions()
+    shorten(data, "ses-3", "reward_magnitudes_by_tower", 1)
+    with pytest.raises(ValueError, match=r"session 2 of 2 has 2 rewards.*3 trials"):
+        g.format_glm_input_by_rank(data, n_lags=1)
+    g.format_glm_input(data, n_lags=1)  # the arm design never reads the final reward
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_trial_list_shorter_than_the_choice_lists_is_rejected(fmt):
+    data = constant_subjects(["A", "B", "C", "A", "B", "C"])
+    data["m"]["ses-1"]["trial"] = [1, 2, 3]
+    with pytest.raises(ValueError, match=r"session 1 of 1 has 6 choices.*3 trials"):
+        getattr(g, fmt)(data, n_lags=1)
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_last_session_with_fewer_towers_is_rejected_naming_both_sets(fmt):
+    data = two_scaled_sessions()
+    for field in ("choices_by_tower", "reward_magnitudes_by_tower"):
+        del data["m"]["ses-3"][field]["C"]
+    with pytest.raises(
+        ValueError,
+        match=r"subject 'm': session 2 of 2 has towers \{'A', 'B'\}, expected \{'A', 'B', 'C'\}",
+    ):
+        getattr(g, fmt)(data, n_lags=1)
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_first_session_with_fewer_towers_is_rejected(fmt):
+    data = two_scaled_sessions()
+    for field in ("choices_by_tower", "reward_magnitudes_by_tower"):
+        del data["m"]["ses-2"][field]["C"]
+    with pytest.raises(ValueError, match=r"session 2 of 2 has towers"):
+        getattr(g, fmt)(data, n_lags=1)
+
+
+def test_reward_towers_that_differ_from_the_choice_towers_are_rejected():
+    data = two_scaled_sessions()
+    del data["m"]["ses-3"]["reward_magnitudes_by_tower"]["C"]
+    with pytest.raises(ValueError, match=r"session 2 of 2 has towers .*reward"):
+        g.format_glm_input(data, n_lags=1)
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_row_counts_account_for_every_trial_of_the_trial_list(fmt):
+    design = getattr(g, f"{fmt}_with_info")(two_session_subject(), n_lags=1)
+    counts = design.row_counts["m"]
+    assert counts.n_trials == 6
+    assert counts.n_trials == counts.n_dropped_no_history + counts.n_dropped_nan + counts.n_rows
+
+
+def test_by_rank_nan_magnitude_on_an_unchosen_tower_drops_the_row():
+    # Without a magnitude the ranking of that trial is unknown, so it has no rank.
+    rewards = [{"A": 3.0, "B": 2.0, "C": 1.0}] * 6
+    kwargs = {"n_lags": 1, "reset_history_per_session": False}
+    clean = g.format_glm_input_by_rank_with_info(subjects(list("ABCABC"), rewards), **kwargs)
+    data = subjects(list("ABCABC"), rewards)
+    data["m"]["ses-1"]["reward_magnitudes_by_tower"]["C"][4] = NAN  # trial 5 chose B
+    design = g.format_glm_input_by_rank_with_info(data, **kwargs)
+    assert not np.isnan(design.regressors["m"]).any()
+    assert not np.isnan(design.true_choices["m"]).any()
+    # The row of trial 5 has no rank, and the row after it uses trial 5 as history.
+    assert clean.row_counts["m"].n_rows == 5 and design.row_counts["m"].n_rows == 3
+
+
+def test_by_rank_nan_magnitude_of_a_chosen_tower_leaves_no_believed_rank():
+    rewards = [{"A": 3.0, "B": 2.0, "C": 1.0}] * 8
+    data = subjects(list("ABCABCAB"), rewards)
+    data["m"]["ses-1"]["reward_magnitudes_by_tower"]["C"][2] = NAN  # trial 3 chose C
+    design = g.format_glm_input_by_rank_with_info(
+        data, use_believed=True, n_lags=0, reset_history_per_session=False
+    )
+    # C's last-seen magnitude is NaN from trial 3 until C is chosen again at trial 6,
+    # so beliefs are only usable from trial 7 on.
+    assert design.regressors["m"].shape[0] == 2
+    assert not np.isnan(design.true_choices["m"]).any()
+
+
+def test_nan_row_drops_are_logged_as_warnings(caplog):
+    data = constant_subjects(["A", "B", "C", "A", "B"])
+    data["m"]["ses-1"]["reward_magnitudes_by_tower"]["B"][1] = NAN
+    with caplog.at_level("INFO", logger=g.logger.name):
+        g.format_glm_input(data, n_lags=1)
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert "subject m: dropped 1 of 5" in caplog.records[0].getMessage()
