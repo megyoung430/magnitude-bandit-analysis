@@ -165,7 +165,7 @@ def import_data(root: str | Path) -> dict:
                   "problem": int | None,                # 1-based per subject; None if flagged
                   "problem_flag": str | None,           # "suspected_settings_error" or None
                   "problem_provisional": bool,          # final one-session run: may change
-                  "settings_evidence": dict,          # facts the flag rule used
+                  "settings_evidence": dict,            # facts the flag rule used
                   "task_name": str | None,              # the file header's task_name row
                   "choice_towers": set,
                   "initiation_tower": str | None,
@@ -189,9 +189,8 @@ def import_data(root: str | Path) -> dict:
     carry no problem, and ``extract_trials.group_sessions_by_problem`` (same function, layouts
     read from the trial data) renumbers all sessions, skipping those without trial
     information, writes ``"problem"`` / ``"problem_flag"`` / ``"problem_provisional"`` back
-    onto every session and
-    segment, and warns about flags that are new to it.  So for sessions that are split
-    or lack trials, its numbers are the ones to use.
+    onto every session and segment, and warns about flags that are new to it.  So for
+    sessions that are split or lack trials, its numbers are the ones to use.
     """
     root = Path(root).resolve()
 

@@ -424,7 +424,9 @@ def audit_session(**changes):
     ],
 )
 def test_audit_reports_why_a_session_is_rejected(changes, reason):
-    sequences, audit = prepare_cohort_sequences({5: {"m": {"ses-1": audit_session(**changes)}}}, [5])
+    sequences, audit = prepare_cohort_sequences(
+        {5: {"m": {"ses-1": audit_session(**changes)}}}, [5]
+    )
     assert sequences == []
     row = audit.iloc[0]
     assert not row.included and row.reason.startswith(reason[:40])

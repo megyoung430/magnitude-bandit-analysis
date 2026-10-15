@@ -42,7 +42,7 @@ def problem_to_int(k: Any) -> int | None:
 # Trial / session structure helpers
 # ---------------------------------------------------------------------------
 
-def flatten_trials(subject_trials: Any, *, subject: str = "(unnamed subject)") -> list:
+def flatten_trials(subject_trials: Any, *, subject: str) -> list:
     """Flatten trial data into a single list regardless of its structure.
 
     Sessions of a dict are concatenated in date-then-number order.
