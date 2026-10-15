@@ -134,8 +134,12 @@ class GlmDesign:
         col_labels: One label per column of every regressor matrix.
         row_counts: ``{subject: RowCounts}``.
         n_lags: Number of history lags.
-        reset_history_per_session: Whether lags (and, for the rank design,
-            believed ranks) were restricted to the trial's own session.
+        reset_history_per_session: Whether lags were restricted to the trial's
+            own session.
+        reset_beliefs_per_session: Rank design only (``None`` for the arm
+            design, which has no beliefs): whether the believed ranks
+            (last-seen magnitudes) started empty in every session. Only
+            affects the result with ``use_believed=True``.
     """
 
     regressors: dict[str, np.ndarray]
@@ -144,6 +148,7 @@ class GlmDesign:
     row_counts: dict[str, RowCounts]
     n_lags: int
     reset_history_per_session: bool
+    reset_beliefs_per_session: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,7 @@ def _build_design(
     drop_redundant_cols: bool,
     n_lags: int,
     reset: bool,
+    reset_beliefs: bool | None = None,
 ) -> GlmDesign:
     """Apply ``design_fn`` to every subject and drop the redundant columns of all of them.
 
@@ -384,6 +390,7 @@ def _build_design(
         row_counts={name: counts for name, (_, _, counts) in per_subject.items()},
         n_lags=n_lags,
         reset_history_per_session=reset,
+        reset_beliefs_per_session=reset_beliefs,
     )
 
 
@@ -413,6 +420,22 @@ def _check_choices_cover_trials(
             )
 
 
+def _check_rewards_cover_history(subject: _Subject, *, n_lags: int, n_rewards: int) -> None:
+    """Raise if the last session lacks rewards that enter a lag.
+
+    Every trial but the last is part of some row's history, so with lags the
+    rewards must cover all trials but the last (one missing final reward is fine).
+    """
+    n_trials = sum(subject.session_lengths)
+    if n_lags >= 1 and n_rewards < n_trials - 1:
+        last = len(subject.session_lengths)
+        n_in_last = n_rewards - sum(subject.session_lengths[:-1])
+        raise ValueError(
+            f"subject {subject.name!r}: session {last} of {last} has {n_in_last} rewards "
+            f"for {subject.session_lengths[-1]} trials; at most the final reward may be missing"
+        )
+
+
 def _choice_rows(series: list[list[int]], *, n_trials: int) -> list[list[int]]:
     """The first ``n_trials`` choices of every arm series, one row per trial."""
     return [[s[t] for s in series] for t in range(n_trials)]
@@ -433,6 +456,8 @@ def _arm_design_for_subject(
     chosen_rewards = get_chosen_reward_per_trial(
         choices_by_tower, subject.data["reward_magnitudes_by_tower"]
     )
+
+    _check_rewards_cover_history(subject, n_lags=n_lags, n_rewards=len(chosen_rewards))
 
     choices_by_arm = remap_tower_dict_to_arms(choices_by_tower, make_arm_mapping(choices_by_tower))
     series = [choices_by_arm[f"Arm{a}"] for a in range(1, _N_ARMS + 1)]
@@ -526,7 +551,8 @@ def format_glm_input(
             trial without exactly one chosen tower, a choice series shorter
             than ``trial``, or a session other than the last whose choice or
             reward lists do not have one entry per trial (concatenation would
-            shift every later session).
+            shift every later session), or a last session whose reward list is
+            more than one entry short (``n_lags >= 1``).
         KeyError: If the choices lack a tower that has rewards.
         TypeError: If the reward of a chosen tower that enters a lag is missing
             (``None``) and ``n_lags >= 1``.
@@ -646,7 +672,7 @@ def _chose_rank_indicators(
 
 
 def _rank_design_for_subject(
-    subject: _Subject, *, use_believed: bool, n_lags: int, reset: bool
+    subject: _Subject, *, use_believed: bool, n_lags: int, reset: bool, reset_beliefs: bool
 ) -> tuple[np.ndarray, np.ndarray, RowCounts]:
     """Full-width regressors and rank-ordered true choices of the usable trials of one subject.
 
@@ -655,6 +681,7 @@ def _rank_design_for_subject(
     """
     choices_by_tower = subject.data["choices_by_tower"]
     reward_magnitudes_by_tower = subject.data["reward_magnitudes_by_tower"]
+    _check_three_towers(subject.name, choices_by_tower)
     towers = list(choices_by_tower)
 
     n_trials = min(
@@ -666,7 +693,7 @@ def _rank_design_for_subject(
     magnitudes = _reward_magnitudes_per_trial(reward_magnitudes_by_tower, towers, n_trials=n_trials)
     if not use_believed:
         rank_at_trial = [_ranks_from_magnitudes(rm) for rm in magnitudes]
-    elif reset:
+    elif reset_beliefs:
         rank_at_trial = _believed_ranks_by_session(chosen, magnitudes, positions)
     else:
         rank_at_trial = _get_believed_rank_at_trial(chosen, magnitudes)
@@ -691,12 +718,14 @@ def format_glm_input_by_rank_with_info(
     drop_redundant_cols: bool = True,
     *,
     reset_history_per_session: bool = True,
+    reset_beliefs_per_session: bool = True,
 ) -> GlmDesign:
     """Build rank-ordered GLM design matrices and report how they were built.
 
     Same as :func:`format_glm_input_by_rank`, but returns a :class:`GlmDesign`
-    that also records ``n_lags``, ``reset_history_per_session`` and, per
-    subject, how many trials were dropped and why (:class:`RowCounts`).
+    that also records ``n_lags``, ``reset_history_per_session``,
+    ``reset_beliefs_per_session`` and, per subject, how many trials were dropped
+    and why (:class:`RowCounts`).
     """
     return _build_design(
         data,
@@ -705,12 +734,14 @@ def format_glm_input_by_rank_with_info(
             use_believed=use_believed,
             n_lags=n_lags,
             reset=reset_history_per_session,
+            reset_beliefs=reset_beliefs_per_session,
         ),
         full_labels=_rank_labels(n_lags),
         redundant_patterns=_RANK_REDUNDANT,
         drop_redundant_cols=drop_redundant_cols,
         n_lags=n_lags,
         reset=reset_history_per_session,
+        reset_beliefs=reset_beliefs_per_session,
     )
 
 
@@ -721,6 +752,7 @@ def format_glm_input_by_rank(
     drop_redundant_cols: bool = True,
     *,
     reset_history_per_session: bool = True,
+    reset_beliefs_per_session: bool = True,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]:
     """Build rank-ordered GLM design matrices for all subjects.
 
@@ -753,18 +785,32 @@ def format_glm_input_by_rank(
         n_lags:              Number of history lags (default 4).
         drop_redundant_cols: Drop "Chose Third" and "Third*Reward" columns
                              (default True).
-        reset_history_per_session: How history treats session boundaries
+        reset_history_per_session: How lags treat session boundaries
                              (keyword-only, default True).
 
-                             - True: a lag never crosses a session boundary,
-                               and with ``use_believed`` the believed ranks
-                               (last-seen magnitudes) start empty in every
-                               session. The first ``n_lags`` trials of every
-                               session are dropped (with ``n_lags=0`` none).
-                             - False: sessions are concatenated; lags and
-                               believed ranks run across session boundaries,
-                               and the first ``max(n_lags, 1)`` trials of the
-                               merged data are dropped.
+                             - True: a lag never crosses a session boundary.
+                               The first ``n_lags`` trials of every session are
+                               dropped (with ``n_lags=0`` none).
+                             - False: sessions are concatenated and lags run
+                               across their boundaries; the first
+                               ``max(n_lags, 1)`` trials of the merged data
+                               are dropped.
+        reset_beliefs_per_session: Independent of the history option, and only
+                             relevant with ``use_believed=True`` (keyword-only,
+                             default True).
+
+                             - True: the believed ranks (last-seen magnitudes)
+                               start empty in every session, so a session's
+                               first trials have no believed rank until every
+                               arm was visited in that session.
+                             - False: the last-seen magnitudes carry over from
+                               the previous session, so a session's first
+                               trials are ranked by the previous session's
+                               last-seen magnitudes.
+
+                             All four combinations are valid. With both options
+                             False the result equals concatenating the sessions
+                             and building one design.
 
     Rows are kept only when the history and the row's own outcome (true choice)
     are known: a row with no single chosen tower, or with ``use_believed`` no
@@ -781,9 +827,9 @@ def format_glm_input_by_rank(
         - *col_labels* is a list of strings describing each column.
 
     Raises:
-        ValueError: If a session other than the last has choice or reward lists
-            without one entry per trial (concatenation would shift every later
-            session), or if a subject has no towers.
+        ValueError: If a subject does not have exactly three towers, or a
+            session other than the last has choice or reward lists without one
+            entry per trial (concatenation would shift every later session).
         TypeError: If a magnitude that has to be sorted or multiplied into the
             history is missing (``None``).
     """
@@ -793,5 +839,6 @@ def format_glm_input_by_rank(
         n_lags,
         drop_redundant_cols,
         reset_history_per_session=reset_history_per_session,
+        reset_beliefs_per_session=reset_beliefs_per_session,
     )
     return design.regressors, design.true_choices, design.col_labels

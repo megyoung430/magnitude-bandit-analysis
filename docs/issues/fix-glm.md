@@ -17,14 +17,21 @@ errors.
 
 1. Both public functions take a keyword-only `reset_history_per_session: bool = True`.
    - `True`: lags never cross a session boundary; the first `n_lags` trials of
-     each session are dropped (for the rank design with `use_believed`, the
-     believed ranks also start empty in every session).
+     each session are dropped.
    - `False`: sessions are concatenated as before; output identical to main
      apart from criteria 2-5.
    - The value is recorded in the returned `GlmDesign` (new
      `format_glm_input_with_info` / `format_glm_input_by_rank_with_info`; the
      existing functions keep returning their 3-tuple). Both settings are tested,
      including the boundary rows.
+   - The rank design also takes a keyword-only `reset_beliefs_per_session: bool = True`,
+     independent of the history option (relevant with `use_believed=True`).
+     `True`: believed ranks (last-seen magnitudes) start empty in every session.
+     `False`: ses-2's first trials use ses-1's last-seen magnitudes. All four
+     combinations are tested, boundary rows included. With both options `False`
+     the result equals one concatenated session (and main). Recorded in
+     `GlmDesign.reset_beliefs_per_session` (`None` for the arm design, which has
+     no beliefs and so no such option).
 2. Rows with a NaN response or a NaN in any regressor are dropped in both
    settings, and counted per subject (`RowCounts`).
 3. The returned labels always equal the returned columns (asserted for both
@@ -33,7 +40,8 @@ errors.
    but the last raises a `ValueError` naming subject and session (otherwise
    concatenation shifts the later sessions).
 5. Clear `ValueError`s (with the subject) for: a tower count other than three
-   in `format_glm_input`; a choice series shorter than `trial`.
+   (both designs); a choice series shorter than `trial`; a last-session reward
+   list more than one entry short when `n_lags >= 1` (names the session).
 
 ## Results change
 
@@ -70,3 +78,20 @@ Synthetic two sessions (ses-1 A,B,C,A,B; ses-2 C,A,B,C,A; constant magnitudes
 1, 2, 3; `n_lags=1`): reset=False keeps 9 of 10 trials (1 dropped), reset=True
 keeps 8 (the first trial of each session dropped). The extra reset=False row is
 ses-2's first trial, which sees ses-1's last trial (chose B, reward 2) as history.
+
+## Believed ranks: all four combinations on a synthetic example
+
+`use_believed=True`, `n_lags=1`. ses-1 chooses A,B,C,A,B with magnitudes
+A=3, B=2, C=1 (beliefs exist from its fourth trial); ses-2 chooses C,A,B with
+A=1, B=2, C=3. Rows are `x` (Bias, Chose Best, Chose Second, Reward, Best*Reward,
+Second*Reward at t-1) and `y` (best, second, third).
+
+| reset_history | reset_beliefs | rows | which |
+|---|---|---|---|
+| False | False | 4 | ses-1 trial 5; ses-2 trials 1-3. Trial 1 (C) is believed third from ses-1's last-seen magnitudes (y = 0,0,1) although it pays best in ses-2. Equals main. |
+| True | False | 3 | as above without ses-2's first trial (no in-session history); beliefs still carry, so ses-2 trials 2-3 are ranked |
+| False | True | 1 | ses-1 trial 5 only: ses-2 never visits all arms within its 3 trials, so it has no belief |
+| True | True | 1 | the same single row |
+
+The sample data has one session, so `reset_beliefs_per_session` changes nothing
+there: rows and coefficients are as in the table above for every setting.

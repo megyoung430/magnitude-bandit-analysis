@@ -580,7 +580,11 @@ def test_by_rank_without_reset_lags_and_beliefs_cross_session_boundaries():
     # Trial 4 (first of ses-10) has the last trial of ses-2 as history, and believed
     # ranks carry over: with beliefs from ses-2, ses-10 has a believed rank from its
     # first trial.
-    kwargs = {"n_lags": 1, "reset_history_per_session": False}
+    kwargs = {
+        "n_lags": 1,
+        "reset_history_per_session": False,
+        "reset_beliefs_per_session": False,
+    }
     x, y, _ = g.format_glm_input_by_rank(two_session_subject(), **kwargs)
     assert x["m"].shape[0] == 5
     np.testing.assert_array_equal(x["m"][2], [1, 1, 0, 3.0, 3.0, 0])  # C is best
@@ -610,7 +614,11 @@ def test_by_rank_reset_keeps_beliefs_within_a_session():
     x, _, _ = g.format_glm_input_by_rank(data, use_believed=True, n_lags=1)
     assert x["m"].shape[0] == 2
     x, _, _ = g.format_glm_input_by_rank(
-        data, use_believed=True, n_lags=1, reset_history_per_session=False
+        data,
+        use_believed=True,
+        n_lags=1,
+        reset_history_per_session=False,
+        reset_beliefs_per_session=False,
     )
     assert x["m"].shape[0] == 6  # beliefs and history run on through trials 5..10
 
@@ -651,3 +659,118 @@ def test_by_rank_missing_reward_on_any_tower_fails_when_ranking_true_magnitudes(
     data["m"]["ses-1"]["reward_magnitudes_by_tower"]["C"][0] = None
     with pytest.raises(TypeError, match=r"bad operand type for unary -: 'NoneType'"):
         g.format_glm_input_by_rank(data, n_lags=1)
+
+
+# ---- history and belief resets are independent -----------------------------
+
+
+def belief_sessions():
+    """ses-1 (A,B,C,A,B) has beliefs from its fourth trial; ses-2 (C,A,B) pays other magnitudes.
+
+    Merged trials 1..5 are ses-1, trials 6..8 ses-2. With beliefs carried over, ses-2's
+    first trial is ranked by ses-1's last-seen magnitudes (A=3, B=2, C=1), so the C it
+    chooses is believed worst although it pays the best magnitude (3) in ses-2.
+    """
+    return {
+        "m": {
+            "ses-1": session(list("ABCAB"), [{"A": 3.0, "B": 2.0, "C": 1.0}] * 5),
+            "ses-2": session(list("CAB"), [{"A": 1.0, "B": 2.0, "C": 3.0}] * 3),
+        }
+    }
+
+
+# (reset_history, reset_beliefs) -> rows as (merged trial, regressors, true choice).
+BELIEF_ROWS = {
+    # Every later trial has a believed rank at t and t-1, the session boundary included.
+    (False, False): [
+        (5, [1, 1, 0, 3.0, 3.0, 0], [0, 1, 0]),
+        (6, [1, 0, 1, 2.0, 0, 2.0], [0, 0, 1]),  # ses-2's first trial: C believed third
+        (7, [1, 0, 0, 3.0, 0, 0], [1, 0, 0]),
+        (8, [1, 1, 0, 1.0, 1.0, 0], [0, 1, 0]),
+    ],
+    # The boundary row is dropped for lack of in-session history; beliefs still carry.
+    (True, False): [
+        (5, [1, 1, 0, 3.0, 3.0, 0], [0, 1, 0]),
+        (7, [1, 0, 0, 3.0, 0, 0], [1, 0, 0]),
+        (8, [1, 1, 0, 1.0, 1.0, 0], [0, 1, 0]),
+    ],
+    # ses-2 forms no belief within its 3 trials, so only ses-1's row remains.
+    (False, True): [(5, [1, 1, 0, 3.0, 3.0, 0], [0, 1, 0])],
+    (True, True): [(5, [1, 1, 0, 3.0, 3.0, 0], [0, 1, 0])],
+}
+
+
+@pytest.mark.parametrize(("reset_history", "reset_beliefs"), list(BELIEF_ROWS))
+def test_by_rank_history_and_belief_resets_combine_independently(reset_history, reset_beliefs):
+    design = g.format_glm_input_by_rank_with_info(
+        belief_sessions(),
+        use_believed=True,
+        n_lags=1,
+        reset_history_per_session=reset_history,
+        reset_beliefs_per_session=reset_beliefs,
+    )
+    expected = BELIEF_ROWS[(reset_history, reset_beliefs)]
+    np.testing.assert_array_equal(design.regressors["m"], [x for _, x, _ in expected])
+    np.testing.assert_array_equal(design.true_choices["m"], [y for _, _, y in expected])
+    assert design.reset_history_per_session is reset_history
+    assert design.reset_beliefs_per_session is reset_beliefs
+    assert design.row_counts["m"].n_rows == len(expected)
+
+
+def test_by_rank_both_resets_false_equal_one_concatenated_session():
+    two = belief_sessions()
+    merged_session = session(list("ABCABCAB"), [{"A": 3.0, "B": 2.0, "C": 1.0}] * 5 + [
+        {"A": 1.0, "B": 2.0, "C": 3.0}
+    ] * 3)  # fmt: skip
+    kwargs = {"use_believed": True, "n_lags": 1}
+    x, y, _ = g.format_glm_input_by_rank(
+        two, reset_history_per_session=False, reset_beliefs_per_session=False, **kwargs
+    )
+    x_one, y_one, _ = g.format_glm_input_by_rank(
+        {"m": {"ses-1": merged_session}}, reset_history_per_session=False, **kwargs
+    )
+    np.testing.assert_array_equal(x["m"], x_one["m"])
+    np.testing.assert_array_equal(y["m"], y_one["m"])
+
+
+def test_beliefs_reset_is_the_default_and_is_ignored_without_believed_ranks():
+    default = g.format_glm_input_by_rank_with_info(belief_sessions(), use_believed=True, n_lags=1)
+    assert default.reset_beliefs_per_session is True
+    a = g.format_glm_input_by_rank(belief_sessions(), n_lags=1, reset_beliefs_per_session=True)
+    b = g.format_glm_input_by_rank(belief_sessions(), n_lags=1, reset_beliefs_per_session=False)
+    np.testing.assert_array_equal(a[0]["m"], b[0]["m"])
+
+
+def test_arm_design_has_no_belief_option_to_record():
+    assert (
+        g.format_glm_input_with_info(belief_sessions(), n_lags=1).reset_beliefs_per_session is None
+    )
+
+
+# ---- errors added with the belief option -------------------------------------
+
+
+@pytest.mark.parametrize("by_rank", [False, True])
+def test_other_than_three_towers_are_rejected_by_both_designs(by_rank):
+    fmt = g.format_glm_input_by_rank if by_rank else g.format_glm_input
+    for towers in ({**CONST, "D": 4.0}, {"A": 1.0, "B": 2.0}):
+        with pytest.raises(ValueError, match=r"exactly 3 towers.*subject 'm'"):
+            fmt(constant_subjects(["A", "B", "A"], towers))
+
+
+def test_reward_list_two_short_in_the_only_session_is_a_value_error():
+    data = constant_subjects(["A", "B", "C", "A"])
+    for rewards in data["m"]["ses-1"]["reward_magnitudes_by_tower"].values():
+        del rewards[-2:]
+    with pytest.raises(ValueError, match=r"subject 'm'.*session 1 of 1 has 2 rewards for 4 trials"):
+        g.format_glm_input(data, n_lags=1)
+    x, _, _ = g.format_glm_input(data, n_lags=0)  # no history, no rewards read
+    assert x["m"].shape[0] == 4
+
+
+def test_reward_list_two_short_in_the_last_of_two_sessions_names_that_session():
+    data = two_scaled_sessions()
+    for rewards in data["m"]["ses-3"]["reward_magnitudes_by_tower"].values():
+        del rewards[-2:]
+    with pytest.raises(ValueError, match=r"session 2 of 2 has 1 rewards for 3 trials"):
+        g.format_glm_input(data, n_lags=1)
