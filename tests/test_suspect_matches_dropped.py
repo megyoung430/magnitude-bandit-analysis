@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 
 from src.behavior_analysis.best_change import is_suspect, is_uncheckable
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
 from src.behavior_analysis.cumulative_reversal_removal import total_removal_curves
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
 from src.behavior_analysis.get_total_reversals import (
     get_reversal_indices_by_kind,
     get_total_reversals,
