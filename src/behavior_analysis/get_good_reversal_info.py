@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.reversal_format import check_formats_agree
 from src.behavior_import.session_order import ordered_session_keys
 
 
@@ -391,27 +392,40 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     Boundary detection priority (first match wins):
       1. ``good_reversals`` increment — used when the subject has at least one
          session with ``has_good == True`` and a valid ``good_reversals`` array.
-         Sessions of that subject without the counter contribute no reversals.
       2. ``num_blocks`` increment.
       3. ``blocks`` value-change.
     Steps 2 and 3 treat every block change as good, which only holds for
-    sessions from before the counters existed. A bad-only session (``has_bad``
-    set, no ``has_good``) has no recorded good reversals: its block changes are
-    given no record (a ``ReversalWarning`` names the subject and session), but
-    they still end the post-window of the reversal before them. Legacy sessions
-    of the same subject keep their block changes.
+    sessions from before the counters existed (blocks-only sessions). A subject
+    that mixes sessions with the good counter and blocks-only sessions raises
+    ``ValueError`` naming the subject and the sessions of each kind
+    (:func:`src.behavior_analysis.reversal_format.check_formats_agree`): the good
+    counter would lose the blocks-only sessions' block changes. A bad-only
+    session (``has_bad`` set, no ``has_good``) has no recorded good reversals:
+    its block changes are given no record (a ``ReversalWarning`` names the
+    subject and session), but they still end the post-window of the reversal
+    before them. Blocks-only sessions of the same subject keep their block
+    changes.
 
     A good reversal should change the best-rewarding tower. A reversal where it
     does not (including a tie for best) is a suspected data or detection bug and
     is left out of the result, so every analysis downstream sees only valid
     reversals. One ``ReversalWarning`` per call lists the dropped reversals
-    (subject, session, session-local trial, recording run) and their count. A
-    dropped reversal is still a real block change, so it keeps ending the
-    post-window of its neighbour, like a reversal skipped by the zero-reward gate.
+    (subject, session, session-local trial, recording run) and their count.
+    **A dropped reversal still ends the window of its neighbour and still counts
+    as a removal** (:mod:`src.behavior_analysis.cumulative_reversal_removal`): it
+    is a real block change in the data, so it only has no record of its own, as
+    for a reversal skipped by the zero-reward gate.
     The first-block record is never dropped for this reason: it is not a reversal.
     A reversal with a missing reward magnitude on either side (an unlogged trial,
     a tower with no magnitude, or arrays that end before the trial) is dropped the
     same way, with the reason "missing magnitude".
+    :mod:`src.behavior_analysis.suspect_reversals` counts the same reversals with
+    the same rule: of the reversals dropped inside a recording run, the ones with
+    reason "tie for best" or "best tower unchanged" are its *suspect* count and
+    "missing magnitude" its *uncheckable* count. Reversals logged while nothing
+    was recording (between runs, after a run's last trial) are uncheckable in both:
+    they are never dropped for an unchanged best tower, only for a missing
+    magnitude.
 
     Counters (good/bad reversals, block number) are assumed to restart at each
     session, as the rig's do; the merge across sessions offsets them accordingly.
@@ -466,6 +480,8 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
           [...]}`` one-hot choice slices.
     """
+    for subj, subject_sessions in data.items():
+        check_formats_agree(subj, subject_sessions)
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
     result, dropped, bad_only = {}, [], []
     for subj, d in merged_subject_data_across_all_sessions.items():

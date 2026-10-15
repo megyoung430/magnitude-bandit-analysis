@@ -5,6 +5,7 @@ retrieve all reversal indices, and identify trials where cumulative reversal
 counters increment.
 """
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.reversal_format import check_formats_agree
 from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
 from src.behavior_import.session_order import ordered_session_keys
 
@@ -123,9 +124,13 @@ def get_unclassified_reversal_indices(subjects_trials):
     Raises:
         ValueError: If a session's ``blocks`` and ``trial`` differ in length
             (missing counts as empty); the merged block axis would no longer
-            line up with the merged trial axis.
+            line up with the merged trial axis. Also if a subject mixes
+            good-counter and blocks-only sessions
+            (:func:`src.behavior_analysis.reversal_format.check_formats_agree`), which keeps
+            the unclassified indices disjoint from the good ones.
     """
     for subject, sessions in subjects_trials.items():
+        check_formats_agree(subject, sessions)
         for key, sess in sessions.items():
             n_trials, n_blocks = len(sess.get("trial", [])), len(sess.get("blocks", []))
             if n_trials != n_blocks:
