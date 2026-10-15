@@ -86,44 +86,68 @@ def test_good_bad_removal_curves_include_anchor_when_not_excluded():
     assert cum_bad[X >= 0].sum() == 0
 
 
-def test_good_bad_removal_curves_subject_missing_from_index_dicts_has_no_removal():
+@pytest.mark.parametrize(
+    ("good", "bad"),
+    [
+        ({"A": [12]}, {"A": [], "B": []}),  # B missing from good_idx
+        ({"A": [12], "B": []}, {"A": []}),  # B missing from bad_idx
+    ],
+)
+def test_removal_curves_name_a_subject_missing_from_the_index_dicts(good, bad):
     wins = windows(A=[10], B=[5])
-    _, _, frac_good, frac_bad = good_bad_removal_curves(wins, {"A": [12]}, {}, X)
-    post = X >= 0
-    assert frac_good[post][-1] == pytest.approx(0.5)  # only A's anchor (of 2) is cut
-    assert frac_bad[post].sum() == 0
+    with pytest.raises(KeyError, match="'B'"):
+        good_bad_removal_curves(wins, good, bad, X)
+    with pytest.raises(KeyError, match="'B'"):
+        total_removal_curves(wins, X, good_idx=good, bad_idx=bad)
 
 
 def test_removal_curves_skip_anchors_without_reversal_idx():
     wins = {"A": [{"reversal_idx": 4}, {"reversal_idx": None}, {}]}
-    _, frac = total_removal_curves(wins, X)
-    assert np.nanmax(frac) == 0.0  # one anchor (denominator 1) and no later reversal
+    _, frac = total_removal_curves(wins, X, good_idx={"A": [4]}, bad_idx={"A": []})
+    assert np.nanmax(frac) == 0.0  # one anchor and no later reversal
 
 
 def test_removal_curves_without_post_window_are_all_nan():
     x = np.arange(-5, 0)
     for curve in good_bad_removal_curves(windows(A=[1]), {"A": [1]}, {"A": []}, x):
         assert np.isnan(curve).all() and curve.shape == x.shape
-    for curve in total_removal_curves(windows(A=[1]), x):
+    for curve in total_removal_curves(windows(A=[1]), x, good_idx={"A": [1]}, bad_idx={"A": []}):
         assert np.isnan(curve).all()
 
 
-def test_total_removal_curves_hand_computed():
+def test_total_removal_curves_hand_computed_counts_good_and_bad_reversals():
     wins = windows(A=[10, 20, 35], B=[3, 4])
-    cum, frac = total_removal_curves(wins, X)
-    # A: 10->20 (+10), 20->35 (+15), 35 none; B: 3->4 (+1), 4 none
-    expected = np.array([0] + [1] * 9 + [2] * 5 + [3] * 5, dtype=float)
+    good = {"A": [10, 20, 35], "B": [3, 4]}
+    bad = {"A": [15, 50], "B": [9]}
+    cum, frac = total_removal_curves(wins, X, good_idx=good, bad_idx=bad)
+    # A: 10->15 bad (+5), 20->35 (+15), 35->50 (+15); B: 3->4 (+1), 4->9 bad (+5)
+    expected = np.array([0] + [1] * 4 + [3] * 10 + [5] * 5, dtype=float)
     assert cum[X >= 0].tolist() == expected.tolist()
     np.testing.assert_allclose(frac[X >= 0], expected / 5)
 
 
-def test_total_equals_good_plus_bad_when_windows_list_every_reversal():
-    wins = windows(A=[3, 9, 14, 30], B=[2, 6])
-    good = {"A": [3, 14], "B": [2]}
-    bad = {"A": [9, 30], "B": [6]}
-    cum_good, cum_bad, _, _ = good_bad_removal_curves(wins, good, bad, X)
-    cum_total, _ = total_removal_curves(wins, X)
-    np.testing.assert_array_equal(np.nan_to_num(cum_good + cum_bad), np.nan_to_num(cum_total))
+def test_total_equals_good_plus_bad_at_every_offset_on_a_synthetic_mix():
+    rng = np.random.default_rng(11)
+    for _ in range(25):
+        every = {s: rng.choice(300, 12, replace=False) for s in "AB"}
+        is_good = {s: rng.random(12) < 0.6 for s in "AB"}
+        good = {s: sorted(every[s][is_good[s]].tolist()) for s in "AB"}
+        bad = {s: sorted(every[s][~is_good[s]].tolist()) for s in "AB"}
+        wins = windows(**good)  # windows are built from good reversals only
+        exclude = bool(rng.integers(2))
+        cum_good, cum_bad, frac_good, frac_bad = good_bad_removal_curves(
+            wins, good, bad, X, exclude
+        )
+        cum_total, frac_total = total_removal_curves(wins, X, exclude, good_idx=good, bad_idx=bad)
+        np.testing.assert_array_equal(cum_total, cum_good + cum_bad)  # nan pattern included
+        np.testing.assert_allclose(frac_total, frac_good + frac_bad, equal_nan=True)
+
+
+def test_total_removal_curves_require_both_index_dicts():
+    wins = windows(A=[10])
+    for kwargs in ({}, {"good_idx": {"A": [10]}}, {"bad_idx": {"A": []}}):
+        with pytest.raises(ValueError, match="good_idx and bad_idx"):
+            total_removal_curves(wins, X, **kwargs)
 
 
 def test_removal_curves_match_brute_force_on_random_data():
@@ -149,21 +173,30 @@ def test_removal_curves_match_brute_force_on_random_data():
 
 def test_cumulative_removal_series_total_and_good_bad_modes():
     wins = windows(A=[10, 20])
-    total = cumulative_removal_series(wins, None, None, X, use_total=True, fraction=True)
+    idx = ({"A": [10]}, {"A": [20]})
+    total = cumulative_removal_series(wins, *idx, X, use_total=True, fraction=True)
     assert list(total) == ["total"]
-    good_bad = cumulative_removal_series(
-        wins, {"A": [10]}, {"A": [20]}, X, use_total=False, fraction=False
-    )
+    good_bad = cumulative_removal_series(wins, *idx, X, use_total=False, fraction=False)
     assert list(good_bad) == ["good", "bad"]
     assert np.nanmax(good_bad["good"]) == 0  # the bad reversal at 20 follows the anchor at 10
     assert np.nanmax(good_bad["bad"]) == 1
+    assert np.nanmax(total["total"]) == 0.5  # total counts that bad reversal too
 
 
 def test_cumulative_removal_series_fraction_or_counts():
     wins = windows(A=[10, 20])
-    counts = cumulative_removal_series(wins, None, None, X, use_total=True, fraction=False)
-    fractions = cumulative_removal_series(wins, None, None, X, use_total=True, fraction=True)
+    idx = ({"A": [10]}, {"A": [20]})
+    counts = cumulative_removal_series(wins, *idx, X, use_total=True, fraction=False)
+    fractions = cumulative_removal_series(wins, *idx, X, use_total=True, fraction=True)
     assert np.nanmax(counts["total"]) == 1 and np.nanmax(fractions["total"]) == 0.5
+
+
+def test_cumulative_removal_series_total_mode_requires_both_index_dicts():
+    wins = windows(A=[10])
+    with pytest.raises(ValueError, match="good_idx and bad_idx"):
+        cumulative_removal_series(wins, {"A": [10]}, None, X, use_total=True, fraction=True)
+    with pytest.raises(ValueError, match="good_idx and bad_idx"):
+        cumulative_removal_series(wins, None, None, X, use_total=True, fraction=True)
 
 
 def test_cumulative_removal_series_good_bad_mode_requires_both_index_dicts():
@@ -174,15 +207,16 @@ def test_cumulative_removal_series_good_bad_mode_requires_both_index_dicts():
         cumulative_removal_series(wins, None, {"A": [10]}, X, use_total=None, fraction=True)
 
 
-def test_no_anchors_reports_zero_removed_rather_than_no_data():
-    # documented fallback: the denominator is clamped to 1, so 0 anchors gives 0%, not nan
-    _, frac = total_removal_curves({"A": []}, X)
-    assert np.nanmax(frac) == 0.0 and not np.isnan(frac[X >= 0]).any()
+def test_no_anchors_reports_no_data_rather_than_zero_removed():
+    empty = {"A": []}
+    *_, frac_good, frac_bad = good_bad_removal_curves(empty, {"A": [5]}, {"A": []}, X)
+    assert np.isnan(frac_good).all() and np.isnan(frac_bad).all()
+    _, frac_total = total_removal_curves(empty, X, good_idx={"A": [5]}, bad_idx={"A": []})
+    assert np.isnan(frac_total).all()
 
 
-def test_total_removal_only_counts_reversals_that_are_anchors():
-    # Known issue pinned here: a bad reversal at 15 is not in the windows, so it cuts nothing
+def test_total_removal_counts_bad_reversals_that_are_not_anchors():
     wins = windows(A=[10])
-    cum_total, _ = total_removal_curves(wins, X)
-    cum_good, cum_bad, _, _ = good_bad_removal_curves(wins, {"A": [10]}, {"A": [15]}, X)
-    assert np.nanmax(cum_total) == 0 and np.nanmax(cum_bad) == 1
+    kwargs = {"good_idx": {"A": [10]}, "bad_idx": {"A": [15]}}
+    cum_total, _ = total_removal_curves(wins, X, **kwargs)
+    assert cum_total[X >= 0].tolist() == [0.0] * 5 + [1.0] * 15
