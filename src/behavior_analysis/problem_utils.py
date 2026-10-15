@@ -7,10 +7,12 @@ problem level.
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from typing import Any
 
 import numpy as np
+
+# One shared session order (date, then session number); see problem_numbering.
+from src.behavior_import.problem_numbering import session_sort_key
 
 
 # ---------------------------------------------------------------------------
@@ -18,7 +20,6 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 _PROBLEM_RE = re.compile(r"(\d+)")
-_SESSION_RE = re.compile(r"ses-(\d+)")
 
 
 def problem_to_int(k: Any) -> int | None:
@@ -34,23 +35,6 @@ def problem_to_int(k: Any) -> int | None:
         return int(k)
     m = _PROBLEM_RE.search(str(k))
     return int(m.group(1)) if m else None
-
-
-def session_sort_key(session_key: str) -> tuple:
-    """Return a sort key for a session string of the form ``ses-NN_date-YYYYMMDD``.
-
-    Args:
-        session_key: A session identifier string.
-
-    Returns:
-        A tuple ``(session_number, datetime, session_key)`` suitable for
-        sorting sessions chronologically.
-    """
-    m_ses = _SESSION_RE.search(str(session_key))
-    m_date = re.search(r"date-(\d{8})", str(session_key))
-    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
-    dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
-    return (ses_num, dt, session_key)
 
 
 # ---------------------------------------------------------------------------

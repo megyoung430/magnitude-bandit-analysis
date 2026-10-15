@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.behavior_import.extract_trials import (
+    extract_trials,
     extract_trials_grouped_by_problem,
     group_sessions_by_problem,
 )
@@ -25,6 +26,7 @@ RUN_START = {
 def run_start_for(towers, initiation="B2", **extra):
     return {
         "curr_choice_tows": towers,
+        "curr_rew_mag": dict.fromkeys(towers, 1),  # what split_recording_configurations reads
         "curr_initiation_tow": initiation,
         "num_t_found": 0,
         "found_ports": False,
@@ -245,11 +247,14 @@ def flags_of(sessions):
     return [s["problem_flag"] for s in sessions.values()]
 
 
+START = [A, resumed(A)]  # a first layout needs two sessions to be a real problem
+
+
 def test_problem_number_increments_when_the_choice_towers_change(tmp_path):
-    sessions = import_sessions(tmp_path, [A, B, B])
+    sessions = import_sessions(tmp_path, START + [B, B])
     assert sessions["ses-1_date-20260101"]["choice_towers"] == {"A1", "B1", "C1"}
-    assert sessions["ses-2_date-20260102"]["choice_towers"] == {"A2", "B2", "C2"}
-    assert problems(sessions) == [1, 2, 2]
+    assert sessions["ses-3_date-20260103"]["choice_towers"] == {"A2", "B2", "C2"}
+    assert problems(sessions) == [1, 1, 2, 2]
 
 
 def test_problem_number_ignores_tower_order(tmp_path):
@@ -259,72 +264,92 @@ def test_problem_number_ignores_tower_order(tmp_path):
 
 def test_changing_only_the_initiation_tower_starts_a_new_problem(tmp_path):
     other = run_start_for(["A1", "B1", "C1"], initiation="A2")
-    assert problems(import_sessions(tmp_path, [A, other, other])) == [1, 2, 2]
+    assert problems(import_sessions(tmp_path, START + [other, other])) == [1, 1, 2, 2]
 
 
 def test_a_return_to_an_earlier_layout_after_a_real_problem_is_a_new_problem(tmp_path):
-    sessions = import_sessions(tmp_path, [A, B, B, A])
-    assert problems(sessions) == [1, 2, 2, 3]
-    assert flags_of(sessions) == [None] * 4
+    sessions = import_sessions(tmp_path, START + [B, B, A])
+    assert problems(sessions) == [1, 1, 2, 2, 3]
+    assert flags_of(sessions) == [None] * 5
 
 
 def test_a_new_layout_lasting_one_session_is_a_settings_error_not_numbered(tmp_path):
-    with pytest.warns(ProblemNumberingWarning, match=r"M1 ses-2_date-20260102.*settings error"):
-        sessions = import_sessions(tmp_path, [A, B, C, C])
-    assert problems(sessions) == [1, None, 2, 2]
-    assert flags_of(sessions) == [None, "suspected_settings_error", None, None]
-    assert "ses-2_date-20260102" in sessions  # kept for single-session analyses
+    with pytest.warns(ProblemNumberingWarning, match=r"M1 ses-3_date-20260103.*settings error"):
+        sessions = import_sessions(tmp_path, START + [B, C, C])
+    assert problems(sessions) == [1, 1, None, 2, 2]
+    assert flags_of(sessions) == [None, None, "suspected_settings_error", None, None]
+    assert "ses-3_date-20260103" in sessions  # kept for single-session analyses
+
+
+def test_a_first_layout_lasting_one_session_is_a_settings_error(tmp_path):
+    with pytest.warns(ProblemNumberingWarning, match=r"M1 ses-1_date-20260101.*settings error"):
+        sessions = import_sessions(tmp_path, [B, A, resumed(A)])
+    assert problems(sessions) == [None, 1, 1]
+    assert flags_of(sessions) == ["suspected_settings_error", None, None]
+
+
+def test_the_only_layout_in_the_data_is_problem_1_even_for_one_session(tmp_path):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert problems(import_sessions(tmp_path, [A])) == [1]
 
 
 def test_a_resumed_problem_after_a_settings_error_keeps_its_number(tmp_path):
     with pytest.warns(ProblemNumberingWarning):
-        sessions = import_sessions(tmp_path, [A, B, resumed(A), resumed(A)])
-    assert problems(sessions) == [1, None, 1, 1]
-    assert flags_of(sessions) == [None, "suspected_settings_error", None, None]
+        sessions = import_sessions(tmp_path, START + [B, resumed(A), resumed(A)])
+    assert problems(sessions) == [1, 1, None, 1, 1]
+    assert flags_of(sessions) == [None, None, "suspected_settings_error", None, None]
 
 
 def test_a_resumed_problem_after_a_settings_error_at_the_end_of_the_data(tmp_path):
     with pytest.warns(ProblemNumberingWarning):
-        sessions = import_sessions(tmp_path, [A, B, resumed(A)])
-    assert problems(sessions) == [1, None, 1]
+        sessions = import_sessions(tmp_path, START + [B, resumed(A)])
+    assert problems(sessions) == [1, 1, None, 1]
 
 
 def test_consecutive_one_session_layouts_are_all_flagged(tmp_path):
     with pytest.warns(ProblemNumberingWarning) as record:
-        sessions = import_sessions(tmp_path, [A, B, C, resumed(A)])
-    assert problems(sessions) == [1, None, None, 1]
+        sessions = import_sessions(tmp_path, START + [B, C, resumed(A)])
+    assert problems(sessions) == [1, 1, None, None, 1]
     assert len(record) == 2
     with pytest.warns(ProblemNumberingWarning):
-        sessions = import_sessions(tmp_path / "longer", [A, B, C, D, resumed(A), resumed(A)])
-    assert problems(sessions) == [1, None, None, None, 1, 1]
+        sessions = import_sessions(tmp_path / "longer", START + [B, C, D, resumed(A), resumed(A)])
+    assert problems(sessions) == [1, 1, None, None, None, 1, 1]
 
 
-def test_a_final_single_session_layout_is_a_real_problem(tmp_path):
-    # Its duration is not known yet, so it is not a settings error.
-    assert problems(import_sessions(tmp_path, [A, B])) == [1, 2]
+def test_a_final_single_session_layout_is_a_real_problem_whose_number_is_provisional(tmp_path):
+    assert problems(import_sessions(tmp_path, START + [B])) == [1, 1, 2]
+    # A later session turns it into a settings error.
+    with pytest.warns(ProblemNumberingWarning):
+        assert problems(import_sessions(tmp_path / "later", START + [B, resumed(A)])) == [
+            1,
+            1,
+            None,
+            1,
+        ]
 
 
 def test_multi_session_layout_failing_the_checks_keeps_its_number_with_a_review_flag(tmp_path):
     first_b = {**B, "found_ports": True}
-    with pytest.warns(ProblemNumberingWarning, match=r"M1 ses-2.*review settings.*problem 2"):
-        sessions = import_sessions(tmp_path, [A, (first_b, None, False), B, B])
-    assert problems(sessions) == [1, 2, 2, 2]
-    assert flags_of(sessions) == [None, "review_settings", None, None]
+    with pytest.warns(ProblemNumberingWarning, match=r"M1 ses-3.*review settings.*problem 2"):
+        sessions = import_sessions(tmp_path, START + [(first_b, None, False), B, B])
+    assert problems(sessions) == [1, 1, 2, 2, 2]
+    assert flags_of(sessions) == [None, None, "review_settings", None, None]
 
 
 def test_new_layout_with_found_ports_false_but_no_printed_port_finding_needs_review(tmp_path):
     # The num_t_found key of run_start is always there (0) and does not count.
     assert B["num_t_found"] == 0
     with pytest.warns(ProblemNumberingWarning, match=r"num_t_found"):
-        sessions = import_sessions(tmp_path, [A, (B, None, False), B, B])
-    assert problems(sessions) == [1, 2, 2, 2]
-    assert flags_of(sessions) == [None, "review_settings", None, None]
+        sessions = import_sessions(tmp_path, START + [(B, None, False), B, B])
+    assert problems(sessions) == [1, 1, 2, 2, 2]
+    assert flags_of(sessions) == [None, None, "review_settings", None, None]
 
 
 def test_found_ports_true_fails_only_the_found_ports_check(tmp_path):
     first_b = {**B, "found_ports": True}
     with pytest.warns(ProblemNumberingWarning) as record:
-        import_sessions(tmp_path, [A, (first_b, None, False), B, B])
+        import_sessions(tmp_path, START + [(first_b, None, False), B, B])
     assert "found_ports" in str(record[0].message)
     assert "port-finding" not in str(record[0].message)
 
@@ -335,26 +360,32 @@ def test_found_ports_must_be_false_not_just_not_true(tmp_path, found_ports):
     if found_ports == "missing":
         del changed["found_ports"]
     with pytest.warns(ProblemNumberingWarning):
-        sessions = import_sessions(tmp_path, [A, changed, B, B])
-    assert flags_of(sessions) == [None, "review_settings", None, None]
+        sessions = import_sessions(tmp_path, START + [changed, B, B])
+    assert flags_of(sessions) == [None, None, "review_settings", None, None]
 
 
 def test_port_finding_trials_printed_in_a_later_recording_count(tmp_path):
-    folder = session_dir(tmp_path, session="ses-2_date-20260102")
-    write_tsv(session_dir(tmp_path), "M1-2026-01-01-100000.tsv", run_start=A, port_finding=True)
-    write_tsv(folder, "M1-2026-01-02-100000.tsv", run_start=B)
-    write_tsv(folder, "M1-2026-01-02-110000.tsv", run_start=B, port_finding=True)
+    for n in (1, 2):
+        write_tsv(
+            session_dir(tmp_path, session=f"ses-{n}_date-2026010{n}"),
+            f"M1-2026-01-0{n}-100000.tsv",
+            run_start=A,
+            port_finding=True,
+        )
+    folder = session_dir(tmp_path, session="ses-3_date-20260103")
+    write_tsv(folder, "M1-2026-01-03-100000.tsv", run_start=B)
+    write_tsv(folder, "M1-2026-01-03-110000.tsv", run_start=B, port_finding=True)
     write_tsv(
-        session_dir(tmp_path, session="ses-3_date-20260103"),
-        "M1-2026-01-03-100000.tsv",
+        session_dir(tmp_path, session="ses-4_date-20260104"),
+        "M1-2026-01-04-100000.tsv",
         run_start=B,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert problems(import_data(tmp_path)["M1"]) == [1, 2, 2]
+        assert problems(import_data(tmp_path)["M1"]) == [1, 1, 2, 2]
 
 
-def test_the_first_run_and_continuing_sessions_are_not_checked(tmp_path):
+def test_the_first_problem_and_continuing_sessions_are_not_checked(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         sessions = import_sessions(tmp_path, [resumed(A), resumed(A), B, resumed(B)])
@@ -411,6 +442,8 @@ def trial_level_sessions(imported):
                 "choice_towers": [sorted(s["choice_towers"])],
                 "initiation_tower": s["initiation_tower"],
                 "settings_evidence": s["settings_evidence"],
+                "problem": s["problem"],
+                "problem_flag": s["problem_flag"],
             }
             for key, s in sessions.items()
         }
@@ -460,19 +493,21 @@ def write_bandit_session(root, session, run_start):
 def test_both_entry_points_number_sessions_in_date_then_session_number_order(tmp_path):
     # Session numbers run opposite to the dates, so the two orderings disagree.
     sessions = {
-        "ses-5_date-20260101": A,
-        "ses-2_date-20260102": B,
-        "ses-3_date-20260103": B,
-        "ses-1_date-20260104": C,
+        "ses-6_date-20260101": A,
+        "ses-5_date-20260102": A,
+        "ses-2_date-20260103": B,
+        "ses-3_date-20260104": B,
+        "ses-1_date-20260105": C,
     }
     for key, run_start in sessions.items():
         write_bandit_session(tmp_path, key, run_start)
     imported = import_data(tmp_path)
     expected = {
-        "ses-5_date-20260101": 1,
-        "ses-2_date-20260102": 2,
-        "ses-3_date-20260103": 2,
-        "ses-1_date-20260104": 3,
+        "ses-6_date-20260101": 1,
+        "ses-5_date-20260102": 1,
+        "ses-2_date-20260103": 2,
+        "ses-3_date-20260104": 2,
+        "ses-1_date-20260105": 3,
     }
     assert {k: s["problem"] for k, s in imported["M1"].items()} == expected
     grouped = extract_trials_grouped_by_problem(imported)  # the real extract_trials path
@@ -499,3 +534,83 @@ def test_session_folder_with_an_invalid_date_raises_naming_the_path(tmp_path, fo
     with pytest.raises(ValueError) as excinfo:
         import_data(tmp_path)
     assert str(path) in str(excinfo.value)
+
+
+# --- sessions recorded as several files with different layouts (split into segments) ---
+
+
+def write_split_session(root, n, run_starts):
+    """Session *n* recorded as one file per run_start dict, in order."""
+    folder = session_dir(root, session=f"ses-{n}_date-202601{n:02d}")
+    for hour, item in enumerate(run_starts):
+        run_start, port_finding = item if isinstance(item, tuple) else (item, True)
+        write_tsv(
+            folder,
+            f"M1-2026-01-{n:02d}-{10 + hour}0000.tsv",
+            run_start=run_start,
+            port_finding=port_finding,
+        )
+
+
+def number_through_extract_trials(root):
+    """import_data, extract_trials, group_sessions_by_problem; the warnings raised on the way."""
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        imported = import_data(root)
+        extracted = extract_trials(imported)
+        grouped = group_sessions_by_problem(extracted)
+    ours = [w for w in record if issubclass(w.category, ProblemNumberingWarning)]
+    return extracted["M1"], grouped, ours
+
+
+def assignments(sessions):
+    return {key: (s["problem"], s["problem_flag"]) for key, s in sessions.items()}
+
+
+def test_split_session_ending_in_a_one_session_layout_flags_the_segment_once(tmp_path):
+    # S2 recorded as [A then B], S3 = A: the B segment is a one-session layout.
+    write_split_session(tmp_path, 1, [A])
+    write_split_session(tmp_path, 2, [A, B])
+    write_split_session(tmp_path, 3, [A])
+    sessions, grouped, ours = number_through_extract_trials(tmp_path)
+    assert assignments(sessions) == {
+        "ses-1_date-20260101": (1, None),
+        "ses-2_date-20260102_part-01": (1, None),
+        "ses-2_date-20260102_part-02": (None, "suspected_settings_error"),
+        "ses-3_date-20260103": (1, None),
+    }
+    assert [str(w.message).split(":")[0] for w in ours] == ["M1 ses-2_date-20260102_part-02"]
+    assert sorted(grouped) == [1]
+
+
+def test_split_session_followed_by_the_new_layout_makes_the_segment_a_real_problem(tmp_path):
+    # S2 recorded as [A then B], S3 = S4 = B: the B segment starts problem 2.
+    write_split_session(tmp_path, 1, [A])
+    write_split_session(tmp_path, 2, [A, B])
+    write_split_session(tmp_path, 3, [B])
+    write_split_session(tmp_path, 4, [B])
+    sessions, grouped, ours = number_through_extract_trials(tmp_path)
+    assert assignments(sessions) == {
+        "ses-1_date-20260101": (1, None),
+        "ses-2_date-20260102_part-01": (1, None),
+        "ses-2_date-20260102_part-02": (2, None),
+        "ses-3_date-20260103": (2, None),
+        "ses-4_date-20260104": (2, None),
+    }
+    assert ours == []
+    assert list(grouped[2]["M1"]) == [
+        "ses-2_date-20260102_part-02",
+        "ses-3_date-20260103",
+        "ses-4_date-20260104",
+    ]
+
+
+def test_split_segment_needing_review_warns_once_and_keeps_its_number(tmp_path):
+    write_split_session(tmp_path, 1, [A])
+    write_split_session(tmp_path, 2, [A, ({**B, "found_ports": True}, False)])
+    write_split_session(tmp_path, 3, [B])
+    write_split_session(tmp_path, 4, [B])
+    sessions, _, ours = number_through_extract_trials(tmp_path)
+    assert sessions["ses-2_date-20260102_part-02"]["problem"] == 2
+    assert sessions["ses-2_date-20260102_part-02"]["problem_flag"] == "review_settings"
+    assert len(ours) == 1 and "part-02" in str(ours[0].message)

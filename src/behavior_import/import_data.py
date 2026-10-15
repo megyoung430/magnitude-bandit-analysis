@@ -178,9 +178,14 @@ def import_data(root: str | Path) -> dict:
             folder, or a session's first ``run_start`` row is missing or not valid
             JSON (the message names subject, session and file).
 
-    ``"problem"`` agrees with ``extract_trials.group_sessions_by_problem``, which
-    applies the same function to the layouts read from the trial data, except that it
-    skips sessions without trial information before numbering.
+    ``"problem"`` and ``"problem_flag"`` are the numbering of whole sessions, by the layout
+    of each session's first recording.  ``extract_trials`` splits a session whose
+    recordings have different tower layouts into ``_part-NN`` segments; those segments
+    carry no problem, and ``extract_trials.group_sessions_by_problem`` (same function, layouts
+    read from the trial data) renumbers all sessions, skipping those without trial
+    information, writes ``"problem"`` / ``"problem_flag"`` back onto every session and
+    segment, and warns about flags that are new to it.  So for sessions that are split
+    or lack trials, its numbers are the ones to use.
     """
     root = Path(root).resolve()
 

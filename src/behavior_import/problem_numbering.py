@@ -23,8 +23,13 @@ into *runs* of consecutive sessions with the same layout, and each run is compar
      ``num_t_found`` key of ``run_start`` is always present and says nothing). Not
      checked when (c) already failed.
 
-- The first run of a subject is problem 1 and is not checked: its first session is
-  often mid-problem.
+- A first run that lasts one session before the layout changes (B, A, A) is a settings
+  error like any other one-session layout, and the next layout is problem 1. A first run
+  that is the only layout in the data, or the last one, is problem 1.
+- The first problem of a subject is not evidence-checked: its first session is often
+  mid-problem.
+- The number of a final run of one session is provisional (``ProblemAssignment.provisional``,
+  named in the warning): a later session can turn it into a settings error.
 
 Sessions that are not bandit problems get problem ``None``, are ignored when comparing the
 sessions around them (A, skipped, A is 1, None, 1) and stay in the data:
@@ -78,6 +83,8 @@ class ProblemAssignment(NamedTuple):
     problem: int | None  # ``None`` for a skipped or settings-error session
     flag: str | None
     reasons: tuple  # which of the checks fired, for the warning text
+    # True for a final run of one session: a later session can turn it into a settings error.
+    provisional: bool = False
 
 
 def normalize_tower_token(x):
@@ -254,7 +261,7 @@ def assign_problems(facts):
         layout = facts[run[0]].layout
         if layout == last_layout:
             first = ProblemAssignment(problem, None, ())
-        elif last_layout is not None and len(run) == 1 and position < len(runs) - 1:
+        elif len(run) == 1 and position < len(runs) - 1:
             reasons = ("layout lasts one session before changing again",)
             assignments[run[0]] = ProblemAssignment(None, SUSPECTED_SETTINGS_ERROR, reasons)
             continue
@@ -262,37 +269,54 @@ def assign_problems(facts):
             problem, last_layout = problem + 1, layout
             reasons = _evidence_reasons(facts[run[0]]) if problem > 1 else ()
             first = ProblemAssignment(problem, REVIEW_SETTINGS if reasons else None, reasons)
+            first = first._replace(provisional=len(run) == 1 and position == len(runs) - 1)
         assignments[run[0]] = first
         for index in run[1:]:
             assignments[index] = ProblemAssignment(problem, None, ())
     return [assignments[i] for i in range(len(facts))]
 
 
+def warn_flagged(subject, session_ids, assignments, *, report=None, stacklevel=2):
+    """One :class:`ProblemNumberingWarning` per flagged session (pretraining is silent).
+
+    Args:
+        subject: Subject id, named in the warnings.
+        session_ids: Session keys, in the same order as *assignments*.
+        assignments: As returned by :func:`assign_problems`.
+        report: Optional booleans, one per session; only sessions marked ``True`` warn.
+        stacklevel: Passed to ``warnings.warn``; 2 points at this function's caller.
+    """
+    report = [True] * len(assignments) if report is None else report
+    for session_id, assignment, wanted in zip(session_ids, assignments, report, strict=True):
+        if not (wanted and assignment.flag and assignment.flag != PRETRAINING):
+            continue
+        outcome = (
+            "excluded from problem numbering"
+            if assignment.problem is None
+            else f"kept as problem {assignment.problem}"
+        )
+        if assignment.provisional:
+            outcome += " (provisional: a later session can turn it into a settings error)"
+        warnings.warn(
+            f"{subject} {session_id}: {assignment.flag.replace('_', ' ')} ("
+            + "; ".join(assignment.reasons)
+            + f"); {outcome}.",
+            ProblemNumberingWarning,
+            stacklevel=stacklevel,
+        )
+
+
 def number_subject_sessions(subject, session_ids, facts, *, warn=True, stacklevel=2):
-    """:func:`assign_problems` plus one :class:`ProblemNumberingWarning` per flagged session.
+    """:func:`assign_problems` plus a warning (see :func:`warn_flagged`) per flagged session.
 
     Args:
         subject: Subject id, named in the warnings.
         session_ids: Session keys, in the same order as *facts*.
         facts: One :class:`SessionFacts` per session.
-        warn: ``False`` to stay silent (for a caller whose data was already warned about).
+        warn: ``False`` to stay silent.
         stacklevel: Passed to ``warnings.warn``; 2 points at this function's caller.
     """
     assignments = assign_problems(facts)
-    if not warn:
-        return assignments
-    for session_id, assignment in zip(session_ids, assignments, strict=True):
-        if assignment.flag and assignment.flag != PRETRAINING:
-            outcome = (
-                "excluded from problem numbering"
-                if assignment.problem is None
-                else f"kept as problem {assignment.problem}"
-            )
-            warnings.warn(
-                f"{subject} {session_id}: {assignment.flag.replace('_', ' ')} ("
-                + "; ".join(assignment.reasons)
-                + f"); {outcome}.",
-                ProblemNumberingWarning,
-                stacklevel=stacklevel,
-            )
+    if warn:
+        warn_flagged(subject, session_ids, assignments, stacklevel=stacklevel + 1)
     return assignments

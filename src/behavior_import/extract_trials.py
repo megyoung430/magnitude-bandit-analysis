@@ -7,10 +7,11 @@ import pandas as pd
 from src.behavior_import.import_data import parse_content_json
 from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
     SessionFacts,
+    assign_problems,
     normalize_tower_token,
-    number_subject_sessions,
     permutation_invariant_signature,
     session_sort_key,
+    warn_flagged,
 )
 from src.behavior_import.reconcile_reversals import reconcile_reversals
 from src.behavior_import.split_recording_configurations import split_recording_configurations
@@ -808,7 +809,7 @@ def group_sessions_by_problem(data, copy_sessions=True):
 
     Within each subject, sessions are sorted by date, then session number (the same
     key ``import_data`` uses) and numbered by
-    :func:`src.behavior_import.problem_numbering.number_subject_sessions`, the same
+    :func:`src.behavior_import.problem_numbering.assign_problems`, the same
     rule ``import_data`` uses for its ``"problem"`` field: a problem is the choice
     towers plus the initiation tower, a return to an earlier layout is a new problem,
     and a session that changes layout but looks like a settings error is left out
@@ -818,6 +819,13 @@ def group_sessions_by_problem(data, copy_sessions=True):
     trial information are skipped before numbering, so the numbers can differ from
     ``import_data``'s when such sessions exist. Flagged sessions stay in *data* for
     single-session analyses.
+
+    The assignment is written back onto every numbered session in *data* as ``"problem"``
+    and ``"problem_flag"``. This matters for sessions that :func:`extract_trials` split
+    into ``_part-NN`` segments: ``import_data`` numbered the unsplit session by its first
+    recording, so the segments (which get no problem of their own) are numbered here, and
+    only flags that are new here (differ from the recorded ``"problem_flag"``) warn, so
+    each flagged session warns once overall.
 
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}`` after
@@ -831,17 +839,20 @@ def group_sessions_by_problem(data, copy_sessions=True):
     problems = {}
     for subject_id, subject_sessions in data.items():
         signed = signed_sessions(subject_id, subject_sessions)
-        # import_data has already warned about flagged sessions; do not warn again.
-        assignments = number_subject_sessions(
-            subject_id,
-            [session_id for session_id, _ in signed],
-            [facts for _, facts in signed],
-            warn=False,
-        )
-        for (session_id, _), assignment in zip(signed, assignments, strict=True):
+        session_ids = [session_id for session_id, _ in signed]
+        assignments = assign_problems([facts for _, facts in signed])
+        # import_data already warned about the flags it recorded on the sessions; warn only
+        # about flags that are new here (e.g. on split segments, which import_data never saw).
+        newly_flagged = [
+            subject_sessions[session_id].get("problem_flag") != assignment.flag
+            for session_id, assignment in zip(session_ids, assignments, strict=True)
+        ]
+        warn_flagged(subject_id, session_ids, assignments, report=newly_flagged, stacklevel=3)
+        for session_id, assignment in zip(session_ids, assignments, strict=True):
+            sess = subject_sessions[session_id]
+            sess["problem"], sess["problem_flag"] = assignment.problem, assignment.flag
             if assignment.problem is None:
                 continue
-            sess = subject_sessions[session_id]
             by_subject = problems.setdefault(assignment.problem, {})
             by_subject.setdefault(subject_id, {})[session_id] = (
                 deepcopy(sess) if copy_sessions else sess

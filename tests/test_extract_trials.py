@@ -184,15 +184,16 @@ def test_group_sessions_by_problem_numbers_a_return_to_an_earlier_layout_as_new(
     data = {
         "m": {
             "ses-1": session_with_towers(["A1"]),
-            "ses-2": session_with_towers(["B1"]),
+            "ses-2": session_with_towers(["A1"]),
             "ses-3": session_with_towers(["B1"]),
-            "ses-4": session_with_towers(["A1"]),
+            "ses-4": session_with_towers(["B1"]),
+            "ses-5": session_with_towers(["A1"]),
         }
     }
     assert by_problem(group_sessions_by_problem(data)) == {
-        1: ["ses-1"],
-        2: ["ses-2", "ses-3"],
-        3: ["ses-4"],
+        1: ["ses-1", "ses-2"],
+        2: ["ses-3", "ses-4"],
+        3: ["ses-5"],
     }
 
 
@@ -200,15 +201,38 @@ def test_group_sessions_by_problem_leaves_out_a_flagged_session_and_pools_around
     data = {
         "m": {
             "ses-1": session_with_towers(["A1"]),
-            "ses-2": session_with_towers(["B1"]),  # lasts one session: suspected settings error
-            "ses-3": session_with_towers(["A1"]),
+            "ses-2": session_with_towers(["A1"]),
+            "ses-3": session_with_towers(["B1"]),  # lasts one session: suspected settings error
+            "ses-4": session_with_towers(["A1"]),
+        }
+    }
+    with pytest.warns(UserWarning, match=r"m ses-3.*suspected settings error") as record:
+        grouped = group_sessions_by_problem(data)
+    assert len(record) == 1
+    assert by_problem(grouped) == {1: ["ses-1", "ses-2", "ses-4"]}
+    assert "ses-3" in data["m"]  # still available for single-session analyses
+    # The assignment is written back onto the sessions.
+    assert [(s["problem"], s["problem_flag"]) for s in data["m"].values()] == [
+        (1, None),
+        (1, None),
+        (None, "suspected_settings_error"),
+        (1, None),
+    ]
+
+
+def test_group_sessions_by_problem_warns_only_about_flags_import_data_did_not_record():
+    flagged = session_with_towers(["B1"], problem=None, problem_flag="suspected_settings_error")
+    data = {
+        "m": {
+            "ses-1": session_with_towers(["A1"], problem=1, problem_flag=None),
+            "ses-2": session_with_towers(["A1"], problem=1, problem_flag=None),
+            "ses-3": flagged,
+            "ses-4": session_with_towers(["A1"], problem=1, problem_flag=None),
         }
     }
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # import_data warns; grouping does not repeat it
-        grouped = group_sessions_by_problem(data)
-    assert by_problem(grouped) == {1: ["ses-1", "ses-3"]}
-    assert "ses-2" in data["m"]  # still available for single-session analyses
+        warnings.simplefilter("error")
+        group_sessions_by_problem(data)
 
 
 def test_group_sessions_by_problem_uses_the_initiation_tower_and_ignores_has_good():
@@ -241,8 +265,13 @@ def test_group_sessions_by_problem_copies_unless_told_not_to():
 
 def test_group_sessions_by_problem_numbers_each_subject_independently():
     data = {
-        "m1": {"ses-1": session_with_towers(["A1"]), "ses-2": session_with_towers(["B1"])},
-        "m2": {"ses-1": session_with_towers(["B1"])},
+        "m1": {
+            "ses-1": session_with_towers(["A1"]),
+            "ses-2": session_with_towers(["A1"]),
+            "ses-3": session_with_towers(["B1"]),
+            "ses-4": session_with_towers(["B1"]),
+        },
+        "m2": {"ses-1": session_with_towers(["B1"]), "ses-2": session_with_towers(["B1"])},
     }
     out = group_sessions_by_problem(data)
     assert list(out[1]) == ["m1", "m2"]
@@ -484,15 +513,20 @@ def test_grouped_by_problem_numbers_a_recurring_problem_as_new():
     data = {
         "m": {
             "ses-1": one_trial_session(problem_a),
-            "ses-2": one_trial_session(problem_b),
+            "ses-2": one_trial_session(problem_a),
             "ses-3": one_trial_session(problem_b),
-            "ses-4": one_trial_session(no_magnitudes),
+            "ses-4": one_trial_session(problem_b),
+            "ses-5": one_trial_session(no_magnitudes),
         }
     }
     grouped = extract_trials_grouped_by_problem(deepcopy(data))
 
-    assert by_problem(grouped) == {1: ["ses-1"], 2: ["ses-2", "ses-3"], 3: ["ses-4"]}
+    assert by_problem(grouped) == {
+        1: ["ses-1", "ses-2"],
+        2: ["ses-3", "ses-4"],
+        3: ["ses-5"],
+    }
     assert grouped[1]["m"]["ses-1"]["chosen_magnitude"] == [2]
-    assert grouped[2]["m"]["ses-2"]["chosen_magnitude"] == [3]
-    assert grouped[3]["m"]["ses-4"]["chosen_magnitude"] == [None]
-    assert grouped[3]["m"]["ses-4"]["choices_by_rank"]["second"] == [1]
+    assert grouped[2]["m"]["ses-3"]["chosen_magnitude"] == [3]
+    assert grouped[3]["m"]["ses-5"]["chosen_magnitude"] == [None]
+    assert grouped[3]["m"]["ses-5"]["choices_by_rank"]["second"] == [1]
