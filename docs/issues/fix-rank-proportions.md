@@ -25,8 +25,9 @@ status: in review
 - Every row is a real block. `block_rows_for_subject` is removed (it became the identity;
   the only caller was `plot_rank_proportions_by_mouse`), and `n_blocks_excluding_last`
   is renamed `n_blocks`. No notebook or script uses either, so no deprecated alias is kept.
-- `nan_standard_error` (per-column SE over non-NaN rows, NaN below two) is defined in
-  `rank_proportions_summary.py`, with the same name and signature as the helper on
+- `nan_standard_error` (per-column SE over non-NaN rows, NaN below two) and `mean_se_n` live in
+  `src/behavior_analysis/stats.py`; every module imports them from there. The function body is
+  identical to the helper on
   `fix-choice-prob-windows`; the two are meant to be merged into one.
 - Pooled mean and SE: the pooled proportion averages trials, so its SE is across the same
   trials (`rank_proportions.pooled_standard_errors`, `sqrt(p(1-p)/(n-1))`). Trials are treated
@@ -34,7 +35,7 @@ status: in review
   The across-mice view (`plot_average_across_mice`) already used the same units for mean and SE
   (each mouse's pooled proportion, SE across mice) and is unchanged.
 - Problem-summary path: `compute_problem_length_summary`, `compute_problem_blocklen_summary`
-  (`_mean_se_n`) and `compute_problem_goodrev_summary` now share `_mean_se_n`: NaN values are
+  (`mean_se_n`) and `compute_problem_goodrev_summary` now share `mean_se_n`: NaN values are
   left out of the mean, SE and n, and one value gives a NaN SE instead of 0.0.
 - Plotting: `plot_problem_summary._annotation_ceiling` treated a NaN SE as a NaN bar top
   (hiding the label height and ylim); it now adds no error for NaN. In `plot_rank_proportions`
@@ -88,7 +89,7 @@ values): `proportions_by_mouse` (pooled and unpooled), `mean_by_rank`, `se_by_ra
 ## NaN everywhere: other SE computations
 
 Rule: an SE over fewer than two non-NaN units is NaN, never 0, and the count excludes NaN.
-`mean_se_n` (public, in `rank_proportions_summary.py`, built on `nan_standard_error`) is shared.
+`mean_se_n` (in `stats.py`, built on `nan_standard_error`) is shared.
 
 Searched all of `src/` for `std`/`nanstd` over `sqrt(len)`, `.sem`, and 0 for a single unit.
 
@@ -102,7 +103,7 @@ Searched all of `src/` for `std`/`nanstd` over `sqrt(len)`, `.sem`, and 0 for a 
 | `get_choice_probs_around_good_reversals._mean_and_se`, `average_choice_probs._mean_and_se_over_problems` | NaN counted in n; 0 for one problem | not touched: `fix-choice-prob-windows` rewrites both |
 | `trial_count_summaries` (pandas `sem`) | already NaN below two, NaN skipped | correct |
 | `plot_problem_summary` descriptive `sd` text | SD of a sample, not an SE | left |
-| `plot_cohort_comparison` / `plot_trial_block_summary` `fillna(0)` on pandas SEM | a NaN SEM draws a zero-length error bar, mean still drawn | left; no visible change |
+| `plot_cohort_comparison` / `plot_trial_block_summary` `fillna(0)` on pandas SEM | zero-length error bar with a cap, which reads as SE 0 | fixed: NaN passed through, error bar omitted |
 
 Plots: cohort comparison (`_label_height` already ignores a NaN SEM), long-poke bars and first-leave bars
 draw the bar/marker with matplotlib omitting a NaN error bar; the task-statistics block-length plot
@@ -118,6 +119,41 @@ Effect (sample data is one mouse, so every across-mouse SE of one unit changes f
 
 Main vs branch on synthetic no-NaN inputs with at least two units: `mean_and_sem`, `_standard_error`,
 `average_first_leave_across_subjects`, long-poke `_mean_and_se`, `summarize_by_problem*` are identical.
+
+## Review follow-ups
+
+**Merge note: `fix-choice-prob-windows` must import `nan_standard_error` from
+`src.behavior_analysis.stats` and delete its own copy when the second branch merges.** The body is
+identical; only the docstring differs (it now says a 1-D input is one column, giving one 0-d value
+over all elements, not one value per element).
+
+**Blocks across sessions (PI decision: a block open at a session's end continues into the next
+session).** Traced `get_vars_across_all_sessions` -> `get_good_reversal_info` ->
+`get_rank_counts_by_good_reversal`; nothing splits a block at a session boundary, so no code change
+was needed there (and `get_good_reversal_info.py` is untouched, so no conflict with
+`fix-reversal-classification`):
+
+- Counter sessions: `good_reversals` is made cumulative across sessions by adding each session's
+  total (`reversal_totals`, which includes a reversal after the session's last trial). A session
+  start therefore increments only for a real reversal.
+- Legacy blocks-only sessions: each session's block ids are offset so the first block of the next
+  session carries the last id of the previous one (plus any carried terminal reversal events).
+- Windows are cut on the merged trial list, so a block's window spans sessions.
+- `tests/test_blocks_across_sessions.py` pins this: a block over two sessions is one row with all its
+  trials (legacy and counter), a reversal carried to a session's first trial is still a boundary,
+  and sessions are ordered by number.
+- New field: every rank-count row has `n_trials` (its window length; for believed ranks the number of
+  trials in the window, while `total` stays the eligible choices). Only a subject's final block can
+  be cut short by the end of the data. Sample data (one session, 93 trials): block lengths
+  22, 31, 33 and 7; the last block has 7 trials.
+
+**Other review items.** `se_by_rank(guard_single=True)` now counts non-NaN units per rank.
+`fillna(0)` is gone from the cohort-comparison and trial-block problem-mean plots, so a single-mouse
+problem draws its mean with no error bar (no zero-length cap). The pooled-SE docstring now states
+that within-block serial correlation also understates it, that pooled and across-block bars are not
+comparable, and that fractional tie weights (believed ranks) break the 0/1 indicator assumption
+(`p(1-p)` is then an upper bound of the variance). The `plot_rank_proportions_average` docstring now
+describes the current warnings.
 
 ## Found, not fixed
 

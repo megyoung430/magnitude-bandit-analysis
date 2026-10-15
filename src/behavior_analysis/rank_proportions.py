@@ -20,7 +20,7 @@ from collections.abc import Hashable
 
 import numpy as np
 
-from src.behavior_analysis.rank_proportions_summary import nan_standard_error
+from src.behavior_analysis.stats import nan_standard_error
 
 RANKS = ("best", "second", "third")
 
@@ -77,14 +77,19 @@ def mean_by_rank(units: list[Unit], *, guard_empty: bool) -> list[float]:
 def se_by_rank(units: list[Unit], *, guard_single: bool) -> list[float]:
     """Standard error per rank across *units* (see :func:`standard_error`).
 
-    With *guard_single* fewer than two units give NaN silently; without it numpy
-    emits a ``RuntimeWarning``. The figures that warned before still warn,
-    because the warning is the only sign that an across-mice SE is NaN, so
-    callers choose per figure.
+    With *guard_single* a rank with fewer than two non-NaN units gets a NaN
+    silently; without it :func:`standard_error` emits a ``RuntimeWarning`` for that
+    rank. Callers choose per figure, because the warning is the only sign that an
+    across-mice SE is NaN.
     """
-    if guard_single and len(units) < 2:
-        return [np.nan] * len(RANKS)
-    return [standard_error([u[rank] for u in units]) for rank in RANKS]
+    ses = []
+    for rank in RANKS:
+        values = [u[rank] for u in units]
+        if guard_single and np.sum(~np.isnan(np.asarray(values, dtype=float))) < 2:
+            ses.append(np.nan)
+        else:
+            ses.append(standard_error(values))
+    return ses
 
 
 def row_props(row: RankRow, *, strict: bool = False) -> list[float]:
@@ -104,9 +109,16 @@ def pooled_standard_errors(rows: list[RankRow]) -> list[float]:
 
     A pooled proportion is the mean over trials of a 0/1 indicator (the trial
     chose that rank), so its SE is that indicator's sample SD over the trials,
-    ``sqrt(p * (1 - p) / (n - 1))``. NaN with fewer than two trials. Trials are
-    treated as independent although they come in blocks, so this understates the
-    uncertainty if blocks differ systematically.
+    ``sqrt(p * (1 - p) / (n - 1))``. NaN with fewer than two trials.
+
+    Caveats: trials are treated as independent, but choices are serially
+    correlated within a block and blocks can differ systematically, so this
+    understates the uncertainty. It is therefore not comparable with the
+    across-block SE of the unpooled bars, which measures block-to-block spread.
+    For believed ranks (``get_rank_counts_by_value``) ties give fractional
+    weights and ``total`` counts eligible choices, so the indicator is not 0/1;
+    ``p * (1 - p)`` is then an upper bound of its variance and the formula is only
+    approximate.
     """
     n = sum(r.get("total", 0) for r in rows)
     if n < 2:

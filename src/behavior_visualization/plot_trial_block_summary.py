@@ -85,7 +85,7 @@ def _plot_problem_means(
     ax.errorbar(
         summary.index,
         summary["mean"],
-        yerr=summary["sem"].fillna(0),
+        yerr=summary["sem"],
         fmt="o-",
         color="black",
         lw=2.5,

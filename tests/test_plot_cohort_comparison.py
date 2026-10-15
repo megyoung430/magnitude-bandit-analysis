@@ -370,3 +370,17 @@ def test_no_capped_comparison_without_budget_or_problem_two(monkeypatch, tmp_pat
     assert len(paths) == 16 and not any("problem 2" in p.name for p in paths)
     assert not (tmp_path / "x" / "Problem 2 trial cap.csv").exists()
     assert capture.shown == []
+
+
+def test_across_problems_panel_draws_mean_without_error_bar_for_a_single_mouse():
+    per_mouse = pd.DataFrame(
+        {"mouse": ["m1", "m2", "m1"], "problem": [1, 1, 2], "trials": [10.0, 14.0, 7.0]}
+    )
+    _, ax = plt.subplots()
+    pcc._plot_across_problems_panel(ax, per_mouse, [1, 2], "cohort", "session")
+    (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
+    assert errorbar.lines[0].get_ydata().tolist() == [12.0, 7.0]  # both means drawn
+    first, second = errorbar.lines[2][0].get_segments()
+    assert first[:, 1].tolist() == [12.0 - 2.0, 12.0 + 2.0]  # SEM of (10, 14) is 2
+    assert len(second) == 0  # one mouse: no error bar, and no zero-length cap
+    plt.close(ax.figure)

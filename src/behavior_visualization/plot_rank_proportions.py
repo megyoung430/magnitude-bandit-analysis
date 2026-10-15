@@ -404,8 +404,9 @@ def plot_rank_proportions_average(
     Known issues:
 
     - If a bar's mean is not finite and p-values are given, ``IndexError``.
-    - Single-mouse or empty data emit numpy ``RuntimeWarning``s (degrees of
-      freedom, empty slice).
+    - Fewer than two mice emit a ``RuntimeWarning`` from the across-mice SE (the
+      error bars are then omitted, the bars still drawn); no mice at all also
+      emit numpy's empty-slice ``RuntimeWarning``.
     - ``save_path`` must be a ``str`` in an existing folder (``Path`` raises
       ``TypeError``, a missing folder ``FileNotFoundError``, either with the
       figure left open); the other two figures accept a ``Path`` and create the folder.

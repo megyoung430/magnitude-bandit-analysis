@@ -103,6 +103,15 @@ def test_se_by_rank_counts_only_non_nan_units():
     assert ses[1] == pytest.approx(np.std([0.5, 0.3, 0.4], ddof=1) / np.sqrt(3))
 
 
+def test_se_by_rank_guard_counts_non_nan_units(recwarn):
+    units = [UNITS[0], {"best": np.nan, "second": 0.3, "third": 0.1}]
+    ses = se_by_rank(units, guard_single=True)
+    assert np.isnan(ses[0]) and not np.isnan(ses[1])  # one non-NaN unit for "best"
+    assert len(recwarn) == 0
+    with pytest.warns(RuntimeWarning):
+        se_by_rank(units, guard_single=False)
+
+
 def test_row_props_defaults_missing_to_nan_unless_strict():
     assert np.isnan(row_props({"best_prop": 0.5})[1])
     with pytest.raises(KeyError):

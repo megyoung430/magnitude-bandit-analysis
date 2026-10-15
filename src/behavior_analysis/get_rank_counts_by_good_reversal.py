@@ -29,6 +29,9 @@ def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=Tru
         - ``"third"`` (int): Number of post-window trials where the third arm
           was chosen.
         - ``"total"`` (int): Total post-window trials (sum of the above three).
+        - ``"n_trials"`` (int): Length of the block's window. Blocks run across
+          session boundaries, so only a subject's final block can be cut short by
+          the end of the data; its ``n_trials`` shows how short.
         - ``"best_prop"`` (float): Proportion of best-arm choices (``nan`` if
           ``total == 0``).
         - ``"second_prop"`` (float): Proportion of second-arm choices.
@@ -50,6 +53,7 @@ def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=Tru
                 'second': num_second,
                 'third': num_third,
                 'total': total,
+                'n_trials': len(good_reversal_info[subj][i]['choices_by_rank']['best']['post']),
                 'best_prop': num_best / total if total > 0 else np.nan,
                 'second_prop': num_second / total if total > 0 else np.nan,
                 'third_prop': num_third / total if total > 0 else np.nan
@@ -104,7 +108,7 @@ def get_rank_counts_by_value(subjects_trials, reversal_windows, value_basis="tru
             counts = {rank: sum(weights[i][rank] for i in indices) for rank in ranks}
             total = sum(counts.values())
             result[subject].append({
-                **counts, 'total': total,
+                **counts, 'total': total, 'n_trials': len(indices),
                 **{rank + '_prop': counts[rank] / total if total else np.nan for rank in ranks},
             })
     return result
