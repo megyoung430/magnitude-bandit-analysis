@@ -56,8 +56,8 @@ def test_summary_mean_and_se_skip_missing_values():
     assert summary.mice == ["mA", "mB"]
     assert summary.sessions == [S1, S2, S3]
     np.testing.assert_allclose(summary.mean, [2.0, 3.0, 5.0])
-    # two values -> SD/sqrt(2); a single value -> SE of 0
-    np.testing.assert_allclose(summary.se, [np.std([1.0, 3.0], ddof=1) / np.sqrt(2), 0.0, 0.0])
+    # two values -> SD/sqrt(2); a single value -> NaN, never 0
+    np.testing.assert_allclose(summary.se, [np.std([1.0, 3.0], ddof=1) / np.sqrt(2), NAN, NAN])
     np.testing.assert_array_equal(summary.by_mouse["mB"], [3.0, NAN, 5.0])
     np.testing.assert_array_equal(summary.by_mouse["mA"], [1.0, 3.0, NAN])
 
@@ -90,8 +90,9 @@ def test_bars_show_mean_with_se_error_bars(capture):
     assert first.get_linewidth() == 1.5 and first.get_zorder() == 1
     (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
     segments = errorbar.lines[2][0].get_segments()
-    # SE of [1, 3] is 1.0; sessions with one value have no error bar extent.
-    assert [seg[:, 1].tolist() for seg in segments] == [[1.0, 3.0], [3.0, 3.0], [5.0, 5.0]]
+    # SE of [1, 3] is 1.0; sessions with one value have a NaN SE, so only their bar is drawn.
+    assert segments[0][:, 1].tolist() == [1.0, 3.0]
+    assert [len(seg) for seg in segments[1:]] == [0, 0]
 
 
 def test_bar_value_labels_sit_at_y_text(capture):

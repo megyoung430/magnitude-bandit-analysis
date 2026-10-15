@@ -15,6 +15,8 @@ status: done
 > new folder rather than resume**; finished results stay readable in the old folder. Every
 > other output file is unchanged. The cache key is deliberately not narrowed here; that is a
 > follow-up (shared `run_store` module plus an explicit `ALGORITHM_VERSION`).
+>
+> Superseded by `infra-run-store`: that follow-up is done; source text no longer enters the hash.
 
 Refactor the long functions below into small, single-purpose functions (principle 4) with identical behaviour.
 

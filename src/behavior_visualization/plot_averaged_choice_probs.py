@@ -113,10 +113,13 @@ def _plot_choice_curves(ax: plt.Axes, x: np.ndarray, across: dict) -> None:
     for key in CHOICE_KEYS:
         y = np.asarray(across["mean"][key], float)
         s = np.asarray(across["se"][key], float)
-        m = np.isfinite(x) & np.isfinite(y) & np.isfinite(s)
+        m = np.isfinite(x) & np.isfinite(y)
         if np.any(m):
             ax.plot(x[m], y[m], linewidth=2, color=COLOR_MAP[key], label=_CURVE_LABELS[key])
-            ax.fill_between(x, y - s, y + s, where=m, alpha=0.2, color=COLOR_MAP[key])
+            # the band is left out where the SE is undefined; the mean line stays
+            ax.fill_between(
+                x, y - s, y + s, where=m & np.isfinite(s), alpha=0.2, color=COLOR_MAP[key]
+            )
 
 
 def _style_choice_axis(ax: plt.Axes, x: np.ndarray) -> None:

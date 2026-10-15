@@ -8,6 +8,7 @@ from src.behavior_analysis.get_variables_across_sessions import (
     get_vars_across_all_sessions,
     ordered_session_keys,
 )
+from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
 
 
 def get_total_reversals(subject_sessions):
@@ -24,7 +25,11 @@ def get_total_reversals(subject_sessions):
     Returns:
         Dict with key ``"total_reversals"`` (int) and, when good/bad data are
         available, also ``"good_reversals"`` (int) and ``"bad_reversals"``
-        (int).
+        (int), as logged by the task. Beside them, ``"suspect_good_reversals"``
+        counts the logged good reversals whose best tower does not change, and
+        ``"uncheckable_good_reversals"`` those with no trial to check (between
+        runs, after the last trial, or a session without reward magnitudes);
+        see :mod:`src.behavior_analysis.suspect_reversals`.
     """
 
     total_good = 0
@@ -45,7 +50,14 @@ def get_total_reversals(subject_sessions):
                     total_bad += count
 
         total = total_good + total_bad
-        return {"total_reversals": total, "good_reversals": total_good, "bad_reversals": total_bad}
+        suspects = [count_suspect_good_reversals(sess) for sess in subject_sessions.values()]
+        return {
+            "total_reversals": total,
+            "good_reversals": total_good,
+            "bad_reversals": total_bad,
+            "suspect_good_reversals": sum(c["suspect"] for c in suspects),
+            "uncheckable_good_reversals": sum(c["uncheckable"] for c in suspects),
+        }
 
     total = 0
     for sess in subject_sessions.values():

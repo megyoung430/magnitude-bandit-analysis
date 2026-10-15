@@ -76,10 +76,15 @@ def test_pre_zero_gives_empty_pre_window():
     assert first["choices_by_tower"]["A"]["pre"] == []
 
 
-def test_explicit_post_is_clipped_at_last_trial_but_not_at_next_reversal():
+def test_explicit_post_is_clipped_at_next_reversal_and_at_last_trial():
     reversals = get_bad_reversal_info(one_subject(make_session(BAD)), post=6)["mouse"]
-    assert reversals[0]["trial_window_idx"]["post"] == [3, 4, 5, 6, 7, 8]  # crosses reversal@7
+    assert reversals[0]["trial_window_idx"]["post"] == [3, 4, 5, 6]  # stops before reversal@7
     assert reversals[1]["trial_window_idx"]["post"] == [7, 8, 9]  # clipped at n_trials
+
+
+def test_explicit_post_shorter_than_the_gap_is_kept():
+    reversals = get_bad_reversal_info(one_subject(make_session(BAD)), post=2)["mouse"]
+    assert reversals[0]["trial_window_idx"]["post"] == [3, 4]
 
 
 def test_reversal_on_the_last_trial_has_a_one_trial_post_window():
@@ -213,10 +218,11 @@ def test_blocks_length_mismatch_warns_and_block_id_is_none_past_the_end(capsys):
     assert [r["block_id"] for r in out] == [2, None]
 
 
-def test_all_reversals_of_a_subject_share_one_towers_list():
-    # Known issue pinned: mutating ``towers`` in one record changes all of them.
+def test_each_reversal_record_has_its_own_towers_list():
     out = get_bad_reversal_info(one_subject(make_session(BAD)))["mouse"]
-    assert out[0]["towers"] is out[1]["towers"]
+    assert out[0]["towers"] == out[1]["towers"] == ["A", "B", "C"]
+    out[0]["towers"].append("D")
+    assert out[1]["towers"] == ["A", "B", "C"]
 
 
 def test_subject_without_bad_counter_or_trials_gets_an_empty_list(capsys):

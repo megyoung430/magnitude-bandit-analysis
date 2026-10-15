@@ -26,10 +26,12 @@ _BAR_COLOR = "#999999"
 def _tallest_bar(meds: np.ndarray, ses: np.ndarray) -> float:
     """Top of the highest error bar, ``max(median + SE)``; 1.0 when there are no bars.
 
+    A NaN SE (fewer than two values) adds no error: the bar's median still counts.
+
     Known issue: when every median + SE is NaN the result is NaN, which makes the
     figure's y-limits invalid and plotting raises.
     """
-    return float(np.nanmax(meds + ses)) if meds.size else 1.0
+    return float(np.nanmax(meds + np.nan_to_num(ses))) if meds.size else 1.0
 
 
 def _annotation_height(meds: np.ndarray, ses: np.ndarray) -> float:

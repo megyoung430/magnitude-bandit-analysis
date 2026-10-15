@@ -1,0 +1,64 @@
+"""First-leave counting: which arm is left to, and which reversals are excluded."""
+
+import pytest
+
+from src.behavior_analysis.get_first_leave_after_good_reversals import (
+    get_first_leave_after_good_reversals,
+)
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning
+
+
+def reversal(prev_best, next_best, first_choices, **flags):
+    """Reversal over towers A, B, C whose post window holds *first_choices* (tower names)."""
+    towers = ("A", "B", "C")
+    before = {t: 4 if t == prev_best else 0 for t in towers}
+    after = {t: 4 if t == next_best else 0 for t in towers}
+    return {
+        "reward_magnitudes_by_tower_before": before,
+        "reward_magnitudes_by_tower_after": after,
+        "choices_by_tower": {
+            t: {"pre": [], "post": [int(c == t) for c in first_choices]} for t in towers
+        },
+        **flags,
+    }
+
+
+def test_first_leave_counts_new_best_and_third():
+    windows = {
+        "mouse1": [
+            reversal("A", "B", ["A", "B"]),  # leaves to the new best
+            reversal("A", "B", ["A", "C"]),  # leaves to the third tower
+            reversal("A", "B", ["A", "A"]),  # never leaves
+        ]
+    }
+    assert get_first_leave_after_good_reversals(windows) == {
+        "mouse1": {"new_best": 1, "third": 1, "total": 3}
+    }
+
+
+def test_reversals_with_unchanged_best_tower_are_excluded_and_counted():
+    windows = {
+        "mouse1": [
+            reversal("A", "B", ["A", "B"]),
+            reversal("A", "A", ["A", "B"]),
+            reversal("A", "A", ["A", "C"]),
+        ],
+        "mouse2": [reversal("A", "A", ["A", "B"])],
+    }
+    with pytest.warns(ReversalWarning) as caught:
+        out = get_first_leave_after_good_reversals(windows)
+    assert all(w.filename == __file__ for w in caught)  # stacklevel: the caller's line
+    messages = [str(w.message) for w in caught]
+    assert any("excluded 2 reversal" in m and "mouse1" in m and "unchanged" in m for m in messages)
+    assert any("excluded 1 reversal" in m and "mouse2" in m for m in messages)
+    assert out == {
+        "mouse1": {"new_best": 1, "third": 0, "total": 1},
+        "mouse2": {"new_best": 0, "third": 0, "total": 0},
+    }
+
+
+def test_first_block_records_are_dropped_without_a_warning(recwarn):
+    windows = {"mouse1": [reversal("A", "A", ["A", "B"], first_block=True)]}
+    out = get_first_leave_after_good_reversals(windows)
+    assert out == {"mouse1": {"new_best": 0, "third": 0, "total": 0}}
+    assert len(recwarn) == 0

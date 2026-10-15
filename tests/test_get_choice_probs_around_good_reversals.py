@@ -12,6 +12,7 @@ from src.behavior_analysis.get_choice_probs_around_good_reversals import (
     get_choice_probs_around_good_reversals,
     remove_trials_after_bad_rev,
 )
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning
 
 ROLES = ("prev_best", "next_best", "third")
 
@@ -47,6 +48,30 @@ def role_sum(mean_by_role):
 
 
 # ---------------------------------------------------------------- choice probabilities
+
+
+def test_reversals_with_unchanged_best_tower_are_excluded_and_counted():
+    kept = make_reversal(10, ["A", "A"], ["B", "B", "C"])
+    unchanged = make_reversal(40, ["A", "A"], ["A", "A", "A"], prev_best="A", next_best="A")
+    windows = {"m1": [kept, unchanged], "m2": [unchanged]}
+    with pytest.warns(
+        ReversalWarning, match=r"excluded 1 reversal.*m1.*best tower.*unchanged"
+    ) as w:
+        _, per_subject, across = get_choice_probs_around_good_reversals(windows, pre=2, post=3)
+    assert any("excluded 1 reversal" in str(x.message) and "m2" in str(x.message) for x in w)
+    assert set(per_subject) == {"m1"}
+    assert across["num_reversals"] == 1
+    np.testing.assert_allclose(role_sum(across["mean"]), 1.0)
+
+
+def test_first_block_records_are_dropped_silently():
+    first_block = make_reversal(0, [], ["A", "A"], prev_best="A", next_best="A")
+    first_block["first_block"] = True
+    kept = make_reversal(10, ["A", "A"], ["B", "B", "C"])
+    _, per_subject, _ = get_choice_probs_around_good_reversals(
+        {"m": [first_block, kept]}, pre=2, post=3
+    )
+    assert per_subject["m"]["num_reversals"] == 1
 
 
 def test_get_choice_probs_end_to_end():
@@ -119,10 +144,11 @@ def test_get_choice_probs_truncates_long_post_windows_to_the_axis():
 
 
 @pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
-def test_get_choice_probs_se_is_zero_for_one_subject_and_sample_sd_over_rows_otherwise():
+def test_get_choice_probs_se_is_nan_for_one_subject_and_sample_sd_over_rows_otherwise():
     one = {"m1": [make_reversal(10, ["A"], ["B", "B"])]}
     _, _, across = get_choice_probs_around_good_reversals(one, pre=1, post=2)
-    np.testing.assert_array_equal(across["se"]["next_best"], [0, 0, 0])
+    assert np.isnan(across["se"]["next_best"]).all()
+    np.testing.assert_allclose(across["mean"]["next_best"], [0, 1, 1])
 
     # next-best last bin across subjects: 1, 0 and a truncated (NaN) third subject
     three = {
@@ -132,8 +158,20 @@ def test_get_choice_probs_se_is_zero_for_one_subject_and_sample_sd_over_rows_oth
     }
     _, _, across = get_choice_probs_around_good_reversals(three, pre=1, post=2)
     np.testing.assert_allclose(across["mean"]["next_best"][-1], 0.5)
-    # Known issue: the SE divides by sqrt(3) although only 2 subjects have data in this bin.
-    np.testing.assert_allclose(across["se"]["next_best"][-1], np.sqrt(0.5) / np.sqrt(3))
+    # Two subjects have data in this bin, so the SE divides by sqrt(2).
+    np.testing.assert_allclose(across["se"]["next_best"][-1], np.sqrt(0.5) / np.sqrt(2))
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_get_choice_probs_se_is_nan_where_fewer_than_two_subjects_have_data():
+    windows = {
+        "m1": [make_reversal(10, ["A"], ["B", "B"])],
+        "m2": [make_reversal(10, ["A"], ["B"])],
+    }
+    _, _, across = get_choice_probs_around_good_reversals(windows, pre=1, post=2)
+    assert across["mean"]["next_best"][-1] == 1.0  # a single value: mean defined, SE not
+    assert np.isnan(across["se"]["next_best"][-1])
+    assert np.isfinite(across["se"]["next_best"][:2]).all()
 
 
 def test_get_choice_probs_skip_shortens_the_axis():
@@ -160,10 +198,23 @@ def test_get_choice_probs_skip_keeps_the_reversal_trial():
     _, per_subject, _ = get_choice_probs_around_good_reversals(
         {"m1": [rev]}, pre=1, post=4, skip_n_trials_after_reversal=2
     )
-    # Known issue: skip=2 drops only post trial 1 (the post list becomes trials
-    # [0, 2, 3]), and the over-long row then loses its last trial (3) to padding.
-    np.testing.assert_array_equal(per_subject["m1"]["next_best"], [[0, 1, 1]])
-    np.testing.assert_array_equal(per_subject["m1"]["prev_best"], [[1, 0, 0]])
+    # skip=2 drops post trials 1 and 2; the row keeps trials [0, 3] (its last trial too).
+    np.testing.assert_array_equal(per_subject["m1"]["next_best"], [[0, 1, 0]])
+    np.testing.assert_array_equal(per_subject["m1"]["prev_best"], [[1, 0, 1]])
+
+
+@pytest.mark.parametrize("skip", [1, 2, 3, 4])
+def test_get_choice_probs_skip_removes_exactly_skip_trials_and_keeps_the_last(skip):
+    post = ["B", "A", "A", "A", "A", "C"]  # trial 0 is B, the last trial is C
+    rev = make_reversal(10, pre=["A"], post=post, prev_best="A", next_best="B")
+    _, per_subject, _ = get_choice_probs_around_good_reversals(
+        {"m1": [rev]}, pre=1, post=6, skip_n_trials_after_reversal=skip
+    )
+    third = per_subject["m1"]["third"][0]
+    assert len(third) == 1 + 6 - skip  # no row is cut or padded
+    assert third[-1] == 1.0  # the last post trial (tower C) is kept
+    assert not np.isnan(per_subject["m1"]["third"]).any()
+    assert per_subject["m1"]["next_best"][0, 1] == 1.0  # the reversal trial is kept
 
 
 @pytest.mark.parametrize("skip", [-1, 3, 4])
@@ -316,13 +367,12 @@ def test_apply_moving_average_all_nan_window_stays_nan():
     assert np.isnan(across["mean"]["prev_best"]).all()  # no finite bins is allowed here
 
 
-def test_apply_moving_average_centered_window_longer_than_segment_raises():
-    # Known issue: a centred window longer than a pre/post segment makes np.convolve
-    # return more values than the segment has bins, so the assignment fails.
+def test_apply_moving_average_centered_window_longer_than_segment_keeps_the_length():
+    # pre segment = [1], post segment = [0, 1]; each is averaged over its own finite bins
     x = np.array([-1, 0, 1])
-    with pytest.raises(IndexError):
-        smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="centered")
-    # a trailing window of the same width is fine
+    out = smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="centered")
+    np.testing.assert_allclose(out, [1, 0.5, 0.5])
+    # a trailing window of the same width gives the same-length output too
     out = smoothed_prev(x, [1, 0, 1], moving_avg_window=5, mode="trailing")
     np.testing.assert_allclose(out, [1, 0, 0.5])
 

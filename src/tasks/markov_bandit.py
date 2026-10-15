@@ -236,7 +236,8 @@ def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.
 
     Ignore tied trials, comparing successive unique winners across ties.
     Reset at each boundary; include zero-switch and final partial blocks.
-    Assumes the two active arms have positive values and the inactive arm is zero.
+    *vals3* should hold ``-inf`` for each trial's inactive arm (see
+    :func:`active_arm_values`) so it never wins, whatever the active values.
     """
     edges = np.r_[0, boundaries, len(vals3)]
     counts = []
@@ -247,6 +248,42 @@ def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.
         winners = block[unique].argmax(axis=1)
         counts.append(np.count_nonzero(winners[1:] != winners[:-1]))
     return np.asarray(counts, dtype=int)
+
+
+def check_min_block_len(min_block_len: int, max_block_len: int) -> None:
+    """Raise ``ValueError`` unless ``1 <= min_block_len <= max_block_len``."""
+    if min_block_len < 1:
+        raise ValueError(
+            f"min_block_len must be >= 1, got {min_block_len} "
+            f"(max_block_len={max_block_len}; the default minimum is max_block_len - 10, "
+            "so pass min_block_len explicitly or use max_block_len > 10)"
+        )
+    if min_block_len > max_block_len:
+        raise ValueError(f"min_block_len ({min_block_len}) exceeds max_block_len ({max_block_len})")
+
+
+def check_finite(**values) -> None:
+    """Raise ``ValueError`` if any named number (or sequence of numbers) is not finite.
+
+    Non-finite rewards make the gap metrics ``nan`` without any other symptom.
+    """
+    for name, value in values.items():
+        if not np.all(np.isfinite(np.asarray(value, dtype=float))):
+            raise ValueError(f"{name} must be finite, got {value!r}")
+
+
+def check_sweep_max_block_lens(max_block_lens: np.ndarray) -> None:
+    """Raise ``ValueError`` if a sweep row would get a minimum block length below 1.
+
+    A sweep derives ``min_block_len = max_block_len - 10`` for every row, so each
+    entry of *max_block_lens* must exceed 10.
+    """
+    too_short = [int(m) for m in max_block_lens if int(m) <= 10]
+    if too_short:
+        raise ValueError(
+            f"every max_block_lens entry must be > 10 (the sweep uses "
+            f"min_block_len = max_block_len - 10); got {too_short}"
+        )
 
 
 def draw_block_boundaries(
@@ -267,17 +304,9 @@ def draw_block_boundaries(
     return boundaries[boundaries < T]
 
 
-def first_other_active_arm(best_arm: int, *, active_arms: list[int], old_inactive: int) -> int:
-    """First active arm that is not *best_arm*.
-
-    If every active entry is *best_arm* (a duplicated entry, reachable only after
-    an inactive arm won the argmax), the first arm other than *best_arm* and
-    *old_inactive* is used instead; one always exists among three arms.
-    """
-    candidates = [a for a in active_arms if a != best_arm]
-    if not candidates:
-        candidates = [a for a in range(3) if a != best_arm and a != old_inactive]
-    return candidates[0]
+def remaining_active_arm(best_arm: int, *, active_arms: list[int]) -> int:
+    """First active arm that is not *best_arm*; it stays active across the swap."""
+    return next(a for a in active_arms if a != best_arm)
 
 
 def swap_arm_roles(
@@ -288,41 +317,43 @@ def swap_arm_roles(
 ) -> tuple[int, list[int], dict[int, int]]:
     """Arm roles after a block boundary.
 
-    The arm that is best in *row* becomes inactive. The previously inactive arm
-    takes over the best arm's stream, and the first remaining active arm keeps
-    its own stream.
+    The active arm that is best in *row* becomes inactive. The previously
+    inactive arm takes over the best arm's stream, and the first remaining active
+    arm keeps its own stream.
+
+    Only active arms compete: the inactive arm pays 0, which would beat negative
+    active values and leave two arms sharing a stream. Ties go to the lowest arm
+    index, whatever the order of *active_arms*.
 
     Returns:
         ``(inactive_arm, active_arms, arm_to_stream)`` for the next block.
     """
-    best_arm = int(np.argmax(row))
-    old_inactive = inactive_arm
-    # Known defect: with non-positive values the inactive arm (reward 0) can win the
-    # argmax. It then has no stream entry (so it inherits stream 0 here), is listed
-    # as active again, and two arms share a stream; e.g.
-    # swap_arm_roles(np.array([-3., -1., 0.]), 2, [0, 1], {0: 0, 1: 1})
-    # returns (2, [2, 0], {0: 0, 2: 0}). Later swaps can then raise KeyError.
-    # Behaviour is kept so seeded results do not change.
-    inherited_stream = arm_to_stream.get(best_arm, 0)
-    other_active = first_other_active_arm(
-        best_arm, active_arms=active_arms, old_inactive=old_inactive
-    )
+    best_arm = max(sorted(active_arms), key=row.__getitem__)
+    other_active = remaining_active_arm(best_arm, active_arms=active_arms)
     return (
         best_arm,
-        [old_inactive, other_active],
-        {other_active: arm_to_stream[other_active], old_inactive: inherited_stream},
+        [inactive_arm, other_active],
+        {other_active: arm_to_stream[other_active], inactive_arm: arm_to_stream[best_arm]},
     )
 
 
-def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
-    """Per-trial reward of the three arms, shape ``(T, 3)``.
+def build_arm_roles(streams: np.ndarray, boundaries: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-trial reward of the three arms and the inactive arm of each trial.
 
     Two arms are active and read the two *streams*; the third is inactive and
-    pays zero. At each boundary the best arm turns inactive (see
+    pays zero. At each boundary the best active arm turns inactive (see
     :func:`swap_arm_roles`), so only the roles change, not the streams.
+
+    *boundaries* come from :func:`draw_block_boundaries`: strictly increasing and
+    inside ``[1, len(streams))``. Repeated boundaries, boundaries below 1 and
+    boundaries at or beyond ``len(streams)`` are ignored for direct callers.
+
+    Returns:
+        ``(vals3, inactive_arms)`` of shapes ``(T, 3)`` and ``(T,)``.
     """
     T = len(streams)
     vals3 = np.zeros((T, 3), dtype=float)
+    inactive_arms = np.zeros(T, dtype=int)
     inactive_arm, active_arms, arm_to_stream = 2, [0, 1], {0: 0, 1: 1}
 
     # A swap follows trial b - 1 for each distinct boundary b >= 1.
@@ -331,11 +362,28 @@ def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
     for start, stop in zip(edges[:-1], edges[1:], strict=True):
         for arm in active_arms:
             vals3[start:stop, arm] = streams[start:stop, arm_to_stream[arm]]
+        inactive_arms[start:stop] = inactive_arm
         if stop < T:
             inactive_arm, active_arms, arm_to_stream = swap_arm_roles(
                 vals3[stop - 1], inactive_arm, active_arms, arm_to_stream
             )
-    return vals3
+    return vals3, inactive_arms
+
+
+def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
+    """Per-trial reward of the three arms, shape ``(T, 3)``; see :func:`build_arm_roles`."""
+    return build_arm_roles(streams, boundaries)[0]
+
+
+def active_arm_values(vals3: np.ndarray, inactive_arms: np.ndarray) -> np.ndarray:
+    """Copy of *vals3* with each trial's inactive arm set to ``-inf``.
+
+    The inactive arm pays 0 whatever the active values are, so it must not compete
+    for best or second-best when active values are zero or negative.
+    """
+    masked = vals3.copy()
+    masked[np.arange(len(vals3)), inactive_arms] = -np.inf
+    return masked
 
 
 def gap_best_minus_second(vals3: np.ndarray) -> np.ndarray:
@@ -371,6 +419,7 @@ def session_metrics(
 def build_session(
     *,
     vals3: np.ndarray,
+    active_vals: np.ndarray,
     boundaries: np.ndarray,
     best_arm_series: np.ndarray,
     best_minus_second: np.ndarray,
@@ -381,7 +430,7 @@ def build_session(
         "boundaries": boundaries,
         "best_arm_series": best_arm_series,
         "best_minus_second": best_minus_second,
-        "best_second_switches_per_block": count_best_second_switches(vals3, boundaries),
+        "best_second_switches_per_block": count_best_second_switches(active_vals, boundaries),
     }
 
 
@@ -404,7 +453,8 @@ def simulate_3armed_blockswaps_markov(
         pud: State-transition probability.
         max_block_len: Maximum block length.
         min_block_len: Minimum block length (defaults to
-            ``max_block_len - 10``).
+            ``max_block_len - 10``). A value below 1 (including a default derived
+            from ``max_block_len <= 10``) raises ``ValueError``.
         n_blocks_draw: Pre-sampled block count (default: 1000).
         val_list: Discrete reward state values (default: ``(1, 2, 3, 4)``).
         rng: Optional random generator.
@@ -420,6 +470,8 @@ def simulate_3armed_blockswaps_markov(
         rng = np.random.default_rng()
     if min_block_len is None:
         min_block_len = max_block_len - 10
+    check_min_block_len(min_block_len, max_block_len)
+    check_finite(val_list=val_list)
 
     # Seeded results depend on this draw order: streams first, then block lengths.
     streams = sample_two_markov_bandits(
@@ -437,16 +489,19 @@ def simulate_3armed_blockswaps_markov(
         max_block_len=max_block_len,
         n_blocks_draw=n_blocks_draw,
     )
-    vals3 = build_arm_values(streams, boundaries)
+    vals3, inactive_arms = build_arm_roles(streams, boundaries)
 
-    best_minus_second = gap_best_minus_second(vals3)
-    best_arm_series = np.argmax(vals3, axis=1)
+    # Metrics compare the two active arms only (see active_arm_values).
+    active_vals = active_arm_values(vals3, inactive_arms)
+    best_minus_second = gap_best_minus_second(active_vals)
+    best_arm_series = np.argmax(active_vals, axis=1)
     metrics = session_metrics(best_minus_second=best_minus_second, best_arm_series=best_arm_series)
     if not return_session:
         return metrics
 
     session = build_session(
         vals3=vals3,
+        active_vals=active_vals,
         boundaries=boundaries,
         best_arm_series=best_arm_series,
         best_minus_second=best_minus_second,
@@ -533,6 +588,7 @@ def sweep_markov_metrics(
         ``include_switches=True``, append ``H_switch_mean``, pooling all observed
         blocks (including final partial blocks) across simulations.
     """
+    check_sweep_max_block_lens(max_block_lens)
     rng = np.random.default_rng(seed)
     simulate = partial(
         simulate_3armed_blockswaps_markov,
@@ -547,8 +603,6 @@ def sweep_markov_metrics(
     heatmaps = [np.zeros(shape) for _ in range(5 if include_switches else 4)]
 
     # One shared rng drawn in row-major cell order: the cells are not independent.
-    # min_block_len = max_block_len - 10 is non-positive for max_block_len <= 10, which
-    # yields zero or negative block lengths; such rows are not validated.
     for i, mbl in enumerate(max_block_lens):
         for j, pud in enumerate(pud_values):
             results = [
