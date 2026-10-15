@@ -194,11 +194,16 @@ def test_a_pre_existing_figure_closed_during_consumption_does_not_hide_a_builder
     def outputs():
         yield from ()  # makes this a generator, consumed lazily by write_outputs
         plt.close(bystander)  # frees the bystander's figure number for reuse
-        small_figure()  # a builder's figure that reuses that number, then it raises
+        built = small_figure()  # a builder's figure that reuses that number, then it raises
+        reused["same_number"] = built.number == bystander.number
+        reused["built"] = built
         raise KeyError("boom")
 
+    reused = {}
     with pytest.raises(KeyError):
         write_outputs(outputs(), tmp_path, show=False)
+    assert reused["same_number"]  # the premise: the number really was reused
+    assert not plt.fignum_exists(reused["built"].number)
     assert plt.get_fignums() == []
 
 

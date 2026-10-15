@@ -16,7 +16,7 @@ from typing import NamedTuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib._pylab_helpers import Gcf
+from matplotlib._pylab_helpers import Gcf  # private matplotlib API; may need updating on an upgrade
 
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 

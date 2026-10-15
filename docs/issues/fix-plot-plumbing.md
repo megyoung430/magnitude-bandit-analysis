@@ -54,7 +54,7 @@ No numbers change. Figure content, file names, dpi and bbox are identical. Diffe
 | `plot_num_pokes_across_mice(save_path=<missing folder>/x)` | `FileNotFoundError` | folder created, files saved |
 | First-leave plot with 17 subjects | `IndexError` | palette cycles |
 | `save_path` with a trailing slash, e.g. `plot_num_pokes_across_mice(..., "out/")` | wrote `out/.pdf` and `out/.png` | writes `out.pdf` and `out.png` (the path is normalised through `Path`) |
-| `save_path=""` in `plot_metric_by_problem`, `plot_problem_lengths`, the problem-summary rank figures and `plot_choice_probs_with_fraction_removed_axis` | wrote `.pdf` and `.png` into the working directory | shows the figure, as every other wrapper already did |
+| `save_path=""` in `plot_metric_by_problem`, `plot_problem_lengths`, `plot_distributions_per_problem_all_mice`, the problem-summary rank figures and `plot_choice_probs_with_fraction_removed_axis` | wrote `..pdf` and `..png` into the working directory | shows the figure, as every other wrapper already did |
 
 Sample data (`data/3x3_field_blocked_reward_bandit/cohort-01/rawdata`, one mouse, one session): `plot_num_reversals`, `plot_num_reversals_over_time`, `plot_moving_avg_reversals_over_time` (with their by-trial companions) and `plot_single_session` wrote 20 files; all 20 are byte-identical on `main` and here. The sample does not exercise the bugs (it saves, never raises, and uses no cumulative-axis choice-probability figure), so only the identical-output claim is shown on it.
 

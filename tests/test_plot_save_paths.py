@@ -98,8 +98,16 @@ def test_moving_average_names_its_trial_companions_with_the_window(capture, reco
     plot_moving_avg_reversals_over_time(
         reconciled, window=2, trial_window=2, save_path=str(tmp_path / "Mov")
     )
-    assert capture.saved_names()[:2] == ["Mov Across Mice.pdf", "Mov Across Mice.png"]
-    assert capture.saved_names()[4] == "Mov (By Trial, 2-Trial Window) Across Mice.png"
+    assert capture.saved_names() == [
+        "Mov Across Mice.pdf",
+        "Mov Across Mice.png",
+        "Mov By Mouse.pdf",
+        "Mov By Mouse.png",
+        "Mov (By Trial, 2-Trial Window) Across Mice.png",
+        "Mov (By Trial, 2-Trial Window) Across Mice.pdf",
+        "Mov (By Trial, 2-Trial Window) By Mouse.png",
+        "Mov (By Trial, 2-Trial Window) By Mouse.pdf",
+    ]
 
 
 def test_an_empty_path_means_show_in_every_wrapper(capture, reconciled, tmp_path, monkeypatch):
