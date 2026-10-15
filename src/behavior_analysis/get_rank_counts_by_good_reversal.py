@@ -30,8 +30,11 @@ def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=Tru
           was chosen.
         - ``"total"`` (int): Total post-window trials (sum of the above three).
         - ``"n_trials"`` (int): Length of the block's window. Blocks run across
-          session boundaries, so only a subject's final block can be cut short by
-          the end of the data; its ``n_trials`` shows how short.
+          session boundaries, so with windows that extend to the next reversal
+          (``post=None``) the final block is cut short by the end of the data,
+          and the first block is too when the data starts mid-problem. With an
+          integer ``post`` every window is capped at ``post`` trials. Compare
+          ``n_trials`` across rows to see which blocks are partial.
         - ``"best_prop"`` (float): Proportion of best-arm choices (``nan`` if
           ``total == 0``).
         - ``"second_prop"`` (float): Proportion of second-arm choices.

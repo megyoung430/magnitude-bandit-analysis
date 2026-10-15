@@ -147,6 +147,19 @@ was needed there (and `get_good_reversal_info.py` is untouched, so no conflict w
   be cut short by the end of the data. Sample data (one session, 93 trials): block lengths
   22, 31, 33 and 7; the last block has 7 trials.
 
+**Merge assumptions.**
+
+- The PI confirmed that the rig's counters (good/bad reversals, block number) restart at each
+  session; the merger relies on this when it offsets them.
+- Merging counter-format sessions with blocks-only sessions misaligns trials (a blocks-only session
+  contributes no counter values). Only the `has_good` part of the problem grouping keeps them apart
+  today; `fix-reversal-classification` is adding a length check that raises.
+- With recurring problems, a block open at the end of the first A stretch would join the second A
+  stretch. `fix-import-data` has removed `merge_recurring_problems`, so recurring layouts are now
+  separate problems and this no longer happens.
+- `n_trials` marks partial blocks: the final block with `post=None`, the first block too if the data
+  starts mid-problem, and every block when an integer `post` caps the windows.
+
 **Other review items.** `se_by_rank(guard_single=True)` now counts non-NaN units per rank.
 `fillna(0)` is gone from the cohort-comparison and trial-block problem-mean plots, so a single-mouse
 problem draws its mean with no error bar (no zero-length cap). The pooled-SE docstring now states
