@@ -4,8 +4,8 @@ A session with trials records reversals in one of two formats:
 
 - **counter format**: ``has_good`` or ``has_bad`` is set. The cumulative ``good_reversals`` and
   ``bad_reversals`` counters say which block changes are good or bad reversals. A bad-only
-  session (``has_bad`` without ``has_good``) is counter format too: its block changes are bad
-  reversals, not reversals of unknown kind.
+  session (``has_bad`` without ``has_good``) is counter format too: its bad counter marks
+  the bad reversals, but its other block changes have no good counter to label them.
 - **blocks-only format**: neither is set (sessions from before the counters existed, or
   without any). Only the ``blocks`` series is there, and every block change is a reversal of
   unknown kind.

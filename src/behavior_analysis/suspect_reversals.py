@@ -66,8 +66,8 @@ def count_suspect_good_reversals(session):
         ``{"suspect": int, "uncheckable": int}``. *suspect* counts the within-run increments of
         the good counter where the best tower is unchanged or tied. *uncheckable* counts the
         increments with a missing magnitude (all of them if the session has no reward
-        magnitudes), any reversal on the first trial, plus every event logged while nothing was recording. A session without a
-        good counter has neither.
+        magnitudes), any reversal on the first trial, plus every event logged while nothing
+        was recording. A session without a good counter has neither.
     """
     rewards = session.get("reward_magnitudes_by_tower") or {}
     events = good_event_counts(session)

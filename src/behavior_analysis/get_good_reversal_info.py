@@ -385,8 +385,9 @@ def _warn_dropped(dropped):
         for d in dropped
     )
     warnings.warn(
-        f"dropped {sum(d.count for d in dropped)} good reversal(s) because the best tower did not change "
-        f"(a tied best counts) or a reward magnitude was missing: {listing}. A good reversal "
+        f"dropped {sum(d.count for d in dropped)} good reversal(s) because the best tower did "
+        f"not change (a tied best counts) or a reward magnitude was missing: {listing}. "
+        "A good reversal "
         "should change the best tower; these are left out of every analysis but still end "
         "the windows of their neighbours.",
         ReversalWarning,
