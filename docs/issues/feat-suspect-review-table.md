@@ -30,8 +30,10 @@ against the raw files.
 - The recording run is counted from 0 as in the warning; the file name comes from the
   `source_path` the importer puts on each run's DataFrame and is empty when absent.
 - A boundary that holds reversals logged while nothing was recording (a `reversal_boundary_events`
-  entry) together with in-run ones becomes two rows: reason "uncheckable between-run or
-  terminal" for the events, the best-change reason for the rest. `count` sums to the warning's.
+  entry) together with in-run ones becomes two rows, told apart by `logged_between_runs`; both
+  keep the real best-change reason (`feat-cohort-runner` replaced the earlier "uncheckable
+  between-run or terminal" label). `count` sums to the warning's. `num_t` and `print_time` give
+  the run-local trial number and time printed in the raw file.
 - `DroppedReversal` (was the private `_Dropped`) now carries the magnitudes, logged counter value
   and event count; the warning text is otherwise unchanged.
 

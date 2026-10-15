@@ -1,12 +1,15 @@
 """The cohort runner: analyses chosen by task type, pooled drifting ranks, outputs, errors."""
 
+import warnings
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
+import src.behavior_import.task_types as task_types
 import src.pipelines.cohort_analysis as cohort_analysis
 import src.pipelines.open_field as pipeline
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning
 from src.behavior_analysis.suspect_reversal_table import COLUMNS
 from src.behavior_import.task_types import BLOCKED, DRIFTING
 from src.pipelines.cohort_analysis import (
@@ -337,6 +340,68 @@ def test_run_cohort_loads_with_task_types_classified(tmp_path, monkeypatch):
         run_cohort(2, data_root=tmp_path, results_root=tmp_path)
     assert seen["classify_task_types"] is True
     assert seen["root"] == cohort_raw_dir(tmp_path, 2)
+
+
+# --- numbering and warnings happen once -----------------------------------------------
+
+
+def test_run_cohort_numbers_the_problems_once(tmp_path, sections, no_extras, monkeypatch):
+    calls = []
+    real = task_types.number_within_task_type
+    monkeypatch.setattr(
+        task_types, "number_within_task_type", lambda data: calls.append(1) or real(data)
+    )
+    monkeypatch.setattr(
+        cohort_analysis, "number_within_task_type", task_types.number_within_task_type
+    )
+    run_cohort(1, results_root=tmp_path, trials_by_problem=two_mice())
+    assert len(calls) == 1
+
+
+def test_a_given_numbering_is_used_instead_of_recomputing_it():
+    by_problem = two_mice()
+    numbering = task_types.number_within_task_type(by_problem)
+    assert list(task_types.regroup_by_task_type(by_problem, numbering)) == list(
+        task_types.regroup_by_task_type(by_problem)
+    )
+    assert task_types.problem_map_table(by_problem, numbering).equals(
+        task_types.problem_map_table(by_problem)
+    )
+
+
+def test_each_reversal_warning_is_shown_once_per_cohort(tmp_path, sections, no_extras, monkeypatch):
+    def noisy(*args, **kwargs):
+        warnings.warn("dropped 1 good reversal(s): M1 ses-1", ReversalWarning, stacklevel=2)
+        warnings.warn("dropped 2 good reversal(s): M2 ses-1", ReversalWarning, stacklevel=2)
+        warnings.warn("something else", UserWarning, stacklevel=2)
+
+    for name in SECTIONS:
+        monkeypatch.setattr(pipeline, name, noisy)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        run_cohort(1, results_root=tmp_path, trials_by_problem=two_mice())
+    reversal = [str(w.message) for w in caught if issubclass(w.category, ReversalWarning)]
+    assert sorted(reversal) == [
+        "dropped 1 good reversal(s): M1 ses-1",
+        "dropped 2 good reversal(s): M2 ses-1",
+    ]
+    other = [w for w in caught if w.category is UserWarning and "something else" in str(w.message)]
+    assert len(other) > 2  # other warnings are left alone
+
+
+def test_a_reversal_warning_is_shown_again_in_the_next_cohort(
+    tmp_path, sections, no_extras, monkeypatch
+):
+    def noisy(*args, **kwargs):
+        warnings.warn("dropped 1 good reversal(s): M1 ses-1", ReversalWarning, stacklevel=2)
+
+    for name in SECTIONS:
+        monkeypatch.setattr(pipeline, name, noisy)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        run_cohort(1, results_root=tmp_path, trials_by_problem=two_mice())
+        run_cohort(2, results_root=tmp_path, trials_by_problem=two_mice())
+    assert len([w for w in caught if issubclass(w.category, ReversalWarning)]) == 2
 
 
 # --- errors -----------------------------------------------------------------------------

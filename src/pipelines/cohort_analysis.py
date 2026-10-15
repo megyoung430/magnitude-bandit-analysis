@@ -23,13 +23,16 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
 problem of every mouse; ``problem_map.csv`` gives the overall problem number it stands for.
 """
 
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
 
 import pandas as pd
 
 from src.behavior_analysis.get_diagnostic_p_value import pvalue_paired_t_best_vs_second_vs_third
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
 from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_value
 from src.behavior_analysis.merge_across_problems import merge_windows_by_subject
 from src.behavior_analysis.suspect_reversal_table import (
@@ -48,6 +51,7 @@ from src.behavior_import.load_trials import load_trials_by_problem
 from src.behavior_import.task_types import (
     BLOCKED,
     DRIFTING,
+    number_within_task_type,
     problem_map_table,
     regroup_by_task_type,
 )
@@ -269,6 +273,29 @@ def plot_pooled_drifting_rank(results: dict, save_dir: Path) -> None:
             )
 
 
+@contextmanager
+def each_reversal_warning_once() -> Iterator[None]:
+    """Show each distinct :class:`ReversalWarning` text once while the block runs.
+
+    Several analyses of one problem find the same dropped reversals again, and each says so.
+    Other warnings are untouched, and the filter is gone on leaving the block, so a rerun in
+    the same session warns again.
+    """
+    seen: set[str] = set()
+    show_warning = warnings.showwarning
+
+    def show_once(message, category, *args, **kwargs):
+        if issubclass(category, ReversalWarning):
+            if str(message) in seen:
+                return
+            seen.add(str(message))
+        show_warning(message, category, *args, **kwargs)
+
+    with warnings.catch_warnings():
+        warnings.showwarning = show_once
+        yield
+
+
 def _write_problem_map(problem_map: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     problem_map.to_csv(path, index=False)
@@ -322,52 +349,54 @@ def run_cohort(
         raise ValueError(f"No problems found for {cohort}")
 
     # Classify first: a bad task name stops the run before anything is written.
-    grouped = regroup_by_task_type(trials_by_problem)
-    problem_map = problem_map_table(trials_by_problem)
+    numbering = number_within_task_type(trials_by_problem)
+    grouped = regroup_by_task_type(trials_by_problem, numbering)
+    problem_map = problem_map_table(trials_by_problem, numbering)
     figures, tables = _figures_dir(results_root, cohort), _tables_dir(results_root, cohort)
 
-    _write_problem_map(problem_map, tables / "problem_map.csv")
-    suspects = suspect_table_with_task_types(grouped, problem_map)
-    write_suspect_reversal_table(suspects, tables / "suspect_reversals.csv")
+    with each_reversal_warning_once():
+        _write_problem_map(problem_map, tables / "problem_map.csv")
+        suspects = suspect_table_with_task_types(grouped, problem_map)
+        write_suspect_reversal_table(suspects, tables / "suspect_reversals.csv")
 
-    rank_results = {}
-    for (task_type, k), subjects_trials in grouped.items():
-        selection = selection_for_task_type(task_type, blocked_selection, drifting_selection)
-        print(f"[INFO] {cohort} {task_type} problem {k}: mice {sorted(subjects_trials)}")
-        rank_results[(task_type, k)] = run_problem(
-            k,
-            subjects_trials,
-            task=TASK,
-            cohort=cohort,
-            output_root=Path(results_root) / "figures",
-            selection=selection,
-            choice=choice,
-            reversal_trial_window=reversal_trial_window,
-            task_type=task_type,
-        )
+        rank_results = {}
+        for (task_type, k), subjects_trials in grouped.items():
+            selection = selection_for_task_type(task_type, blocked_selection, drifting_selection)
+            print(f"[INFO] {cohort} {task_type} problem {k}: mice {sorted(subjects_trials)}")
+            rank_results[(task_type, k)] = run_problem(
+                k,
+                subjects_trials,
+                task=TASK,
+                cohort=cohort,
+                output_root=Path(results_root) / "figures",
+                selection=selection,
+                choice=choice,
+                reversal_trial_window=reversal_trial_window,
+                task_type=task_type,
+            )
 
-    drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
-    pooled = {}
-    if drifting:
-        pooled = pooled_drifting_rank_results(
-            drifting, drifting_selection.rank_value_bases, drifting_selection.rank_pooling_modes
-        )
-        plot_pooled_drifting_rank(
-            pooled, figures / DRIFTING / POOLED_DRIFTING_FOLDER / "choice-stats"
-        )
-    else:
-        print(f"[INFO] {cohort}: no drifting problems; skipping pooled drifting ranks.")
+        drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
+        pooled = {}
+        if drifting:
+            pooled = pooled_drifting_rank_results(
+                drifting, drifting_selection.rank_value_bases, drifting_selection.rank_pooling_modes
+            )
+            plot_pooled_drifting_rank(
+                pooled, figures / DRIFTING / POOLED_DRIFTING_FOLDER / "choice-stats"
+            )
+        else:
+            print(f"[INFO] {cohort}: no drifting problems; skipping pooled drifting ranks.")
 
-    session_table, block_table = build_trial_block_tables(
-        trials_by_problem, subject_numbers_from_sessions(trials_by_problem)
-    )
-    plot_trial_block_summaries(
-        session_table,
-        block_table,
-        figures / "trial-block-summaries" / "all-problems",
-        show=False,
-    )
-    return CohortResult(problem_map, suspects, rank_results, pooled)
+        session_table, block_table = build_trial_block_tables(
+            trials_by_problem, subject_numbers_from_sessions(trials_by_problem)
+        )
+        plot_trial_block_summaries(
+            session_table,
+            block_table,
+            figures / "trial-block-summaries" / "all-problems",
+            show=False,
+        )
+        return CohortResult(problem_map, suspects, rank_results, pooled)
 
 
 def run_cohorts(cohort_ids, *, continue_on_error: bool = False, **settings) -> dict:

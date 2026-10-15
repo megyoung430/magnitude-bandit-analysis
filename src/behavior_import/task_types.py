@@ -73,13 +73,19 @@ def number_within_task_type(subjects_trials_by_problem: dict) -> dict:
     return numbering
 
 
-def regroup_by_task_type(subjects_trials_by_problem: dict) -> dict:
+def regroup_by_task_type(subjects_trials_by_problem: dict, numbering: dict | None = None) -> dict:
     """``{(task_type, k): {subject: sessions}}`` from ``{problem: {subject: sessions}}``.
 
     The sessions are the input's own dicts (not copies) and keep their ``"problem"``, the
     mouse's overall problem number. Keys are sorted: blocked before drifting, then by ``k``.
+
+    Args:
+        subjects_trials_by_problem: ``{problem: {subject: {session_key: session_dict}}}``.
+        numbering: The result of :func:`number_within_task_type` of the same data, to avoid
+            computing it again (default: compute it).
     """
-    numbering = number_within_task_type(subjects_trials_by_problem)
+    if numbering is None:
+        numbering = number_within_task_type(subjects_trials_by_problem)
     grouped: dict[tuple[str, int], dict] = {}
     for problem in sorted(subjects_trials_by_problem):
         for subject, sessions in subjects_trials_by_problem[problem].items():
@@ -87,13 +93,16 @@ def regroup_by_task_type(subjects_trials_by_problem: dict) -> dict:
     return dict(sorted(grouped.items()))
 
 
-def problem_map_table(subjects_trials_by_problem: dict) -> pd.DataFrame:
+def problem_map_table(
+    subjects_trials_by_problem: dict, numbering: dict | None = None
+) -> pd.DataFrame:
     """One row per mouse and problem: its type, number within the type and overall number.
 
     Columns are :data:`MAP_COLUMNS`; ``sessions`` lists the session keys in session order,
-    separated by ``;``.
+    separated by ``;``. *numbering* is as for :func:`regroup_by_task_type`.
     """
-    numbering = number_within_task_type(subjects_trials_by_problem)
+    if numbering is None:
+        numbering = number_within_task_type(subjects_trials_by_problem)
     rows = [
         {
             "mouse": subject,
