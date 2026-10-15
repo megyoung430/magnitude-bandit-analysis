@@ -90,10 +90,13 @@ def test_two_maze_panels_and_colorbars_are_added(figures):
     plot_single_session(session_with_pokes())
     (fig,) = figures
     titled = [ax.get_title() for ax in fig.axes[4:] if ax.get_title()]
-    assert titled == ["Long pokes after initiation", "Pokes after choice"]
+    assert [t.split("\n")[0] for t in titled] == [
+        "Long pokes after initiation",
+        "Pokes after choice",
+    ]
+    assert all("0 to this session's maximum" in t for t in titled)
     labelled = [a.get_ylabel() for a in fig.axes[4:] if "count" in a.get_ylabel()]
     assert len(labelled) == 2
-    assert all("session" in label for label in labelled)
 
 
 def test_maze_counts_are_this_sessions_own(figures):

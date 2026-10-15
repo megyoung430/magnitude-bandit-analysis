@@ -57,7 +57,7 @@ from src.behavior_visualization.plot_num_long_pokes import (
 LONG_POKES_STEM = "Long Pokes by Relative Session"
 AFTER_CHOICE_STEM = "Maze Heatmaps - Pokes After Choice"
 AFTER_INITIATION_STEM = "Maze Heatmaps - Pokes After Initiation"
-_SCALE_NOTE = "(count per port; colour scale 0 to this mouse's maximum)"
+_SCALE_NOTE = "colour scale: 0 to each mouse's own maximum count"
 _JITTER_SEED = 0
 
 
@@ -216,21 +216,21 @@ def run_poke_analysis(
     current = {m: problem_choice_ports(subjects_trials_by_problem[m]) for m in mice}
     plot_maze_heatmaps_across_mice(
         counts["after_choice"],
-        colorbar_label=f"Pokes after choice\n{_SCALE_NOTE}",
+        colorbar_label="Pokes after choice (count per port)",
         current_ports=current,
         previous_ports=previous,
         titles=_panel_titles(per_session, "after_choice"),
-        suptitle="Pokes after choice (ITI until next initiation)",
+        suptitle=f"Pokes after choice (ITI until next initiation)\n{_SCALE_NOTE}",
         save_path=out_dir / AFTER_CHOICE_STEM,
     )
     plot_maze_heatmaps_across_mice(
         counts["after_initiation"],
-        colorbar_label=f"Long pokes after initiation\n{_SCALE_NOTE}",
+        colorbar_label="Long pokes after initiation (count per port)",
         current_ports=current,
         previous_ports=previous,
         initiation_port=initiation_port,
         titles=_panel_titles(per_session, "after_initiation"),
-        suptitle="Long pokes after initiation (up to and including the choice)",
+        suptitle=f"Long pokes after initiation (up to and including the choice)\n{_SCALE_NOTE}",
         save_path=out_dir / AFTER_INITIATION_STEM,
     )
     stems = (LONG_POKES_STEM, AFTER_CHOICE_STEM, AFTER_INITIATION_STEM)

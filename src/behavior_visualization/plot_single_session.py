@@ -327,23 +327,23 @@ def plot_poke_maps(maps: PokeMaps, axes: tuple[Axes, Axes]) -> None:
     Each map is coloured from 0 to its own largest count; the colorbar says so. Green outlines
     are the session's choice ports, red ones the previous problem's, blue the initiation port.
     """
-    scale = "count per port; colour scale 0 to this session's maximum"
+    scale = "colour scale 0 to this session's maximum"
     counts = maps.counts
     initiation_ax, choice_ax = axes
     common = {"current_ports": maps.current_ports, "previous_ports": maps.previous_ports}
     draw_maze_heatmap(
         counts.after_initiation,
-        colorbar_label=f"Long pokes after initiation\n({scale})",
+        colorbar_label="Long pokes after initiation (count per port)",
         ax=initiation_ax,
-        title="Long pokes after initiation",
+        title=f"Long pokes after initiation\n({scale})",
         initiation_port=maps.initiation_port,
         **common,
     )
     draw_maze_heatmap(
         counts.after_choice,
-        colorbar_label=f"Pokes after choice\n({scale})",
+        colorbar_label="Pokes after choice (count per port)",
         ax=choice_ax,
-        title="Pokes after choice",
+        title=f"Pokes after choice\n({scale})",
         **common,
     )
 

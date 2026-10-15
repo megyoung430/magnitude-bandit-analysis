@@ -141,9 +141,9 @@ def _draw_port(ax: Axes, port: str, count: float, norm: Normalize, cmap, rings: 
     for spec, role in rings:
         ax.add_patch(_ring_patch(center, spec, f"ring:{port}:{role}"))
     color = _text_color(face)
-    ax.text(center[0], center[1] + 0.03, port, ha="center", va="center", fontsize=14,
+    ax.text(center[0], center[1] + 0.03, port, ha="center", va="center", fontsize=12,
             fontweight="bold", color=color, zorder=5)  # fmt: skip
-    ax.text(center[0], center[1] - 0.075, f"{int(count)}", ha="center", va="center", fontsize=12,
+    ax.text(center[0], center[1] - 0.075, f"{int(count)}", ha="center", va="center", fontsize=10,
             color=color, zorder=5)  # fmt: skip
 
 
@@ -300,7 +300,7 @@ def plot_maze_heatmaps_across_mice(
     previous = _per_mouse(previous_ports, mice, "previous_ports")
     nrows = min(2, len(mice))
     ncols = math.ceil(len(mice) / nrows)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 3.6, nrows * 3.4), squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4.4, nrows * 4.2), squeeze=False)
     try:
         for i, mouse in enumerate(mice):
             draw_maze_heatmap(
@@ -322,8 +322,9 @@ def plot_maze_heatmaps_across_mice(
         )
         if handles:
             fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False)
+        fig.tight_layout(rect=(0, 0.07 if handles else 0, 1, 0.9 if suptitle else 1))
         if suptitle:
-            fig.suptitle(suptitle, fontsize=14)
+            fig.suptitle(suptitle, fontsize=13, y=0.99)
     except BaseException:
         plt.close(fig)
         raise
