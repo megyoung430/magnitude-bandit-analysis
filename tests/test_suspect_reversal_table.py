@@ -269,3 +269,13 @@ def test_csv_of_an_empty_table_keeps_the_header(tmp_path):
 def test_write_rejects_a_table_without_the_expected_columns(tmp_path):
     with pytest.raises(ValueError, match="columns"):
         write_suspect_reversal_table(pd.DataFrame({"a": [1]}), tmp_path / "x.csv")
+
+
+def test_write_accepts_the_task_type_columns_and_keeps_them_in_the_csv(tmp_path):
+    table = suspect_reversal_table({"m": mixed_subject()})
+    typed = table.assign(task_type="drifting", problem_in_type=1, overall_problem=3)
+    typed = typed[["task_type", "problem_in_type", "overall_problem", *COLUMNS]]
+    path = tmp_path / "typed.csv"
+    write_suspect_reversal_table(typed, path)
+    header = path.read_text().splitlines()[0]
+    assert header == ",".join(["task_type", "problem_in_type", "overall_problem", *COLUMNS])

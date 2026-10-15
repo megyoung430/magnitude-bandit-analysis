@@ -54,6 +54,9 @@ _DTYPES = {
     "count": "int64",
 }
 COLUMNS = tuple(_DTYPES)
+# Columns a caller may put in front of COLUMNS: none, the problem, or where the problem sits in
+# a mouse's blocked/drifting numbering.
+LEADING_COLUMN_SETS = ((), ("problem",), ("task_type", "problem_in_type", "overall_problem"))
 
 
 def _magnitudes_text(magnitudes):
@@ -145,17 +148,18 @@ def write_suspect_reversal_table(table, path):
 
     Args:
         table: A table from :func:`suspect_reversal_table` or
-            :func:`suspect_reversal_table_by_problem`.
+            :func:`suspect_reversal_table_by_problem`, optionally with the leading columns of
+            :data:`LEADING_COLUMN_SETS`.
         path: Destination file.
 
     Raises:
         ValueError: If *table* does not have exactly the expected columns.
     """
     columns = list(table.columns)
-    if columns not in (list(COLUMNS), ["problem", *COLUMNS]):
+    if columns not in ([*leading, *COLUMNS] for leading in LEADING_COLUMN_SETS):
         raise ValueError(
             f"not a suspect-reversal table: columns {columns}, expected {list(COLUMNS)} "
-            "(optionally after 'problem')"
+            f"optionally after one of {list(LEADING_COLUMN_SETS[1:])}"
         )
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

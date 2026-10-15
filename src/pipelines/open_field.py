@@ -89,16 +89,20 @@ class AnalysisSelection(BaseModel):
     run_single_session_analysis: bool = True
     rank_value_bases: tuple[str, ...] | None = None
     rank_pooling_modes: tuple[bool, ...] = (True, False)
-    # choice-probability and first-leave analyses only apply up to this problem
-    last_reversal_window_problem: int = 4
 
 
 DEFAULT_SELECTION = AnalysisSelection()
 DEFAULT_CHOICE = ChoiceProbabilitySettings()
 
 
-def problem_dir(output_root: Path, task: str, cohort: str, problem_number: int) -> Path:
-    return Path(output_root) / task / cohort / f"problem-{problem_number:02d}"
+def problem_dir(
+    output_root: Path, task: str, cohort: str, problem_number: int, task_type: str | None = None
+) -> Path:
+    """``<output_root>/<task>/<cohort>[/<task_type>]/problem-NN``."""
+    base = Path(output_root) / task / cohort
+    if task_type is not None:
+        base = base / task_type
+    return base / f"problem-{problem_number:02d}"
 
 
 # ---------------------------------------------------------------------------
@@ -367,14 +371,18 @@ def run_problem(
     selection: AnalysisSelection = DEFAULT_SELECTION,
     choice: ChoiceProbabilitySettings = DEFAULT_CHOICE,
     reversal_trial_window: int | None = None,
+    task_type: str | None = None,
 ) -> dict:
-    """Run the selected analyses for one problem; returns rank-proportion results."""
-    out = problem_dir(output_root, task, cohort, problem_number)
-    windowed = problem_number <= selection.last_reversal_window_problem
-    if selection.run_choice_probability_analysis and windowed:
+    """Run the selected analyses for one problem; returns rank-proportion results.
+
+    The selection alone decides which analyses run; the caller picks it per task type.
+    With *task_type*, figures go under ``<cohort>/<task_type>/problem-NN``.
+    """
+    out = problem_dir(output_root, task, cohort, problem_number, task_type)
+    if selection.run_choice_probability_analysis:
         print(f"Problem {problem_number}: choice probabilities around good reversals")
         run_choice_probability_analysis(subjects_trials, out / "reversal-stats", choice)
-    if selection.run_first_leave_analysis and windowed:
+    if selection.run_first_leave_analysis:
         print(f"Problem {problem_number}: first leave after good reversals")
         run_first_leave_analysis(subjects_trials, out / "reversal-stats")
     if selection.run_number_of_reversals_analysis:
