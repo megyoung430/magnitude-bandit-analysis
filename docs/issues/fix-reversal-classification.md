@@ -34,6 +34,10 @@ Four bugs in `get_good_reversal_info.py` and `get_bad_reversal_info.py`.
   boundary (explicit or default, tested), and the bad docstring calls the window "to the next
   bad reversal". Fixed to match.
 
+- Duplicate: `get_first_leave_after_good_reversals.py` held a line-for-line copy of
+  `classify_towers_at_good_reversals` with the same set-difference bug. The copy is deleted and
+  the module imports the fixed function (the only difference was the new `ValueError`).
+
 ## Acceptance criteria
 
 - `classify_towers_at_good_reversals` returns the same tuple under any `PYTHONHASHSEED`
@@ -55,6 +59,11 @@ The sample cohort (`cohort-01/rawdata`, one subject, one session) has neither `h
 | good reversals, sample cohort | 0 | 0 |
 | bad reversals, sample cohort | 0 | 0 |
 | third-tower classifications, sample cohort | none | none |
+
+First-leave analysis on the sample cohort: 0 reversals, counts `{new_best: 0, third: 0, total: 0}`
+on main and on the branch (identical). On synthetic reversals where the best tower changes, counts
+and averages are identical; they differ only when the best tower is unchanged, where the
+"third" arm was hash-seed dependent on main and is now the first non-best tower in session order.
 
 On synthetic subjects the changes are: a bad-only subject goes from 1 spurious good reversal
 (block change) to 0; an explicit `post=6` bad window at reversal@3 goes from 6 trials to 4.
