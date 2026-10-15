@@ -7,6 +7,7 @@ import pytest
 from matplotlib.container import ErrorbarContainer
 
 from src.behavior_analysis.first_leave_fractions import first_leave_fractions
+from src.behavior_visualization import plot_first_leave_after_good_reversals as module
 from src.behavior_visualization.plot_first_leave_after_good_reversals import (
     plot_first_leave_after_good_reversals,
     plot_first_leave_panel,
@@ -172,3 +173,49 @@ def test_panel_creates_a_6_5_by_5_5_figure_when_no_axes_are_given(capture):
 def test_panel_options_after_the_data_must_be_passed_by_keyword(capture):
     with pytest.raises(TypeError):
         plot_first_leave_panel(MEAN, SE, COUNTS, 0.03)
+
+
+def raise_while_drawing(monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module, "_plot_subject_lines", boom)
+
+
+def test_a_figure_created_by_the_panel_is_closed_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_first_leave_panel(MEAN, SE, COUNTS)
+    assert plt.get_fignums() == []
+
+
+def test_a_figure_given_to_the_panel_stays_open_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    fig, ax = plt.subplots()
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_first_leave_panel(MEAN, SE, COUNTS, ax=ax)
+    assert plt.get_fignums() == [fig.number]
+
+
+def test_the_public_function_closes_its_figure_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_first_leave_after_good_reversals(MEAN, SE, COUNTS)
+    assert plt.get_fignums() == []
+
+
+def test_the_public_function_closes_its_figure_when_saving_raises(capture, monkeypatch, tmp_path):
+    def cannot_save(self, fname, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(plt.Figure, "savefig", cannot_save)
+    with pytest.raises(OSError, match="disk full"):
+        plot_first_leave_after_good_reversals(MEAN, SE, COUNTS, save_path=tmp_path / "x")
+    assert plt.get_fignums() == []
+
+
+def test_subject_colours_cycle_past_the_end_of_the_palette(capture):
+    counts = {f"s{i}": {"new_best": 3, "third": 1, "total": 4} for i in range(len(MOUSE_COLORS) + 1)}
+    _, ax = draw(capture, counts=counts)
+    colors = [ln.get_color() for ln in subject_lines(ax)]
+    assert colors == [*MOUSE_COLORS, MOUSE_COLORS[0]]

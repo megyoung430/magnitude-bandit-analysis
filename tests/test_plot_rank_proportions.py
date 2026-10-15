@@ -430,14 +430,14 @@ def test_average_figure_does_not_create_missing_folders(counts, tmp_path):
     with pytest.raises(FileNotFoundError):
         plot_rank_proportions_average(counts, save_path=str(tmp_path / "missing" / "RP"))
     assert not (tmp_path / "missing").exists()
-    assert len(plt.get_fignums()) == 1  # left open by the failure
+    assert plt.get_fignums() == []  # closed although saving failed
 
 
 def test_average_figure_save_path_must_be_a_str(counts, tmp_path):
     """Characterises the average figure's save behaviour: a Path raises TypeError."""
     with pytest.raises(TypeError):
         plot_rank_proportions_average(counts, save_path=tmp_path / "RP")
-    assert len(plt.get_fignums()) == 1
+    assert plt.get_fignums() == []
 
 
 def test_average_figure_saves_to_an_existing_folder(counts, tmp_path):

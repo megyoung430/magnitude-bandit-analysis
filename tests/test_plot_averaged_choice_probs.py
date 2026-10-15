@@ -305,3 +305,42 @@ def test_fraction_removed_skips_problems_without_curves_or_windows():
 def test_fraction_removed_is_all_nan_when_no_problem_contributes():
     frac, used = fraction_removed_by_problem({1: {}}, {1: {"across": {}}}, FX)
     assert used == [] and np.isnan(frac).all() and frac.shape == FX.shape
+
+
+def raise_while_drawing(monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module, "_plot_choice_curves", boom)
+
+
+def test_a_figure_created_by_the_panel_is_closed_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_choice_probs_with_fraction_removed_panel(AX, ACROSS, FRAC)
+    assert plt.get_fignums() == []
+
+
+def test_a_figure_given_to_the_panel_stays_open_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    fig, ax = plt.subplots()
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_choice_probs_with_fraction_removed_panel(AX, ACROSS, FRAC, ax=ax)
+    assert plt.get_fignums() == [fig.number]
+
+
+def test_the_public_function_closes_its_figure_when_drawing_or_saving_raises(
+    capture, monkeypatch, tmp_path
+):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_choice_probs_with_fraction_removed_axis(AX, ACROSS, FRAC)
+    monkeypatch.undo()
+
+    def cannot_save(self, fname, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(plt.Figure, "savefig", cannot_save)
+    with pytest.raises(OSError, match="disk full"):
+        plot_choice_probs_with_fraction_removed_axis(AX, ACROSS, FRAC, save_path=tmp_path / "x")
+    assert plt.get_fignums() == []

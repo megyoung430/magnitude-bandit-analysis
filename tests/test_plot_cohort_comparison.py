@@ -371,3 +371,34 @@ def test_no_capped_comparison_without_budget_or_problem_two(monkeypatch, tmp_pat
     assert len(paths) == 16 and not any("problem 2" in p.name for p in paths)
     assert not (tmp_path / "x" / "Problem 2 trial cap.csv").exists()
     assert capture.shown == []
+
+
+# ---------------------------------------------------------------- failures close the figures
+
+
+def test_a_panel_that_raises_while_drawing_leaves_no_figure_open(monkeypatch, tmp_path):
+    capture_figures(monkeypatch, write_files=True)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(pcc, "_plot_over_time_panel", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_cohort_comparison(COHORTS, NUMBERS, tmp_path / "x", problems=(1,), show=False)
+    assert plt.get_fignums() == []
+    # the figure saved before the failure is kept
+    assert (tmp_path / "x" / "Trials per session - distributions.png").is_file()
+
+
+def test_a_figure_that_cannot_be_saved_is_closed_with_those_still_to_be_built(
+    monkeypatch, tmp_path
+):
+    capture_figures(monkeypatch)
+
+    def cannot_save(self, fname, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(plt.Figure, "savefig", cannot_save)
+    with pytest.raises(OSError, match="disk full"):
+        plot_cohort_comparison(COHORTS, NUMBERS, tmp_path / "x", problems=(1,), show=False)
+    assert plt.get_fignums() == []

@@ -194,3 +194,42 @@ def test_median_labels_stop_at_the_shorter_of_blocks_and_medians(capture):
     # only the first block gets a value label.
     _, ax = draw(capture, summary(meds=np.array([5.0]), ses=np.array([1.0])), jitter=0)
     assert [t.get_text() for t in ax.texts] == ["5.0"]
+
+
+def raise_while_drawing(monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ts, "_plot_median_bars", boom)
+
+
+def test_a_figure_created_by_the_panel_is_closed_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_block_length_panel(summary(), jitter=0)
+    assert plt.get_fignums() == []
+
+
+def test_a_figure_given_to_the_panel_stays_open_when_drawing_raises(capture, monkeypatch):
+    raise_while_drawing(monkeypatch)
+    fig, ax = plt.subplots()
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_block_length_panel(summary(), jitter=0, ax=ax)
+    assert plt.get_fignums() == [fig.number]
+
+
+def test_the_public_function_closes_its_figure_when_drawing_or_saving_raises(
+    capture, monkeypatch, tmp_path
+):
+    raise_while_drawing(monkeypatch)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_block_lengths(summary(), jitter=0)
+    monkeypatch.undo()
+
+    def cannot_save(self, fname, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(plt.Figure, "savefig", cannot_save)
+    with pytest.raises(OSError, match="disk full"):
+        plot_block_lengths(summary(), jitter=0, save_path=tmp_path / "x")
+    assert plt.get_fignums() == []
