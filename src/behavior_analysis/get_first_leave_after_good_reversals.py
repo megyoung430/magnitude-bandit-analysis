@@ -12,6 +12,7 @@ from src.behavior_analysis.get_good_reversal_info import (
     classify_towers_at_good_reversals,
     exclude_best_unchanged,
 )
+from src.behavior_analysis.stats import mean_se_n
 
 
 def get_first_leave_after_good_reversals(reversal_windows):
@@ -99,10 +100,8 @@ def average_first_leave_across_subjects(per_subject_counts):
         "num_reversals": np.sum([c["total"] for c in per_subject_counts.values()]),
     }
     se = {
-        "new_best": np.std(new_vals, ddof=1) / np.sqrt(len(new_vals)) if len(new_vals) > 1 else 0.0,
-        "third": np.std(third_vals, ddof=1) / np.sqrt(len(third_vals))
-        if len(third_vals) > 1
-        else 0.0,
+        "new_best": mean_se_n(new_vals)[1],
+        "third": mean_se_n(third_vals)[1],
     }
 
     return mean, se, len(new_vals)

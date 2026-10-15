@@ -36,21 +36,30 @@ def test_rank_mean_and_se_across_mice():
     assert ses == pytest.approx([0.1, 0.1, 0.0])
 
 
-def test_rank_se_is_understated_when_a_mouse_is_nan_known_issue():
-    # Characterises a known defect: the sd skips the NaN mouse but sqrt(n) counts it.
+def test_rank_se_counts_only_non_nan_mice():
     per_mouse = {
         "A": {"best": 0.6, "second": 0.3, "third": 0.1},
         "B": {"best": 0.8, "second": 0.1, "third": 0.1},
         "C": {"best": nan, "second": 0.2, "third": 0.1},
     }
     _, ses = rank_mean_and_se(per_mouse)
-    sd_of_two = np.std([0.6, 0.8], ddof=1)
-    assert ses[0] == pytest.approx(sd_of_two / np.sqrt(3))  # would be / sqrt(2) skipping the NaN
+    assert ses[0] == pytest.approx(np.std([0.6, 0.8], ddof=1) / np.sqrt(2))
+    assert ses[1] == pytest.approx(np.std([0.3, 0.1, 0.2], ddof=1) / np.sqrt(3))
 
 
-def test_rank_se_is_nan_for_a_single_mouse_known_issue():
+def test_rank_se_is_nan_for_a_single_mouse():
     per_mouse = {"A": {"best": 0.6, "second": 0.3, "third": 0.1}}
     with pytest.warns(RuntimeWarning):
         means, ses = rank_mean_and_se(per_mouse)
     assert means == pytest.approx([0.6, 0.3, 0.1])
     assert all(np.isnan(se) for se in ses)
+
+
+def test_rank_se_is_nan_when_one_non_nan_mouse_remains():
+    per_mouse = {
+        "A": {"best": 0.6, "second": 0.3, "third": 0.1},
+        "B": {"best": nan, "second": 0.1, "third": 0.1},
+    }
+    with pytest.warns(RuntimeWarning):
+        _, ses = rank_mean_and_se(per_mouse)
+    assert np.isnan(ses[0]) and not np.isnan(ses[1])

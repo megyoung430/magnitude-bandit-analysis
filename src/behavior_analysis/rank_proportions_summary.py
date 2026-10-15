@@ -4,7 +4,11 @@ Consumes the per-reversal proportions from
 :func:`src.behavior_analysis.get_rank_counts_by_good_reversal.get_rank_counts_by_good_reversal`.
 """
 
+import warnings
+
 import numpy as np
+
+from src.behavior_analysis.stats import nan_standard_error
 
 RANKS = ("best", "second", "third")
 
@@ -34,12 +38,10 @@ def mean_rank_proportions_by_subject(rank_counts_by_good_reversal: dict) -> dict
 def rank_mean_and_se(per_mouse: dict) -> tuple[list[float], list[float]]:
     """Across-mouse mean and standard error for each rank.
 
-    NaNs are skipped in the mean and in the standard deviation.
-
-    Known issue: the standard error divides by ``sqrt(len(per_mouse))``, which
-    counts mice whose proportion is NaN although the standard deviation skips
-    them, so the error is understated whenever a mouse is NaN. With a single
-    mouse the sample standard deviation (``ddof=1``) is NaN, so the error is NaN.
+    NaNs are skipped in the mean, the standard deviation and the count, so a
+    mouse without data for a rank does not count towards that rank's n. A rank
+    with fewer than two non-NaN mice has a NaN standard error (with a
+    ``RuntimeWarning``), never 0.
 
     Args:
         per_mouse: ``{mouse: {"best", "second", "third"}}`` from
@@ -50,5 +52,12 @@ def rank_mean_and_se(per_mouse: dict) -> tuple[list[float], list[float]]:
     """
     columns = [[v[rank] for v in per_mouse.values()] for rank in RANKS]
     means = [np.nanmean(col) for col in columns]
-    ses = [np.nanstd(col, ddof=1) / np.sqrt(len(per_mouse)) for col in columns]
+    ses = [float(nan_standard_error(np.asarray(col, dtype=float)[:, None])[0]) for col in columns]
+    if np.any(np.isnan(ses)):
+        # the NaN error is drawn as a bar without an error bar; the warning says why
+        warnings.warn(
+            "fewer than two non-NaN mice for a rank: its standard error is NaN",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return means, ses
