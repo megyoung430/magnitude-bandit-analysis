@@ -23,7 +23,7 @@ WINDOWS = {"A": [{"reversal_idx": 10}, {"reversal_idx": 20}], "B": [{"reversal_i
 GOOD = {"A": [10], "B": [4]}
 BAD = {"A": [20], "B": []}
 SERIES = {"good": np.where(X >= 0, 0.2, np.nan), "bad": np.where(X >= 0, 0.1, np.nan)}
-GOODBAD_MESSAGE = "For mode='goodbad', provide all_good_idx and all_bad_idx."
+MISSING_INDEX_MESSAGE = "Cumulative removal needs both all_good_idx and all_bad_idx."
 TITLE = "Good Reversal-Aligned Choices\n(mean ± se across subjects | n=2 subjects, n=3 reversals)\n"
 
 
@@ -277,6 +277,11 @@ def test_public_plot_total_mode_draws_one_series(across, shown):
     assert [ln.get_label() for ln in twin.lines] == ["Total Rev"]
 
 
+def test_public_plot_draws_unclassified_reversals_of_blocks_only_sessions(across, shown):
+    _, _, twin = cumulative_figure(shown, across, all_unclassified_idx={"A": [15], "B": []})
+    assert [ln.get_label() for ln in twin.lines] == ["Good Rev", "Bad Rev", "Unclassified Rev"]
+
+
 @pytest.mark.parametrize(
     ("plot_fraction_removed", "label"),
     [(True, "Fraction of Data Removed"), (False, "Cumulative Reversals")],
@@ -298,7 +303,7 @@ def test_add_cumulative_rev_axis_fraction_or_counts(across, shown, plot_fraction
 
 
 def test_good_bad_cumulative_axis_without_indices_fails_loudly(across):
-    with pytest.raises(ValueError, match=re.escape(GOODBAD_MESSAGE)):
+    with pytest.raises(ValueError, match=re.escape(MISSING_INDEX_MESSAGE)):
         plot_choice_probs_around_good_reversals(X, across, windows_for_cumulative_axis=WINDOWS)
 
 

@@ -8,10 +8,13 @@ Two cumulative-axis modes are available:
 
 - *total* mode (``use_total=True``): a single orange step-line showing the
   fraction of anchor windows that have been "cut short" by the next reversal of
-  either kind, good or bad (the good and bad lines added together). Needs both
-  ``all_good_idx`` and ``all_bad_idx``.
+  either kind (the good, bad and unclassified lines added together). Needs
+  both ``all_good_idx`` and ``all_bad_idx``.
 - *good/bad* mode (default): separate orange (good) and red (bad) step-lines
-  that together sum to ≤ 1.
+  that together sum to ≤ 1. Sessions that log no good/bad counters (blocks
+  only) cut windows with reversals of unknown kind; when
+  ``all_unclassified_idx`` lists any, a grey line shows them, so good + bad +
+  unclassified = total.
 
 The panel functions (:func:`plot_choice_probs`,
 :func:`plot_choice_probs_broken_axis`, :func:`plot_choice_probs_with_removal`,
@@ -38,8 +41,13 @@ from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR
 
 CURVE_LABELS = [("prev_best", "Previous Best"), ("next_best", "New Best"), ("third", "Third Arm")]
 # Removal series are keyed by kind in the analysis; these map a kind to what is drawn.
-KIND_LABELS = {"total": "Total Rev", "good": "Good Rev", "bad": "Bad Rev"}
-KIND_COLORS = {"total": "#FF9100", "good": "#FF9100", "bad": "#CD0000"}
+KIND_LABELS = {
+    "total": "Total Rev",
+    "good": "Good Rev",
+    "bad": "Bad Rev",
+    "unclassified": "Unclassified Rev",
+}
+KIND_COLORS = {"total": "#FF9100", "good": "#FF9100", "bad": "#CD0000", "unclassified": "#808080"}
 PLAIN_YLIM = (-0.05, 1.05)
 REMOVAL_YLIM = (0, 1)
 X_LABEL = "Trials from Good Reversal"
@@ -349,6 +357,7 @@ def plot_choice_probs_around_good_reversals(
     windows_for_cumulative_axis: dict | None = None,
     all_good_idx: dict | None = None,
     all_bad_idx: dict | None = None,
+    all_unclassified_idx: dict | None = None,
     skip_n_trials_after_reversal: int = 0,
     save_path: str | Path | None = None,
 ) -> None:
@@ -370,12 +379,16 @@ def plot_choice_probs_around_good_reversals(
             :func:`add_cumulative_rev_axis` (default: ``True``).
         only_good: In good/bad mode, draw only the good-reversal line
             (default: ``False``).
-        use_total: If ``True``, use *total* mode (one line, good plus bad)
-            instead of good/bad mode (default: ``False``).
+        use_total: If ``True``, use *total* mode (one line, every reversal
+            kind) instead of good/bad mode (default: ``False``).
         windows_for_cumulative_axis: ``{subject: [reversal_dict]}`` windows
             dict for the cumulative axis; required when ``add_cumulative_axis``.
         all_good_idx: ``{subject: [int]}`` good-reversal indices (cumulative axis).
         all_bad_idx: ``{subject: [int]}`` bad-reversal indices (cumulative axis).
+        all_unclassified_idx: ``{subject: [int]}`` block changes of sessions
+            without good/bad counters
+            (:func:`src.behavior_analysis.get_total_reversals.get_unclassified_reversal_indices`);
+            ``None`` if every session logs counters.
         skip_n_trials_after_reversal: Post-reversal trials to omit (default: 0).
         save_path: Base path without extension for ``.pdf`` / ``.png`` output;
             if ``None``, the figure is shown.
@@ -396,6 +409,7 @@ def plot_choice_probs_around_good_reversals(
             save_path,
             only_good=only_good,
             use_total=use_total,
+            all_unclassified_idx=all_unclassified_idx,
         )
         return
     else:
@@ -413,6 +427,7 @@ def add_cumulative_rev_axis(
     plot_fraction_removed: bool = True,
     only_good: bool = False,
     use_total: bool | None = None,
+    all_unclassified_idx: dict | None = None,
 ) -> None:
     """Plot choice-probability curves with a cumulative fraction-removed twin axis.
 
@@ -435,9 +450,12 @@ def add_cumulative_rev_axis(
             (default: ``True``).
         only_good: Suppress the bad-reversal line in good/bad mode (default:
             ``False``).
-        use_total: If truthy, use total-mode cumulative axis (one line, good
-            plus bad); if falsy, use good/bad-mode (two lines, default:
+        use_total: If truthy, use total-mode cumulative axis (one line, every
+            reversal kind); if falsy, use good/bad-mode (two lines, default:
             ``None`` → falsy).
+        all_unclassified_idx: ``{subject: [int]}`` reversals of unknown kind
+            (blocks-only sessions); adds an "unclassified" line in good/bad
+            mode.
 
     Raises:
         ValueError: If ``all_good_idx`` or ``all_bad_idx`` is missing.
@@ -450,6 +468,7 @@ def add_cumulative_rev_axis(
         x,
         use_total=use_total,
         fraction=plot_fraction_removed,
+        unclassified_idx=all_unclassified_idx,
     )
     fig, ax = plt.subplots(figsize=(10, 6))
     plot_choice_probs_with_removal(
@@ -516,13 +535,15 @@ def cumulative_total_events_over_post(
     *,
     good_idx: dict,
     bad_idx: dict,
+    unclassified_idx: dict | None = None,
 ) -> tuple[np.ndarray, ...]:
     """Compute a single cumulative fraction-removed curve over the post window.
 
     For each aligned anchor reversal at index *g*, finds the first subsequent
-    reversal after *g*, good or bad, and marks *g* as removed for all offsets
+    reversal after *g*, of any kind, and marks *g* as removed for all offsets
     ``t >= (next_rev - g)``.  The curve is the good and bad curves of
-    :func:`cumulative_reversal_events_over_post` added together.
+    :func:`cumulative_reversal_events_over_post` added together, plus the
+    unclassified ones.
 
     This produces a monotonically non-decreasing step function bounded in
     ``[0, 1]``.  The computation is
@@ -537,6 +558,8 @@ def cumulative_total_events_over_post(
             (default: ``True``).
         good_idx: ``{subject: [int]}`` good-reversal trial indices.
         bad_idx: ``{subject: [int]}`` bad-reversal trial indices.
+        unclassified_idx: ``{subject: [int]}`` reversals of unknown kind (block
+            changes of sessions without good/bad counters); ``None`` if none.
 
     Returns:
         A three-tuple ``(x_disp, cum_total_full, frac_total_full)`` where each
@@ -546,6 +569,11 @@ def cumulative_total_events_over_post(
     """
     x = np.asarray(x, dtype=float)
     curves = total_removal_curves(
-        windows, x, exclude_anchor=exclude_anchor, good_idx=good_idx, bad_idx=bad_idx
+        windows,
+        x,
+        exclude_anchor=exclude_anchor,
+        good_idx=good_idx,
+        bad_idx=bad_idx,
+        unclassified_idx=unclassified_idx,
     )
     return (x.copy(), *curves)

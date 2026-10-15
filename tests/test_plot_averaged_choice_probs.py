@@ -262,19 +262,27 @@ def windows(*reversal_indices):
 
 
 def reversals_of(windows_dict):
-    """Every anchor is a good reversal and there are no bad ones."""
-    good = {
-        p: {s: [r["reversal_idx"] for r in revs] for s, revs in w.items()}
+    """Per problem, every anchor is a good reversal and there are no others."""
+    return {
+        p: {
+            "good": {s: [r["reversal_idx"] for r in revs] for s, revs in w.items()},
+            "bad": {s: [] for s in w},
+            "unclassified": {s: [] for s in w},
+        }
         for p, w in windows_dict.items()
     }
-    bad = {p: {s: [] for s in w} for p, w in windows_dict.items()}
-    return {"good_idx_by_problem": good, "bad_idx_by_problem": bad}
+
+
+def removed_with(windows_dict, curves):
+    return fraction_removed_by_problem(
+        windows_dict, curves, FX, reversals_by_problem=reversals_of(windows_dict)
+    )
 
 
 def removed(windows_dict, **kwargs):
     curves = {p: {"across": {}} for p in windows_dict}
     return fraction_removed_by_problem(
-        windows_dict, curves, FX, **reversals_of(windows_dict), **kwargs
+        windows_dict, curves, FX, reversals_by_problem=reversals_of(windows_dict), **kwargs
     )
 
 
@@ -309,21 +317,46 @@ def test_fraction_removed_exclude_anchor_flag_is_forwarded():
 def test_fraction_removed_skips_problems_without_curves_or_windows():
     curves = {1: {"across": {}}, 3: {"across": {}}}
     windows_dict = {1: windows(10, 12), 2: windows(10, 12), 3: {}}
-    frac, used = fraction_removed_by_problem(windows_dict, curves, FX, **reversals_of(windows_dict))
+    frac, used = removed_with(windows_dict, curves)
     assert used == [1]
     np.testing.assert_allclose(frac[3], 1 / 2)
 
 
 def test_fraction_removed_is_all_nan_when_no_problem_contributes():
     frac, used = fraction_removed_by_problem(
-        {1: {}}, {1: {"across": {}}}, FX, good_idx_by_problem={}, bad_idx_by_problem={}
+        {1: {}}, {1: {"across": {}}}, FX, reversals_by_problem={}
     )
     assert used == [] and np.isnan(frac).all() and frac.shape == FX.shape
 
 
 @ignore_nan_offsets
 def test_fraction_removed_counts_bad_reversals_between_anchors():
-    windows_dict = {1: windows(10)}
-    kwargs = {"good_idx_by_problem": {1: {"m": [10]}}, "bad_idx_by_problem": {1: {"m": [12]}}}
-    frac, _ = fraction_removed_by_problem(windows_dict, {1: {"across": {}}}, FX, **kwargs)
+    kinds = {"good": {"m": [10]}, "bad": {"m": [12]}, "unclassified": {"m": []}}
+    frac, _ = fraction_removed_by_problem(
+        {1: windows(10)}, {1: {"across": {}}}, FX, reversals_by_problem={1: kinds}
+    )
     np.testing.assert_allclose(frac[1:], [0, 0, 1, 1, 1])
+
+
+@ignore_nan_offsets
+def test_fraction_removed_counts_blocks_only_block_changes():
+    # a blocks-only problem: anchors are block changes, none is good or bad
+    kinds = {"good": {"m": []}, "bad": {"m": []}, "unclassified": {"m": [10, 12]}}
+    frac, _ = fraction_removed_by_problem(
+        {1: windows(10, 12)}, {1: {"across": {}}}, FX, reversals_by_problem={1: kinds}
+    )
+    np.testing.assert_allclose(frac[1:], [0, 0, 1 / 2, 1 / 2, 1 / 2])
+
+
+@ignore_nan_offsets
+def test_fraction_removed_does_not_count_a_problem_without_anchors():
+    windows_dict = {1: windows(10, 12), 2: {"m": []}}
+    frac, used = removed(windows_dict)
+    assert used == [1]
+    np.testing.assert_allclose(frac[3], 1 / 2)
+
+
+def test_fraction_removed_names_a_problem_missing_from_the_reversal_indices():
+    windows_dict = {7: windows(10, 12)}
+    with pytest.raises(KeyError, match="Problem 7.*reversals_by_problem"):
+        fraction_removed_by_problem(windows_dict, {7: {"across": {}}}, FX, reversals_by_problem={})
