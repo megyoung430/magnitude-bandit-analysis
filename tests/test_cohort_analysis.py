@@ -325,6 +325,20 @@ def test_run_cohort_pools_every_drifting_problem_of_every_mouse(tmp_path, sectio
     )
 
 
+def test_run_cohort_loads_with_task_types_classified(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_load(root, **kwargs):
+        seen.update(root=root, **kwargs)
+        return {}
+
+    monkeypatch.setattr(cohort_analysis, "load_trials_by_problem", fake_load)
+    with pytest.raises(ValueError, match="No problems"):
+        run_cohort(2, data_root=tmp_path, results_root=tmp_path)
+    assert seen["classify_task_types"] is True
+    assert seen["root"] == cohort_raw_dir(tmp_path, 2)
+
+
 # --- errors -----------------------------------------------------------------------------
 
 

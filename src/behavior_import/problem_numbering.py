@@ -1,19 +1,23 @@
 """One problem-numbering rule, shared by ``import_data`` and ``group_sessions_by_problem``.
 
-A *problem* is a tower layout: the set of choice towers plus the initiation tower.
+A *problem* is a tower layout (the set of choice towers plus the initiation tower) run under
+one task type (blocked or drifting, from the task name; see :func:`classify_task_name`).
 Sessions are taken per subject in :func:`src.behavior_import.session_order.session_sort_key`
 order (date, then session number; the one ordering rule of the package). Sessions that are not
 bandit problems are skipped first (below); the rest are cut into *runs* of consecutive sessions
-with the same layout, and each run is compared with the **last unflagged layout**, not with the
-session before it:
+with the same layout and task type, and each run is compared with the **last unflagged
+layout and type**, not with the session before it. A change of task type with an unchanged
+layout is a change like any other: it starts a new problem, and when it lasts one session
+before the next change it is a settings error. Sessions that carry no task type
+(``task_type`` is ``None``, the importer's default) are numbered by layout alone:
 
-- Same layout as the last unflagged one: the run continues that problem (so
+- Same layout and type as the last unflagged one: the run continues that problem (so
   A, flagged B, A is problems 1, None, 1, whatever the evidence of the resumed A).
-- A new layout that lasts exactly one session before the layout changes again is a
+- A new layout or type that lasts exactly one session before the layout changes again is a
   *suspected settings error*: problem ``None``, flag :data:`SUSPECTED_SETTINGS_ERROR`.
   It is neither a new problem nor pooled with another, and does not become the last
   unflagged layout.
-- A new layout that lasts two or more sessions (or is the final run of the data, whose
+- A new layout or type that lasts two or more sessions (or is the final run of the data, whose
   duration is not yet known) is a real problem, numbered from its first session, even
   after a return to an earlier layout (A, B, B, A is 1, 2, 2, 3). If its first session
   fails the evidence checks, it keeps the number but gets flag :data:`REVIEW_SETTINGS`
@@ -60,6 +64,10 @@ NO_CHOICE_TOWERS = "no_choice_towers"
 # The lab's cohort-fitting notebook excludes task names containing "mag" or "pretraining";
 # "mag" is matched as the whole name here so that a task such as "..._magnitude_bandit" is
 # not mistaken for pretraining.
+BLOCKED = "blocked"
+DRIFTING = "drifting"
+BLOCKED_NAME_PARTS = ("blocked", "structured")
+DRIFTING_NAME_PARTS = ("drifting",)
 PRETRAINING_TASK_NAMES = frozenset({"mag"})
 PRETRAINING_TASK_NAME_PARTS = ("pretraining",)
 DEFAULT_INITIATION_TOWER = "B2"
@@ -82,6 +90,8 @@ class SessionFacts(NamedTuple):
     starts_found_ports_false: bool
     has_port_finding_trials: bool  # a printed trial dict carries ``num_t_found``
     task_name: str | None = None
+    # "blocked" or "drifting" when the importer classified the task name, else ``None``
+    task_type: str | None = None
 
 
 class ProblemAssignment(NamedTuple):
@@ -207,6 +217,41 @@ def is_pretraining(task_name):
     )
 
 
+def classify_task_name(task_name):
+    """``"blocked"`` or ``"drifting"`` for a pyControl task name.
+
+    The last path component is matched case-insensitively: ``blocked`` or ``structured`` is
+    blocked, ``drifting`` is drifting.
+
+    Raises:
+        ValueError: If the name is missing, matches neither type, or matches both.
+    """
+    if not task_name:
+        raise ValueError(
+            f"no task name ({task_name!r}), so the task type cannot be told; "
+            "the run stops here until the recording has a task_name"
+        )
+    last = re.split(r"[\\/]", task_name.strip())[-1].casefold()
+    is_blocked = any(part in last for part in BLOCKED_NAME_PARTS)
+    is_drifting = any(part in last for part in DRIFTING_NAME_PARTS)
+    if is_blocked and is_drifting:
+        raise ValueError(f"task name {task_name!r} matches both blocked and drifting")
+    if is_blocked:
+        return BLOCKED
+    if is_drifting:
+        return DRIFTING
+    raise ValueError(
+        f"unrecognised task name {task_name!r}: expected a name containing "
+        f"{' / '.join(BLOCKED_NAME_PARTS)} (blocked) or "
+        f"{' / '.join(DRIFTING_NAME_PARTS)} (drifting)"
+    )
+
+
+def numbering_signature(session):
+    """What must stay equal for sessions to belong to one problem: layout and task type."""
+    return (session.layout, session.task_type)
+
+
 def _skip_assignment(session):
     """The assignment for a session that is not a bandit problem, or ``None`` if it is one."""
     if is_pretraining(session.task_name):
@@ -231,7 +276,7 @@ def _layout_runs(facts, indices):
     """Group *indices* (session positions, in order) into runs of equal layout."""
     runs = []
     for index in indices:
-        if runs and facts[runs[-1][0]].layout == facts[index].layout:
+        if runs and numbering_signature(facts[runs[-1][0]]) == numbering_signature(facts[index]):
             runs[-1].append(index)
         else:
             runs.append([index])
@@ -246,18 +291,18 @@ def assign_problems(facts):
     """
     assignments = {i: a for i, f in enumerate(facts) if (a := _skip_assignment(f))}
     runs = _layout_runs(facts, [i for i in range(len(facts)) if i not in assignments])
-    problem, last_layout = 0, None
+    problem, last_signature = 0, None
     # Each run is judged against the last unflagged layout, so this is a loop.
     for position, run in enumerate(runs):
-        layout = facts[run[0]].layout
-        if layout == last_layout:
+        signature = numbering_signature(facts[run[0]])
+        if signature == last_signature:
             first = ProblemAssignment(problem, None, ())
         elif len(run) == 1 and position < len(runs) - 1:
-            reasons = ("layout lasts one session before changing again",)
+            reasons = ("layout or task type lasts one session before changing again",)
             assignments[run[0]] = ProblemAssignment(None, SUSPECTED_SETTINGS_ERROR, reasons)
             continue
         else:
-            problem, last_layout = problem + 1, layout
+            problem, last_signature = problem + 1, signature
             reasons = _evidence_reasons(facts[run[0]]) if problem > 1 else ()
             first = ProblemAssignment(problem, REVIEW_SETTINGS if reasons else None, reasons)
             first = first._replace(provisional=len(run) == 1 and position == len(runs) - 1)

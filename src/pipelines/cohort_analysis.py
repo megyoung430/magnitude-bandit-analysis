@@ -276,7 +276,10 @@ def _write_problem_map(problem_map: pd.DataFrame, path: Path) -> None:
 
 def _load(cohort_id: int, data_root, use_cache: bool) -> dict:
     root = Path(data_root) if data_root is not None else get_settings().data_root
-    return load_trials_by_problem(cohort_raw_dir(root, cohort_id), use_cache=use_cache)
+    # task types are read at import, so a task-type change starts a new problem
+    return load_trials_by_problem(
+        cohort_raw_dir(root, cohort_id), use_cache=use_cache, classify_task_types=True
+    )
 
 
 # ---------------------------------------------------------------------------

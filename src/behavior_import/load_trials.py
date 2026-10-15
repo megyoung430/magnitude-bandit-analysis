@@ -42,14 +42,16 @@ def import_code_version() -> str:
     return digest.hexdigest()
 
 
-def _import_and_extract(root: Path) -> dict:
-    return extract_trials_grouped_by_problem(import_data(root))
+def _import_and_extract(root: Path, classify_task_types: bool = False) -> dict:
+    return extract_trials_grouped_by_problem(
+        import_data(root, classify_task_types=classify_task_types)
+    )
 
 
-def _load(root: str, fingerprint, code_version: str) -> dict:
+def _load(root: str, fingerprint, code_version: str, classify_task_types: bool) -> dict:
     # fingerprint and code_version are not used here: they are arguments only
     # so that they become part of the cache key
-    return _import_and_extract(Path(root))
+    return _import_and_extract(Path(root), classify_task_types)
 
 
 @lru_cache
@@ -62,6 +64,7 @@ def load_trials_by_problem(
     *,
     cache_dir: Path | None = None,
     use_cache: bool = True,
+    classify_task_types: bool = False,
 ) -> dict:
     """``extract_trials_grouped_by_problem(import_data(root))``, cached on disk.
 
@@ -69,6 +72,8 @@ def load_trials_by_problem(
         root: Raw-data folder, e.g. ``<data_root>/<experiment>/<cohort>/rawdata``.
         cache_dir: Cache location (default: ``get_settings().cache_dir``).
         use_cache: ``False`` always re-imports and leaves the cache untouched.
+        classify_task_types: Number problems by task type as well as layout (see
+            :func:`~src.behavior_import.import_data.import_data`).
 
     Returns:
         ``{problem_number: {subject: {session_key: session_dict}}}``.
@@ -77,10 +82,10 @@ def load_trials_by_problem(
     if not root.is_dir():
         raise FileNotFoundError(f"Raw data folder not found (is the share mounted?): {root}")
     if not use_cache:
-        return _import_and_extract(root)
+        return _import_and_extract(root, classify_task_types)
 
     load = _cached_load(Path(cache_dir or get_settings().cache_dir))
-    args = (str(root), raw_data_fingerprint(root), import_code_version())
+    args = (str(root), raw_data_fingerprint(root), import_code_version(), classify_task_types)
     if load.check_call_in_cache(*args):
         print(f"[INFO] Loading trials for {root} from cache")
     return load(*args)

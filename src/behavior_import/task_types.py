@@ -12,55 +12,29 @@ problems within their type (blocked 1, 2, ...; drifting 1, 2, ...) so that "drif
 lines up across mice; :func:`problem_map_table` keeps the overall number next to it.
 """
 
-import re
-
 import pandas as pd
 
 from src.behavior_import.import_data import session_source_paths
+from src.behavior_import.import_data import session_task_type as _classify
+from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
+    BLOCKED,
+    DRIFTING,
+    classify_task_name,
+)
 from src.behavior_import.session_order import ordered_session_keys
-
-BLOCKED = "blocked"
-DRIFTING = "drifting"
-BLOCKED_NAME_PARTS = ("blocked", "structured")
-DRIFTING_NAME_PARTS = ("drifting",)
 
 MAP_COLUMNS = ("mouse", "task_type", "problem_in_type", "overall_problem", "sessions")
 
 
-def classify_task_name(task_name: str | None) -> str:
-    """``"blocked"`` or ``"drifting"`` for a pyControl task name.
-
-    Raises:
-        ValueError: If the name is missing, matches neither type, or matches both.
-    """
-    if not task_name:
-        raise ValueError(f"no task name ({task_name!r}); cannot tell blocked from drifting")
-    last = re.split(r"[\\/]", task_name.strip())[-1].casefold()
-    is_blocked = any(part in last for part in BLOCKED_NAME_PARTS)
-    is_drifting = any(part in last for part in DRIFTING_NAME_PARTS)
-    if is_blocked and is_drifting:
-        raise ValueError(f"task name {task_name!r} matches both blocked and drifting")
-    if is_blocked:
-        return BLOCKED
-    if is_drifting:
-        return DRIFTING
-    raise ValueError(
-        f"unrecognised task name {task_name!r}: expected a name containing "
-        f"{' / '.join(BLOCKED_NAME_PARTS)} (blocked) or "
-        f"{' / '.join(DRIFTING_NAME_PARTS)} (drifting)"
-    )
-
-
 def session_task_type(subject: str, session_key: str, session: dict) -> str:
     """:func:`classify_task_name` of one session; errors name the subject, session and file."""
-    task_name = session.get("task_name")
-    try:
-        return classify_task_name(task_name)
-    except ValueError as err:
-        files = ", ".join(session_source_paths(session)) or "<unknown file>"
-        raise ValueError(
-            f"{subject} {session_key} ({files}), task name {task_name!r}: {err}"
-        ) from err
+    return _classify(
+        subject,
+        session_key,
+        session.get("task_name"),
+        session_source_paths(session),
+        skip_pretraining=False,
+    )
 
 
 def _problem_task_type(subject: str, problem: int, sessions: dict) -> str:

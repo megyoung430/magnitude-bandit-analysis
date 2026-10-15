@@ -784,6 +784,7 @@ def session_facts(subject_id, session_id, session_data):
         evidence["starts_found_ports_false"],
         evidence["has_port_finding_trials"],
         evidence["task_name"],
+        session_data.get("task_type"),
     )
 
 
