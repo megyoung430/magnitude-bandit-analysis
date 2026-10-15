@@ -85,13 +85,41 @@ def _function_source(function: Callable) -> str:
         ) from error
 
 
+def _is_simple(value) -> bool:
+    """True for immutable JSON-able values: numbers, strings, booleans, None, tuples of those.
+
+    Lists and dicts are excluded: a captured list is often mutable state (a call log), and
+    hashing it would move the directory between a run and its resume.
+    """
+    if isinstance(value, (bool, int, float, str, type(None), np.generic)):
+        return True
+    return isinstance(value, tuple) and all(_is_simple(item) for item in value)
+
+
+def _closure_values(function: Callable) -> dict:
+    """Closure variables of *function* that hold simple values, by name.
+
+    A factory such as ``make(0.2)`` returns functions with identical source, so the captured
+    values must enter the identity. Captured objects that are not simple values (arrays,
+    functions, instances) are not hashed.
+    """
+    cells = getattr(function, "__closure__", None) or ()
+    names = function.__code__.co_freevars
+    return {
+        name: cell.cell_contents
+        for name, cell in zip(names, cells, strict=True)
+        if _is_simple(cell.cell_contents)
+    }
+
+
 def _build_manifest(
     config: dict, *, bounds: list, fit_function: Callable, loss_function: Callable
 ) -> tuple[dict, dict]:
     """The identity of an experiment, and the source of this module's code.
 
     The identity (algorithm version, model versions, library versions, config, bounds,
-    at-bound tolerance and the source of the fit and loss functions) names the experiment
+    at-bound tolerance, and the source and simple closure values of the fit and loss
+    functions) names the experiment
     directory. This module's own source is provenance only, so editing a helper does not
     start a new experiment; a change to the runner or design that alters results needs an
     ALGORITHM_VERSION bump.
@@ -113,7 +141,9 @@ def _build_manifest(
         bounds=bounds,
         at_bound_atol=_AT_BOUND_ATOL,
         fit_source=_function_source(fit_function),
+        fit_closure=_closure_values(fit_function),
         loss_source=_function_source(loss_function),
+        loss_closure=_closure_values(loss_function),
     )
     return identity, dict(code=code)
 

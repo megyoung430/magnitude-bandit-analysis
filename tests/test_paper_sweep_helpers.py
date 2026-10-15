@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from src.agents import paper_rl_fitting as paper
-from src.agents.run_store import manifest_dir
+from src.agents.run_store import ProvenanceMismatchWarning, manifest_dir
 
 needs_jax = pytest.mark.skipif(
     not (importlib.util.find_spec("jax") and importlib.util.find_spec("optax")),
@@ -296,7 +296,7 @@ class TestManifest:
     def test_source_text_is_provenance_only(self, tmp_path):
         snapshots = dict(implementation="one", neural_implementation="x")
         first = manifest_dir(tmp_path, self.identity(), snapshots)
-        with pytest.warns(UserWarning, match="implementation"):
+        with pytest.warns(ProvenanceMismatchWarning, match="implementation"):
             second = manifest_dir(tmp_path, self.identity(), dict(snapshots, implementation="two"))
         assert first == second
 

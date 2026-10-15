@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from src.agents import paper_rl_fitting as paper
-from src.agents.run_store import identity_hash
+from src.agents.run_store import ProvenanceMismatchWarning, identity_hash
 
 pytestmark = pytest.mark.skipif(
     not (importlib.util.find_spec("jax") and importlib.util.find_spec("optax")),
@@ -368,7 +368,7 @@ class TestRunDirectoryIdentity:
         original = json.loads((Path(first["output_dir"]) / "manifest.json").read_text())
         url = 'SOURCE_URL = "https://github.com/google-deepmind/hybrid_rnns_reward_learning"'
         edit_module_text(paper, url, url + "  # note")
-        with pytest.warns(UserWarning, match="implementation"):
+        with pytest.warns(ProvenanceMismatchWarning, match="implementation"):
             second = self.sweep(tmp_path)
         assert second == first and second["output_dir"] == first["output_dir"]
         assert fits == []  # every run was loaded from disk

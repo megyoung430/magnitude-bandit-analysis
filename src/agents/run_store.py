@@ -49,6 +49,15 @@ def write_json_atomically(path: Path, payload, *, indent: int) -> None:
     write_atomically(path, lambda handle: handle.write(text.encode()))
 
 
+class ProvenanceMismatchWarning(UserWarning):
+    """A run resumed with source text that differs from the code that started it."""
+
+
+# Python shows a given warning once per call site by default, which would hide a repeat in a
+# long notebook session.
+warnings.simplefilter("always", ProvenanceMismatchWarning)
+
+
 def _canonical(value):
     """*value* with numbers normalised, so equal numbers hash equally and NaN is rejected.
 
@@ -119,6 +128,7 @@ def manifest_dir(output_root, identity: dict, provenance: dict | None = None) ->
                 f"Resuming {output} with source that differs from the code that started it: "
                 f"{', '.join(changed)}. Finished work is reused unchanged; bump "
                 "ALGORITHM_VERSION (or MODEL_VERSION) if the change affects results.",
+                ProvenanceMismatchWarning,
                 stacklevel=2,
             )
         return output

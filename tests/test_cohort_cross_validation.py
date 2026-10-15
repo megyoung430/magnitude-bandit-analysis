@@ -20,7 +20,7 @@ from src.agents.cohort_fitting import (
     run_problem_cross_validation,
     sequence_log_probabilities,
 )
-from src.agents.run_store import identity_hash
+from src.agents.run_store import ProvenanceMismatchWarning, identity_hash
 
 TOWERS = ["A1", "B1", "C1"]
 PARAMS = [0.2, 2.0, 0.5]
@@ -154,7 +154,7 @@ def test_editing_source_text_keeps_the_directory_and_resumes(
     original = json.loads((base / "manifest.json").read_text())["implementation"]
     n_fits = len(spy.calls)
     edit_module_text(cohort_fitting, "_AT_BOUND_ATOL = 1e-4", "_AT_BOUND_ATOL = 1e-4  # note")
-    with pytest.warns(UserWarning, match="implementation"):
+    with pytest.warns(ProvenanceMismatchWarning, match="implementation"):
         _, _, _, resumed = run(sequences, tmp_path)
     assert resumed == base
     assert len(spy.calls) == n_fits  # every fold was loaded, none refitted

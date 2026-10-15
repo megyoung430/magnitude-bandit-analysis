@@ -124,14 +124,19 @@ The hash covers:
   platform for the paper-style sweeps), so environments that resolve to different
   versions never mix saved results;
 - for `run_recovery`, the source text of the `fit_function` and `loss_function` you pass
-  in: they are inputs, so redefining one (even in a notebook) starts a new experiment.
-  A callable without retrievable source raises an error.
+  in, and the values of their closure variables when those are simple immutable
+  values (numbers, strings, booleans, `None`, and tuples of those). Redefining one in a notebook, or
+  building it from a factory with a different number (`make(0.2)` vs `make(0.7)`), starts
+  a new experiment. Only the function's own source is hashed: not the functions it calls,
+  the globals it reads, its default arguments, or closure variables holding arrays, lists,
+  dicts or objects. Change one of those and the directory does not move, so use a new output root
+  or edit the function's own text. A callable without retrievable source raises an error.
 
 It does **not** cover the source text of the modules themselves. Editing a comment,
 reformatting or refactoring keeps the folder, so an interrupted run resumes.
 `manifest.json` records the source text of the code that created the folder, as
 provenance only. It is written once and never overwritten; if you resume after the source
-has changed, a warning names the modules that differ from the stored ones.
+has changed, a `ProvenanceMismatchWarning` (shown every time) names the modules that differ from the stored ones.
 
 **When to bump a version:** bump `ALGORITHM_VERSION` in the module whose results changed,
 and `MODEL_VERSION` in a model module when what it computes changes. A bump starts every

@@ -21,7 +21,7 @@ from src.agents.parameter_recovery import (
     run_recovery,
     summarize_recovery,
 )
-from src.agents.run_store import identity_hash
+from src.agents.run_store import ProvenanceMismatchWarning, identity_hash
 from src.tasks import drifting_bandit
 
 BOUNDS = [(0.001, 1.0), (0.01, 10.0), (0.0, 3.0)]
@@ -280,6 +280,32 @@ def test_redefining_a_function_with_the_same_name_starts_a_new_directory(tmp_pat
     assert run(tmp_path, loss=_loss_returning_zero())[1] == first
 
 
+def _factory_loss(offset):
+    def loss(params, actions, rewards, num_arms):
+        return offset
+
+    return loss
+
+
+def test_closure_values_enter_the_identity(tmp_path):
+    first = run(tmp_path, loss=_factory_loss(0.2))[1]
+    assert run(tmp_path, loss=_factory_loss(0.7))[1] != first
+    assert run(tmp_path, loss=_factory_loss(0.2))[1] == first
+
+
+def _array_factory_loss(offset):
+    def loss(params, actions, rewards, num_arms):
+        return float(np.sum(offset))
+
+    return loss
+
+
+def test_non_simple_closure_values_are_not_hashed(tmp_path):
+    # Documented limitation: only simple immutable values are hashed, so an array is ignored.
+    first = run(tmp_path, loss=_array_factory_loss(np.zeros(2)))[1]
+    assert run(tmp_path, loss=_array_factory_loss(np.ones(2)))[1] == first
+
+
 def test_function_without_source_fails_loudly(tmp_path):
     class Loss:
         def __call__(self, params, actions, rewards, num_arms):
@@ -300,7 +326,7 @@ def test_editing_source_text_keeps_the_directory_and_resumes(tmp_path, edit_modu
     original = json.loads((base / "manifest.json").read_text())["code"]["module"]
     n_fits = len(fit.calls)
     edit_module_text(parameter_recovery, "_AT_BOUND_ATOL = 1e-4", "_AT_BOUND_ATOL = 1e-4  # note")
-    with pytest.warns(UserWarning, match="code.module"):
+    with pytest.warns(ProvenanceMismatchWarning, match="code.module"):
         _, resumed = run(tmp_path, fit)
     assert resumed == base
     assert len(fit.calls) == n_fits  # every session was loaded from the checkpoint

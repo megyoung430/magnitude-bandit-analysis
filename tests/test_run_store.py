@@ -3,12 +3,15 @@
 import hashlib
 import json
 import os
+import subprocess
+import sys
 
 import numpy as np
 import pytest
 
 from src.agents import run_store
 from src.agents.run_store import (
+    ProvenanceMismatchWarning,
     at_bound,
     fingerprint_sequences,
     identity_hash,
@@ -145,7 +148,7 @@ class TestManifestDir:
     def test_provenance_is_written_once_and_not_overwritten_on_resume(self, tmp_path):
         identity = {"algorithm_version": 1}
         first = manifest_dir(tmp_path, identity, {"source": "text one"})
-        with pytest.warns(UserWarning):
+        with pytest.warns(ProvenanceMismatchWarning):
             second = manifest_dir(tmp_path, identity, {"source": "text two"})
         assert first == second
         manifest = json.loads((second / "manifest.json").read_text())
@@ -156,10 +159,29 @@ class TestManifestDir:
         old = {"module": "a", "code": {"fit": "x", "loss": "y"}}
         manifest_dir(tmp_path, identity, old)
         new = {"module": "a", "code": {"fit": "x2", "loss": "y"}}
-        with pytest.warns(UserWarning, match=r"code\.fit.*ALGORITHM_VERSION") as caught:
+        with pytest.warns(
+            ProvenanceMismatchWarning, match=r"code\.fit.*ALGORITHM_VERSION"
+        ) as caught:
             manifest_dir(tmp_path, identity, new)
         message = str(caught[0].message)
         assert "code.loss" not in message and "module" not in message
+
+    def test_every_resume_warns_not_just_the_first(self, tmp_path):
+        manifest_dir(tmp_path, {"v": 1}, {"module": "a"})
+        for _ in range(3):
+            with pytest.warns(ProvenanceMismatchWarning):
+                manifest_dir(tmp_path, {"v": 1}, {"module": "b"})
+
+    def test_importing_the_module_registers_an_always_filter(self):
+        # pytest resets the warning filters around each test, so check in a fresh interpreter.
+        code = (
+            "import warnings\n"
+            "from src.agents.run_store import ProvenanceMismatchWarning\n"
+            "print(any(f[0] == 'always' and f[2] is ProvenanceMismatchWarning "
+            "for f in warnings.filters))"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        assert result.stdout.strip() == "True", result.stderr
 
     def test_resume_with_unchanged_source_is_silent(self, tmp_path, recwarn):
         provenance = {"module": "a", "code": {"fit": "x"}}
