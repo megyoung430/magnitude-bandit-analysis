@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from src.behavior_analysis.get_choice_probs_around_good_reversals import nan_standard_error
+
 # The three choice-probability curves computed around each good reversal.
 CHOICE_KEYS = ("prev_best", "next_best", "third")
 
@@ -25,32 +27,20 @@ def _check_same_x(curves_by_problem: dict, probs: list) -> np.ndarray:
     return x0
 
 
-def _stack_problem_means(curves_by_problem: dict, probs: list, key: str) -> np.ndarray | None:
-    """Stack each problem's mean curve for *key* into ``(n_problems, T)``.
-
-    Problems that lack *key* are left out; returns ``None`` if no problem has it.
-
-    Known issue: the caller still counts every problem in ``num_problems`` (shown in
-    the figure title), so a curve can be averaged over fewer problems than reported.
-    """
-    rows = []
-    for p in probs:
-        y = curves_by_problem[p]["across"]["mean"].get(key)
-        if y is not None:
-            rows.append(np.asarray(y, dtype=float))
-    return np.vstack(rows) if rows else None
+def _problem_means(curves_by_problem: dict, probs: list, key: str) -> dict:
+    """``{problem: mean curve for key}`` for the problems that have *key*."""
+    means = {p: curves_by_problem[p]["across"]["mean"].get(key) for p in probs}
+    return {p: np.asarray(y, dtype=float) for p, y in means.items() if y is not None}
 
 
 def _mean_and_se_over_problems(stacked: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """NaN-aware mean and standard error across the rows (problems) of *stacked*."""
+    """NaN-aware mean and standard error across the rows (problems) of *stacked*.
+
+    The SE uses the number of non-NaN problems at each offset (NaN with fewer than
+    two) and is zero for a single problem.
+    """
     mean = np.nanmean(stacked, axis=0)
-    # Known issue: the denominator is sqrt(n_problems) even where some problems
-    # are NaN at that offset, so the SE is too small there.
-    se = (
-        np.nanstd(stacked, axis=0, ddof=1) / np.sqrt(stacked.shape[0])
-        if stacked.shape[0] > 1
-        else np.zeros_like(mean)
-    )
+    se = nan_standard_error(stacked) if stacked.shape[0] > 1 else np.zeros_like(mean)
     return mean, se
 
 
@@ -165,7 +155,8 @@ def average_across_problem_curves(curves_by_problem: dict) -> tuple:
     Returns:
         ``(x, across_avg)`` where *across_avg* contains keys
         ``"mean"``, ``"se"``, ``"num_subjects"``, ``"num_reversals"``,
-        ``"num_problems"``, and ``"problems_used"``.
+        ``"num_problems"``, and ``"problems_used"`` (only the problems that
+        supplied at least one curve).
 
     Raises:
         ValueError: If *curves_by_problem* is empty or if the x-arrays do not
@@ -178,12 +169,16 @@ def average_across_problem_curves(curves_by_problem: dict) -> tuple:
 
     mean_out: dict = {}
     se_out: dict = {}
+    contributing: set = set()
     for key in CHOICE_KEYS:
-        stacked = _stack_problem_means(curves_by_problem, probs, key)
-        if stacked is None:
+        means = _problem_means(curves_by_problem, probs, key)
+        contributing |= means.keys()
+        if not means:
             mean_out[key] = se_out[key] = None
         else:
+            stacked = np.vstack(list(means.values()))
             mean_out[key], se_out[key] = _mean_and_se_over_problems(stacked)
+    problems_used = [p for p in probs if p in contributing]
 
     num_subjects, num_reversals = _problem_totals(curves_by_problem, probs)
     across_avg = {
@@ -191,7 +186,7 @@ def average_across_problem_curves(curves_by_problem: dict) -> tuple:
         "se": se_out,
         "num_subjects": num_subjects,
         "num_reversals": num_reversals,
-        "num_problems": len(probs),
-        "problems_used": probs,
+        "num_problems": len(problems_used),
+        "problems_used": problems_used,
     }
     return x0, across_avg
