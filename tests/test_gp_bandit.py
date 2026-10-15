@@ -6,21 +6,24 @@ import numpy as np
 import pytest
 
 from src.tasks.gp_bandit import (
+    active_arm_values,
     best_run_lengths,
+    build_arm_roles,
     build_arm_values,
     build_session,
     draw_block_boundaries,
-    first_other_active_arm,
     format_session_title,
     gap_best_minus_second,
     mean_left_to_right,
     plot_example_session_gp,
     plot_session_panel,
+    remaining_active_arm,
     session_metrics,
     simulate_3armed_blockswaps_gp,
     simulate_example_session,
     summarize_sweep_cell,
     swap_arm_roles,
+    sweep_gp_metrics,
     y_axis_max,
 )
 
@@ -70,16 +73,9 @@ def test_draw_block_boundaries_requires_keyword_arguments():
 START = (2, [0, 1], {0: 0, 1: 1})
 
 
-def test_first_other_active_arm_skips_the_best_arm():
-    assert first_other_active_arm(0, active_arms=[0, 1], old_inactive=2) == 1
-    assert first_other_active_arm(1, active_arms=[0, 1], old_inactive=2) == 0
-
-
-def test_first_other_active_arm_fallback_covers_the_known_swap_defect():
-    # Only the known swap defect (see swap_arm_roles) produces a duplicated active
-    # entry, so these states are unreachable without it.
-    assert first_other_active_arm(2, active_arms=[2, 2], old_inactive=2) == 0
-    assert first_other_active_arm(0, active_arms=[0, 0], old_inactive=1) == 2
+def test_remaining_active_arm_skips_the_best_arm():
+    assert remaining_active_arm(0, active_arms=[0, 1]) == 1
+    assert remaining_active_arm(1, active_arms=[0, 1]) == 0
 
 
 def test_swap_arm_roles_best_arm_goes_inactive_and_old_inactive_inherits_its_stream():
@@ -99,20 +95,83 @@ def test_swap_arm_roles_does_not_mutate_its_inputs():
     assert active == [0, 1] and mapping == {0: 0, 1: 1}
 
 
-def test_swap_arm_roles_known_defect_inactive_arm_wins_argmax():
-    # Known swap defect, pinned so a change is deliberate: all active values are
-    # negative (raw GP), so the inactive arm's 0 wins the argmax; the inactive arm
-    # then appears in both the inactive and active slots.
+def test_swap_arm_roles_ignores_the_inactive_arm_when_active_values_are_negative():
+    # The inactive arm's 0 beats both negative active values, but only active arms
+    # can be best: arm 0 (-1) leaves and arm 2 re-enters with its stream.
     out = swap_arm_roles(np.array([-1.0, -2.0, 0.0]), *START)
-    assert out == (2, [2, 0], {0: 0, 2: 0})
+    assert out == (0, [2, 1], {1: 1, 2: 0})
 
 
-def test_swap_arm_roles_known_defect_state_raises_key_error():
-    # Known swap defect: a state that only the defect produces. No active arm differs
-    # from the best arm, so the fallback picks arm 0, which has no stream assigned.
-    with pytest.raises(KeyError) as excinfo:
-        swap_arm_roles(np.array([-1.0, -2.0, 0.0]), 2, [2, 2], {2: 0})
-    assert excinfo.value.args == (0,)
+def test_swap_arm_roles_picks_among_active_arms_when_all_active_values_are_minus_inf():
+    # The inactive arm's 0 beats -inf, but it must not be chosen.
+    out = swap_arm_roles(np.array([0.0, -np.inf, -np.inf]), 0, [1, 2], {1: 0, 2: 1})
+    assert out == (1, [0, 2], {2: 1, 0: 0})
+
+
+def test_swap_arm_roles_ties_pick_lowest_arm_index_when_active_arms_are_out_of_order():
+    out = swap_arm_roles(np.array([4.0, 0.0, 4.0]), 1, [2, 0], {2: 0, 0: 1})
+    assert out == (0, [1, 2], {2: 0, 1: 1})
+
+
+def test_build_arm_roles_reports_each_trials_inactive_arm():
+    streams = np.array([[3.0, 1.0], [3.0, 1.0], [5.0, 2.0], [5.0, 2.0]])
+    vals3, inactive = build_arm_roles(streams, np.array([2]))
+    np.testing.assert_array_equal(inactive, [2, 2, 0, 0])
+    np.testing.assert_array_equal(vals3[np.arange(4), inactive], 0.0)
+
+
+def test_active_arm_values_masks_only_the_inactive_arm():
+    vals3 = np.array([[-1.0, -2.0, 0.0], [0.0, -3.0, -1.0]])
+    masked = active_arm_values(vals3, np.array([2, 0]))
+    np.testing.assert_array_equal(masked, [[-1.0, -2.0, -np.inf], [-np.inf, -3.0, -1.0]])
+    assert vals3[0, 2] == 0.0
+    np.testing.assert_array_equal(gap_best_minus_second(masked), [1.0, 2.0])
+    np.testing.assert_array_equal(np.argmax(masked, axis=1), [0, 2])
+
+
+def test_simulate_rejects_min_block_len_above_max_before_drawing():
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError, match="exceeds"):
+        simulate_3armed_blockswaps_gp(T=30, sig=5.0, rng=rng, max_block_len=12, min_block_len=15)
+    assert rng.random() == np.random.default_rng(0).random()
+
+
+@pytest.mark.parametrize("lens", [[20, 8], [10]])
+def test_sweep_rejects_short_max_block_lens_before_printing_or_drawing(lens, capsys):
+    with pytest.raises(ValueError, match="max_block_lens"):
+        sweep_gp_metrics(sig_values=np.array([4.0]), n_sims=1, max_block_lens=np.array(lens))
+    assert capsys.readouterr().out == ""
+
+
+def test_swap_arm_roles_stays_consistent_over_repeated_negative_swaps():
+    state = START
+    for row in ([-1.0, -2.0, 0.0], [0.0, -5.0, -4.0], [-1.0, 0.0, -3.0]):
+        inactive, active, mapping = swap_arm_roles(np.array(row), *state)
+        assert sorted([inactive, *active]) == [0, 1, 2]
+        assert sorted(mapping) == sorted(active)
+        assert sorted(mapping.values()) == [0, 1]
+        state = (inactive, active, mapping)
+
+
+def test_simulate_rejects_default_min_block_len_below_one():
+    with pytest.raises(ValueError, match="min_block_len"):
+        simulate_3armed_blockswaps_gp(T=30, sig=5.0, max_block_len=10)
+
+
+def test_simulate_rejects_explicit_min_block_len_below_one():
+    with pytest.raises(ValueError, match="min_block_len"):
+        simulate_3armed_blockswaps_gp(T=30, sig=5.0, max_block_len=12, min_block_len=0)
+
+
+def test_simulate_rejects_bad_min_block_len_before_drawing():
+    rng = np.random.default_rng(0)
+    with pytest.raises(ValueError):
+        simulate_3armed_blockswaps_gp(T=30, sig=5.0, max_block_len=5, rng=rng)
+    assert rng.random() == np.random.default_rng(0).random()
+
+
+def test_simulate_accepts_smallest_valid_default_min_block_len():
+    simulate_3armed_blockswaps_gp(T=30, sig=5.0, max_block_len=11, rng=np.random.default_rng(0))
 
 
 # ---------------------------------------------------------------------------
@@ -412,3 +471,13 @@ def test_plot_example_session_gp_custom_title_wins(monkeypatch):
     plot_example_session_gp(sig=5.0, max_block_len=20, T=60, title="Mine")
     assert plt.gcf().axes[0].get_title() == "Mine"
     plt.close("all")
+
+
+@pytest.mark.parametrize("name", ["sig", "scale", "shift", "jitter"])
+@pytest.mark.parametrize("bad", [np.inf, -np.inf, np.nan])
+def test_simulate_rejects_non_finite_gp_parameters_before_drawing(name, bad):
+    rng = np.random.default_rng(0)
+    kwargs = {"T": 30, "sig": 5.0, "max_block_len": 20, "rng": rng, name: bad}
+    with pytest.raises(ValueError, match=name):
+        simulate_3armed_blockswaps_gp(**kwargs)
+    assert rng.random() == np.random.default_rng(0).random()

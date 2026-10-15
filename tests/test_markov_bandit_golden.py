@@ -857,6 +857,37 @@ def test_simulate_3armed_blockswaps_markov_matches_golden(seed):
     assert generator_state(rng) == state
 
 
+def assert_best_active_arm_becomes_inactive(session) -> None:
+    """Each boundary sends the best *active* arm to zero and never a zero arm to best.
+
+    Requires every active value to be non-zero, so the single zero in each row
+    identifies the inactive arm.
+    """
+    vals3 = session["vals3"]
+    T = len(vals3)
+    zero_arms = (vals3 == 0).sum(axis=1)
+    assert np.all(zero_arms == 1)
+    inactive = np.argmax(vals3 == 0, axis=1)
+    for stop in np.unique(session["boundaries"]):
+        if stop >= T:
+            continue
+        last = vals3[stop - 1]
+        active = [a for a in range(3) if a != inactive[stop - 1]]
+        best_active = max(active, key=lambda a: last[a])
+        assert inactive[stop] == best_active
+
+    # Metrics compare the two active arms: the inactive arm's 0 never wins or
+    # counts as second-best.
+    rows = np.arange(T)
+    best = session["best_arm_series"]
+    assert np.all(best != inactive)
+    active_sorted = np.sort(np.where(vals3 == 0, -np.inf, vals3), axis=1)
+    np.testing.assert_array_equal(
+        session["best_minus_second"], active_sorted[:, -1] - active_sorted[:, -2]
+    )
+    np.testing.assert_array_equal(vals3[rows, best], active_sorted[:, -1])
+
+
 SWEEP_KWARGS = dict(
     pud_values=np.array([0.1, 0.3]), max_block_lens=np.array([12, 15]), T=40, n_sims=3, seed=0
 )
@@ -883,20 +914,21 @@ def test_sweep_returns_independent_arrays():
     assert all(h.base is None for h in heatmaps)
 
 
-# Non-positive reward values can make the inactive arm win the argmax at a block
-# boundary; the role swap then looks up a stream that does not exist.
-def test_non_positive_values_raise_key_error():
-    with pytest.raises(KeyError) as excinfo:
-        simulate_3armed_blockswaps_markov(
-            T=60,
-            pud=0.3,
-            max_block_len=8,
-            min_block_len=2,
-            val_list=(-1, 0, 1),
-            min_hold=1,
-            rng=np.random.default_rng(0),
-        )
-    assert excinfo.value.args == (2,)
+# The inactive arm pays 0, which beats negative active values; roles must still be
+# chosen among the active arms only.
+def test_non_positive_values_assign_roles_among_active_arms():
+    *_, session = simulate_3armed_blockswaps_markov(
+        T=60,
+        pud=0.3,
+        max_block_len=8,
+        min_block_len=2,
+        val_list=(-3, -2, -1),
+        min_hold=1,
+        rng=np.random.default_rng(0),
+        return_session=True,
+    )
+    assert len(np.unique(session["boundaries"])) > 3
+    assert_best_active_arm_becomes_inactive(session)
 
 
 def test_plot_example_session_markov_draws_expected_figure(monkeypatch):
