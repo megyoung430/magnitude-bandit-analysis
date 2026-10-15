@@ -1,10 +1,20 @@
 """Functions for merging and aligning behavioral variables across multiple recording sessions."""
 
 import re
-from datetime import datetime
+
+
+def session_order(key):
+    """Sort key ordering session keys by their ``ses-<n>`` number; keys without one go last."""
+    match = re.search(r"ses-(\d+)", key)
+    return (int(match[1]) if match else float("inf"), key)
+
 
 def get_vars_across_all_sessions(data):
     """Merge aligned trials, carrying terminal reversals into the next session.
+
+    The rig's counters (good/bad reversals, block number) restart at each session, so each
+    session's values are offset by what the earlier sessions ended on. Merging counters that
+    do not restart would double count.
 
     End-of-session events affect totals even without a following trial. They
     enter trial-aligned counters only when another trial is available. Sessions
@@ -12,27 +22,28 @@ def get_vars_across_all_sessions(data):
     """
     merged, unmerged = {}, {}
     for subject, subject_sessions in data.items():
-        def order(key):
-            match = re.search(r"ses-(\d+)", key)
-            return (int(match[1]) if match else float("inf"), key)
-
-        sessions = [subject_sessions[k] for k in sorted(subject_sessions, key=order)]
-        fields = ('trial', 'blocks', 'trials_in_block', 'reward_magnitudes_by_tower',
-                  'choices_by_tower', 'choices_by_rank')
-        parts = {key: [s.get(key, []) for s in sessions if s.get('trial')]
-                 for key in fields}
-        result = {'trial': merge_trials_across_sessions(parts['trial'])}
-        for key in ('reward_magnitudes_by_tower', 'choices_by_tower', 'choices_by_rank'):
+        sessions = [subject_sessions[k] for k in sorted(subject_sessions, key=session_order)]
+        fields = (
+            "trial",
+            "blocks",
+            "trials_in_block",
+            "reward_magnitudes_by_tower",
+            "choices_by_tower",
+            "choices_by_rank",
+        )
+        parts = {key: [s.get(key, []) for s in sessions if s.get("trial")] for key in fields}
+        result = {"trial": merge_trials_across_sessions(parts["trial"])}
+        for key in ("reward_magnitudes_by_tower", "choices_by_tower", "choices_by_rank"):
             result[key] = merge_list_of_dicts_of_lists(parts[key])
-        for kind in ('good', 'bad'):
-            key = kind + '_reversals'
+        for kind in ("good", "bad"):
+            key = kind + "_reversals"
             if not any(key in s for s in sessions):
                 continue
             offset, values = 0, []
             parts[key] = []
             for sess in sessions:
                 arr = sess.get(key, [])
-                n = len(sess.get('trial', []))
+                n = len(sess.get("trial", []))
                 if arr and len(arr) != n:
                     raise ValueError(f"{subject}: {key} length does not match trial count")
                 filled, last = [], 0
@@ -43,23 +54,25 @@ def get_vars_across_all_sessions(data):
                     filled.append(last)
                 parts[key].append(filled)
                 values.extend(offset + v for v in filled)
-                offset += sess.get('reversal_totals', {}).get(kind, last)
+                offset += sess.get("reversal_totals", {}).get(kind, last)
             result[key] = values
         # Preserve existing block numbering, adding terminal events that have
         # no trial in their own session (within-session additions are extracted).
         block_values, offset = [], 0
         for sess in sessions:
-            blocks = sess.get('blocks', [])
+            blocks = sess.get("blocks", [])
             block_values.extend(b + offset for b in blocks)
             if blocks:
                 offset = block_values[-1] - 1
-            n = len(sess.get('trial', []))
-            offset += sum(e['count'] for e in sess.get('reversal_boundary_events', [])
-                          if e['index'] == n)
-        result['blocks'] = block_values
-        result['trials_in_block'] = compute_merged_num_trials_in_block(block_values)
+            n = len(sess.get("trial", []))
+            offset += sum(
+                e["count"] for e in sess.get("reversal_boundary_events", []) if e["index"] == n
+            )
+        result["blocks"] = block_values
+        result["trials_in_block"] = compute_merged_num_trials_in_block(block_values)
         merged[subject], unmerged[subject] = result, parts
     return merged, unmerged
+
 
 # ========== Merging Rules for Variables of Interest ==========
 def merge_trials_across_sessions(trials_by_session):
@@ -81,6 +94,7 @@ def merge_trials_across_sessions(trials_by_session):
         merged.extend([t + offset for t in sess_trials])
         offset += len(sess_trials)
     return merged
+
 
 def merge_list_of_dicts_of_lists(dict_list):
     """Concatenate a list of ``{key: list}`` dicts into a single merged dict.
@@ -105,6 +119,7 @@ def merge_list_of_dicts_of_lists(dict_list):
                 continue
             merged.setdefault(k, []).extend(v)
     return merged
+
 
 def merge_reversals_across_sessions(list_of_lists, start_offset=0):
     """Merge per-session cumulative reversal count lists across sessions.
@@ -147,6 +162,7 @@ def merge_reversals_across_sessions(list_of_lists, start_offset=0):
         offset = merged[-1]
     return merged
 
+
 def merge_blocks_across_sessions(blocks_by_session):
     """Merge per-session block-ID lists so IDs are continuous across sessions.
 
@@ -171,6 +187,7 @@ def merge_blocks_across_sessions(blocks_by_session):
         merged.extend(shifted)
         offset = merged[-1] - 1
     return merged
+
 
 def compute_merged_num_trials_in_block(merged_num_blocks):
     """Compute per-trial within-block trial index from a merged block-ID list.

@@ -78,6 +78,8 @@ def test_mouse_reversal_cell_uses_good_bad_and_all_counts():
         total_reversals=4,
         good_reversals=4,
         bad_reversals=0,
+        suspect_good_reversals=0,
+        uncheckable_good_reversals=0,
     )
 
 
