@@ -114,7 +114,7 @@ def test_get_good_reversal_info_end_to_end_from_blocks(monkeypatch):
         )
     }
     monkeypatch.setattr(mod, "get_vars_across_all_sessions", lambda data: (merged, None))
-    out = mod.get_good_reversal_info({"x": {"s": {"has_good": False}}}, pre=1)
+    out = mod.get_good_reversal_info({"x": {"ses-1": {"has_good": False}}}, pre=1)
     (rev,) = out["x"]
     assert rev["reversal_idx"] == 2 and rev["boundary_source"] == "blocks"
     assert rev["good_reversal_number"] == 1 and rev["block_id"] == 2

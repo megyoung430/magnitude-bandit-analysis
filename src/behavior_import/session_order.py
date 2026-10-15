@@ -7,14 +7,12 @@ agree on it.
 
 - :func:`session_sort_key` orders by date, then session number, then the key itself (so
   ``_part-NN`` segments keep recording order).
-- Fallback, deterministic: a key without a parseable ``date-YYYYMMDD`` sorts after every
-  dated key, and one without ``ses-<n>`` after every numbered key of the same date; keys that
-  tie on both fall back to string order.
-- :func:`check_session_order` raises ``ValueError`` when session-number order and date order
-  disagree for a subject (a later date with a smaller session number). That means a
-  mislabelled session, and merging by either order would put trials on the wrong days. Only
-  keys with both a date and a number are compared; equal dates (several sessions on a day) and
-  equal numbers (segments) never conflict.
+- :func:`ordered_session_keys` requires ``ses-<n>`` in every key and raises ``ValueError``
+  otherwise. The date is optional: a bare key such as ``ses-5`` (used by many synthetic
+  fixtures; imported keys always have both) sorts after every dated key, by number.
+- :func:`check_session_order` raises ``ValueError`` when a subject's sessions are mislabelled:
+  session-number order and date order disagree (a later date with a smaller number), or one
+  number appears on two dates. Equal numbers are allowed only on equal dates (split segments).
 """
 
 import re
@@ -46,16 +44,29 @@ def session_sort_key(session_id):
 
 
 def check_session_order(subject, keys):
-    """Raise if the session numbers and the dates of *keys* order the sessions differently.
+    """Raise if the session keys of *subject* cannot be ordered unambiguously.
 
     Raises:
-        ValueError: Naming *subject* and the first two sessions whose number order and date
-            order are opposite.
+        ValueError: Naming *subject* and the sessions, if a key has no ``ses-<n>``, one number
+            is on more than one date, or the numbers and dates order two sessions oppositely.
+            Keys without a date are not compared by date.
     """
-    dated = sorted(
-        (k for k in keys if session_date(k) is not None and session_number(k) is not None),
-        key=session_sort_key,
-    )
+    for key in keys:
+        if session_number(key) is None:
+            raise ValueError(
+                f"{subject}: session key {key!r} has no 'ses-<n>' number; keys look like "
+                "'ses-<n>_date-<YYYYMMDD>'."
+            )
+    dated = sorted((k for k in keys if session_date(k) is not None), key=session_sort_key)
+    dates_of = {}
+    for key in dated:
+        dates_of.setdefault(session_number(key), {})[session_date(key)] = key
+    for number, by_date in dates_of.items():
+        if len(by_date) > 1:
+            raise ValueError(
+                f"{subject}: session number {number} is on more than one date: "
+                f"{sorted(by_date.values())}. Fix the session keys."
+            )
     for earlier, later in zip(dated, dated[1:], strict=False):
         if session_number(later) < session_number(earlier):
             raise ValueError(

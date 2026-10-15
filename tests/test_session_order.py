@@ -36,37 +36,50 @@ def test_sessions_are_ordered_by_date_then_number():
     ]
 
 
-def test_fallback_for_keys_without_a_date_or_number_is_documented_and_deterministic():
-    # No date sorts after every dated key; no number after every numbered key of its date;
-    # remaining ties go by the key itself (so _part-NN keeps recording order).
+def test_a_key_without_a_date_sorts_after_the_dated_keys():
+    # Documented fallback for bare keys such as "ses-5": no date sorts after every dated key;
+    # ties go by number, then by the key itself (so _part-NN keeps recording order).
     keys = [
-        "other",
+        "ses-6",
         "ses-5",
-        "date-20260101",
         "ses-4_date-20260102_part-02",
         "ses-4_date-20260102_part-01",
         "ses-3_date-20260101",
     ]
     expected = [
         "ses-3_date-20260101",
-        "date-20260101",
         "ses-4_date-20260102_part-01",
         "ses-4_date-20260102_part-02",
         "ses-5",
-        "other",
+        "ses-6",
     ]
     assert ordered_session_keys("m", keys) == expected
     assert ordered_session_keys("m", reversed(keys)) == expected
+
+
+@pytest.mark.parametrize("key", ["other", "date-20260101", "ses_date-20260101", "ses-x"])
+def test_a_key_without_a_session_number_raises(key):
+    with pytest.raises(ValueError, match=r"m: session key .* has no 'ses-<n>'"):
+        ordered_session_keys("m", ["ses-1_date-20260101", key])
 
 
 def test_agreeing_orders_pass():
     check_session_order("m", ["ses-1_date-20260101", "ses-2_date-20260101", "ses-3_date-20260105"])
 
 
-def test_keys_without_a_date_or_number_are_not_compared():
-    check_session_order(
-        "m", ["ses-9", "ses-1_date-20260102", "date-20250101", "ses-2_date-20260103"]
-    )
+def test_an_undated_key_is_not_compared_by_date():
+    check_session_order("m", ["ses-9", "ses-1_date-20260102", "ses-2_date-20260103"])
+
+
+def test_the_same_number_on_two_dates_raises():
+    keys = ["ses-3_date-20260101", "ses-3_date-20260102"]
+    with pytest.raises(ValueError, match=r"m: session number 3 is on more than one date"):
+        ordered_session_keys("m", keys)
+
+
+def test_the_same_number_and_date_is_allowed_for_split_segments():
+    keys = ["ses-3_date-20260101_part-02", "ses-3_date-20260101_part-01"]
+    assert ordered_session_keys("m", keys) == sorted(keys)
 
 
 def test_a_later_date_with_a_smaller_number_raises_naming_subject_and_sessions():
