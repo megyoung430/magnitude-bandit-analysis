@@ -2,7 +2,11 @@
 
 import pytest
 
-from src.behavior_analysis.get_believed_value import compute_believed_value
+from src.behavior_analysis.get_believed_value import (
+    compute_believed_value,
+    rank_weights,
+    tie_category,
+)
 
 
 def shares(offers, choices):
@@ -44,3 +48,41 @@ def test_best_second_tie_splits_best_and_second_evenly():
     assert shares(offers, list("ABCA")) == (0.5, 0.5)
     assert shares(offers, list("ABCB")) == (0.5, 0.5)
     assert shares(offers, list("ABCC")) == (0.0, 0.0)
+
+
+@pytest.mark.parametrize(
+    "magnitudes, expected",
+    [
+        ([4, 3, 1], None),
+        ([3, 3, 1], "best_second"),
+        ([4, 2, 2], "second_third"),
+        ([3, 3, 3], "all_three"),
+        ([2, 2], "best_second"),
+        ([4, 3], None),
+        ([4], None),
+        ([4, 3, 1, 1], None),  # a tie below the third value does not count
+        ([4, 4, 3, 3], "best_second"),
+    ],
+)
+def test_tie_category_names_which_top_three_values_tie(magnitudes, expected):
+    assert tie_category(magnitudes) == expected
+
+
+def test_believed_tie_is_reported_for_the_believed_values():
+    offers = [{"A": 3, "B": 3, "C": 1}] * 4
+    assert compute_believed_value(list("ABCA"), offers)[-1]["believed_tie"] == "best_second"
+    assert compute_believed_value(["A"], offers[:1])[0]["believed_tie"] is None
+
+
+@pytest.mark.parametrize(
+    "chosen, magnitudes, expected",
+    [
+        (4, [4, 3, 1], (1.0, 0.0, 0.0)),
+        (1, [4, 3, 1], (0.0, 0.0, 1.0)),
+        (2, [4, 2, 2], (0.0, 0.5, 0.5)),
+        (3, [3, 3, 3], (1 / 3, 1 / 3, 1 / 3)),
+        (3, [3, 3], (0.5, 0.5, 0.0)),
+    ],
+)
+def test_rank_weights_cover_all_three_positions(chosen, magnitudes, expected):
+    assert rank_weights(chosen, magnitudes) == pytest.approx(expected)

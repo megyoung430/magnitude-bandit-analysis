@@ -10,12 +10,26 @@ from src.behavior_analysis.stats import nan_mean
 from src.behavior_import.extract_trials import merge_trial_variables
 from src.behavior_import.session_order import ordered_session_keys
 
-from .get_believed_value import compute_believed_value, rank_position_shares
+from .get_believed_value import compute_believed_value, rank_position_shares, tie_category
 
 BEST_VALS = [2, 3, 4]
 SECOND_VALS = [1, 2, 3]
 
 logger = logging.getLogger(__name__)
+
+TIE_EXCLUDE = "exclude"
+TIE_SPLIT = "split"
+TIE_MODES = (TIE_EXCLUDE, TIE_SPLIT)
+
+# A believed-value trial counts only once every arm of the problem has been sampled.
+N_ARMS = 3
+
+REASON_TOO_FEW_ARMS = "too_few_arms"
+REASON_UNRECOGNISED_RANK = "unrecognised_rank"
+REASON_FEWER_THAN_THREE_SEEN = "fewer_than_three_arms_seen"
+REASON_CHOSEN_UNSEEN = "chosen_arm_unseen"
+REASON_TIE_EXCLUDED = "tie_excluded"
+REASON_OUT_OF_GRID = "out_of_grid"
 
 
 def init_matrix(fill=np.nan):
@@ -36,13 +50,15 @@ class _Contribution(NamedTuple):
     second_value: float
     best_share: float
     second_share: float
+    tie: str | None = None
 
 
 class _Dropped(NamedTuple):
-    """A trial that is not counted: why, and for ``"out_of_grid"`` the (best, second) values."""
+    """A trial that is not counted: why, its (best, second) values if out of grid, its tie."""
 
     reason: str
     cell: tuple[float, float] | None = None
+    tie: str | None = None
 
 
 # ``frozen`` only blocks reassigning the fields: the DataFrames and Counters are updated in place.
@@ -53,7 +69,9 @@ class MouseCounts:
     ``denom`` counts the trials in each cell; ``num_best`` and ``num_second`` count how
     much of that was a best / second choice (fractional when magnitudes tie).
     ``out_of_grid`` counts the trials whose (best, second) values are not a grid cell, by
-    those values; ``dropped`` counts every other uncounted trial by reason.
+    those values; ``dropped`` counts every other uncounted trial by reason (including
+    ``tie_excluded`` in ``"exclude"`` mode). ``ties`` counts the trials with tied values by
+    category (``best_second``, ``second_third``, ``all_three``), whatever happens to them next.
     """
 
     denom: pd.DataFrame
@@ -61,6 +79,7 @@ class MouseCounts:
     num_second: pd.DataFrame
     dropped: Counter = field(default_factory=Counter)
     out_of_grid: Counter = field(default_factory=Counter)
+    ties: Counter = field(default_factory=Counter)
 
     @classmethod
     def empty(cls) -> "MouseCounts":
@@ -97,39 +116,59 @@ def _true_rank_shares(reward_magnitudes: dict, chosen_rank: str, choice) -> tupl
     return rank_position_shares(reward_magnitudes[choice], reward_magnitudes.values())
 
 
-def _true_contribution(reward_magnitudes, chosen_rank, choice=None):
+def _true_contribution(reward_magnitudes, chosen_rank, choice=None, tie_mode=TIE_SPLIT):
     """A :class:`_Contribution` for one trial binned by true magnitudes, else a :class:`_Dropped`.
 
-    Dropped when the trial has fewer than two arms, an unrecognised chosen rank, or
-    magnitudes outside the grid. *choice* is only read when magnitudes tie.
+    Dropped when the trial has fewer than two arms, an unrecognised chosen rank, magnitudes
+    outside the grid, or (in ``"exclude"`` mode) tied magnitudes. *choice* is only read when
+    magnitudes tie and are split.
     """
     sorted_arms = sorted(reward_magnitudes.items(), key=lambda x: x[1], reverse=True)
     if len(sorted_arms) < 2:
-        return _Dropped("too_few_arms")
+        return _Dropped(REASON_TOO_FEW_ARMS)
     b, s = sorted_arms[0][1], sorted_arms[1][1]
     if chosen_rank not in ("best", "second", "third"):
-        return _Dropped("unrecognised_rank")
+        return _Dropped(REASON_UNRECOGNISED_RANK)
+    return _bin_trial(
+        b,
+        s,
+        tie_category(reward_magnitudes.values()),
+        tie_mode,
+        lambda: _true_rank_shares(reward_magnitudes, chosen_rank, choice),
+    )
+
+
+def _bin_trial(b, s, tie, tie_mode, shares):
+    """Shared end of both binnings: apply the tie mode and the grid, then take the shares.
+
+    *shares* is called only for a trial that is counted.
+    """
+    if tie and tie_mode == TIE_EXCLUDE:
+        return _Dropped(REASON_TIE_EXCLUDED, tie=tie)
     if not _in_value_grid(b, s):
-        return _Dropped("out_of_grid", (b, s))
-    return _Contribution(b, s, *_true_rank_shares(reward_magnitudes, chosen_rank, choice))
+        return _Dropped(REASON_OUT_OF_GRID, (b, s), tie)
+    return _Contribution(b, s, *shares(), tie)
 
 
-def _believed_contribution(trial):
+def _believed_contribution(trial, tie_mode=TIE_SPLIT):
     """A :class:`_Contribution` for one ``compute_believed_value`` trial, else a :class:`_Dropped`.
 
-    Dropped when fewer than two arms have been seen, the chosen arm has no believed rank, or
-    the believed magnitudes are outside the grid. Tied believed arms split the rank positions
-    they cover evenly (see ``rank_position_shares``), so the result does not depend on arm
-    names.
+    Dropped when fewer than three arms have been seen, the chosen arm has no believed rank,
+    the believed magnitudes tie in ``"exclude"`` mode, or they are outside the grid. In
+    ``"split"`` mode tied believed arms share the rank positions they cover evenly (see
+    ``rank_position_shares``), so the result does not depend on arm names.
     """
-    b, s = trial["believed_best_mag"], trial["believed_second_mag"]
-    if trial["n_seen"] < 2:
-        return _Dropped("fewer_than_two_arms_seen")
+    if trial["n_seen"] < N_ARMS:
+        return _Dropped(REASON_FEWER_THAN_THREE_SEEN)
     if trial["believed_chosen_rank"] is None:
-        return _Dropped("chosen_arm_unseen")
-    if not _in_value_grid(b, s):
-        return _Dropped("out_of_grid", (b, s))
-    return _Contribution(b, s, trial["believed_best_share"], trial["believed_second_share"])
+        return _Dropped(REASON_CHOSEN_UNSEEN)
+    return _bin_trial(
+        trial["believed_best_mag"],
+        trial["believed_second_mag"],
+        trial["believed_tie"],
+        tie_mode,
+        lambda: (trial["believed_best_share"], trial["believed_second_share"]),
+    )
 
 
 def _session_trial_variables(tv_list):
@@ -192,17 +231,23 @@ def _problem_trial_lists(subject_id, sessions_dict):
     return reward_magnitudes, chosen_ranks, choices
 
 
-def _trial_outcomes(reward_magnitudes, chosen_ranks, choices, *, use_believed):
+def _trial_outcomes(reward_magnitudes, chosen_ranks, choices, *, use_believed, tie_mode):
     """A :class:`_Contribution` or :class:`_Dropped` for every trial of one problem."""
     if use_believed:
-        return map(_believed_contribution, compute_believed_value(choices, reward_magnitudes))
-    return map(_true_contribution, reward_magnitudes, chosen_ranks, choices)
+        beliefs = compute_believed_value(choices, reward_magnitudes)
+        return [_believed_contribution(trial, tie_mode) for trial in beliefs]
+    return [
+        _true_contribution(magnitudes, rank, choice, tie_mode)
+        for magnitudes, rank, choice in zip(reward_magnitudes, chosen_ranks, choices, strict=True)
+    ]
 
 
 def _add_outcome(counts, outcome):
     """Add one trial to *counts*: to its cell, or to the matching dropped tally."""
+    if outcome.tie:
+        counts.ties[outcome.tie] += 1
     if isinstance(outcome, _Dropped):
-        if outcome.reason == "out_of_grid":
+        if outcome.reason == REASON_OUT_OF_GRID:
             counts.out_of_grid[outcome.cell] += 1
         else:
             counts.dropped[outcome.reason] += 1
@@ -215,10 +260,11 @@ def _add_outcome(counts, outcome):
         counts.num_second.loc[b, s] += outcome.second_share
 
 
-def _count_mouse_problem(counts, subject_id, sessions_dict, *, use_believed):
+def _count_mouse_problem(counts, subject_id, sessions_dict, *, use_believed, tie_mode):
     """Accumulate one mouse's sessions of one problem into *counts* (in place)."""
     trial_lists = _problem_trial_lists(subject_id, sessions_dict)
-    for outcome in _trial_outcomes(*trial_lists, use_believed=use_believed):
+    outcomes = _trial_outcomes(*trial_lists, use_believed=use_believed, tie_mode=tie_mode)
+    for outcome in outcomes:
         _add_outcome(counts, outcome)
 
 
@@ -230,10 +276,14 @@ def _warn_out_of_grid(subject_id, counts):
     total = int(counts.denom.to_numpy().sum()) + n_out
     cells = ", ".join(f"({b}, {s}) x{n}" for (b, s), n in sorted(counts.out_of_grid.items()))
     logger.warning(
-        "%s: %d of %d trials fell outside the value grid and were not counted. Their "
-        "(best, second) values are not a cell of best in %s x second in %s: %s.",
+        "%s: %d of %d trials fell outside the value grid and were not counted (%d is the "
+        "trials that reached the grid check: those counted plus these; trials skipped for other "
+        "reasons are in MouseCounts.dropped and are not included). Their (best, second) values "
+        "are not a cell of best in %s x second in %s; this includes ties at 4 and 4 or 1 and 1: "
+        "%s.",
         subject_id,
         n_out,
+        total,
         total,
         BEST_VALS,
         SECOND_VALS,
@@ -242,7 +292,9 @@ def _warn_out_of_grid(subject_id, counts):
 
 
 def count_choice_probs(
-    subject_trials_by_value_problem: dict, use_believed: bool = False
+    subject_trials_by_value_problem: dict,
+    use_believed: bool = False,
+    tie_mode: str = TIE_SPLIT,
 ) -> dict[str, MouseCounts]:
     """Per-mouse cell counts, pooling a mouse's trials across all problems.
 
@@ -254,20 +306,29 @@ def count_choice_probs(
 
     Args:
         subject_trials_by_value_problem (dict): Sessions by problem, mouse and session id.
-        use_believed (bool): Bin by believed instead of true magnitudes.
+        use_believed (bool): Bin by believed instead of true magnitudes. Believed trials
+            count only once all three arms have been sampled in the problem.
+        tie_mode (str): ``"split"`` shares each tied rank position evenly among the tied arms;
+            ``"exclude"`` drops every trial with a tie among the top three values. Ties are
+            counted in ``MouseCounts.ties`` either way.
 
     Returns:
         dict[str, MouseCounts]: Counts per mouse.
 
     Raises:
-        ValueError: If a recording's trial lists differ in length, a session key has no
-            ``ses-<n>``, or a trial with tied true magnitudes has an unknown choice.
+        ValueError: If *tie_mode* is unknown, a recording's trial lists differ in length, a
+            session key has no ``ses-<n>`` or the session numbers and dates disagree, or (in
+            ``"split"`` mode) a trial with tied true magnitudes has an unknown choice.
     """
+    if tie_mode not in TIE_MODES:
+        raise ValueError(f"tie_mode must be one of {TIE_MODES}, got {tie_mode!r}")
     counts_by_mouse: dict[str, MouseCounts] = {}
     for subjects_dict in subject_trials_by_value_problem.values():
         for subject_id, sessions_dict in subjects_dict.items():
             counts = counts_by_mouse.setdefault(subject_id, MouseCounts.empty())
-            _count_mouse_problem(counts, subject_id, sessions_dict, use_believed=use_believed)
+            _count_mouse_problem(
+                counts, subject_id, sessions_dict, use_believed=use_believed, tie_mode=tie_mode
+            )
     for subject_id, counts in counts_by_mouse.items():
         _warn_out_of_grid(subject_id, counts)
     return counts_by_mouse
@@ -308,7 +369,9 @@ def choice_probs_from_counts(counts_by_mouse: dict[str, MouseCounts]) -> tuple:
     return overall_best_prob, overall_second_prob, per_mouse_best_prob, per_mouse_second_prob
 
 
-def accumulate_choice_probs(subject_trials_by_value_problem, use_believed=False):
+def accumulate_choice_probs(
+    subject_trials_by_value_problem, use_believed=False, tie_mode=TIE_SPLIT
+):
     """
     subject_trials_by_value_problem[problem][subject_id][session_id] = session_data
 
@@ -326,12 +389,22 @@ def accumulate_choice_probs(subject_trials_by_value_problem, use_believed=False)
         True            — bin by believed magnitudes (last observed value per arm,
                           carried across the sessions of a problem and reset at each
                           problem), with arms re-ranked by believed value to determine
-                          best/second and the chosen rank. Trials where fewer than 2 arms
-                          have been visited, or where the chosen arm has no believed
-                          value, are skipped.
-    Tied magnitudes (true or believed) split the tied rank positions evenly among the tied
-    arms. Trials outside the value grid are not counted; use :func:`count_choice_probs` to
-    get their counts (a warning is logged per mouse).
+                          best/second and the chosen rank. Trials are skipped until all
+                          three arms have been visited, or where the chosen arm has no
+                          believed value.
+    tie_mode : str
+        "split" (default) — tied magnitudes (true or believed) split the tied rank positions
+                            evenly among the tied arms.
+        "exclude"         — trials with any tie among the top three values are left out.
+    Trials outside the value grid are not counted; use :func:`count_choice_probs` to get their
+    counts and the tie counts (a warning is logged per mouse).
+
+    Raises
+    ------
+    ValueError
+        For an unknown ``tie_mode``, a length mismatch of a recording's trial lists, a session
+        key without ``ses-<n>`` (or numbers and dates that disagree), or a split trial with
+        tied true magnitudes and an unknown choice.
 
     Returns
     -------
@@ -340,5 +413,5 @@ def accumulate_choice_probs(subject_trials_by_value_problem, use_believed=False)
     per_mouse_best_prob    : dict[subject_id -> 3x3 DataFrame]
     per_mouse_second_prob  : dict[subject_id -> 3x3 DataFrame]
     """
-    counts_by_mouse = count_choice_probs(subject_trials_by_value_problem, use_believed)
+    counts_by_mouse = count_choice_probs(subject_trials_by_value_problem, use_believed, tie_mode)
     return choice_probs_from_counts(counts_by_mouse)

@@ -200,9 +200,9 @@ def test_believed_binning_waits_for_two_seen_arms_and_a_seen_chosen_arm():
 def test_believed_binning_uses_last_observed_magnitudes_not_current_ones():
     first = {"A": 4, "B": 3, "C": 1}
     changed = {"A": 0, "B": 0, "C": 0}  # true values change; beliefs keep the last observed ones
-    sess = session([first, first, first, changed], ["best"] * 4, ["A", "B", "A", "B"])
+    sess = session([first] * 4 + [changed], ["best"] * 5, ["A", "B", "C", "A", "B"])
     _, _, per_best, per_second = accumulate_choice_probs(one_session(sess), use_believed=True)
-    # Trial 2: believes A=4, B=3 and chooses A (best). Trial 3: still believes A=4, B=3
+    # Trial 3: believes A=4, B=3, C=1 and chooses A (best). Trial 4: still believes the same
     # although the true values are now all 0, and chooses B (second).
     assert_only_cells(per_best["m1"], {(4, 3): 0.5})
     assert_only_cells(per_second["m1"], {(4, 3): 0.5})
@@ -230,7 +230,7 @@ def test_a_choice_of_one_tied_arm_gives_half_to_each_numerator():
 
 def test_believed_binning_ignores_the_chosen_rank_values():
     mags = {"A": 4, "B": 3, "C": 1}
-    sess = session([mags] * 4, ["third"] * 4, ["A", "B", "A", "B"])
+    sess = session([mags] * 5, ["third"] * 5, ["A", "B", "C", "A", "B"])
     _, _, best, second = accumulate_choice_probs(one_session(sess), use_believed=True)
     assert_only_cells(best["m1"], {(4, 3): 0.5})
     assert_only_cells(second["m1"], {(4, 3): 0.5})
@@ -238,7 +238,7 @@ def test_believed_binning_ignores_the_chosen_rank_values():
 
 def test_believed_binning_skips_cells_outside_the_value_grid():
     mags = {"A": 1, "B": 0, "C": 0}  # best believed value 1 is outside BEST_VALS
-    sess = session([mags] * 4, ["best"] * 4, ["A", "B", "A", "B"])
+    sess = session([mags] * 5, ["best"] * 5, ["A", "B", "C", "A", "B"])
     _, _, per_best, _ = accumulate_choice_probs(one_session(sess), use_believed=True)
     assert_only_cells(per_best["m1"], {})
 
@@ -256,26 +256,27 @@ def test_use_believed_defaults_to_false_and_is_accepted_positionally():
 def test_believed_binning_depends_on_the_recording_order():
     high = {"A": 4, "B": 3, "C": 1}
     low = {"A": 2, "B": 1, "C": 0}
-    rec_high = session([high] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    rec_high = session([high] * 3, ["best"] * 3, ["A", "B", "C"])["trial_variables"][0]
     rec_low = session([low] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    rec_low3 = session([low] * 3, ["best"] * 3, ["A", "B", "C"])["trial_variables"][0]
+    rec_high2 = session([high] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    results = []
     for first, second, mags in [
-        (rec_high, rec_low, [high, high, low, low]),
-        (rec_low, rec_high, [low, low, high, high]),
+        (rec_high, rec_low, [high] * 3 + [low] * 2),
+        (rec_low3, rec_high2, [low] * 3 + [high] * 2),
     ]:
         merged = accumulate_choice_probs(
             one_session({"trial_variables": [first, second]}), use_believed=True
         )
         single = accumulate_choice_probs(
-            one_session(session(mags, ["best"] * 4, ["A", "B", "A", "B"])), use_believed=True
+            one_session(session(mags, ["best"] * 5, ["A", "B", "C", "A", "B"])),
+            use_believed=True,
         )
         pd.testing.assert_frame_equal(merged[2]["m1"], single[2]["m1"])
         pd.testing.assert_frame_equal(merged[3]["m1"], single[3]["m1"])
-        if first is rec_high:
-            high_first = merged
-        else:
-            low_first = merged
+        results.append(merged)
     # beliefs carry across the boundary, so the two orders fill different cells
-    assert not high_first[2]["m1"].equals(low_first[2]["m1"])
+    assert not results[0][2]["m1"].equals(results[1][2]["m1"])
 
 
 def test_lengths_are_checked_per_recording_before_merging():

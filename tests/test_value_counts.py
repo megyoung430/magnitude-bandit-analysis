@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 
 from src.behavior_analysis.get_choice_probs_by_value import (
+    TIE_EXCLUDE,
+    TIE_SPLIT,
     accumulate_choice_probs,
     count_choice_probs,
     init_matrix,
@@ -123,10 +125,11 @@ def test_believed_values_carry_across_sessions_of_a_problem_in_session_order():
     mags = {"A": 4, "B": 3, "C": 0}
     first = session([mags] * 3, ["best"] * 3, ["A", "B", "C"])
     second = session([mags] * 2, ["best"] * 2, ["A", "B"])
-    # session 2 is listed first: dict order must not matter
+    # Session 2 is listed first. In date order its two trials come after all three arms were
+    # seen and are binned; in dict order they come first, and the later session's trials all
+    # precede the third arm being seen, so nothing is binned.
     data = {1: {"m1": {"ses-2_date-20260102": second, "ses-1_date-20260101": first}}}
     counts = count_choice_probs(data, use_believed=True)
-    # all three arms were seen before session 2, so both its trials are binned
     assert counts["m1"].denom.loc[4, 3] == 2
 
 
@@ -137,3 +140,98 @@ def test_believed_values_reset_at_each_problem_boundary():
     data = {1: {"m1": {"ses-1": seen}}, 2: {"m1": {"ses-1": fresh}}}
     counts = count_choice_probs(data, use_believed=True)
     assert counts["m1"].denom.to_numpy().sum() == 0  # problem 2 starts with nothing seen
+
+
+# --- believed trials wait for all three arms -----------------------------------------------
+
+
+def test_believed_trials_are_dropped_until_all_three_arms_are_seen():
+    mags = {"A": 4, "B": 3, "C": 1}
+    sess = session([mags] * 6, ["best"] * 6, ["A", "A", "B", "C", "A", "B"])
+    counts = count_choice_probs(one_session(sess), use_believed=True)
+    # trials 0-3 see 0, 1, 1, 2 arms; trial 4 is the first with three seen
+    assert counts["m1"].dropped == {"fewer_than_three_arms_seen": 4}
+    assert counts["m1"].denom.to_numpy().sum() == 2
+
+
+# --- tie modes -----------------------------------------------------------------------------
+
+TRUE_TIES = [
+    ({"A": 3, "B": 3, "C": 1}, "best_second"),
+    ({"A": 4, "B": 2, "C": 2}, "second_third"),
+    ({"A": 3, "B": 3, "C": 3}, "all_three"),
+]
+
+
+@pytest.mark.parametrize("offer, category", TRUE_TIES)
+def test_true_ties_are_counted_by_category_in_both_modes(offer, category):
+    sess = labelled_session(offer, ["A", "B"], ["best", "second"])
+    for mode in (TIE_SPLIT, TIE_EXCLUDE):
+        counts = count_choice_probs(one_session(sess), tie_mode=mode)
+        assert counts["m1"].ties == {category: 2}
+
+
+@pytest.mark.parametrize("offer, category", TRUE_TIES)
+def test_excluding_ties_leaves_tied_true_trials_out_of_every_table(offer, category):
+    plain = {"A": 4, "B": 3, "C": 1}
+    sess = session([offer, plain, offer], ["best", "best", "second"], ["A", "A", "B"])
+    counts = count_choice_probs(one_session(sess), tie_mode=TIE_EXCLUDE)["m1"]
+    assert counts.denom.to_numpy().sum() == 1 and counts.denom.loc[4, 3] == 1
+    assert counts.dropped == {"tie_excluded": 2}
+    assert counts.out_of_grid == {}
+    split = count_choice_probs(one_session(sess), tie_mode=TIE_SPLIT)["m1"]
+    assert split.denom.to_numpy().sum() == 3 and split.dropped == {}
+
+
+def test_excluding_ties_does_not_need_the_choice_of_a_tied_trial():
+    sess = labelled_session({"A": 3, "B": 3, "C": 1}, ["Z"], ["best"])
+    counts = count_choice_probs(one_session(sess), tie_mode=TIE_EXCLUDE)["m1"]
+    assert counts.ties == {"best_second": 1}
+
+
+def test_tie_at_the_grid_edge_is_out_of_grid_when_split_and_excluded_when_excluded():
+    sess = labelled_session({"A": 4, "B": 4, "C": 1}, ["A"], ["best"])
+    split = count_choice_probs(one_session(sess), tie_mode=TIE_SPLIT)["m1"]
+    assert split.out_of_grid == {(4, 4): 1} and split.ties == {"best_second": 1}
+    excluded = count_choice_probs(one_session(sess), tie_mode=TIE_EXCLUDE)["m1"]
+    assert excluded.out_of_grid == {} and excluded.ties == {"best_second": 1}
+    assert excluded.dropped == {"tie_excluded": 1}
+
+
+def test_believed_ties_are_counted_and_excluded_by_believed_values():
+    offer = {"A": 4, "B": 2, "C": 2}
+    seq = ["A", "B", "C", "B", "A", "C"]
+    sess = labelled_session(offer, seq, ["best"] * 6)
+    split = count_choice_probs(one_session(sess), use_believed=True)["m1"]
+    exclude = count_choice_probs(one_session(sess), use_believed=True, tie_mode=TIE_EXCLUDE)["m1"]
+    assert split.ties == exclude.ties == {"second_third": 3}
+    assert split.denom.loc[4, 2] == 3 and exclude.denom.to_numpy().sum() == 0
+    assert exclude.dropped == {"fewer_than_three_arms_seen": 3, "tie_excluded": 3}
+
+
+def test_unknown_tie_mode_raises():
+    sess = labelled_session({"A": 4, "B": 3, "C": 1}, ["A"], ["best"])
+    with pytest.raises(ValueError, match="tie_mode"):
+        count_choice_probs(one_session(sess), tie_mode="drop")
+    with pytest.raises(ValueError, match="tie_mode"):
+        accumulate_choice_probs(one_session(sess), tie_mode="drop")
+
+
+def test_accumulate_excludes_ties_when_asked():
+    offer = {"A": 3, "B": 3, "C": 1}
+    plain = {"A": 4, "B": 3, "C": 1}
+    sess = session([offer, plain], ["best", "best"], ["A", "A"])
+    best, _, _, _ = accumulate_choice_probs(one_session(sess), tie_mode="exclude")
+    assert_only_cells(best, {(4, 3): 1.0})
+    best, _, _, _ = accumulate_choice_probs(one_session(sess))
+    assert_only_cells(best, {(4, 3): 1.0, (3, 3): 0.5})
+
+
+def test_the_warning_says_what_the_total_counts(caplog):
+    mags = {"A": 4, "B": 3, "C": 0}
+    off = {"A": 1, "B": 1, "C": 0}
+    sess = session([mags, off, {"A": 4}], ["best", "best", "best"], list("AAA"))
+    with caplog.at_level("WARNING"):
+        count_choice_probs(one_session(sess))
+    message = caplog.records[0].getMessage()
+    assert "1 of 2 trials" in message and "other reasons" in message
