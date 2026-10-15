@@ -18,6 +18,8 @@ from src.behavior_visualization.plot_rank_proportions import (
     plot_mouse_panel,
     plot_rank_proportions,
     plot_rank_proportions_average,
+    plot_rank_proportions_average_by_block,
+    plot_rank_proportions_average_by_mouse,
     plot_rank_proportions_by_block,
     plot_rank_proportions_by_mouse,
 )
@@ -426,14 +428,65 @@ def test_every_panel_has_rank_ticks_and_fixed_y_limits(any_panel):
 # ---- figures: saving and showing -------------------------------------------------
 
 
-def test_save_path_writes_pdf_and_png_and_creates_directories(counts, tmp_path):
-    base = tmp_path / "nested" / "RP"
-    # the by-mouse figure is drawn first and creates the folder the average figure needs
-    plot_rank_proportions(counts, save_path=str(base))
-    for view in ("by Mouse", "by Block", "by Average"):
-        assert (tmp_path / "nested" / f"RP {view}.pdf").exists()
-        assert (tmp_path / "nested" / f"RP {view}.png").exists()
+def saved_views(folder, stem):
+    """The view names ``<stem> <view>`` for which both a pdf and a png exist."""
+    pdfs = {p.stem for p in folder.glob(f"{stem} *.pdf")}
+    pngs = {p.stem for p in folder.glob(f"{stem} *.png")}
+    assert pdfs == pngs
+    return sorted(name.removeprefix(f"{stem} ") for name in pdfs)
+
+
+def test_default_dispatch_saves_only_the_average_across_mice_figure(counts, tmp_path):
+    plot_rank_proportions(counts, save_path=str(tmp_path / "nested" / "RP"))
+    assert saved_views(tmp_path / "nested", "RP") == ["by Average Across Mice"]
     assert plt.get_fignums() == []
+
+
+def test_every_flag_turns_its_figure_on(counts, tmp_path):
+    plot_rank_proportions(
+        counts,
+        save_path=str(tmp_path / "RP"),
+        by_mouse=True,
+        by_block=True,
+        average_by_mouse=True,
+        average_by_block=True,
+    )
+    assert saved_views(tmp_path, "RP") == [
+        "by Average Across Blocks",
+        "by Average Across Mice",
+        "by Block",
+        "by Mouse",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("flag", "view"),
+    [
+        ("by_mouse", "by Mouse"),
+        ("by_block", "by Block"),
+        ("average_by_block", "by Average Across Blocks"),
+    ],
+)
+def test_a_flag_adds_exactly_its_figure_to_the_default(flag, view, counts, tmp_path):
+    plot_rank_proportions(counts, save_path=str(tmp_path / "RP"), **{flag: True})
+    assert saved_views(tmp_path, "RP") == sorted([view, "by Average Across Mice"])
+
+
+def test_average_by_mouse_false_drops_the_default_figure(counts, tmp_path):
+    plot_rank_proportions(counts, save_path=str(tmp_path / "RP"), average_by_mouse=False)
+    assert saved_views(tmp_path, "RP") == []
+
+
+def test_dispatcher_has_no_combined_average_flag(counts):
+    with pytest.raises(TypeError):
+        plot_rank_proportions(counts, average=True)
+
+
+def test_dispatcher_never_makes_the_combined_figure(counts, tmp_path):
+    plot_rank_proportions(
+        counts, save_path=str(tmp_path / "RP"), by_mouse=True, by_block=True, average_by_block=True
+    )
+    assert "by Average" not in saved_views(tmp_path, "RP")
 
 
 @pytest.mark.parametrize("figure", [plot_rank_proportions_by_mouse, plot_rank_proportions_by_block])
@@ -523,9 +576,11 @@ def test_by_block_draws_one_panel_per_block_of_the_longest_mouse(counts, shown_f
 
 
 def test_dispatcher_passes_pooling_to_the_by_mouse_figure(counts, shown_figures):
-    plot_rank_proportions(counts, by_block=False, average=False, pool_trials_within_subject=True)
+    plot_rank_proportions(
+        counts, by_mouse=True, average_by_mouse=False, pool_trials_within_subject=True
+    )
     pooled_axes = shown_figures[0].axes
-    plot_rank_proportions(counts, by_block=False, average=False)
+    plot_rank_proportions(counts, by_mouse=True, average_by_mouse=False)
     unpooled_axes = shown_figures[1].axes
     assert len(data_lines(pooled_axes[0])) == 3
     assert len(data_lines(unpooled_axes[0])) == 3
@@ -538,20 +593,96 @@ def test_dispatcher_passes_pooling_and_pvalues_to_the_average_figure(counts, sho
     plot_rank_proportions(
         counts,
         average_across_mice_pvalues=pvalues,
-        by_mouse=False,
-        by_block=False,
         pool_trials_within_subject=True,
     )
-    left = shown_figures[0].axes[0]
-    assert left.get_title() == "Pooled Trials Within Mouse"
-    assert pvalue_labels(left) == {"p(Best vs Second):\n0.200": (0, 0.75)}
+    (ax,) = shown_figures[0].axes
+    assert ax.get_title() == "Pooled Trials Within Mouse"
+    assert pvalue_labels(ax) == {"p(Best vs Second):\n0.200": (0, 0.75)}
 
 
-def test_dispatcher_flags_choose_the_figures(counts, shown_figures):
-    plot_rank_proportions(counts, by_mouse=False, average=False)
-    assert len(shown_figures) == 1 and shown_figures[0].axes[0].get_title() == "Block 1"
-    plot_rank_proportions(counts, by_mouse=False, by_block=False, average=False)
-    assert len(shown_figures) == 1
+def test_dispatcher_shows_the_flagged_figures_in_order(counts, shown_figures):
+    plot_rank_proportions(counts)
+    assert [fig.axes[0].get_title() for fig in shown_figures] == ["Average Across Mice"]
+    plot_rank_proportions(counts, average_by_mouse=False, by_block=True)
+    assert shown_figures[-1].axes[0].get_title() == "Block 1"
+    assert len(shown_figures) == 2
+    plot_rank_proportions(counts, average_by_mouse=False)
+    assert len(shown_figures) == 2
+
+
+# ---- the single-panel average figures --------------------------------------------
+
+
+def panel_content(ax):
+    """Everything an averaged panel draws, for equality between two axes."""
+    return {
+        "title": ax.get_title(),
+        "ylabel": ax.get_ylabel(),
+        "xticks": tick_labels(ax),
+        "ylim": ax.get_ylim(),
+        "bars": bar_heights(ax),
+        "errors": error_bar_lengths(ax),
+        "lines": [(line.get_ydata().tolist(), to_hex(line.get_color())) for line in data_lines(ax)],
+        "means": mean_labels(ax),
+        "pvalues": pvalue_labels(ax),
+        "legend": [t.get_text() for t in ax.get_legend().get_texts()],
+    }
+
+
+@pytest.mark.parametrize("pooled_trials", [False, True])
+def test_average_by_mouse_draws_the_left_panel_of_the_combined_figure(
+    counts, shown_figures, pooled_trials
+):
+    pvalues = {"best_vs_second": 0.2, "best_vs_third": 0.01, "second_vs_third": 0.5}
+    kwargs = dict(average_across_mice_pvalues=pvalues, pool_trials_within_subject=pooled_trials)
+    plot_rank_proportions_average(counts, **kwargs)
+    plot_rank_proportions_average_by_mouse(counts, **kwargs)
+    combined, single = shown_figures
+    assert len(single.axes) == 1
+    assert panel_content(single.axes[0])["pvalues"] != {}
+    assert panel_content(single.axes[0]) == panel_content(combined.axes[0])
+
+
+def test_average_by_block_draws_the_right_panel_of_the_combined_figure(counts, shown_figures):
+    plot_rank_proportions_average(counts)
+    plot_rank_proportions_average_by_block(counts)
+    combined, single = shown_figures
+    assert len(single.axes) == 1
+    assert len(panel_content(single.axes[0])["lines"]) == 4
+    assert panel_content(single.axes[0]) == panel_content(combined.axes[1])
+
+
+def test_single_panel_figures_are_about_half_as_wide_as_the_combined_one(counts, shown_figures):
+    plot_rank_proportions_average(counts)
+    plot_rank_proportions_average_by_mouse(counts)
+    plot_rank_proportions_average_by_block(counts)
+    combined, by_mouse, by_block = (fig.get_size_inches() for fig in shown_figures)
+    assert by_mouse == pytest.approx([6.5, 5.5])
+    assert by_block == pytest.approx([6.5, 5.5])
+    assert combined[0] == pytest.approx(2 * by_mouse[0])
+
+
+@pytest.mark.parametrize(
+    "figure", [plot_rank_proportions_average_by_mouse, plot_rank_proportions_average_by_block]
+)
+def test_single_panel_figures_create_folders_and_accept_a_path(figure, counts, tmp_path):
+    figure(counts, save_path=tmp_path / "a" / "b" / "RP")
+    assert (tmp_path / "a" / "b" / "RP.pdf").exists()
+    assert (tmp_path / "a" / "b" / "RP.png").exists()
+    figure(counts, save_path=str(tmp_path / "c" / "RP"))
+    assert (tmp_path / "c" / "RP.png").exists()
+    assert plt.get_fignums() == []
+
+
+@pytest.mark.parametrize(
+    "figure", [plot_rank_proportions_average_by_mouse, plot_rank_proportions_average_by_block]
+)
+def test_single_panel_figures_show_and_close_when_no_save_path(figure, counts, monkeypatch):
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda: shown.append(len(plt.get_fignums())))
+    figure(counts)
+    assert shown == [1]
+    assert plt.get_fignums() == []
 
 
 # ---- warnings --------------------------------------------------------------------
@@ -608,6 +739,8 @@ def test_star_import_exposes_plot_functions_but_not_drawing_constants():
     assert {
         "plot_rank_proportions",
         "plot_rank_proportions_average",
+        "plot_rank_proportions_average_by_mouse",
+        "plot_rank_proportions_average_by_block",
         "plot_rank_proportions_by_mouse",
         "plot_rank_proportions_by_block",
         "BLOCK_COLORS",
