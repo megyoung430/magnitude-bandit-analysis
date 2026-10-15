@@ -13,11 +13,11 @@ from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
 from src.behavior_analysis.reversal_aligned_arms import (
     EmptySelectionWarning,
     add_magnitude_windows,
-    align_window_values,
     build_windows_with_magnitudes,
     check_windows_built_with,
     compute_reversal_aligned_arms,
 )
+from src.behavior_analysis.reversal_alignment import align_window_values
 from src.behavior_analysis.stats import nan_standard_error
 from tests.plot_fixtures import make_mouse, make_session, session_key
 from tests.reversal_arm_fixtures import make_reversal
@@ -326,11 +326,12 @@ def test_end_to_end_curves_from_sessions():
         windows, scheme="prev", reversal_type="all", pre=10, post=6, moving_avg_window=1
     )
     assert prev.num_reversals == 2
-    # The first reversal (trial 8) has only 8 pre trials, so offsets -10 and -9 come from the
-    # second alone. There the animal still sat on the best arm of the block before last, which
-    # is the second best arm of the block that ended at the reversal.
-    np.testing.assert_allclose(prev.choice_mean["prev_best"][:2], 0.0)
-    np.testing.assert_allclose(prev.choice_mean["prev_second"][:2], 1.0)
+    # Blocks are 8 trials long, so with pre=10 both reversals have only 8 pre trials: the pre
+    # window stops at the previous block change and offsets -10 and -9 are NaN, not data of the
+    # block before last.
+    for role in prev.roles:
+        assert np.isnan(prev.choice_mean[role][:2]).all()
+        assert np.isnan(prev.magnitude_mean[role][:2]).all()
     np.testing.assert_allclose(prev.choice_mean["prev_best"][2:10], 1.0)
     np.testing.assert_allclose(prev.choice_mean["prev_best"][10:], 0.0)
     np.testing.assert_allclose(prev.choice_mean["prev_third"][10:], 1.0)
@@ -375,5 +376,19 @@ def test_a_pre_window_shorter_than_the_data_allows_is_rejected():
     windows = build_windows_with_magnitudes(data, pre=10, post=6)
     for r in windows["m"]:
         r["trial_window_idx"]["pre"] = r["trial_window_idx"]["pre"][1:]
+    with pytest.raises(ValueError, match="pre window"):
+        check_windows_built_with(windows, pre=10, post=6)
+
+
+def test_a_pre_window_reaching_into_the_previous_block_is_rejected():
+    data = {"m": make_mouse(1, pick=0)}
+    windows = build_windows_with_magnitudes(data, pre=10, post=6)
+    assert [r["pre_room"] for r in windows["m"]] == [8, 8]  # blocks of 8 trials
+    check_windows_built_with(windows, pre=10, post=6)
+    first = windows["m"][0]
+    first["trial_window_idx"]["pre"] = [
+        first["reversal_idx"] - 9,
+        *first["trial_window_idx"]["pre"],
+    ]
     with pytest.raises(ValueError, match="pre window"):
         check_windows_built_with(windows, pre=10, post=6)

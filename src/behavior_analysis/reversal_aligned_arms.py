@@ -10,9 +10,10 @@ Pipeline (all pure; no files, no plots):
    subject, then over subjects.
 
 Alignment: every row has ``pre + post - skip`` bins. Pre values are right-aligned so the last
-one sits at offset -1; post values start at offset 0. A window that is shorter than ``pre`` or
-``post`` (near the start of the data, or cut by the next boundary) leaves NaN at the far end,
-never shifts the other values.
+one sits at offset -1; post values start at offset 0
+(:mod:`src.behavior_analysis.reversal_alignment`). A window that is shorter than ``pre`` or
+``post`` (the pre window stops at the previous block change or the first trial, the post window
+at the next one) leaves NaN at the far end, never shifts the other values.
 
 Types and ties follow :mod:`src.behavior_analysis.reversal_arm_ranks`; the type is defined by
 the prev ranking for both schemes.
@@ -24,13 +25,13 @@ from typing import NamedTuple
 
 import numpy as np
 
-from src.behavior_analysis.get_choice_probs_around_good_reversals import (
-    _keep_zero_then_skip,
-    _smooth_pre_post,
-    _trial_offsets,
-)
 from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.reversal_alignment import (
+    align_window_values,
+    smooth_pre_post,
+    true_trial_offsets,
+)
 from src.behavior_analysis.reversal_arm_ranks import (
     LABEL_SCHEMES,
     SCHEME_ROLES,
@@ -97,49 +98,6 @@ class ReversalAlignedArms:
 
 
 # ---------------------------------------------------------------------------
-# Alignment
-# ---------------------------------------------------------------------------
-
-
-def align_window_values(pre_values, post_values, *, pre: int, post: int, skip: int = 0):
-    """One row of ``pre + post - skip`` bins from a reversal's pre and post values.
-
-    Args:
-        pre_values: Values of the trials before the reversal, oldest first (at most *pre*).
-        post_values: Values from the reversal trial on (at most *post*).
-        pre: Trials before the reversal in the row.
-        post: Trials from the reversal on in the row, before skipping.
-        skip: Post trial 0 is kept and post trials ``1 .. skip`` are dropped.
-
-    Returns:
-        Float array. The last pre value is in bin ``pre - 1`` (offset -1), the first post value
-        in bin ``pre`` (offset 0); bins without a value are NaN.
-
-    Raises:
-        ValueError: If *skip* is negative or leaves no post window, or if a window is longer
-            than *pre* or *post* (it was built with other settings).
-    """
-    n_bins = len(_trial_offsets(pre=pre, post=post, skip=skip))
-    kept_post = _keep_zero_then_skip(list(post_values), skip)
-    if len(pre_values) > pre:
-        raise ValueError(f"pre window has {len(pre_values)} trials but pre={pre}")
-    if len(kept_post) > post - skip:
-        raise ValueError(
-            f"post window has {len(kept_post)} trials after skipping; max {post - skip}"
-        )
-    row = np.full(n_bins, np.nan)
-    row[pre - len(pre_values) : pre] = np.asarray(pre_values, dtype=float)
-    row[pre : pre + len(kept_post)] = np.asarray(kept_post, dtype=float)
-    return row
-
-
-def true_trial_offsets(*, pre: int, post: int, skip: int = 0) -> np.ndarray:
-    """Trials from the reversal of each bin: the post bins after the first sit *skip* later."""
-    bins = _trial_offsets(pre=pre, post=post, skip=skip)
-    return np.where(bins >= 1, bins + skip, bins)
-
-
-# ---------------------------------------------------------------------------
 # Magnitude windows
 # ---------------------------------------------------------------------------
 
@@ -179,6 +137,12 @@ def _check_matches_stored_magnitudes(subject: str, reward_by_tower: dict, revers
             )
 
 
+def _pre_room(blocks: list, idx: int) -> int:
+    """Trials from the previous block change (or the first trial) up to the reversal at *idx*."""
+    changes = [i for i in range(1, min(idx, len(blocks))) if blocks[i] != blocks[i - 1]]
+    return idx - (changes[-1] if changes else 0)
+
+
 def _magnitude_windows(reward_by_tower: dict, reversal: dict) -> dict[str, dict[str, list]]:
     window = reversal["trial_window_idx"]
     return {
@@ -205,7 +169,8 @@ def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict
     Returns:
         ``{subject: [reversal dict]}`` where each reversal dict has a new key
         ``"magnitudes_by_tower"``: ``{tower: {"pre": [...], "post": [...]}}``, the same shape
-        as ``"choices_by_tower"``. The input is not modified.
+        as ``"choices_by_tower"``, and ``"pre_room"``: trials from the previous block change.
+        The input is not modified.
 
     Raises:
         ValueError: If a subject has no sessions, a series is shorter than the window, or the
@@ -221,7 +186,11 @@ def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict
             _check_series_cover_windows(subject, reward_by_tower, reversal)
             _check_matches_stored_magnitudes(subject, reward_by_tower, reversal)
             enriched[subject].append(
-                {**reversal, "magnitudes_by_tower": _magnitude_windows(reward_by_tower, reversal)}
+                {
+                    **reversal,
+                    "magnitudes_by_tower": _magnitude_windows(reward_by_tower, reversal),
+                    "pre_room": _pre_room(merged[subject]["blocks"], reversal["reversal_idx"]),
+                }
             )
     return enriched
 
@@ -250,8 +219,8 @@ def check_windows_built_with(windows: dict, *, pre: int, post: int) -> None:
     """Raise unless every reversal was built with *pre* and *post* by the builder above.
 
     Windows built with a smaller pre or post would be NaN-padded to the requested length and
-    look like ordinary data; each pre window must also be as long as the data before the
-    reversal allows.
+    look like ordinary data; each pre window must also be as long as the block before the
+    reversal allows (the pre window stops at the previous block change).
 
     Raises:
         ValueError: Naming the first reversal whose settings or pre length do not fit.
@@ -265,7 +234,7 @@ def check_windows_built_with(windows: dict, *, pre: int, post: int) -> None:
                     f"(pre, post) = {built}, not ({pre}, {post}); rebuild it with "
                     "build_windows_with_magnitudes"
                 )
-            expected_pre = min(pre, r["reversal_idx"])
+            expected_pre = min(pre, r["pre_room"])
             if len(r["trial_window_idx"]["pre"]) != expected_pre:
                 raise ValueError(
                     f"{subject}: reversal at {r['reversal_idx']} has a pre window of "
@@ -351,7 +320,7 @@ def _choice_curves(selected, scheme, roles, offsets, *, smooth, **window) -> _Cu
         )
         _check_sum_to_one(raw, f"subject {subject}")
         per_subject[subject] = {
-            role: _smooth_pre_post(y, offsets < 0, smooth["window"], smooth["mode"])
+            role: smooth_pre_post(y, offsets < 0, smooth["window"], smooth["mode"])
             for role, y in raw.items()
         }
     curves = _across_subjects(per_subject, roles)
