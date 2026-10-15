@@ -25,9 +25,9 @@ import pandas as pd
 from src.behavior_import.problem_numbering import (
     SessionFacts,
     number_subject_sessions,
-    session_sort_key,
     tower_layout,
 )
+from src.behavior_import.session_order import ordered_session_keys, session_sort_key
 
 # ========== Content Key Aliases ==========
 CHOICE_TOWERS_KEYS = (
@@ -51,8 +51,8 @@ COHORT_RE = re.compile(r"cohort-(\d+)")
 # ========== Main Data Import Functions ==========
 def _sorted_session_keys(grouped_tsv_files: dict, subject_id: str) -> list:
     """The ``(subject_id, session_key)`` keys of one subject, in chronological order."""
-    keys = [k for k in grouped_tsv_files.keys() if k[0] == subject_id]
-    return sorted(keys, key=lambda k: sort_session_key(k[1]))
+    keys = {k[1]: k for k in grouped_tsv_files if k[0] == subject_id}
+    return [keys[session_key] for session_key in ordered_session_keys(subject_id, keys)]
 
 
 class RunStartError(ValueError):
@@ -548,5 +548,5 @@ def create_session_key(tsv_path) -> tuple:
 
 
 # Sessions are ordered by date, then session number: the key shared with
-# ``group_sessions_by_problem`` (see ``problem_numbering.session_sort_key``).
+# ``group_sessions_by_problem`` (see ``session_order.session_sort_key``).
 sort_session_key = session_sort_key

@@ -4,11 +4,9 @@ Provides helpers to count total good/bad reversals across sessions per subject,
 retrieve all reversal indices, and identify trials where cumulative reversal
 counters increment.
 """
-from src.behavior_analysis.get_variables_across_sessions import (
-    get_vars_across_all_sessions,
-    ordered_session_keys,
-)
+from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
+from src.behavior_import.session_order import ordered_session_keys
 
 
 def get_total_reversals(subject_sessions):
@@ -139,7 +137,7 @@ def get_unclassified_reversal_indices(subjects_trials):
     for subject, sessions in subjects_trials.items():
         blocks = merged[subject]["blocks"]
         indices, start = [], 0
-        for key in ordered_session_keys(sessions):
+        for key in ordered_session_keys(subject, sessions):
             sess = sessions[key]
             n_trials = len(sess.get("trial", []))
             if n_trials and not (sess.get("has_good") or sess.get("has_bad")):

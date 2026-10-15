@@ -1,6 +1,6 @@
 """Audit trial/end/start reversal state without inferring event type from magnitudes.
 
-Usage: python scripts/audit_session_reversals.py RAW_ROOT OUTPUT_JSON
+Usage (from the repository root): python -m scripts.audit_session_reversals RAW_ROOT OUTPUT_JSON
 Includes terminal trials, multiple runs per session, counter resets and problem changes.
 """
 import csv
@@ -8,6 +8,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+from src.behavior_import.session_order import ordered_session_keys
 
 ALIASES = {
     'magnitudes': ('current_reward_magnitudes', 'curr_rew_mag'),
@@ -33,6 +35,12 @@ def compare(before, after):
             if isinstance(a, (int, float)) and isinstance(b, (int, float)):
                 changes[key]['delta'] = b - a
     return changes
+
+
+def session_rank(runs, run):
+    """Position of the run's session among its subject's sessions (date, then number)."""
+    sessions = {r['session'] for r in runs if r['subject'] == run['subject']}
+    return ordered_session_keys(run['subject'], sessions).index(run['session'])
 
 
 def audit(root):
@@ -67,7 +75,7 @@ def audit(root):
         runs.append(dict(subject=match[1], session=match[2], session_number=int(match[3]),
                          path=str(path), start=start, end=end, last_trial=last,
                          trial_count=trial_count))
-    runs.sort(key=lambda r: (r['subject'], r['session_number'], r['path']))
+    runs.sort(key=lambda r: (r['subject'], session_rank(runs, r), r['path']))
     boundaries = []
     previous = {}
     for run in runs:

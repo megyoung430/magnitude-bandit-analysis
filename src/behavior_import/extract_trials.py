@@ -14,6 +14,7 @@ from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
     warn_flagged,
 )
 from src.behavior_import.reconcile_reversals import reconcile_reversals
+from src.behavior_import.session_order import ordered_session_keys
 from src.behavior_import.split_recording_configurations import split_recording_configurations
 
 # Across some pyControl files, different variable names are used for the same trial information.
@@ -789,10 +790,12 @@ def session_facts(subject_id, session_id, session_data):
 def signed_sessions(subject_id, subject_sessions):
     """Return ``[(session_id, SessionFacts)]`` in chronological order.
 
-    Sessions without trial information are skipped with a warning.
+    Sessions without trial information are skipped with a warning. Raises ``ValueError`` if
+    the subject's session numbers and dates disagree
+    (:mod:`src.behavior_import.session_order`).
     """
     signed = []
-    for session_id in sorted(subject_sessions, key=session_sort_key):
+    for session_id in ordered_session_keys(subject_id, subject_sessions):
         sess = subject_sessions[session_id]
         if not sess.get("trial_info"):
             print(

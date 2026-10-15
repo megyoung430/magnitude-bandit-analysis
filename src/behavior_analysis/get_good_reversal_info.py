@@ -12,10 +12,8 @@ from dataclasses import dataclass
 
 from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
-from src.behavior_analysis.get_variables_across_sessions import (
-    get_vars_across_all_sessions,
-    session_order,
-)
+from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_import.session_order import ordered_session_keys
 
 
 class ReversalWarning(UserWarning):
@@ -94,10 +92,10 @@ def _run_lengths(sess):
     return tuple(len(r.get("trial") or []) for r in runs)
 
 
-def _session_spans(sessions):
+def _session_spans(subject, sessions):
     """Spans of a subject's sessions in merged order (sessions without trials are absent)."""
     spans, start = [], 0
-    for key in sorted(sessions, key=session_order):
+    for key in ordered_session_keys(subject, sessions):
         sess = sessions[key]
         n = len(sess.get("trial") or [])
         if n:
@@ -293,7 +291,7 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
         return [], [], []
 
     any_good = any(sess.get("has_good", False) for sess in sessions.values())
-    spans = _session_spans(sessions)
+    spans = _session_spans(subj, sessions)
     # Block changes of a bad-only session mix in bad reversals, so they are not good
     # reversals: no record is made for them. Only the block-change fallback (no good counter
     # anywhere) can reach them.

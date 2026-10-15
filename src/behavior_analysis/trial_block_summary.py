@@ -2,6 +2,7 @@
 import re
 import pandas as pd
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_import.session_order import ordered_session_keys
 
 
 def subject_numbers_from_paths(paths):
@@ -29,7 +30,7 @@ def build_trial_block_tables(problems, subject_numbers):
             number = subject_numbers[mouse]
             group = 'sub-01–04' if 1 <= number <= 4 else 'sub-05–08' if 5 <= number <= 8 else 'Other'
             base = dict(mouse=mouse, subject_number=number, group=group, problem=problem)
-            keys = sorted(mouse_sessions, key=lambda k: (int(re.search(r'ses-(\d+)', k)[1]), k))
+            keys = ordered_session_keys(mouse, mouse_sessions)
             dates = []
             for key in keys:
                 count = len(mouse_sessions[key].get('trial', []))

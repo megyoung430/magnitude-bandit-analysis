@@ -180,6 +180,7 @@ def test_input_is_not_modified_and_result_does_not_share_with_it():
     assert subjects["m1"]["ses-1"]["reversal_totals"] == {"good": 1, "bad": 0}
 
 
-def test_session_keys_need_a_session_number():
-    with pytest.raises(TypeError):
-        match_trial_budget({"m1": {"first": recorded(2)}}, {"m1": 1}, trial_budget=1)
+def test_keys_without_a_session_number_come_last():
+    sessions = {"first": recorded(2), "ses-3": recorded(2)}
+    matched, _ = match_trial_budget({"m1": sessions}, {"m1": 1}, trial_budget=4)
+    assert list(matched["m1"]) == ["ses-3", "first"]

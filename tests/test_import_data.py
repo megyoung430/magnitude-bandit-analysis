@@ -86,13 +86,20 @@ def test_sessions_are_grouped_by_subject_and_keyed_by_session_folder(tmp_path):
 
 
 def test_sessions_are_ordered_by_date_then_number(tmp_path):
-    for ses in ("ses-3_date-20260102", "ses-2_date-20260102", "ses-9_date-20260101"):
+    for ses in ("ses-10_date-20260102", "ses-9_date-20260102", "ses-8_date-20260101"):
         write_tsv(session_dir(tmp_path, session=ses), "M1-2026-01-01-100000.tsv")
     assert list(import_data(tmp_path)["M1"]) == [
-        "ses-9_date-20260101",
-        "ses-2_date-20260102",
-        "ses-3_date-20260102",
+        "ses-8_date-20260101",
+        "ses-9_date-20260102",
+        "ses-10_date-20260102",
     ]
+
+
+def test_session_numbers_that_disagree_with_the_dates_raise(tmp_path):
+    for ses in ("ses-2_date-20260101", "ses-1_date-20260102"):
+        write_tsv(session_dir(tmp_path, session=ses), "M1-2026-01-01-100000.tsv")
+    with pytest.raises(ValueError, match="M1: session number order and date order disagree"):
+        import_data(tmp_path)
 
 
 def test_tower_identifiers_are_read_from_the_run_start_row(tmp_path):
@@ -491,23 +498,23 @@ def write_bandit_session(root, session, run_start):
 
 
 def test_both_entry_points_number_sessions_in_date_then_session_number_order(tmp_path):
-    # Session numbers run opposite to the dates, so the two orderings disagree.
+    # ses-10 sorts before ses-9 as a string; two sessions share a date.
     sessions = {
-        "ses-6_date-20260101": A,
-        "ses-5_date-20260102": A,
-        "ses-2_date-20260103": B,
-        "ses-3_date-20260104": B,
-        "ses-1_date-20260105": C,
+        "ses-9_date-20260101": A,
+        "ses-10_date-20260102": A,
+        "ses-11_date-20260103": B,
+        "ses-12_date-20260103": B,
+        "ses-13_date-20260105": C,
     }
     for key, run_start in sessions.items():
         write_bandit_session(tmp_path, key, run_start)
     imported = import_data(tmp_path)
     expected = {
-        "ses-6_date-20260101": 1,
-        "ses-5_date-20260102": 1,
-        "ses-2_date-20260103": 2,
-        "ses-3_date-20260104": 2,
-        "ses-1_date-20260105": 3,
+        "ses-9_date-20260101": 1,
+        "ses-10_date-20260102": 1,
+        "ses-11_date-20260103": 2,
+        "ses-12_date-20260103": 2,
+        "ses-13_date-20260105": 3,
     }
     assert {k: s["problem"] for k, s in imported["M1"].items()} == expected
     grouped = extract_trials_grouped_by_problem(imported)  # the real extract_trials path

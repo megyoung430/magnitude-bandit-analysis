@@ -1,22 +1,15 @@
 """Functions for merging and aligning behavioral variables across multiple recording sessions."""
 
-import re
+from src.behavior_import.session_order import ordered_session_keys
 
 
-def session_order(key):
-    """Sort key ordering session keys by their ``ses-<n>`` number; keys without one go last."""
-    match = re.search(r"ses-(\d+)", key)
-    return (int(match[1]) if match else float("inf"), key)
+def ordered_sessions(subject, subject_sessions):
+    """A subject's session dicts in the package's session order (date, then number).
 
-
-def ordered_session_keys(subject_sessions):
-    """A subject's session keys in session-number order (the order trials are merged in)."""
-    return sorted(subject_sessions, key=session_order)
-
-
-def ordered_sessions(subject_sessions):
-    """A subject's session dicts in session-number order."""
-    return [subject_sessions[k] for k in ordered_session_keys(subject_sessions)]
+    Raises ``ValueError`` naming *subject* if the session numbers and dates disagree (see
+    :mod:`src.behavior_import.session_order`).
+    """
+    return [subject_sessions[k] for k in ordered_session_keys(subject, subject_sessions)]
 
 
 def get_vars_across_all_sessions(data):
@@ -24,7 +17,9 @@ def get_vars_across_all_sessions(data):
 
     The rig's counters (good/bad reversals, block number) restart at each session, so each
     session's values are offset by what the earlier sessions ended on. Merging counters that
-    do not restart would double count.
+    do not restart would double count. Sessions are merged in date-then-number order
+    (:mod:`src.behavior_import.session_order`); a subject whose dates and session numbers
+    disagree raises ``ValueError``.
 
     End-of-session events affect totals even without a following trial. They
     enter trial-aligned counters only when another trial is available. Sessions
@@ -32,7 +27,7 @@ def get_vars_across_all_sessions(data):
     """
     merged, unmerged = {}, {}
     for subject, subject_sessions in data.items():
-        sessions = ordered_sessions(subject_sessions)
+        sessions = ordered_sessions(subject, subject_sessions)
         fields = (
             "trial",
             "blocks",

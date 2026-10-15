@@ -11,9 +11,17 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.get_total_reversals import get_total_reversals
+from src.behavior_import.session_order import ordered_session_keys
 
 _SESSION_RE = re.compile(r"ses-(\d+)")
 _COUNT_COLUMNS = {"good_reversals": "good", "bad_reversals": "bad", "total_reversals": "total"}
+# Present in every frame; NaN for sessions without good/bad counters.
+_OPTIONAL_COLUMNS = (
+    "good",
+    "bad",
+    "suspect_good_reversals",
+    "uncheckable_good_reversals",
+)
 
 
 def session_number(session_key: str) -> int:
@@ -26,7 +34,7 @@ def session_number(session_key: str) -> int:
 
 def _count_frame(rows: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(rows).rename(columns=_COUNT_COLUMNS)
-    for col in ("good", "bad"):
+    for col in _OPTIONAL_COLUMNS:
         if col not in df:
             df[col] = np.nan
     return df
@@ -39,22 +47,28 @@ def reversal_counts_by_session(subjects_trials: dict) -> pd.DataFrame:
         subjects_trials: ``{subject: {session_key: session_dict}}``.
 
     Returns:
-        DataFrame sorted by subject then session number, with columns
+        DataFrame sorted by subject then session (date, then number; a subject whose
+        numbers and dates disagree raises ``ValueError``), with columns
         ``subject``, ``session``, ``session_label`` (``ses-NN``), ``good``,
         ``bad`` (NaN for sessions without good/bad counters) and ``total``, plus
         ``suspect_good_reversals`` and ``uncheckable_good_reversals`` (see
-        :func:`get_total_reversals`; NaN without good/bad counters).
+        :func:`get_total_reversals`). These four columns are always present; sessions
+        without good/bad counters have NaN in them.
     """
     rows = [
-        {"subject": subject, "session": session_number(key), **get_total_reversals({key: trials})}
+        {
+            "subject": subject,
+            "session": session_number(key),
+            **get_total_reversals({key: subjects_trials[subject][key]}),
+        }
         for subject in sorted(subjects_trials)
-        for key, trials in subjects_trials[subject].items()
+        for key in ordered_session_keys(subject, subjects_trials[subject])
     ]
     if not rows:
         raise ValueError("No sessions found in subjects_trials")
     counts = _count_frame(rows)
     counts["session_label"] = counts["session"].map(lambda n: f"ses-{n:02d}")
-    return counts.sort_values(["subject", "session"], kind="stable").reset_index(drop=True)
+    return counts.reset_index(drop=True)
 
 
 def reversal_totals_by_subject(subjects_trials: dict) -> pd.DataFrame:

@@ -6,8 +6,9 @@ session by the merger. Unclassified state changes are retained as diagnostics.
 """
 
 import json
-import re
 from typing import NamedTuple
+
+from src.behavior_import.session_order import ordered_session_keys
 
 KINDS = ("good", "bad")
 
@@ -74,12 +75,6 @@ class _Run(NamedTuple):
     events: list
     diagnostics: list
     end_state: dict  # snapshot handed to the next run as ``previous``
-
-
-def _session_order(key):
-    """Sort by session number, then name; keys without ``ses-<n>`` go last."""
-    match = re.search(r"ses-(\d+)", key)
-    return (int(match[1]) if match else float("inf"), key)
 
 
 def _session_frames(sess):
@@ -340,13 +335,16 @@ def reconcile_reversals(data):
     Positive cumulative-total changes between runs identify additional events;
     negative changes and magnitude-only changes are diagnostics, not reversals.
 
+    Sessions run in date-then-number order (:mod:`src.behavior_import.session_order`), so
+    each session's counters start from the right previous session.
+
     Raises:
-        ValueError: If a run's ``run_start`` snapshot cannot be parsed; the message
-            names the subject and session.
+        ValueError: If a run's ``run_start`` snapshot cannot be parsed (the message names
+            the subject and session), or if a subject's session numbers and dates disagree.
     """
     for subject, sessions in data.items():
         previous = None
-        for key in sorted(sessions, key=_session_order):
+        for key in ordered_session_keys(subject, sessions):
             try:
                 previous = _reconcile_session(sessions[key], previous)
             except _SnapshotError as err:

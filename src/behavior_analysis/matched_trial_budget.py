@@ -1,8 +1,9 @@
 """Match problem exposure using the first N chronological trials per mouse."""
 
 import math
-import re
 from copy import deepcopy
+
+from src.behavior_import.session_order import ordered_session_keys
 
 # Analysis fields copied into a matched session; raw dataframes are left out.
 _COPIED_FIELDS = (
@@ -60,11 +61,6 @@ def _resolve_budget(counts, *, subject_numbers, reference_numbers, trial_budget)
     return budget, reference, mean
 
 
-def _session_order(session_key: str) -> tuple:
-    """Chronological sort key: session number, then the full key."""
-    return (int(re.search(r"ses-(\d+)", session_key)[1]), session_key)
-
-
 def _partial_reversal_totals(source: dict, take: int) -> dict:
     """Reversal totals of a session cut after *take* trials.
 
@@ -95,11 +91,11 @@ def _truncate_session(source: dict, take: int, *, is_partial: bool) -> dict:
     return target
 
 
-def _retain_trials(sessions: dict, budget: int) -> dict:
+def _retain_trials(mouse: str, sessions: dict, budget: int) -> dict:
     """``{session key: truncated session}`` for the first *budget* trials, in session order."""
     left = budget
     kept = {}
-    for key in sorted(sessions, key=_session_order):
+    for key in ordered_session_keys(mouse, sessions):
         if left <= 0:
             break
         source = sessions[key]
@@ -117,6 +113,8 @@ def match_trial_budget(
 ):
     """Use a fixed ``trial_budget`` or the floored reference-mouse mean as a cap.
 
+    Sessions are taken in date-then-number order (:mod:`src.behavior_import.session_order`);
+    a mouse whose session numbers and dates disagree raises ``ValueError``.
     Mice with fewer trials retain all available trials and are flagged in the
     report. Full sessions retain terminal reversal counts; a partial session's
     totals use the counter at the next trial boundary, including a reversal
@@ -142,7 +140,7 @@ def match_trial_budget(
     )
     result, rows = {}, []
     for mouse, sessions in subjects.items():
-        kept = _retain_trials(sessions, budget)
+        kept = _retain_trials(mouse, sessions, budget)
         if kept:
             result[mouse] = kept
         rows.append(
