@@ -53,6 +53,10 @@ def test_tallest_bar_is_max_of_median_plus_se_and_one_without_bars():
     assert ts._tallest_bar(np.array([]), np.array([])) == 1.0
 
 
+def test_tallest_bar_counts_a_bar_whose_se_is_nan():
+    assert ts._tallest_bar(np.array([10.0, 20.0]), np.array([1.0, np.nan])) == 20.0
+
+
 def test_annotation_height_is_five_percent_above_tallest_bar_but_at_least_one():
     meds, ses = np.array([10.0, 20.0]), np.array([1.0, 5.0])
     assert ts._annotation_height(meds, ses) == pytest.approx(25.0 * 1.05)

@@ -17,7 +17,10 @@ from src.behavior_analysis.trial_count_summaries import (
 )
 from src.behavior_visualization import plot_trial_block_summary as pbs
 from src.behavior_visualization.plot_style import MOUSE_COLORS
-from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
+from src.behavior_visualization.plot_trial_block_summary import (
+    _plot_problem_means,
+    plot_trial_block_summaries,
+)
 from tests.plot_capture import cap_size, capture_figures, was_tight_laid_out
 from tests.plot_fixtures import make_mouse
 
@@ -373,3 +376,18 @@ def test_a_figure_that_cannot_be_saved_is_closed(capture, tables, tmp_path, monk
     with pytest.raises(OSError, match="disk full"):
         plot_trial_block_summaries(sessions, blocks, tmp_path / "figs", show=False)
     assert plt.get_fignums() == []
+
+
+def test_problem_means_draw_the_mean_without_error_bar_for_a_single_mouse():
+    per_mouse = pd.DataFrame(
+        {"mouse": ["m1", "m2", "m1"], "problem": [1, 1, 2], "trials": [10.0, 14.0, 7.0]}
+    )
+    summary = summarize_trials_by_problem(per_mouse)
+    _, ax = plt.subplots()
+    _plot_problem_means(ax, per_mouse, summary, {"m1": "C0", "m2": "C1"})
+    (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
+    assert errorbar.lines[0].get_ydata().tolist() == [12.0, 7.0]
+    first, second = errorbar.lines[2][0].get_segments()
+    assert first[:, 1].tolist() == [10.0, 14.0]
+    assert len(second) == 0
+    plt.close(ax.figure)

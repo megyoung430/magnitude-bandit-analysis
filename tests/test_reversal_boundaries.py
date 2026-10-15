@@ -38,7 +38,17 @@ class BoundaryTests(unittest.TestCase):
         merged, _ = get_vars_across_all_sessions(data)
         self.assertEqual(merged['mouse']['bad_reversals'], [0, 0, 1, 1])
         self.assertEqual(merged['mouse']['good_reversals'], [0, 0, 1, 1])
-        self.assertEqual(get_total_reversals(data['mouse']), dict(total_reversals=2, good_reversals=1, bad_reversals=1))
+        # The logged totals are unchanged; the terminal good event cannot be checked.
+        self.assertEqual(
+            get_total_reversals(data['mouse']),
+            dict(
+                total_reversals=2,
+                good_reversals=1,
+                bad_reversals=1,
+                suspect_good_reversals=0,
+                uncheckable_good_reversals=1,
+            ),
+        )
         self.assertEqual(get_all_reversal_indices(data)[:2], ({'mouse': [2]}, {'mouse': [2]}))
         self.assertEqual(get_good_reversal_info(data)['mouse'][0]['reversal_idx'], 2)
         self.assertEqual(get_bad_reversal_info(data)['mouse'][0]['reversal_idx'], 2)

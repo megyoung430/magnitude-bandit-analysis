@@ -7,18 +7,20 @@ problem level.
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from typing import Any
 
 import numpy as np
 
+from src.behavior_analysis.stats import mean_se_n
+
+# One shared session order (date, then session number); see problem_numbering.
+from src.behavior_import.problem_numbering import session_sort_key
 
 # ---------------------------------------------------------------------------
 # Key-parsing helpers
 # ---------------------------------------------------------------------------
 
 _PROBLEM_RE = re.compile(r"(\d+)")
-_SESSION_RE = re.compile(r"ses-(\d+)")
 
 
 def problem_to_int(k: Any) -> int | None:
@@ -34,23 +36,6 @@ def problem_to_int(k: Any) -> int | None:
         return int(k)
     m = _PROBLEM_RE.search(str(k))
     return int(m.group(1)) if m else None
-
-
-def session_sort_key(session_key: str) -> tuple:
-    """Return a sort key for a session string of the form ``ses-NN_date-YYYYMMDD``.
-
-    Args:
-        session_key: A session identifier string.
-
-    Returns:
-        A tuple ``(session_number, datetime, session_key)`` suitable for
-        sorting sessions chronologically.
-    """
-    m_ses = _SESSION_RE.search(str(session_key))
-    m_date = re.search(r"date-(\d{8})", str(session_key))
-    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
-    dt = datetime.strptime(m_date.group(1), "%Y%m%d") if m_date else datetime.max
-    return (ses_num, dt, session_key)
 
 
 # ---------------------------------------------------------------------------
@@ -261,24 +246,13 @@ def summarize_by_problem(per_mouse_metric: dict) -> dict:
     """
     mice = sorted(per_mouse_metric.keys())
     problems = sorted({p for m in mice for p in per_mouse_metric[m].keys()})
-    means, ses, ns = [], [], []
-
-    for p in problems:
-        vals = np.array(
-            [per_mouse_metric[m][p] for m in mice if p in per_mouse_metric[m]],
-            dtype=float,
-        )
-        n = int(vals.size)
-        ns.append(n)
-        if n == 0:
-            means.append(float("nan"))
-            ses.append(float("nan"))
-        elif n == 1:
-            means.append(float(vals.mean()))
-            ses.append(0.0)
-        else:
-            means.append(float(vals.mean()))
-            ses.append(float(vals.std(ddof=1) / np.sqrt(n)))
+    stats = [
+        mean_se_n([per_mouse_metric[m][p] for m in mice if p in per_mouse_metric[m]])
+        for p in problems
+    ]
+    means = [mean for mean, _, _ in stats]
+    ses = [se for _, se, _ in stats]
+    ns = [n for _, _, n in stats]
 
     return {
         "blocks": problems,
@@ -315,11 +289,9 @@ def summarize_by_problem_safe(per_mouse_metric: dict) -> dict:
     out: dict = {}
     for p, vals_list in by_p.items():
         vals = np.asarray(vals_list, dtype=float)
-        n = int(np.isfinite(vals).sum())
+        m, se, n = mean_se_n(vals)
         if n == 0:
             continue
-        m = float(np.nanmean(vals))
-        se = 0.0 if n == 1 else float(np.nanstd(vals, ddof=1) / np.sqrt(n))
         out[p] = {"mean": m, "se": se, "n": n, "values": vals.tolist()}
     return out
 

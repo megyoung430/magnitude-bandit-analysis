@@ -15,7 +15,7 @@ from src.behavior_analysis.get_first_leave_after_good_reversals import (
 )
 from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
 from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_good_reversal
-from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
+from src.behavior_analysis.get_total_reversals import get_reversal_indices_by_kind
 from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
 from src.behavior_analysis.split_good_reversals_by_best_change import (
     split_good_reversals_by_best_change,
@@ -178,23 +178,24 @@ for problem_number in subjects_trials_by_problem.keys():
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
-        all_good_idx, all_bad_idx, all_blocks = get_all_reversal_indices(subjects_trials)
+        reversal_idx = get_reversal_indices_by_kind(subjects_trials)
+        all_good_idx, all_bad_idx, all_unclassified_idx = (reversal_idx["good"], reversal_idx["bad"], reversal_idx["unclassified"])
 
         x, per_subject, across = get_choice_probs_around_good_reversals(reversal_windows, pre=pre, post=post)
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals")
         plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=reversal_windows, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
         early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
         x, per_subject, across = get_choice_probs_around_good_reversals(early, pre=pre, post=post)
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Early)")
         plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=early, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
         x, per_subject, across = get_choice_probs_around_good_reversals(late, pre=pre, post=post)
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Late)")
         plot_choice_probs_around_good_reversals(x, across, add_cumulative_axis=True, only_good=True, use_total=use_total,windows_for_cumulative_axis=late, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
     if skip:
         print("Running analysis skipping initial trials after reversal and without moving average")
@@ -223,14 +224,15 @@ for problem_number in subjects_trials_by_problem.keys():
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
-        all_good_idx, all_bad_idx, all_blocks = get_all_reversal_indices(subjects_trials)
+        reversal_idx = get_reversal_indices_by_kind(subjects_trials)
+        all_good_idx, all_bad_idx, all_unclassified_idx = (reversal_idx["good"], reversal_idx["bad"], reversal_idx["unclassified"])
 
         x, per_subject, across = get_choice_probs_around_good_reversals(reversal_windows, pre=pre, post=post)
         x, per_subject_moving_avg, across_moving_avg = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
 
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Moving Average)")
         plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=reversal_windows, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
         if split_by_half:
             print("Running analysis with moving average split by half")
@@ -240,13 +242,13 @@ for problem_number in subjects_trials_by_problem.keys():
             x, per_subject_moving_avg, across_moving_avg = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Moving Average) (First Half)")
             plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=early, 
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
             
             x, per_subject, across = get_choice_probs_around_good_reversals(late, pre=pre, post=post)
             x, per_subject_moving_avg, across_moving_avg = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Moving Average) (Second Half)")
             plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=late, 
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
         if split_by_first_two:
             print("Running analysis with moving average split by first two reversals")
             early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
@@ -255,20 +257,21 @@ for problem_number in subjects_trials_by_problem.keys():
             x, per_subject_moving_avg, across_moving_avg = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Moving Average) (Early)")
             plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=early, 
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
             x, per_subject, across = get_choice_probs_around_good_reversals(late, pre=pre, post=post)
             x, per_subject_moving_avg, across_moving_avg = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Moving Average) (Late)")
             plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=late, 
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
     if remove_bad and not use_total:
         print("Running analysis with bad reversals removed and without moving average")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
-        all_good_idx, all_bad_idx, all_blocks = get_all_reversal_indices(subjects_trials)
+        reversal_idx = get_reversal_indices_by_kind(subjects_trials)
+        all_good_idx, all_bad_idx, all_unclassified_idx = (reversal_idx["good"], reversal_idx["bad"], reversal_idx["unclassified"])
         reversal_windows = remove_trials_after_bad_rev(reversal_windows, all_good_idx, all_bad_idx, include_bad_trial=True)
 
         x, per_subject, across = get_choice_probs_around_good_reversals(reversal_windows, pre=pre, post=post)
@@ -276,7 +279,7 @@ for problem_number in subjects_trials_by_problem.keys():
 
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Remove Bad)")
         plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=reversal_windows, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
         early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
 
@@ -285,21 +288,22 @@ for problem_number in subjects_trials_by_problem.keys():
         x, per_subject_moving_avg, across_moving_avg = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Remove Bad) (Early)")
         plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=early, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
         late = remove_trials_after_bad_rev(late, all_good_idx, all_bad_idx, include_bad_trial=True)
         x, per_subject, across = get_choice_probs_around_good_reversals(late, pre=pre, post=post)
         x, per_subject_moving_avg, across_moving_avg = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probabilities Around Good Reversals (Remove Bad) (Late)")
         plot_choice_probs_around_good_reversals(x, across_moving_avg, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=late, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
     if split_by_best_change and moving_avg:
         print("Running analysis with moving average split by best change and with bad reversals removed")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
-        all_good_idx, all_bad_idx, all_blocks = get_all_reversal_indices(subjects_trials)
+        reversal_idx = get_reversal_indices_by_kind(subjects_trials)
+        all_good_idx, all_bad_idx, all_unclassified_idx = (reversal_idx["good"], reversal_idx["bad"], reversal_idx["unclassified"])
         best2, best3 = split_good_reversals_by_best_change(reversal_windows)
 
         # plot best->second
@@ -307,14 +311,14 @@ for problem_number in subjects_trials_by_problem.keys():
         x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Second)")
         plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=best2,
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
         # plot best->third
         x, per_subject, across = get_choice_probs_around_good_reversals(best3, pre=pre, post=post)
         x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Third)")
         plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=best3,
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
         
         early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
         best2_early, best3_early = split_good_reversals_by_best_change(early)
@@ -327,35 +331,36 @@ for problem_number in subjects_trials_by_problem.keys():
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Second) (Early)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=best2_early,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
             # plot best->third early
             x, per_subject, across = get_choice_probs_around_good_reversals(best3_early, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Third) (Early)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=best3_early,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
             # plot best->second late
             x, per_subject, across = get_choice_probs_around_good_reversals(best2_late, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Second) (Late)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=best2_late,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
             # plot best->third late
             x, per_subject, across = get_choice_probs_around_good_reversals(best3_late, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Third) (Late)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=True, use_total=use_total, windows_for_cumulative_axis=best3_late,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
     if split_by_best_change and remove_bad and moving_avg and not use_total:
         print("Running analysis with moving average split by best change and with bad reversals removed")
         subjects_trials = subjects_trials_by_problem[problem_number]
 
         reversal_windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
-        all_good_idx, all_bad_idx, all_blocks = get_all_reversal_indices(subjects_trials)
+        reversal_idx = get_reversal_indices_by_kind(subjects_trials)
+        all_good_idx, all_bad_idx, all_unclassified_idx = (reversal_idx["good"], reversal_idx["bad"], reversal_idx["unclassified"])
         
         early, late = split_good_reversals_early_late(reversal_windows, first_n=2)
         best2_early, best3_early = split_good_reversals_by_best_change(early)
@@ -370,14 +375,14 @@ for problem_number in subjects_trials_by_problem.keys():
         x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Second) (Remove Bad)")    
         plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=best2,
-            all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+            all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
         # plot best->third
         x, per_subject, across = get_choice_probs_around_good_reversals(best3, pre=pre, post=post)
         x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
         curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Third) (Remove Bad)")
         plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=best3, 
-                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
         
         if split_by_best_change_and_half:
             print("Running analysis with moving average split by best change and half and with bad reversals removed")
@@ -386,25 +391,25 @@ for problem_number in subjects_trials_by_problem.keys():
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Second) (Remove Bad) (Early)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=best2_early,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
             # plot best->third early
             x, per_subject, across = get_choice_probs_around_good_reversals(best3_early, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Third) (Remove Bad) (Early)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=best3_early,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
             # plot best->second late
             x, per_subject, across = get_choice_probs_around_good_reversals(best2_late, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Second) (Remove Bad) (Late)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=best2_late,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)
 
             # plot best->third late
             x, per_subject, across = get_choice_probs_around_good_reversals(best3_late, pre=pre, post=post)
             x, _, across_sm = apply_moving_average_to_choice_probs(x, per_subject, moving_avg_window=moving_avg_window, mode="centered")
             curr_save_path = Path(f"../../results/figures/{task}/{cohort}/{problem}/reversal-stats/Choice Probs Good Reversals (Best->Third) (Remove Bad) (Late)")
             plot_choice_probs_around_good_reversals(x, across_sm, add_cumulative_axis=True, only_good=False, windows_for_cumulative_axis=best3_late,
-                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, save_path=curr_save_path)
+                                                    all_good_idx=all_good_idx, all_bad_idx=all_bad_idx, all_unclassified_idx=all_unclassified_idx, save_path=curr_save_path)

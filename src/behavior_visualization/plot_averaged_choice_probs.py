@@ -38,6 +38,7 @@ def fraction_removed_by_problem(
     curves_by_problem: dict,
     x: np.ndarray,
     *,
+    reversals_by_problem: dict,
     exclude_anchor: bool = True,
 ) -> tuple[np.ndarray, list]:
     """Compute the average cumulative fraction-removed curve across problems.
@@ -50,6 +51,9 @@ def fraction_removed_by_problem(
         curves_by_problem: As returned by
             :func:`curves_by_problem_from_windows_dict`.
         x: Trial-offset array.
+        reversals_by_problem: ``{problem: reversals}`` where *reversals* is
+            :func:`src.behavior_analysis.get_total_reversals.get_reversal_indices_by_kind`
+            of that problem's trials; a reversal of any kind cuts a window.
         exclude_anchor: Passed to ``cumulative_total_events_over_post``
             (default: True).
 
@@ -72,11 +76,23 @@ def fraction_removed_by_problem(
         rw = windows_dict[p]
         if not rw:
             continue
+        if p not in reversals_by_problem:
+            raise KeyError(f"Problem {p!r} has windows but is missing from reversals_by_problem.")
         across_p = curves_by_problem[p]["across"]
+        reversals = reversals_by_problem[p]
         _, _, frac = cumulative_total_events_over_post(
-            rw, x, across_p, exclude_anchor=exclude_anchor
+            rw,
+            x,
+            across_p,
+            exclude_anchor=exclude_anchor,
+            good_idx=reversals["good"],
+            bad_idx=reversals["bad"],
+            unclassified_idx=reversals["unclassified"],
         )
-        fracs.append(np.asarray(frac, float))
+        frac = np.asarray(frac, float)
+        if np.isnan(frac).all():  # no anchors: the problem contributes no data
+            continue
+        fracs.append(frac)
         probs_used.append(p)
 
     if not fracs:
@@ -97,10 +113,13 @@ def _plot_choice_curves(ax: plt.Axes, x: np.ndarray, across: dict) -> None:
     for key in CHOICE_KEYS:
         y = np.asarray(across["mean"][key], float)
         s = np.asarray(across["se"][key], float)
-        m = np.isfinite(x) & np.isfinite(y) & np.isfinite(s)
+        m = np.isfinite(x) & np.isfinite(y)
         if np.any(m):
             ax.plot(x[m], y[m], linewidth=2, color=COLOR_MAP[key], label=_CURVE_LABELS[key])
-            ax.fill_between(x, y - s, y + s, where=m, alpha=0.2, color=COLOR_MAP[key])
+            # the band is left out where the SE is undefined; the mean line stays
+            ax.fill_between(
+                x, y - s, y + s, where=m & np.isfinite(s), alpha=0.2, color=COLOR_MAP[key]
+            )
 
 
 def _style_choice_axis(ax: plt.Axes, x: np.ndarray) -> None:

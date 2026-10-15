@@ -112,9 +112,10 @@ def _annotation_ceiling(
     """Return ``(top of the tallest bar + error, y for the value labels)``.
 
     The label height defaults to 1.5x the bar top (at least 1.5) so the labels
-    sit clear of the bars; an all-NaN chart falls back to a bar top of 1.
+    sit clear of the bars; an all-NaN chart falls back to a bar top of 1. A bar
+    whose error is NaN (fewer than two values) still counts, with no error added.
     """
-    tops = means + ses
+    tops = means + np.nan_to_num(ses)
     finite_top = float(np.nanmax(tops)) if np.any(np.isfinite(tops)) else 1.0
     if annotate_y is None:
         annotate_y = max(finite_top, 1.0) * 1.5

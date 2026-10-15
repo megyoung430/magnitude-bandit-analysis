@@ -78,6 +78,8 @@ def test_mouse_reversal_cell_uses_good_bad_and_all_counts():
         total_reversals=4,
         good_reversals=4,
         bad_reversals=0,
+        suspect_good_reversals=0,
+        uncheckable_good_reversals=0,
     )
 
 
@@ -91,16 +93,15 @@ def test_reversal_values_fill_missing_good_and_bad_with_nan():
     assert np.isnan(values[0]) and np.isnan(values[1]) and values[2] == 3
 
 
-def test_mean_and_sem_ignore_nan_and_are_zero_for_one_mouse():
-    with pytest.warns(RuntimeWarning):  # one finite value in the last column: SD undefined
-        mean, sem = mean_and_sem([[1.0, 4.0, np.nan], [3.0, 6.0, 2.0]])
+def test_mean_and_sem_ignore_nan_and_are_nan_for_fewer_than_two_values():
+    mean, sem = mean_and_sem([[1.0, 4.0, np.nan], [3.0, 6.0, 2.0]])
     np.testing.assert_allclose(mean, [2.0, 5.0, 2.0])
     np.testing.assert_allclose(
         sem[:2], [np.std([1.0, 3.0], ddof=1) / np.sqrt(2), np.std([4.0, 6.0], ddof=1) / np.sqrt(2)]
     )
     assert np.isnan(sem[2])
     mean, sem = mean_and_sem([[1.0, 2.0, 3.0]])
-    assert sem.tolist() == [0, 0, 0] and mean.tolist() == [1, 2, 3]
+    assert np.isnan(sem).all() and mean.tolist() == [1, 2, 3]
     assert mean_and_sem([]) is None
 
 
@@ -402,3 +403,17 @@ def test_a_figure_that_cannot_be_saved_is_closed_with_those_still_to_be_built(
     with pytest.raises(OSError, match="disk full"):
         plot_cohort_comparison(COHORTS, NUMBERS, tmp_path / "x", problems=(1,), show=False)
     assert plt.get_fignums() == []
+
+
+def test_across_problems_panel_draws_mean_without_error_bar_for_a_single_mouse():
+    per_mouse = pd.DataFrame(
+        {"mouse": ["m1", "m2", "m1"], "problem": [1, 1, 2], "trials": [10.0, 14.0, 7.0]}
+    )
+    _, ax = plt.subplots()
+    pcc._plot_across_problems_panel(ax, per_mouse, [1, 2], "cohort", "session")
+    (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
+    assert errorbar.lines[0].get_ydata().tolist() == [12.0, 7.0]  # both means drawn
+    first, second = errorbar.lines[2][0].get_segments()
+    assert first[:, 1].tolist() == [12.0 - 2.0, 12.0 + 2.0]  # SEM of (10, 14) is 2
+    assert len(second) == 0  # one mouse: no error bar, and no zero-length cap
+    plt.close(ax.figure)

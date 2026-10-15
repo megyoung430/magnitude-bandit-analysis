@@ -28,7 +28,7 @@ from src.behavior_analysis.get_rank_counts_by_good_reversal import (
     get_rank_counts_by_good_reversal,
     get_rank_counts_by_value,
 )
-from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
+from src.behavior_analysis.get_total_reversals import get_reversal_indices_by_kind
 from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
 from src.behavior_analysis.split_good_reversals_by_best_change import (
     split_good_reversals_by_best_change,
@@ -120,7 +120,7 @@ def _choice_probs(windows, s: ChoiceProbabilitySettings, *, skip=False, smooth=F
 
 def _plot_with_reversal_axis(x, across, windows, idx, save_path, *, only_good: bool):
     """Choice probabilities plus the cumulative-fraction-removed axis."""
-    good_idx, bad_idx = idx
+    good_idx, bad_idx, unclassified_idx = idx
     # good-only plots state use_total explicitly; remove-bad plots rely on its default
     extra = {"use_total": False} if only_good else {}
     plot_choice_probs_around_good_reversals(
@@ -132,6 +132,7 @@ def _plot_with_reversal_axis(x, across, windows, idx, save_path, *, only_good: b
         windows_for_cumulative_axis=windows,
         all_good_idx=good_idx,
         all_bad_idx=bad_idx,
+        all_unclassified_idx=unclassified_idx,
         save_path=save_path,
     )
 
@@ -141,12 +142,12 @@ def _windows_and_indices(subjects_trials, s: ChoiceProbabilitySettings):
     windows = get_good_reversal_info(
         subjects_trials, pre=s.pre, post=s.post, include_first_block=False
     )
-    good_idx, bad_idx, _ = get_all_reversal_indices(subjects_trials)
-    return windows, (good_idx, bad_idx)
+    kinds = get_reversal_indices_by_kind(subjects_trials)
+    return windows, (kinds["good"], kinds["bad"], kinds["unclassified"])
 
 
 def _drop_after_bad(windows, idx):
-    return remove_trials_after_bad_rev(windows, *idx, include_bad_trial=True)
+    return remove_trials_after_bad_rev(windows, *idx[:2], include_bad_trial=True)
 
 
 def _plot_all_reversals(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):

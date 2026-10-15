@@ -84,12 +84,16 @@ def test_choice_labels_are_ignored_when_not_using_believed_values():
     assert_only_cells(per_best["m1"], {(4, 3): 0.5})
 
 
-def test_trials_are_truncated_to_the_shortest_trial_list():
+@pytest.mark.parametrize("use_believed", [False, True])
+@pytest.mark.parametrize(
+    "n_mags, n_ranks, n_choices",
+    [(5, 3, 4), (3, 3, 4), (3, 0, 3), (3, 3, 0)],
+)
+def test_mismatched_trial_list_lengths_raise(n_mags, n_ranks, n_choices, use_believed):
     mags = {"A": 4, "B": 3, "C": 0}
-    sess = session([mags] * 5, ["best", "second", "second"], choices=["A"] * 4)
-    _, _, per_best, per_second = accumulate_choice_probs(one_session(sess))
-    assert_only_cells(per_best["m1"], {(4, 3): 1 / 3})
-    assert_only_cells(per_second["m1"], {(4, 3): 2 / 3})
+    sess = session([mags] * n_mags, ["best"] * n_ranks, choices=["A"] * n_choices)
+    with pytest.raises(ValueError, match="reward_magnitudes.*chosen_rank.*choice"):
+        accumulate_choice_probs(one_session(sess), use_believed)
 
 
 @pytest.mark.parametrize(
@@ -99,7 +103,6 @@ def test_trials_are_truncated_to_the_shortest_trial_list():
         {"trial_variables": []},
         {"trial_variables": [{}]},
         session([], []),
-        session([{"A": 4, "B": 3}], []),
     ],
 )
 def test_sessions_without_usable_trials_still_register_the_mouse(sess):
@@ -146,23 +149,30 @@ def test_overall_is_the_nanmean_over_mice_so_each_mouse_weighs_equally():
     assert_only_cells(best, {(4, 3): 0.5, (2, 1): 1.0})
 
 
-def test_only_the_first_trial_variables_element_is_read():
-    # Known issue pinned: trials from later recording files of a merged session are ignored.
+def test_all_recordings_of_a_multi_file_session_are_concatenated_in_order():
     mags = {"A": 4, "B": 3, "C": 0}
     first = session([mags], ["best"])["trial_variables"][0]
     later = session([mags] * 3, ["third"] * 3)["trial_variables"][0]
-    for use_believed in (False, True):
-        both = accumulate_choice_probs(
-            one_session({"trial_variables": [first, later]}), use_believed
-        )
-        only_first = accumulate_choice_probs(
-            one_session({"trial_variables": [first]}), use_believed
-        )
-        pd.testing.assert_frame_equal(both[2]["m1"], only_first[2]["m1"])
-        pd.testing.assert_frame_equal(both[0], only_first[0])
-    # True binning: the three later "third" choices would dilute P(best) to 1/4.
-    plain = accumulate_choice_probs(one_session({"trial_variables": [first, later]}))
-    assert_only_cells(plain[2]["m1"], {(4, 3): 1.0})
+    both = accumulate_choice_probs(one_session({"trial_variables": [first, later]}))
+    # 1 best + 3 third trials: P(best) = 1/4 (the first recording alone would give 1.0)
+    assert_only_cells(both[2]["m1"], {(4, 3): 0.25})
+    # the pooled result equals one recording holding all four trials
+    merged = session([mags] * 4, ["best", "third", "third", "third"])
+    expected = accumulate_choice_probs(one_session(merged))
+    pd.testing.assert_frame_equal(both[2]["m1"], expected[2]["m1"])
+
+
+def test_believed_binning_runs_across_recording_boundaries_in_recording_order():
+    mags = {"A": 4, "B": 3, "C": 1}
+    first = session([mags] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    later = session([mags] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    both = accumulate_choice_probs(
+        one_session({"trial_variables": [first, later]}), use_believed=True
+    )
+    merged = session([mags] * 4, ["best"] * 4, ["A", "B", "A", "B"])
+    expected = accumulate_choice_probs(one_session(merged), use_believed=True)
+    pd.testing.assert_frame_equal(both[2]["m1"], expected[2]["m1"])
+    pd.testing.assert_frame_equal(both[3]["m1"], expected[3]["m1"])
 
 
 def test_input_is_not_mutated():
@@ -218,18 +228,12 @@ def test_a_choice_of_one_tied_arm_gives_half_to_each_numerator():
     assert_only_cells(per_second["m1"], {(3, 3): 0.5})
 
 
-def test_believed_binning_ignores_the_chosen_rank_values_but_not_their_count():
+def test_believed_binning_ignores_the_chosen_rank_values():
     mags = {"A": 4, "B": 3, "C": 1}
-    choices = ["A", "B", "A", "B"]
-    full = session([mags] * 4, ["third"] * 4, choices)
-    short = session([mags] * 4, ["third"] * 3, choices)
-    _, _, best_full, second_full = accumulate_choice_probs(one_session(full), use_believed=True)
-    _, _, best_short, second_short = accumulate_choice_probs(one_session(short), use_believed=True)
-    assert_only_cells(best_full["m1"], {(4, 3): 0.5})
-    assert_only_cells(second_full["m1"], {(4, 3): 0.5})
-    # The fourth trial is dropped with the missing rank: only the third trial remains.
-    assert_only_cells(best_short["m1"], {(4, 3): 1.0})
-    assert_only_cells(second_short["m1"], {(4, 3): 0.0})
+    sess = session([mags] * 4, ["third"] * 4, ["A", "B", "A", "B"])
+    _, _, best, second = accumulate_choice_probs(one_session(sess), use_believed=True)
+    assert_only_cells(best["m1"], {(4, 3): 0.5})
+    assert_only_cells(second["m1"], {(4, 3): 0.5})
 
 
 def test_believed_binning_skips_cells_outside_the_value_grid():
@@ -247,3 +251,37 @@ def test_use_believed_defaults_to_false_and_is_accepted_positionally():
     believed = accumulate_choice_probs(data, True)
     pd.testing.assert_frame_equal(default[0], explicit[0])
     assert not default[0].equals(believed[0])
+
+
+def test_believed_binning_depends_on_the_recording_order():
+    high = {"A": 4, "B": 3, "C": 1}
+    low = {"A": 2, "B": 1, "C": 0}
+    rec_high = session([high] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    rec_low = session([low] * 2, ["best"] * 2, ["A", "B"])["trial_variables"][0]
+    for first, second, mags in [
+        (rec_high, rec_low, [high, high, low, low]),
+        (rec_low, rec_high, [low, low, high, high]),
+    ]:
+        merged = accumulate_choice_probs(
+            one_session({"trial_variables": [first, second]}), use_believed=True
+        )
+        single = accumulate_choice_probs(
+            one_session(session(mags, ["best"] * 4, ["A", "B", "A", "B"])), use_believed=True
+        )
+        pd.testing.assert_frame_equal(merged[2]["m1"], single[2]["m1"])
+        pd.testing.assert_frame_equal(merged[3]["m1"], single[3]["m1"])
+        if first is rec_high:
+            high_first = merged
+        else:
+            low_first = merged
+    # beliefs carry across the boundary, so the two orders fill different cells
+    assert not high_first[2]["m1"].equals(low_first[2]["m1"])
+
+
+def test_lengths_are_checked_per_recording_before_merging():
+    mags = {"A": 4, "B": 3, "C": 0}
+    # 3 magnitudes / 2 ranks plus 2 / 3 would merge to equal totals of 5 and 5
+    first = {"reward_magnitudes": [mags] * 3, "chosen_rank": ["best"] * 2, "choice": ["A"] * 3}
+    second = {"reward_magnitudes": [mags] * 2, "chosen_rank": ["best"] * 3, "choice": ["A"] * 2}
+    with pytest.raises(ValueError, match="reward_magnitudes=3, chosen_rank=2"):
+        accumulate_choice_probs(one_session({"trial_variables": [first, second]}))

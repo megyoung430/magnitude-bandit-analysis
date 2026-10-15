@@ -20,11 +20,28 @@ class ConfigurationTests(unittest.TestCase):
         split_recording_configurations(data)
         self.assertEqual(list(data['mouse']),keys)
 
+    def test_segments_do_not_inherit_the_parents_problem_or_flag(self):
+        a,b=frame(['C1','A1','B3']),frame(['C2','A1','B3'])
+        session={'data':[a,b],'df':[a.copy(),b.copy()],'problem':2,'problem_flag':'review_settings'}
+        data={'mouse':{'ses-1_date-20260101':session}}
+        split_recording_configurations(data)
+        for segment in data['mouse'].values():
+            self.assertNotIn('problem',segment)
+            self.assertNotIn('problem_flag',segment)
+
     def test_same_towers_stay_one_session(self):
         a,b=frame(['C1','A1','B3']),frame(['B3','C1','A1'])
         data={'mouse':{'ses-1':{'data':[a,b]}}}
         split_recording_configurations(data)
         self.assertEqual(list(data['mouse']),['ses-1'])
+
+    def test_corrupt_run_start_raises_naming_mouse_session_and_file(self):
+        a = frame(['C1','A1','B3'])
+        b = pd.DataFrame([{'type':'variable','subtype':'run_start','content':'{not json'}])
+        b.attrs['source_path'] = '/raw/sub-01_id-mouse/ses-1/b.tsv'
+        data={'mouse':{'ses-1':{'data':[a,b]}}}
+        with self.assertRaisesRegex(ValueError, r'mouse ses-1 \(/raw/sub-01_id-mouse/ses-1/b.tsv\).*not valid JSON'):
+            split_recording_configurations(data)
 
 
 if __name__ == '__main__':unittest.main()

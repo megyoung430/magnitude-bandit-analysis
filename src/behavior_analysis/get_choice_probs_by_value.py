@@ -4,6 +4,8 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
+from src.behavior_import.extract_trials import merge_trial_variables
+
 from .get_believed_value import compute_believed_value
 
 BEST_VALS = [2, 3, 4]
@@ -93,27 +95,47 @@ def _believed_contribution(trial):
     return _Contribution(b, s, float(chosen_rank == "best"), float(chosen_rank == "second"))
 
 
-def _session_trial_lists(sess):
-    """``(reward_magnitudes, chosen_ranks, choices)`` cut to a common length, or ``None``.
+def _session_trial_variables(tv_list):
+    """One ``{variable: list}`` dict for a session, merging its recordings in order.
 
-    ``None`` when the session has no trial variables or no trial common to all three lists.
+    Uses the same merge as the importer (``merge_trial_variables``); a single
+    recording is used as is.
+    """
+    return tv_list[0] if len(tv_list) == 1 else merge_trial_variables(tv_list)
+
+
+def _check_equal_lengths(tv):
+    """Raise ValueError unless the three per-trial lists of one recording are equally long."""
+    lengths = (
+        len(tv.get("reward_magnitudes", [])),
+        len(tv.get("chosen_rank", [])),
+        len(tv.get("choice", [])),
+    )
+    if len(set(lengths)) > 1:
+        raise ValueError(
+            "trial lists differ in length: "
+            f"reward_magnitudes={lengths[0]}, chosen_rank={lengths[1]}, choice={lengths[2]}"
+        )
+
+
+def _session_trial_lists(sess):
+    """``(reward_magnitudes, chosen_ranks, choices)`` over all recordings, or ``None``.
+
+    ``None`` when the session has no trial variables or no trials.
+
+    Raises:
+        ValueError: If the three lists of any recording differ in length.
     """
     tv_list = sess.get("trial_variables", [])
     if not tv_list:
         return None
-    # Known issue: only the first element is read, so in a session merged from several
-    # recording files the trials of every later file are silently ignored.
-    tv = tv_list[0]
+    for tv in tv_list:  # per recording: equal totals could hide misaligned recordings
+        _check_equal_lengths(tv)
+    tv = _session_trial_variables(tv_list)
     reward_magnitudes = tv.get("reward_magnitudes", [])
-    chosen_ranks = tv.get("chosen_rank", [])
-    choices = tv.get("choice", [])
-    # Known issue: the lists are truncated to the shortest of the three even when
-    # ``use_believed`` is set, where ``chosen_rank`` is otherwise unused, so a short or
-    # missing ``chosen_rank`` list silently drops trials from the believed analysis.
-    n = min(len(reward_magnitudes), len(chosen_ranks), len(choices))
-    if n == 0:
+    if len(reward_magnitudes) == 0:
         return None
-    return reward_magnitudes[:n], chosen_ranks[:n], choices[:n]
+    return reward_magnitudes, tv.get("chosen_rank", []), tv.get("choice", [])
 
 
 def _session_contributions(sess, *, use_believed):
@@ -180,9 +202,9 @@ def accumulate_choice_probs(subject_trials_by_value_problem, use_believed=False)
     """
     subject_trials_by_value_problem[problem][subject_id][session_id] = session_data
 
-    session_data["trial_variables"] is a list with one dict per recording file, of which
-    only the first is read (see the known issue in ``_session_trial_lists``). The dict
-    holds parallel lists, one value per trial. Keys include:
+    session_data["trial_variables"] is a list with one dict per recording file; the
+    recordings are concatenated in order. Each dict holds parallel lists, one value per
+    trial (a length mismatch raises ``ValueError``). Keys include:
       - "reward_magnitudes" : list[dict]  — arm->magnitude per trial
       - "chosen_rank"       : list[str]   — "best"/"second"/"third" per trial
       - "choice"            : list[str]   — chosen arm label per trial

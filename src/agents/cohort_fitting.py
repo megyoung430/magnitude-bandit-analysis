@@ -15,6 +15,13 @@ import pandas as pd
 from scipy.optimize import minimize
 from scipy.special import logsumexp
 
+from src.agents.run_store import (
+    at_bound,
+    fingerprint_sequences,
+    library_versions,
+    manifest_dir,
+    write_json_atomically,
+)
 from src.behavior_analysis.problem_utils import session_sort_key
 
 PARAMETER_NAMES = ["learning_rate", "beta", "alpha"]
@@ -32,6 +39,11 @@ _AUDIT_COLUMNS = [
 ]
 # A bound is "hit" when the fitted value lies within this distance of it.
 _AT_BOUND_ATOL = 1e-4
+# Names the saved-run directory together with the configuration. It stands for the code in
+# this module (the sticky RL model and the cross-validation); best_rl and released_rl have
+# their own MODEL_VERSION.
+# Bump when a change alters results; comments and refactors don't need a bump.
+ALGORITHM_VERSION = 1
 
 
 def _validated_session_arrays(data: dict, choices: list) -> tuple[list, np.ndarray, np.ndarray]:
@@ -195,9 +207,10 @@ class _ModelSpec(NamedTuple):
     parameter_names: list[str]
     fit_function: Callable
     prediction_function: Callable
-    # Manifest entries that make the saved folds depend on the model code.
+    # Source files of the model code, recorded as provenance (not hashed), and extra
+    # identity entries such as the model's MODEL_VERSION.
     manifest_sources: dict[str, Path]
-    manifest_fields: dict[str, str]
+    manifest_fields: dict
 
 
 def _model_spec(model: str, bounds: list) -> _ModelSpec:
@@ -217,10 +230,13 @@ def _model_spec(model: str, bounds: list) -> _ModelSpec:
             best_rl.fit_mouse_sessions,
             best_rl.sequence_log_probabilities,
             {"model_implementation": Path(best_rl.__file__)},
-            {"update_order": "choice_then_chosen_update_then_all_action_forgetting"},
+            {
+                "update_order": "choice_then_chosen_update_then_all_action_forgetting",
+                "model_versions": {"best_rl": best_rl.MODEL_VERSION},
+            },
         )
     if model == "released_rl":
-        from src.agents import released_rl
+        from src.agents import best_rl, released_rl
 
         if len(bounds) != 5:
             raise ValueError("Released CogMod requires five bounds.")
@@ -232,20 +248,14 @@ def _model_spec(model: str, bounds: list) -> _ModelSpec:
                 "model_implementation": Path(released_rl.__file__),
                 "value_update_implementation": Path(__file__).with_name("best_rl.py"),
             },
-            {},
+            {
+                "model_versions": {
+                    "released_rl": released_rl.MODEL_VERSION,
+                    "best_rl": best_rl.MODEL_VERSION,
+                }
+            },
         )
     raise ValueError("Unknown model.")
-
-
-def _data_fingerprint(sequences: list[dict]) -> str:
-    """SHA-256 over every sequence's identity, towers, actions and rewards."""
-    fingerprint = hashlib.sha256()
-    for s in sequences:
-        identity = [s["mouse"], s["problem"], s["session"], s["towers"]]
-        fingerprint.update(json.dumps(identity).encode())
-        fingerprint.update(np.asarray(s["actions"], dtype=np.int64).tobytes())
-        fingerprint.update(np.asarray(s["rewards"], dtype=np.float64).tobytes())
-    return fingerprint.hexdigest()
 
 
 def _build_manifest(
@@ -258,9 +268,14 @@ def _build_manifest(
     seed: int,
     model: str,
     source_metadata,
-) -> dict:
-    """Everything a saved fold depends on, including the source text of the model code."""
-    manifest = dict(
+) -> tuple[dict, dict]:
+    """The identity a saved fold depends on, and the source text it was produced by.
+
+    Only the identity (algorithm version and configuration) names the output directory;
+    the source text is provenance.
+    """
+    identity = dict(
+        algorithm_version=ALGORITHM_VERSION,
         problems=problem_numbers,
         bounds=bounds,
         n_starts=n_starts,
@@ -268,22 +283,17 @@ def _build_manifest(
         model=model,
         state_reset="each_extracted_session",
         reward="delivered_reward_pulses",
-        data_sha256=_data_fingerprint(sequences),
+        data_sha256=fingerprint_sequences(sequences),
         source=source_metadata,
-        implementation=Path(__file__).read_text(),
+        at_bound_atol=_AT_BOUND_ATOL,
+        versions=library_versions("numpy", "scipy"),
+        **spec.manifest_fields,
     )
-    manifest.update({key: path.read_text() for key, path in spec.manifest_sources.items()})
-    manifest.update(spec.manifest_fields)
-    return manifest
-
-
-def _create_output_dir(output_root, manifest: dict) -> Path:
-    """Create the directory named by the manifest hash and write the manifest into it."""
-    encoded = json.dumps(manifest, sort_keys=True, indent=2)
-    output = Path(output_root) / hashlib.sha256(encoded.encode()).hexdigest()[:12]
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "manifest.json").write_text(encoded)
-    return output
+    provenance = dict(
+        implementation=Path(__file__).read_text(),
+        **{key: path.read_text() for key, path in spec.manifest_sources.items()},
+    )
+    return identity, provenance
 
 
 def _mouse_eligibility(sequences: list[dict], problem_numbers: list[int]) -> pd.DataFrame:
@@ -310,12 +320,6 @@ def _fold_key(mouse: str, held_out: int) -> str:
 def _fold_seed(seed: int, fold_key: str) -> int:
     """Independent optimiser seed per fold, so folds are reproducible in any order."""
     return int(np.random.SeedSequence([seed, int(fold_key[:8], 16)]).generate_state(1)[0])
-
-
-def _at_bound(value: float, limits) -> bool:
-    return bool(
-        any(np.isclose(value, b, atol=_AT_BOUND_ATOL, rtol=0) for b in limits if b is not None)
-    )
 
 
 def _fold_row_skeleton(
@@ -409,14 +413,12 @@ def _record_fit_metrics(
     # validates it.
     for name, value, limits in zip(parameter_names, params, bounds, strict=False):
         row[name] = float(value)
-        row[f"at_bound_{name}"] = _at_bound(value, limits)
+        row[f"at_bound_{name}"] = at_bound(value, limits, atol=_AT_BOUND_ATOL)
 
 
 def _save_fold(fold_file: Path, saved: dict) -> None:
     """Write via a temporary file so an interrupted run never leaves a partial fold."""
-    tmp = fold_file.with_suffix(".tmp")
-    tmp.write_text(json.dumps(saved, indent=2, allow_nan=False))
-    tmp.replace(fold_file)
+    write_json_atomically(fold_file, saved, indent=2)
 
 
 class _FoldSettings(NamedTuple):
@@ -521,7 +523,7 @@ def run_problem_cross_validation(
     if len(problem_numbers) < 2:
         raise ValueError("Cross-validation requires at least two problems.")
     sequences = [s for s in sequences if s["problem"] in problem_numbers]
-    manifest = _build_manifest(
+    identity, provenance = _build_manifest(
         spec,
         sequences,
         problem_numbers=problem_numbers,
@@ -531,7 +533,7 @@ def run_problem_cross_validation(
         model=model,
         source_metadata=source_metadata,
     )
-    output = _create_output_dir(output_root, manifest)
+    output = manifest_dir(output_root, identity, provenance)
     eligibility = _mouse_eligibility(sequences, problem_numbers)
     eligibility.to_csv(output / "mouse_eligibility.csv", index=False)
     settings = _FoldSettings(spec, problem_numbers, bounds, n_starts, seed)

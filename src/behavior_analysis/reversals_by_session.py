@@ -41,7 +41,9 @@ def reversal_counts_by_session(subjects_trials: dict) -> pd.DataFrame:
     Returns:
         DataFrame sorted by subject then session number, with columns
         ``subject``, ``session``, ``session_label`` (``ses-NN``), ``good``,
-        ``bad`` (NaN for sessions without good/bad counters) and ``total``.
+        ``bad`` (NaN for sessions without good/bad counters) and ``total``, plus
+        ``suspect_good_reversals`` and ``uncheckable_good_reversals`` (see
+        :func:`get_total_reversals`; NaN without good/bad counters).
     """
     rows = [
         {"subject": subject, "session": session_number(key), **get_total_reversals({key: trials})}

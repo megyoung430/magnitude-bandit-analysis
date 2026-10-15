@@ -22,6 +22,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.behavior_import.problem_numbering import (
+    SessionFacts,
+    number_subject_sessions,
+    session_sort_key,
+    tower_layout,
+)
+
 # ========== Content Key Aliases ==========
 CHOICE_TOWERS_KEYS = (
     "current_choice_towers",
@@ -48,7 +55,16 @@ def _sorted_session_keys(grouped_tsv_files: dict, subject_id: str) -> list:
     return sorted(keys, key=lambda k: sort_session_key(k[1]))
 
 
-def _build_session_record(df_list: list, towers: dict, num_problem: int) -> dict:
+class RunStartError(ValueError):
+    """A recording's first ``run_start`` row is missing or not valid JSON."""
+
+
+def source_path(df) -> str:
+    """The file a DataFrame was read from, for error messages."""
+    return df.attrs.get("source_path", "<unknown path>")
+
+
+def _build_session_record(df_list: list, towers: dict, assignment, evidence: dict) -> dict:
     """The per-session entry returned by :func:`import_data`.
 
     Raw and expanded representations are independent copies, so expanding
@@ -60,29 +76,58 @@ def _build_session_record(df_list: list, towers: dict, num_problem: int) -> dict
     return {
         "data": expanded_dfs[0] if len(expanded_dfs) == 1 else expanded_dfs,
         "df": original_dfs[0] if len(original_dfs) == 1 else original_dfs,
-        "problem": num_problem,
+        "problem": assignment.problem,
+        "problem_flag": assignment.flag,
+        "settings_evidence": evidence,
+        "task_name": evidence["task_name"],
         "choice_towers": towers.get("choice_towers", set()),
         "initiation_tower": towers.get("initiation_tower"),
     }
 
 
+def _session_run_start(df_list: list, subject_id: str, session_key: str) -> dict:
+    """The earliest recording's parsed ``run_start``; errors name subject, session and file."""
+    try:
+        return read_run_start(df_list[0])
+    except RunStartError as err:
+        raise ValueError(f"{subject_id} {session_key} ({source_path(df_list[0])}): {err}") from err
+
+
+def _session_facts(towers: dict, evidence: dict) -> SessionFacts:
+    return SessionFacts(
+        tower_layout(towers["choice_towers"], towers["initiation_tower"]),
+        evidence["starts_found_ports_false"],
+        evidence["has_port_finding_trials"],
+        evidence["task_name"],
+    )
+
+
 def _import_subject_sessions(grouped_tsv_files: dict, subject_id: str) -> dict:
     """``{session_key: session record}`` for one subject, with problem numbers assigned."""
-    sorted_sessions = _sorted_session_keys(grouped_tsv_files, subject_id)
-    num_problem = 1
-    prev_towers = extract_session_towers(grouped_tsv_files[sorted_sessions[0]][0])
-
-    sessions = {}
-    for key in sorted_sessions:
-        df_list = grouped_tsv_files[key]
-        towers = extract_session_towers(df_list[0])
-        # Known issue: set() of a dict is its keys ("choice_towers", "initiation_tower"),
-        # which are the same for every session, so the problem number never increments.
-        if set(towers) != set(prev_towers):
-            num_problem += 1
-            prev_towers = towers
-        sessions[key[1]] = _build_session_record(df_list, towers, num_problem)
-    return sessions
+    keys = _sorted_session_keys(grouped_tsv_files, subject_id)
+    df_lists = [grouped_tsv_files[key] for key in keys]
+    run_starts = [
+        _session_run_start(df_list, subject_id, key[1])
+        for df_list, key in zip(df_lists, keys, strict=True)
+    ]
+    towers = [towers_from_run_start(run_start) for run_start in run_starts]
+    evidence = [
+        settings_evidence(df_list, run_start)
+        for df_list, run_start in zip(df_lists, run_starts, strict=True)
+    ]
+    # stacklevel 4: number_subject_sessions, this function, import_data, then the caller.
+    assignments = number_subject_sessions(
+        subject_id,
+        [key[1] for key in keys],
+        [_session_facts(t, e) for t, e in zip(towers, evidence, strict=True)],
+        stacklevel=4,
+    )
+    return {
+        key[1]: _build_session_record(df_list, t, assignment, e)
+        for key, df_list, t, e, assignment in zip(
+            keys, df_lists, towers, evidence, assignments, strict=True
+        )
+    }
 
 
 def import_data(root: str | Path) -> dict:
@@ -91,7 +136,18 @@ def import_data(root: str | Path) -> dict:
     Recursively scans *root* for ``.tsv`` files, groups them by subject and
     session (using directory-path components that match ``sub-<N>_id-<id>`` and
     ``ses-<N>_date-<YYYYMMDD>``), and merges multiple files that belong to the
-    same session.  Each session also carries a ``"problem"`` number.
+    same session.  Each session also carries a ``"problem"`` number, assigned per
+    subject in session order by the rule in
+    :mod:`src.behavior_import.problem_numbering` (the same rule
+    ``group_sessions_by_problem`` uses): a problem is the choice towers plus the
+    initiation tower; a returning layout is a new problem; a session whose layout
+    change looks like a settings error gets ``"problem": None`` and
+    ``"problem_flag": "suspected_settings_error"`` and a warning.  Pretraining
+    sessions (flag ``"pretraining"``, no warning), port-finding sessions
+    (``"port_finding"``) and other sessions without choice towers
+    (``"no_choice_towers"``) are likewise skipped, with a warning for the last two.
+    Flagged sessions stay in the result for single-session analyses.  Subjects are returned in
+    sorted order.
 
     Args:
         root: Root directory containing subject/session sub-directories with
@@ -105,7 +161,10 @@ def import_data(root: str | Path) -> dict:
                 session_key: {
                   "data": DataFrame | list[DataFrame],  # JSON-expanded
                   "df": DataFrame | list[DataFrame],    # original 4-column TSV
-                  "problem": int,                       # always 1 (known issue)
+                  "problem": int | None,                # 1-based per subject; None if flagged
+                  "problem_flag": str | None,           # "suspected_settings_error" or None
+                  "settings_evidence": dict,            # facts the flag rule used
+                  "task_name": str | None,              # the file header's task_name row
                   "choice_towers": set,
                   "initiation_tower": str | None,
                 }
@@ -114,20 +173,30 @@ def import_data(root: str | Path) -> dict:
 
         where *session_key* has the form ``"ses-<N>_date-<YYYYMMDD>"``.
 
-    Known issue: ``"problem"`` is always 1, because the counter meant to detect a
-    change of choice towers between sessions never fires.  Use ``extract_trials``'
-    ``group_sessions_by_problem`` for real problem ids.
+    Raises:
+        ValueError: If a file's path has no valid ``ses-<N>_date-<YYYYMMDD>``
+            folder, or a session's first ``run_start`` row is missing or not valid
+            JSON (the message names subject, session and file).
+
+    ``"problem"`` and ``"problem_flag"`` are the numbering of whole sessions, by the layout
+    of each session's first recording.  ``extract_trials`` splits a session whose
+    recordings have different tower layouts into ``_part-NN`` segments; those segments
+    carry no problem, and ``extract_trials.group_sessions_by_problem`` (same function, layouts
+    read from the trial data) renumbers all sessions, skipping those without trial
+    information, writes ``"problem"`` / ``"problem_flag"`` back onto every session and
+    segment, and warns about flags that are new to it.  So for sessions that are split
+    or lack trials, its numbers are the ones to use.
     """
     root = Path(root).resolve()
 
     grouped_tsv_files = group_by_subj_and_ses(collect_tsv_files(root))
 
-    # Known issue: subjects come out in set order, which varies with PYTHONHASHSEED.
-    unique_subjects = {subj for subj, _ in grouped_tsv_files.keys()}
-    subjects = {
-        subject_id: _import_subject_sessions(grouped_tsv_files, subject_id)
-        for subject_id in unique_subjects
-    }
+    unique_subjects = sorted({subj for subj, _ in grouped_tsv_files.keys()})
+    # A plain loop, not a comprehension, so the warning stacklevel in
+    # _import_subject_sessions does not depend on the Python version.
+    subjects = {}
+    for subject_id in unique_subjects:
+        subjects[subject_id] = _import_subject_sessions(grouped_tsv_files, subject_id)
 
     total = sum(len(s) for s in subjects.values())
     print(f"[INFO] Processed {len(subjects)} subjects(s), {total} session(s).")
@@ -150,6 +219,7 @@ def collect_tsv_files(root: Path) -> list:
     for tsv_path in root.rglob("*.tsv"):
         try:
             df = read_tsv_file(tsv_path)
+            df.attrs["source_path"] = str(tsv_path)  # names the file in later error messages
             tsv_files.append((tsv_path, df))
         # Known issue: every read failure is reduced to a printed warning and the file is
         # skipped, so a corrupt recording silently shrinks the session instead of raising.
@@ -187,12 +257,73 @@ def extract_session_towers(df):
 
     Returns:
         Dict ``{"choice_towers": set, "initiation_tower": str | None}``.
-    """
-    towers = {"choice_towers": set(), "initiation_tower": None}
 
+    Raises:
+        RunStartError: If the ``run_start`` row is missing or unparseable.
+    """
+    return towers_from_run_start(read_run_start(df))
+
+
+def read_run_start(df) -> dict:
+    """Parse the first ``run_start`` variable row of a recording.
+
+    Raises:
+        RunStartError: If the recording has no such row, or its content is empty or
+            not a JSON object.
+    """
     mask = (df.get("type") == "variable") & (df.get("subtype") == "run_start")
-    run_start = df.loc[mask]
-    run_start = json.loads(run_start["content"].iloc[0])
+    rows = df.loc[mask, "content"]
+    if rows.empty:
+        raise RunStartError("no run_start row")
+    content = rows.iloc[0]
+    try:
+        run_start = content if isinstance(content, dict) else json.loads(content)
+    except (ValueError, TypeError) as err:
+        raise RunStartError(f"first run_start row is not valid JSON: {content!r}") from err
+    if not isinstance(run_start, dict):
+        raise RunStartError(f"first run_start row is not a JSON object: {content!r}")
+    return run_start
+
+
+def settings_evidence(df_list, run_start: dict) -> dict:
+    """The facts the settings-error check needs about a session.
+
+    Args:
+        df_list: The session's recordings, earliest first.
+        run_start: The parsed ``run_start`` of the earliest recording.
+
+    Returns:
+        ``{"starts_found_ports_false": bool, "has_port_finding_trials": bool,
+        "task_name": str | None}``.
+        ``has_port_finding_trials`` is true if any recording prints a trial dict with
+        ``num_t_found`` (the port-finding trials); the ``num_t_found`` key of
+        ``run_start`` is always present and is ignored.  ``starts_found_ports_false``
+        is true only if the first ``run_start`` has ``found_ports`` equal to ``false``;
+        a missing or null value is not false.  ``task_name`` is the earliest
+        recording's ``task_name`` info row, or ``None``.
+    """
+    printed = (
+        parse_content_json(content)
+        for df in df_list
+        for content in df.loc[(df["type"] == "variable") & (df["subtype"] == "print"), "content"]
+    )
+    port_finding = any(isinstance(d, dict) and "num_t_found" in d for d in printed)
+    return {
+        "starts_found_ports_false": run_start.get("found_ports") is False,
+        "has_port_finding_trials": port_finding,
+        "task_name": read_task_name(df_list[0]),
+    }
+
+
+def read_task_name(df) -> str | None:
+    """The recording's ``task_name`` info row (pyControl header), or ``None`` if absent."""
+    rows = df.loc[(df["type"] == "info") & (df["subtype"] == "task_name"), "content"]
+    return str(rows.iloc[0]) if not rows.empty else None
+
+
+def towers_from_run_start(run_start: dict) -> dict:
+    """The towers dict of :func:`extract_session_towers` from a parsed ``run_start``."""
+    towers = {"choice_towers": set(), "initiation_tower": None}
 
     for key in CHOICE_TOWERS_KEYS:
         if key in run_start:
@@ -319,8 +450,9 @@ def group_by_subj_and_ses(tsv_files: list) -> dict:
         file timestamp (earliest first).  Files whose subject cannot be parsed
         are skipped with a ``[WARN]`` message.
 
-    Known issue: a file whose path has no valid session folder is not skipped;
-    :func:`create_session_key` raises an ``AttributeError``.
+    Raises:
+        ValueError: If a file's path has no valid ``ses-<N>_date-<YYYYMMDD>``
+            folder (see :func:`create_session_key`); such files are not skipped.
     """
     grouped = {}
     for tsv_path, df in tsv_files:
@@ -385,6 +517,10 @@ def create_session_key(tsv_path) -> tuple:
         *session_num* is the integer after ``ses-``, *session_date* is a
         ``datetime.datetime`` object, and *session_key* is the normalised
         string ``"ses-<N>_date-<YYYYMMDD>"``.
+
+    Raises:
+        ValueError: If no path component matches ``ses-<N>_date-<YYYYMMDD>``, or its
+            date is not a real calendar date.  The message names the path.
     """
     tsv_path = Path(tsv_path)
     session_num = None
@@ -395,27 +531,22 @@ def create_session_key(tsv_path) -> tuple:
             m = re.match(r"ses-(\d+)_date-(\d{8})", part)
             if m:
                 session_num = int(m.group(1))
-                session_date = datetime.strptime(m.group(2), "%Y%m%d")
+                try:
+                    session_date = datetime.strptime(m.group(2), "%Y%m%d")
+                except ValueError as err:
+                    raise ValueError(
+                        f"Invalid date in session folder {part!r} of {tsv_path}"
+                    ) from err
 
-    # Known issue: a path with no valid ses-<N>_date-<YYYYMMDD> folder (none at all, or a
-    # "ses-"/"date-" folder that does not match the pattern) leaves session_date as None,
-    # which fails here with an AttributeError.
+    if session_date is None:
+        raise ValueError(
+            f"No ses-<N>_date-<YYYYMMDD> folder in the path of {tsv_path}; "
+            "cannot assign the file to a session."
+        )
     session_key = f"ses-{session_num}_date-{session_date.strftime('%Y%m%d')}"
     return session_num, session_date, session_key
 
 
-def sort_session_key(session_key: str) -> tuple:
-    """Return a sort key for a session string of the form ``ses-N_date-YYYYMMDD``.
-
-    Args:
-        session_key: Session identifier string, e.g. ``"ses-3_date-20240115"``.
-
-    Returns:
-        A ``(date_int, session_number)`` tuple suitable for use as a sort key,
-        where *date_int* is the date as a plain integer (``YYYYMMDD``) and
-        *session_number* is the integer session index.
-    """
-    match = re.search(r"ses-(\d+)_date-(\d{8})", session_key)
-    ses_num = int(match.group(1))
-    date = int(match.group(2))
-    return (date, ses_num)
+# Sessions are ordered by date, then session number: the key shared with
+# ``group_sessions_by_problem`` (see ``problem_numbering.session_sort_key``).
+sort_session_key = session_sort_key

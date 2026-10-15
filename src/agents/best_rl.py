@@ -8,6 +8,9 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import logsumexp
 
+# Bump when a change alters what this model computes; comments and refactors don't need a bump.
+# Runs that use this model record the version in their saved-run identity.
+MODEL_VERSION = 1
 PARAMETER_NAMES = ['learning_rate', 'beta', 'kappa', 'bias', 'forgetting', 'q_init']
 EPS = 1e-6
 DEFAULT_BOUNDS = [(EPS, 1-EPS), (EPS, None), (-1+EPS, 1-EPS),
