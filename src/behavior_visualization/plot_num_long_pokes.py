@@ -147,7 +147,14 @@ def plot_num_pokes_panel(
 
 
 def plot_num_pokes_across_mice(
-    avg_num_pokes_across_subjects: dict, y_text: float, save_path: str | Path | None = None
+    avg_num_pokes_across_subjects: dict,
+    y_text: float,
+    save_path: str | Path | None = None,
+    *,
+    rng: np.random.Generator | None = None,
+    xlabel: str = "Session",
+    title: str | None = None,
+    tick_label: Callable[[str], str] = get_short_session_label,
 ) -> None:
     """Plot mean non-choice long-poke counts per session with per-mouse overlays.
 
@@ -165,8 +172,16 @@ def plot_num_pokes_across_mice(
         save_path: Base path (without extension) for saving ``.pdf`` and
             ``.png`` output, creating the parent directory if needed.  If ``None``,
             the figure is shown interactively.
+        rng, xlabel, title, tick_label: As for :func:`plot_num_pokes_panel`.
     """
-    ax = plot_num_pokes_panel(avg_num_pokes_across_subjects, y_text)
+    ax = plot_num_pokes_panel(
+        avg_num_pokes_across_subjects,
+        y_text,
+        rng=rng,
+        xlabel=xlabel,
+        title=title,
+        tick_label=tick_label,
+    )
     fig = ax.figure
     fig.tight_layout()
     # An empty save_path means "show" here, so it is passed on as None.

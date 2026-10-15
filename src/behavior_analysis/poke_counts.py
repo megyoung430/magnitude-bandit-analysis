@@ -127,7 +127,7 @@ def session_choice_ports(session: Mapping) -> frozenset[str]:
     return frozenset(ports)
 
 
-def _problem_choice_ports(sessions: Mapping[str, dict]) -> frozenset[str]:
+def problem_choice_ports(sessions: Mapping[str, dict]) -> frozenset[str]:
     """Union of the choice ports over the sessions of one mouse and problem."""
     return frozenset().union(*(session_choice_ports(s) for s in sessions.values()))
 
@@ -154,7 +154,7 @@ def previous_problem_choice_towers(
         if number is None:
             raise ValueError(f"problem key {problem!r} has no number")
         for mouse, sessions in subjects.items():
-            ports_by_mouse.setdefault(mouse, {})[number] = _problem_choice_ports(sessions)
+            ports_by_mouse.setdefault(mouse, {})[number] = problem_choice_ports(sessions)
     previous: dict[str, dict[int, frozenset[str] | None]] = {}
     for mouse, by_problem in ports_by_mouse.items():
         numbers = sorted(by_problem)
