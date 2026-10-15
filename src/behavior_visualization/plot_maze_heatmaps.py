@@ -237,9 +237,10 @@ def _per_mouse(value: Mapping | None, mice: list[str], name: str) -> Mapping:
     return value
 
 
-def _legend_handles(
+def outline_legend_handles(
     uses_current: bool, uses_previous: bool, initiation_port: str | None
 ) -> list[Line2D]:
+    """Legend handles for the outlines in use (green current, red previous, blue initiation)."""
     entries = [
         (uses_current, CURRENT_COLOR, "Current problem choice ports"),
         (uses_previous, PREVIOUS_COLOR, "Previous problem choice ports"),
@@ -314,7 +315,7 @@ def plot_maze_heatmaps_across_mice(
             )
         for j in range(len(mice), nrows * ncols):
             axes[j // ncols, j % ncols].axis("off")
-        handles = _legend_handles(
+        handles = outline_legend_handles(
             current_ports is not None and any(current[m] for m in mice),
             previous_ports is not None and any(previous[m] for m in mice),
             initiation_port,
