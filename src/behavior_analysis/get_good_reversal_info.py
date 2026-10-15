@@ -355,8 +355,9 @@ def _check_aligned(subj, merged):
         "good_reversals": merged.get("good_reversals"),
         "blocks": merged.get("blocks"),
         **{
-            f"reward_magnitudes_by_tower[{t!r}]": arr
-            for t, arr in (merged.get("reward_magnitudes_by_tower") or {}).items()
+            f"{field}[{key!r}]": arr
+            for field in ("reward_magnitudes_by_tower", "choices_by_tower", "choices_by_rank")
+            for key, arr in (merged.get(field) or {}).items()
         },
     }
     for name, values in series.items():
