@@ -101,3 +101,22 @@ class PaperJaxTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PaperFinishSweepOrderTests(unittest.TestCase):
+    def test_earlier_winner_is_saved_before_a_later_selection_fails(self):
+        # A later model whose record has no validation score must not stop the earlier
+        # model's winner from being picked, scored and saved first.
+        records = [dict(model='sticky_rl', best_validation=0.5, best_raw=[0.1, 0.2]),
+                   dict(model='best_rl', best_validation=0.4, best_raw=[0.3]),
+                   dict(model='best_rl', best_validation=None, best_raw=[0.5])]
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(paper, 'restore_raw', side_effect=np.asarray), \
+                patch.object(paper, '_score_winner', return_value=({}, [])):
+            output = Path(tmp)
+            with self.assertRaises(TypeError):
+                paper._finish_sweep(['sticky_rl', 'best_rl'], records, expected=None,
+                                    parts=None, output=output, identities=None,
+                                    split_details=None)
+            self.assertEqual(sorted(p.name for p in output.iterdir()),
+                             [paper._selected_parameters_name('sticky_rl')])
