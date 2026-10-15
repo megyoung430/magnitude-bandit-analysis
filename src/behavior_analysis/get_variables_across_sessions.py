@@ -1,22 +1,6 @@
 """Functions for merging and aligning behavioral variables across multiple recording sessions."""
 
-import re
-
-
-def session_order(key):
-    """Sort key ordering session keys by their ``ses-<n>`` number; keys without one go last."""
-    match = re.search(r"ses-(\d+)", key)
-    return (int(match[1]) if match else float("inf"), key)
-
-
-def ordered_session_keys(subject_sessions):
-    """A subject's session keys in session-number order (the order trials are merged in)."""
-    return sorted(subject_sessions, key=session_order)
-
-
-def ordered_sessions(subject_sessions):
-    """A subject's session dicts in session-number order."""
-    return [subject_sessions[k] for k in ordered_session_keys(subject_sessions)]
+from src.behavior_import.session_order import ordered_session_keys
 
 
 def get_vars_across_all_sessions(data):
@@ -24,15 +8,23 @@ def get_vars_across_all_sessions(data):
 
     The rig's counters (good/bad reversals, block number) restart at each session, so each
     session's values are offset by what the earlier sessions ended on. Merging counters that
-    do not restart would double count.
+    do not restart would double count. Sessions are merged in date-then-number order
+    (:mod:`src.behavior_import.session_order`); a subject whose dates and session numbers
+    disagree raises ``ValueError``.
 
     End-of-session events affect totals even without a following trial. They
     enter trial-aligned counters only when another trial is available. Sessions
     retain their incoming boundary corrections when selected as a subset.
+
+    Returns:
+        ``(merged, unmerged)``, each ``{subject: dict}``. ``unmerged[subject]`` holds the
+        per-session lists that went into the merge, one entry per session with trials, in
+        merge order, and ``"session_keys"``: the keys of those sessions in the same order.
     """
     merged, unmerged = {}, {}
     for subject, subject_sessions in data.items():
-        sessions = ordered_sessions(subject_sessions)
+        keys = ordered_session_keys(subject, subject_sessions)
+        sessions = [subject_sessions[k] for k in keys]
         fields = (
             "trial",
             "blocks",
@@ -42,6 +34,7 @@ def get_vars_across_all_sessions(data):
             "choices_by_rank",
         )
         parts = {key: [s.get(key, []) for s in sessions if s.get("trial")] for key in fields}
+        parts["session_keys"] = [k for k, s in zip(keys, sessions, strict=True) if s.get("trial")]
         result = {"trial": merge_trials_across_sessions(parts["trial"])}
         for key in ("reward_magnitudes_by_tower", "choices_by_tower", "choices_by_rank"):
             result[key] = merge_list_of_dicts_of_lists(parts[key])

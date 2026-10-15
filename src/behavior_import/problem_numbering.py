@@ -1,10 +1,11 @@
 """One problem-numbering rule, shared by ``import_data`` and ``group_sessions_by_problem``.
 
 A *problem* is a tower layout: the set of choice towers plus the initiation tower.
-Sessions are taken per subject in :func:`session_sort_key` order (date, then session
-number). Sessions that are not bandit problems are skipped first (below); the rest are cut
-into *runs* of consecutive sessions with the same layout, and each run is compared with the
-**last unflagged layout**, not with the session before it:
+Sessions are taken per subject in :func:`src.behavior_import.session_order.session_sort_key`
+order (date, then session number; the one ordering rule of the package). Sessions that are not
+bandit problems are skipped first (below); the rest are cut into *runs* of consecutive sessions
+with the same layout, and each run is compared with the **last unflagged layout**, not with the
+session before it:
 
 - Same layout as the last unflagged one: the run continues that problem (so
   A, flagged B, A is problems 1, None, 1, whatever the evidence of the resumed A).
@@ -28,8 +29,10 @@ into *runs* of consecutive sessions with the same layout, and each run is compar
   that is the only layout in the data, or the last one, is problem 1.
 - The first problem of a subject is not evidence-checked: its first session is often
   mid-problem.
-- The number of a final run of one session is provisional (``ProblemAssignment.provisional``,
-  named in the warning): a later session can turn it into a settings error.
+- The number of a final run of one session is provisional (``ProblemAssignment.provisional``):
+  a later session can turn it into a settings error. ``import_data`` and
+  ``group_sessions_by_problem`` write it onto the session as ``"problem_provisional"``; a
+  warning names it when the session is also flagged.
 
 Sessions that are not bandit problems get problem ``None``, are ignored when comparing the
 sessions around them (A, skipped, A is 1, None, 1) and stay in the data:
@@ -43,6 +46,8 @@ sessions around them (A, skipped, A is 1, None, 1) and stay in the data:
 import re
 import warnings
 from typing import NamedTuple
+
+from src.behavior_import.session_order import session_sort_key  # noqa: F401  (re-exported)
 
 SUSPECTED_SETTINGS_ERROR = "suspected_settings_error"
 REVIEW_SETTINGS = "review_settings"
@@ -211,20 +216,6 @@ def _skip_assignment(session):
     if session.has_port_finding_trials:
         return ProblemAssignment(None, PORT_FINDING, ("no choice towers; port-finding trials",))
     return ProblemAssignment(None, NO_CHOICE_TOWERS, ("no choice towers",))
-
-
-def session_sort_key(session_id):
-    """Chronological sort key for session keys such as ``ses-3_date-20260102``.
-
-    Date first, then session number, then the key itself (so ``_part-01`` segments keep
-    recording order). Keys without a date or number sort last. Both ``import_data`` and
-    ``group_sessions_by_problem`` use this key, so they number sessions in the same order.
-    """
-    m_date = re.search(r"date-(\d{8})", session_id)
-    m_ses = re.search(r"ses-(\d+)", session_id)
-    date = int(m_date.group(1)) if m_date else float("inf")
-    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
-    return (date, ses_num, session_id)
 
 
 def _evidence_reasons(session):

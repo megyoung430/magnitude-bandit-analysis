@@ -86,13 +86,20 @@ def test_sessions_are_grouped_by_subject_and_keyed_by_session_folder(tmp_path):
 
 
 def test_sessions_are_ordered_by_date_then_number(tmp_path):
-    for ses in ("ses-3_date-20260102", "ses-2_date-20260102", "ses-9_date-20260101"):
+    for ses in ("ses-10_date-20260102", "ses-9_date-20260102", "ses-8_date-20260101"):
         write_tsv(session_dir(tmp_path, session=ses), "M1-2026-01-01-100000.tsv")
     assert list(import_data(tmp_path)["M1"]) == [
-        "ses-9_date-20260101",
-        "ses-2_date-20260102",
-        "ses-3_date-20260102",
+        "ses-8_date-20260101",
+        "ses-9_date-20260102",
+        "ses-10_date-20260102",
     ]
+
+
+def test_session_numbers_that_disagree_with_the_dates_raise(tmp_path):
+    for ses in ("ses-2_date-20260101", "ses-1_date-20260102"):
+        write_tsv(session_dir(tmp_path, session=ses), "M1-2026-01-01-100000.tsv")
+    with pytest.raises(ValueError, match="M1: session number order and date order disagree"):
+        import_data(tmp_path)
 
 
 def test_tower_identifiers_are_read_from_the_run_start_row(tmp_path):
@@ -491,23 +498,23 @@ def write_bandit_session(root, session, run_start):
 
 
 def test_both_entry_points_number_sessions_in_date_then_session_number_order(tmp_path):
-    # Session numbers run opposite to the dates, so the two orderings disagree.
+    # ses-10 sorts before ses-9 as a string; two sessions share a date.
     sessions = {
-        "ses-6_date-20260101": A,
-        "ses-5_date-20260102": A,
-        "ses-2_date-20260103": B,
-        "ses-3_date-20260104": B,
-        "ses-1_date-20260105": C,
+        "ses-9_date-20260101": A,
+        "ses-10_date-20260102": A,
+        "ses-11_date-20260103": B,
+        "ses-12_date-20260103": B,
+        "ses-13_date-20260105": C,
     }
     for key, run_start in sessions.items():
         write_bandit_session(tmp_path, key, run_start)
     imported = import_data(tmp_path)
     expected = {
-        "ses-6_date-20260101": 1,
-        "ses-5_date-20260102": 1,
-        "ses-2_date-20260103": 2,
-        "ses-3_date-20260104": 2,
-        "ses-1_date-20260105": 3,
+        "ses-9_date-20260101": 1,
+        "ses-10_date-20260102": 1,
+        "ses-11_date-20260103": 2,
+        "ses-12_date-20260103": 2,
+        "ses-13_date-20260105": 3,
     }
     assert {k: s["problem"] for k, s in imported["M1"].items()} == expected
     grouped = extract_trials_grouped_by_problem(imported)  # the real extract_trials path
@@ -614,3 +621,37 @@ def test_split_segment_needing_review_warns_once_and_keeps_its_number(tmp_path):
     assert sessions["ses-2_date-20260102_part-02"]["problem"] == 2
     assert sessions["ses-2_date-20260102_part-02"]["problem_flag"] == "review_settings"
     assert len(ours) == 1 and "part-02" in str(ours[0].message)
+
+
+def test_a_split_segment_of_a_flagged_session_does_not_warn_a_second_time(tmp_path):
+    # S3's first recording (B) is a one-session layout between A and A: import_data flags the
+    # session and warns. The segment that starts with that recording keeps the flag without a
+    # second warning; the second segment (A) is fine.
+    write_split_session(tmp_path, 1, [A])
+    write_split_session(tmp_path, 2, [A])
+    write_split_session(tmp_path, 3, [B, A])
+    write_split_session(tmp_path, 4, [A])
+    sessions, _, ours = number_through_extract_trials(tmp_path)
+    assert assignments(sessions) == {
+        "ses-1_date-20260101": (1, None),
+        "ses-2_date-20260102": (1, None),
+        "ses-3_date-20260103_part-01": (None, "suspected_settings_error"),
+        "ses-3_date-20260103_part-02": (1, None),
+        "ses-4_date-20260104": (1, None),
+    }
+    assert [str(w.message).split(":")[0] for w in ours] == ["M1 ses-3_date-20260103"]
+
+
+def test_import_data_records_whether_a_problem_number_is_provisional(tmp_path):
+    # The final run is one session long: a later session could turn it into a settings error.
+    write_split_session(tmp_path, 1, [A])
+    write_split_session(tmp_path, 2, [A])
+    write_split_session(tmp_path, 3, [B])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ProblemNumberingWarning)
+        sessions = import_data(tmp_path)["M1"]
+    assert {k: s["problem_provisional"] for k, s in sessions.items()} == {
+        "ses-1_date-20260101": False,
+        "ses-2_date-20260102": False,
+        "ses-3_date-20260103": True,
+    }

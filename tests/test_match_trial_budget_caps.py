@@ -181,5 +181,5 @@ def test_input_is_not_modified_and_result_does_not_share_with_it():
 
 
 def test_session_keys_need_a_session_number():
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError, match="m1: session key 'first' has no 'ses-<n>'"):
         match_trial_budget({"m1": {"first": recorded(2)}}, {"m1": 1}, trial_budget=1)

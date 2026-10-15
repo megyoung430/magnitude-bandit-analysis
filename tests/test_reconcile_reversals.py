@@ -15,7 +15,6 @@ from src.behavior_import.reconcile_reversals import (
     _Run,
     _run_total,
     _running_counts,
-    _session_order,
     _terminal_magnitude_diagnostics,
     reconcile_reversals,
 )
@@ -45,11 +44,6 @@ def run_variables(good, bad):
         "bad_reversals": list(bad),
         "reward_magnitudes": [MAGS] * n,
     }
-
-
-def test_session_order_sorts_numerically_and_puts_unnumbered_last():
-    keys = ["ses-10", "other", "ses-2_date-1", "ses-2"]
-    assert sorted(keys, key=_session_order) == ["ses-2", "ses-2_date-1", "ses-10", "other"]
 
 
 def test_running_counts_subtracts_baseline_and_never_decreases():

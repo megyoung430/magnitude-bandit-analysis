@@ -22,7 +22,7 @@ from src.agents.run_store import (
     manifest_dir,
     write_json_atomically,
 )
-from src.behavior_analysis.problem_utils import session_sort_key
+from src.behavior_import.session_order import ordered_session_keys
 
 PARAMETER_NAMES = ["learning_rate", "beta", "alpha"]
 DEFAULT_BOUNDS = [(0.001, 1.0), (0.01, 10.0), (0.0, 3.0)]
@@ -80,7 +80,7 @@ def prepare_cohort_sequences(problems, problem_numbers=range(5, 12)):
     sequences, audit = [], []
     for problem in problem_numbers:
         for mouse, sessions in sorted(problems.get(problem, {}).items()):
-            for session in sorted(sessions, key=session_sort_key):
+            for session in ordered_session_keys(mouse, sessions):
                 data = sessions[session]
                 choices = data.get("choice", [])
                 row = dict(

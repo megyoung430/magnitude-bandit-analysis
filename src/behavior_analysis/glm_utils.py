@@ -346,18 +346,6 @@ def _check_sessions_aligned(
                     )
 
 
-def _session_keys(sessions: dict[str, Any], merged_trial_lists: list[list]) -> list[str]:
-    """Keys of the non-empty sessions, in merge order.
-
-    The merge keeps each session's own ``trial`` list object, so the keys are
-    recovered by identity instead of repeating the merge's ordering rule.
-    """
-    key_of = {
-        id(session["trial"]): key for key, session in sessions.items() if session.get("trial")
-    }
-    return [key_of[id(trials)] for trials in merged_trial_lists]
-
-
 def _subjects(data: dict[str, Any], *, allow_missing_final_reward: bool) -> list[_Subject]:
     """Merge every subject's sessions and keep the session lengths for history resets.
 
@@ -370,7 +358,7 @@ def _subjects(data: dict[str, Any], *, allow_missing_final_reward: bool) -> list
         if not parts["trial"]:
             logger.warning("subject %s: skipped, none of its sessions has trials", name)
             continue
-        keys = _session_keys(data[name], parts["trial"])
+        keys = parts["session_keys"]
         _check_sessions_aligned(
             name, parts, keys, allow_missing_final_reward=allow_missing_final_reward
         )

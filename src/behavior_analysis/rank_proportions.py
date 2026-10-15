@@ -65,9 +65,8 @@ def mean_by_rank(units: list[Unit], *, guard_empty: bool) -> list[float]:
     """Mean per rank (best, second, third) across *units*.
 
     With *guard_empty* an empty *units* gives NaN silently; without it numpy
-    emits a ``RuntimeWarning``. The figures that warned before still warn,
-    because the warning is the only sign that an across-mice SE is NaN, so
-    callers choose per figure.
+    emits a ``RuntimeWarning``. Callers choose per figure: where the warning is
+    the only sign that an across-mice SE is NaN, they leave the guard off.
     """
     if guard_empty and not units:
         return [np.nan] * len(RANKS)

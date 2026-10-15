@@ -41,7 +41,10 @@ def split_recording_configurations(data):
     suffixed segment keys sort in recording order and allow existing problem
     grouping to assign each configuration correctly. Same-task restarts are
     still merged as before. Calling this repeatedly is safe. Segments do not inherit the
-    parent's ``problem`` / ``problem_flag``; ``group_sessions_by_problem`` assigns problems.
+    parent's ``problem`` or ``problem_provisional``; ``group_sessions_by_problem`` assigns
+    problems. The first segment keeps the parent's ``problem_flag``: ``import_data`` numbered
+    the session by its first recording and warned about that flag, so
+    ``group_sessions_by_problem`` must not warn about it again. The other segments carry none.
     """
     for mouse,sessions in data.items():
         for key,session in list(sessions.items()):
@@ -66,10 +69,13 @@ def split_recording_configurations(data):
                     raise ValueError(f'Segment key already exists: {segment_key}')
                 segment = dict(session)
                 segment['source_session'] = key
-                # The parent's problem number and flag do not describe a segment; they are
-                # assigned afresh by group_sessions_by_problem.
+                # The parent's problem number does not describe a segment; it is assigned
+                # afresh by group_sessions_by_problem. import_data numbered the parent by its
+                # first recording, so only the first segment continues its flag.
                 segment.pop('problem', None)
-                segment.pop('problem_flag', None)
+                segment.pop('problem_provisional', None)
+                if part > 1:
+                    segment.pop('problem_flag', None)
                 for field in ('data','df'):
                     values = session.get(field)
                     if isinstance(values,list):

@@ -13,8 +13,8 @@ import numpy as np
 
 from src.behavior_analysis.stats import mean_se_n
 
-# One shared session order (date, then session number); see problem_numbering.
-from src.behavior_import.problem_numbering import session_sort_key
+# One shared session order (date, then session number); see session_order.
+from src.behavior_import.session_order import ordered_session_keys
 
 # ---------------------------------------------------------------------------
 # Key-parsing helpers
@@ -42,18 +42,22 @@ def problem_to_int(k: Any) -> int | None:
 # Trial / session structure helpers
 # ---------------------------------------------------------------------------
 
-def flatten_trials(subject_trials: Any) -> list:
+def flatten_trials(subject_trials: Any, *, subject: str) -> list:
     """Flatten trial data into a single list regardless of its structure.
+
+    Sessions of a dict are concatenated in date-then-number order.
 
     Args:
         subject_trials: Either a ``list[trial_dict]`` or a
             ``dict[session_key -> list[trial_dict]]``.
+        subject: Named in the error when the session numbers and dates disagree.
 
     Returns:
         A flat list of trial dicts.
 
     Raises:
         TypeError: If ``subject_trials`` is neither a list nor a dict.
+        ValueError: If the session numbers and dates of a dict disagree.
     """
     if subject_trials is None:
         return []
@@ -61,7 +65,7 @@ def flatten_trials(subject_trials: Any) -> list:
         return subject_trials
     if isinstance(subject_trials, dict):
         out: list = []
-        for sk in sorted(subject_trials.keys(), key=session_sort_key):
+        for sk in ordered_session_keys(subject, subject_trials):
             out.extend(subject_trials[sk])
         return out
     raise TypeError(f"Unexpected subject_trials type: {type(subject_trials)}")

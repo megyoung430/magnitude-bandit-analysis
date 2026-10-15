@@ -20,14 +20,25 @@ class ConfigurationTests(unittest.TestCase):
         split_recording_configurations(data)
         self.assertEqual(list(data['mouse']),keys)
 
-    def test_segments_do_not_inherit_the_parents_problem_or_flag(self):
+    def test_segments_do_not_inherit_the_parents_problem(self):
         a,b=frame(['C1','A1','B3']),frame(['C2','A1','B3'])
-        session={'data':[a,b],'df':[a.copy(),b.copy()],'problem':2,'problem_flag':'review_settings'}
+        session={'data':[a,b],'df':[a.copy(),b.copy()],'problem':2,'problem_flag':'review_settings','problem_provisional':True}
         data={'mouse':{'ses-1_date-20260101':session}}
         split_recording_configurations(data)
         for segment in data['mouse'].values():
             self.assertNotIn('problem',segment)
-            self.assertNotIn('problem_flag',segment)
+            self.assertNotIn('problem_provisional',segment)
+
+    def test_only_the_first_segment_keeps_the_parents_flag(self):
+        # import_data numbered the session by its first recording, so only the segment that
+        # starts with it continues what it reported.
+        a,b=frame(['C1','A1','B3']),frame(['C2','A1','B3'])
+        session={'data':[a,b],'df':[a.copy(),b.copy()],'problem':2,'problem_flag':'review_settings'}
+        data={'mouse':{'ses-1_date-20260101':session}}
+        split_recording_configurations(data)
+        first,second=data['mouse'].values()
+        self.assertEqual(first['problem_flag'],'review_settings')
+        self.assertNotIn('problem_flag',second)
 
     def test_same_towers_stay_one_session(self):
         a,b=frame(['C1','A1','B3']),frame(['B3','C1','A1'])

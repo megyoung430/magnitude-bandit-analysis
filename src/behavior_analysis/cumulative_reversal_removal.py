@@ -18,6 +18,11 @@ logs a good counter, otherwise block changes). The reversals that can cut a
 window come from the per-subject ``good_idx`` / ``bad_idx`` / ``unclassified_idx``
 index dicts, not from the windows, because a bad reversal is never an anchor.
 
+A good reversal that :func:`get_good_reversal_info` drops as suspect (best tower unchanged,
+tied, or a magnitude missing) is no anchor, but it is still a real block change in the data:
+it stays in ``good_idx`` and so still ends the window of the anchor before it and counts as
+that anchor's removal.
+
 All functions are pure; offsets before the reversal (``x < 0``) are ``nan``.
 Fractions are ``nan`` when there are no anchors (no data, not 0% removed).
 Series are keyed by kind (``"good"``, ``"bad"``, ``"unclassified"``,
@@ -115,6 +120,23 @@ def _reversals_of(index: dict, subject: str, name: str) -> ArrayLike:
     return index[subject]
 
 
+def _check_disjoint(subject: str, by_kind: dict[str, ArrayLike]) -> None:
+    """Raise if an unclassified reversal is also a good or a bad one.
+
+    A reversal of unknown kind is a block change of a session without counters, so it can
+    never coincide with a counter increment. Good and bad may share a trial (events of both
+    kinds entering together); the good kind takes it.
+    """
+    for kind in ("good", "bad"):
+        shared = np.intersect1d(by_kind[kind], by_kind["unclassified"])
+        if shared.size:
+            raise ValueError(
+                f"{subject}: {kind} and unclassified reversals share trials "
+                f"{shared.tolist()}; an unclassified reversal is a block change of a session "
+                "without counters."
+            )
+
+
 def _subject_removals(
     anchors: np.ndarray, reversals: dict[str, ArrayLike], steps: np.ndarray, exclude_anchor: bool
 ) -> np.ndarray:
@@ -126,7 +148,8 @@ def _subject_removals(
     by_kind = {kind: np.unique(reversals[kind]) for kind in KINDS}
     every = np.unique(np.concatenate(list(by_kind.values())))
     delays, next_reversals = next_reversal_delays(anchors, every, exclude_anchor)
-    # kinds are disjoint (a trial is one kind of reversal), so membership picks the row
+    # unclassified is disjoint from good and bad (checked by _check_disjoint); a trial in both
+    # good and bad takes the first row, good
     kind_of_next = np.select(
         [np.isin(next_reversals, by_kind[kind]) for kind in KINDS[:-1]], range(len(KINDS) - 1), -1
     )
@@ -151,11 +174,13 @@ def _cumulative_by_kind(
         return anchors, {kind: np.full(post_mask.shape, np.nan) for kind in KINDS}
 
     def reversals(subject: str) -> dict[str, ArrayLike]:
-        return {
+        by_kind = {
             "good": _reversals_of(good_idx, subject, "good_idx"),
             "bad": _reversals_of(bad_idx, subject, "bad_idx"),
             "unclassified": _reversals_of(unclassified_idx, subject, "unclassified_idx"),
         }
+        _check_disjoint(subject, by_kind)
+        return by_kind
 
     removed = sum(
         (

@@ -25,9 +25,9 @@ import pandas as pd
 from src.behavior_import.problem_numbering import (
     SessionFacts,
     number_subject_sessions,
-    session_sort_key,
     tower_layout,
 )
+from src.behavior_import.session_order import ordered_session_keys, session_sort_key
 
 # ========== Content Key Aliases ==========
 CHOICE_TOWERS_KEYS = (
@@ -51,8 +51,8 @@ COHORT_RE = re.compile(r"cohort-(\d+)")
 # ========== Main Data Import Functions ==========
 def _sorted_session_keys(grouped_tsv_files: dict, subject_id: str) -> list:
     """The ``(subject_id, session_key)`` keys of one subject, in chronological order."""
-    keys = [k for k in grouped_tsv_files.keys() if k[0] == subject_id]
-    return sorted(keys, key=lambda k: sort_session_key(k[1]))
+    keys = {k[1]: k for k in grouped_tsv_files if k[0] == subject_id}
+    return [keys[session_key] for session_key in ordered_session_keys(subject_id, keys)]
 
 
 class RunStartError(ValueError):
@@ -78,6 +78,7 @@ def _build_session_record(df_list: list, towers: dict, assignment, evidence: dic
         "df": original_dfs[0] if len(original_dfs) == 1 else original_dfs,
         "problem": assignment.problem,
         "problem_flag": assignment.flag,
+        "problem_provisional": assignment.provisional,
         "settings_evidence": evidence,
         "task_name": evidence["task_name"],
         "choice_towers": towers.get("choice_towers", set()),
@@ -163,6 +164,7 @@ def import_data(root: str | Path) -> dict:
                   "df": DataFrame | list[DataFrame],    # original 4-column TSV
                   "problem": int | None,                # 1-based per subject; None if flagged
                   "problem_flag": str | None,           # "suspected_settings_error" or None
+                  "problem_provisional": bool,          # final one-session run: may change
                   "settings_evidence": dict,            # facts the flag rule used
                   "task_name": str | None,              # the file header's task_name row
                   "choice_towers": set,
@@ -178,14 +180,17 @@ def import_data(root: str | Path) -> dict:
             folder, or a session's first ``run_start`` row is missing or not valid
             JSON (the message names subject, session and file).
 
+    ``"problem_provisional"`` is ``True`` for the number of a final run that is one session
+    long: a later session can turn it into a settings error.
+
     ``"problem"`` and ``"problem_flag"`` are the numbering of whole sessions, by the layout
     of each session's first recording.  ``extract_trials`` splits a session whose
     recordings have different tower layouts into ``_part-NN`` segments; those segments
     carry no problem, and ``extract_trials.group_sessions_by_problem`` (same function, layouts
     read from the trial data) renumbers all sessions, skipping those without trial
-    information, writes ``"problem"`` / ``"problem_flag"`` back onto every session and
-    segment, and warns about flags that are new to it.  So for sessions that are split
-    or lack trials, its numbers are the ones to use.
+    information, writes ``"problem"`` / ``"problem_flag"`` / ``"problem_provisional"`` back
+    onto every session and segment, and warns about flags that are new to it.  So for
+    sessions that are split or lack trials, its numbers are the ones to use.
     """
     root = Path(root).resolve()
 
@@ -548,5 +553,5 @@ def create_session_key(tsv_path) -> tuple:
 
 
 # Sessions are ordered by date, then session number: the key shared with
-# ``group_sessions_by_problem`` (see ``problem_numbering.session_sort_key``).
+# ``group_sessions_by_problem`` (see ``session_order.session_sort_key``).
 sort_session_key = session_sort_key

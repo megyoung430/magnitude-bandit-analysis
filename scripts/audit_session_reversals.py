@@ -1,6 +1,6 @@
 """Audit trial/end/start reversal state without inferring event type from magnitudes.
 
-Usage: python scripts/audit_session_reversals.py RAW_ROOT OUTPUT_JSON
+Usage: uv run python scripts/audit_session_reversals.py RAW_ROOT OUTPUT_JSON
 Includes terminal trials, multiple runs per session, counter resets and problem changes.
 """
 import csv
@@ -8,6 +8,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+from src.behavior_import.session_order import ordered_session_keys
 
 ALIASES = {
     'magnitudes': ('current_reward_magnitudes', 'curr_rew_mag'),
@@ -33,6 +35,17 @@ def compare(before, after):
             if isinstance(a, (int, float)) and isinstance(b, (int, float)):
                 changes[key]['delta'] = b - a
     return changes
+
+
+def session_positions(runs):
+    """``{subject: {session key: position in date-then-number order}}``, computed once."""
+    sessions = {}
+    for run in runs:
+        sessions.setdefault(run['subject'], set()).add(run['session'])
+    return {
+        subject: {key: i for i, key in enumerate(ordered_session_keys(subject, keys))}
+        for subject, keys in sessions.items()
+    }
 
 
 def audit(root):
@@ -67,7 +80,8 @@ def audit(root):
         runs.append(dict(subject=match[1], session=match[2], session_number=int(match[3]),
                          path=str(path), start=start, end=end, last_trial=last,
                          trial_count=trial_count))
-    runs.sort(key=lambda r: (r['subject'], r['session_number'], r['path']))
+    position = session_positions(runs)
+    runs.sort(key=lambda r: (r['subject'], position[r['subject']][r['session']], r['path']))
     boundaries = []
     previous = {}
     for run in runs:

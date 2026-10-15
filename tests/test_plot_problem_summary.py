@@ -460,6 +460,14 @@ def test_blocklen_histogram_panel_prints_median_sample_sd_and_draws_the_mean_lin
     assert list(ax.lines[0].get_xdata()) == [4.0, 4.0]  # the mean, not the median
 
 
+def test_blocklen_histogram_panel_prints_no_sd_for_a_single_value():
+    # One value has no sample sd (as its standard error is NaN), so the line is left out
+    # instead of printing 0.00.
+    _, ax = plt.subplots()
+    pps.plot_blocklen_histogram(np.array([7.0]), ax=ax, title="P")
+    assert ax.texts[0].get_text() == "n = 1\nmedian = 7.00\nmin = 7\nmax = 7"
+
+
 # ---- rank proportions ----
 
 

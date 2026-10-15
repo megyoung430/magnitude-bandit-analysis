@@ -371,20 +371,21 @@ def _stats_text(vals: Any, show_n: bool = True) -> str:
         show_n: If ``True``, include sample size in the text (default: True).
 
     Returns:
-        Multi-line string with median, sd, min, and max.
+        Multi-line string with median, sd, min, and max. A single value has no sample sd
+        (undefined, like a standard error from fewer than two values), so the sd line is left
+        out.
     """
     vals = np.asarray(vals, float)
     vals = vals[np.isfinite(vals)]
     if vals.size == 0:
         return "no data"
-    mu = np.median(vals)
-    sd = vals.std(ddof=1) if vals.size > 1 else 0.0
     lines = []
     if show_n:
         lines.append(f"n = {vals.size}")
+    lines.append(f"median = {np.median(vals):.2f}")
+    if vals.size > 1:
+        lines.append(f"sd = {vals.std(ddof=1):.2f}")
     lines += [
-        f"median = {mu:.2f}",
-        f"sd = {sd:.2f}",
         f"min = {vals.min():.0f}",
         f"max = {vals.max():.0f}",
     ]

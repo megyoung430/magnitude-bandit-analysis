@@ -2,14 +2,19 @@
 import numpy as np
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.get_total_reversals import get_total_reversals
+from src.behavior_analysis.reversal_format import check_formats_agree
 
 
 def reversal_trial_series(subjects_trials):
     """Return per-mouse cumulative counts at boundaries 0 through n trials.
 
     Counter index i describes the state before trial i (after i trials).
-    The extra endpoint includes reversals triggered by the final trial.
+    The extra endpoint includes reversals triggered by the final trial. Raises ``ValueError``
+    for a mouse that mixes counter and blocks-only sessions
+    (:func:`src.behavior_analysis.reversal_format.check_formats_agree`).
     """
+    for mouse, sessions in subjects_trials.items():
+        check_formats_agree(mouse, sessions)
     merged, _ = get_vars_across_all_sessions(subjects_trials)
     result = {}
     for mouse, data in merged.items():

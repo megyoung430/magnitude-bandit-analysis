@@ -220,6 +220,26 @@ def test_group_sessions_by_problem_leaves_out_a_flagged_session_and_pools_around
     ]
 
 
+def test_group_sessions_by_problem_writes_the_provisional_state_onto_the_sessions():
+    data = {
+        "m": {
+            "ses-0": session_with_towers(["A1"], problem_provisional=True),  # stale value
+            "ses-1": session_with_towers(["A1"]),
+            "ses-2": session_with_towers(["A1"]),
+            "ses-3": session_with_towers(["B1"]),  # the final run, one session long
+        }
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        group_sessions_by_problem(data)
+    assert {k: s["problem_provisional"] for k, s in data["m"].items()} == {
+        "ses-0": False,
+        "ses-1": False,
+        "ses-2": False,
+        "ses-3": True,
+    }
+
+
 def test_group_sessions_by_problem_warns_only_about_flags_import_data_did_not_record():
     flagged = session_with_towers(["B1"], problem=None, problem_flag="suspected_settings_error")
     data = {

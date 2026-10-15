@@ -363,11 +363,3 @@ def test_a_rerun_warns_again_from_the_same_line():
         [sys.executable, "-c", script], capture_output=True, text=True, check=True, env=env
     )
     assert result.stdout.strip() == "2"
-
-
-def test_analysis_code_orders_sessions_with_the_same_key():
-    from src.agents import cohort_fitting
-    from src.behavior_analysis import problem_utils
-
-    assert problem_utils.session_sort_key is session_sort_key
-    assert cohort_fitting.session_sort_key is session_sort_key

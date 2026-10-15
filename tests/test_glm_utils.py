@@ -804,6 +804,16 @@ def shorten(data, session_key, field, by):
 
 
 @pytest.mark.parametrize("fmt", BOTH_DESIGNS)
+def test_session_labels_come_from_the_keys_not_from_the_identity_of_the_trial_lists(fmt):
+    # Two sessions that happen to share one trial list object are still told apart.
+    data = two_scaled_sessions()
+    data["m"]["ses-3"]["trial"] = data["m"]["ses-2"]["trial"]
+    shorten(data, "ses-2", "reward_magnitudes_by_tower", 1)
+    with pytest.raises(ValueError, match=r"session 'ses-2' \(1 of 2 non-empty\)"):
+        getattr(g, fmt)(data, n_lags=1)
+
+
+@pytest.mark.parametrize("fmt", BOTH_DESIGNS)
 def test_last_session_reward_list_three_short_is_rejected(fmt):
     data = two_scaled_sessions()
     shorten(data, "ses-3", "reward_magnitudes_by_tower", 3)

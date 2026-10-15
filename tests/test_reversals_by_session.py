@@ -106,6 +106,22 @@ def test_curves_and_mean_across_subjects_carry_last_value_forward():
     np.testing.assert_allclose(mean_across_subjects(curves), [5.5, 6.0, 6.5])
 
 
+def test_suspect_columns_are_present_and_nan_without_good_bad_counters():
+    counts = reversal_counts_by_session(
+        {"m": {"ses-1": blocks_session(3), "ses-2": blocks_session(2)}}
+    )
+    assert counts["total"].tolist() == [2, 1]
+    for column in ("suspect_good_reversals", "uncheckable_good_reversals"):
+        assert column in counts
+        assert counts[column].isna().all()
+
+
+def test_suspect_columns_are_numbers_with_good_bad_counters(perf_cohort):
+    counts = reversal_counts_by_session(perf_cohort)
+    assert counts["suspect_good_reversals"].notna().all()
+    assert counts["uncheckable_good_reversals"].notna().all()
+
+
 def test_reversal_totals_by_subject(perf_cohort):
     totals = reversal_totals_by_subject(perf_cohort)
     assert totals.index.tolist() == ["m1", "m2"]
