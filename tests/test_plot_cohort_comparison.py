@@ -91,16 +91,15 @@ def test_reversal_values_fill_missing_good_and_bad_with_nan():
     assert np.isnan(values[0]) and np.isnan(values[1]) and values[2] == 3
 
 
-def test_mean_and_sem_ignore_nan_and_are_zero_for_one_mouse():
-    with pytest.warns(RuntimeWarning):  # one finite value in the last column: SD undefined
-        mean, sem = mean_and_sem([[1.0, 4.0, np.nan], [3.0, 6.0, 2.0]])
+def test_mean_and_sem_ignore_nan_and_are_nan_for_fewer_than_two_values():
+    mean, sem = mean_and_sem([[1.0, 4.0, np.nan], [3.0, 6.0, 2.0]])
     np.testing.assert_allclose(mean, [2.0, 5.0, 2.0])
     np.testing.assert_allclose(
         sem[:2], [np.std([1.0, 3.0], ddof=1) / np.sqrt(2), np.std([4.0, 6.0], ddof=1) / np.sqrt(2)]
     )
     assert np.isnan(sem[2])
     mean, sem = mean_and_sem([[1.0, 2.0, 3.0]])
-    assert sem.tolist() == [0, 0, 0] and mean.tolist() == [1, 2, 3]
+    assert np.isnan(sem).all() and mean.tolist() == [1, 2, 3]
     assert mean_and_sem([]) is None
 
 

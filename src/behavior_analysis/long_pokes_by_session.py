@@ -6,6 +6,7 @@ from typing import NamedTuple
 
 import numpy as np
 
+from src.behavior_analysis.rank_proportions_summary import mean_se_n
 from src.behavior_import.sort_by_session import sort_sessions_chronologically
 
 AVERAGE_KEY = "average_across_subjects"
@@ -48,12 +49,9 @@ def _sorted_sessions(avg_num_pokes_across_subjects: dict, mice: list[str]) -> li
 
 
 def _mean_and_se(values: np.ndarray) -> tuple[float, float]:
-    """Mean and standard error; SE is 0 for a single value and NaN for none."""
-    n = len(values)
-    if n == 0:
-        return np.nan, np.nan
-    se = np.std(values, ddof=1) / np.sqrt(n) if n >= 2 else 0.0
-    return np.mean(values), se
+    """Mean and standard error; the SE is NaN with fewer than two values."""
+    mean, se, _ = mean_se_n(values)
+    return mean, se
 
 
 def _finite_values(

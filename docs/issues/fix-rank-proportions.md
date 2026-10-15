@@ -85,10 +85,42 @@ values): `proportions_by_mouse` (pooled and unpooled), `mean_by_rank`, `se_by_ra
 `standard_error`, `mean_rank_proportions_by_subject`, `rank_mean_and_se`,
 `compute_problem_{length,goodrev,blocklen}_summary`.
 
+## NaN everywhere: other SE computations
+
+Rule: an SE over fewer than two non-NaN units is NaN, never 0, and the count excludes NaN.
+`mean_se_n` (public, in `rank_proportions_summary.py`, built on `nan_standard_error`) is shared.
+
+Searched all of `src/` for `std`/`nanstd` over `sqrt(len)`, `.sem`, and 0 for a single unit.
+
+| Location | Finding | Action |
+|---|---|---|
+| `cohort_comparison_stats.mean_and_sem` | SEM 0 for one mouse (pinned) | fixed: `nan_standard_error`; test updated |
+| `get_task_statistics._standard_error` (block-length plot) | 0.0 below two values | fixed: `mean_se_n`; `plot_task_statistics._tallest_bar` no longer drops a bar whose SE is NaN |
+| `problem_utils.summarize_by_problem`, `summarize_by_problem_safe` | 0.0 for one value, NaN counted | fixed: `mean_se_n` |
+| `get_first_leave_after_good_reversals.average_first_leave_across_subjects` | 0.0 for one subject | fixed |
+| `long_pokes_by_session._mean_and_se` | 0.0 for one value | fixed; bar test updated (NaN SE: bar drawn, no error bar) |
+| `get_choice_probs_around_good_reversals._mean_and_se`, `average_choice_probs._mean_and_se_over_problems` | NaN counted in n; 0 for one problem | not touched: `fix-choice-prob-windows` rewrites both |
+| `trial_count_summaries` (pandas `sem`) | already NaN below two, NaN skipped | correct |
+| `plot_problem_summary` descriptive `sd` text | SD of a sample, not an SE | left |
+| `plot_cohort_comparison` / `plot_trial_block_summary` `fillna(0)` on pandas SEM | a NaN SEM draws a zero-length error bar, mean still drawn | left; no visible change |
+
+Plots: cohort comparison (`_label_height` already ignores a NaN SEM), long-poke bars and first-leave bars
+draw the bar/marker with matplotlib omitting a NaN error bar; the task-statistics block-length plot
+needed the `_tallest_bar` fix above so labels and y-limits still use the median.
+
+Effect (sample data is one mouse, so every across-mouse SE of one unit changes from 0 to NaN):
+
+| Quantity | main | fixed |
+|---|---|---|
+| `mean_and_sem` of one mouse | 0, 0, 0 | NaN, NaN, NaN |
+| Block-length SE of a block seen in one mouse | 0.0 | NaN |
+| Problem SE (`summarize_by_problem*`), first-leave SE, long-poke SE with one unit | 0.0 | NaN |
+
+Main vs branch on synthetic no-NaN inputs with at least two units: `mean_and_sem`, `_standard_error`,
+`average_first_leave_across_subjects`, long-poke `_mean_and_se`, `summarize_by_problem*` are identical.
+
 ## Found, not fixed
 
-- `cohort_comparison_stats.mean_and_sem` returns SEM 0 for a single mouse (pinned by a test), and
-  `get_task_statistics._standard_error` returns 0.0 for fewer than two values; both contradict
-  "fewer than two values gives NaN" but are outside the rank-proportion / problem-summary path.
 - The descriptive-statistics text in `plot_problem_summary` uses `sd = 0.0` for one value (a descriptive SD, not an SE).
 - `_annotate_pvalues` / `_draw_rank_bars` still misplace p-values when a mean is NaN (separate known issues).
+- The two choice-probability SE helpers above, pending `fix-choice-prob-windows`.

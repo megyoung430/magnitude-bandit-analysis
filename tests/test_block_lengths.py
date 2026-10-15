@@ -60,7 +60,9 @@ def test_pools_blocks_across_mice_with_median_and_standard_error():
     assert stats["block_to_vals"] == {1: [2.0, 4.0, 1.0], 2: [2.0, 2.0, 2.0], 3: [2.0]}
     assert stats["meds"].tolist() == [2.0, 2.0, 2.0]
     expected_se = np.std([2.0, 4.0, 1.0], ddof=1) / np.sqrt(3)
-    assert stats["ses"].tolist() == pytest.approx([expected_se, 0.0, 0.0])  # one value: se 0
+    assert stats["ses"].tolist() == pytest.approx(
+        [expected_se, 0.0, np.nan], nan_ok=True
+    )  # one value: NaN, never 0
 
 
 def test_summary_arrays_are_float():

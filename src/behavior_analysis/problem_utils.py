@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from src.behavior_analysis.rank_proportions_summary import mean_se_n
 
 # ---------------------------------------------------------------------------
 # Key-parsing helpers
@@ -261,24 +262,13 @@ def summarize_by_problem(per_mouse_metric: dict) -> dict:
     """
     mice = sorted(per_mouse_metric.keys())
     problems = sorted({p for m in mice for p in per_mouse_metric[m].keys()})
-    means, ses, ns = [], [], []
-
-    for p in problems:
-        vals = np.array(
-            [per_mouse_metric[m][p] for m in mice if p in per_mouse_metric[m]],
-            dtype=float,
-        )
-        n = int(vals.size)
-        ns.append(n)
-        if n == 0:
-            means.append(float("nan"))
-            ses.append(float("nan"))
-        elif n == 1:
-            means.append(float(vals.mean()))
-            ses.append(0.0)
-        else:
-            means.append(float(vals.mean()))
-            ses.append(float(vals.std(ddof=1) / np.sqrt(n)))
+    stats = [
+        mean_se_n([per_mouse_metric[m][p] for m in mice if p in per_mouse_metric[m]])
+        for p in problems
+    ]
+    means = [mean for mean, _, _ in stats]
+    ses = [se for _, se, _ in stats]
+    ns = [n for _, _, n in stats]
 
     return {
         "blocks": problems,
@@ -318,8 +308,7 @@ def summarize_by_problem_safe(per_mouse_metric: dict) -> dict:
         n = int(np.isfinite(vals).sum())
         if n == 0:
             continue
-        m = float(np.nanmean(vals))
-        se = 0.0 if n == 1 else float(np.nanstd(vals, ddof=1) / np.sqrt(n))
+        m, se, _ = mean_se_n(vals)
         out[p] = {"mean": m, "se": se, "n": n, "values": vals.tolist()}
     return out
 

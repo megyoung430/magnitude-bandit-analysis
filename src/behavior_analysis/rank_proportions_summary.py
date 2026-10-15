@@ -26,6 +26,20 @@ def nan_standard_error(stack: np.ndarray) -> np.ndarray:
     return np.where(n_valid >= 2, se, np.nan)
 
 
+def mean_se_n(values: list) -> tuple[float, float, int]:
+    """Mean, standard error and count over the non-NaN *values*.
+
+    The standard error is NaN (never 0) with fewer than two values; the mean is
+    NaN, with a count of 0, when there are none.
+    """
+    vals = np.asarray(values, dtype=float)
+    vals = vals[~np.isnan(vals)]
+    n = int(vals.size)
+    if n == 0:
+        return float("nan"), float("nan"), n
+    return float(vals.mean()), float(nan_standard_error(vals[:, None])[0]), n
+
+
 def mean_rank_proportions_by_subject(rank_counts_by_good_reversal: dict) -> dict:
     """Each subject's mean best/second/third proportion over its reversals.
 

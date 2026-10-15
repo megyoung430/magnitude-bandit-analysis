@@ -13,7 +13,7 @@ from collections import defaultdict
 import numpy as np
 
 from src.behavior_analysis.get_total_reversals import get_total_reversals
-from src.behavior_analysis.rank_proportions_summary import nan_standard_error
+from src.behavior_analysis.rank_proportions_summary import mean_se_n
 
 
 def compute_problem_length_summary(data: dict) -> dict:
@@ -36,7 +36,7 @@ def compute_problem_length_summary(data: dict) -> dict:
         per_mouse_blocklens[m] = {i + 1: float(v) for i, v in enumerate(vals)}
 
     stats = [
-        _mean_se_n([per_mouse_blocklens[m][b] for m in mice if b in per_mouse_blocklens[m]])
+        mean_se_n([per_mouse_blocklens[m][b] for m in mice if b in per_mouse_blocklens[m]])
         for b in blocks
     ]
     means = [mean for mean, _, _ in stats]
@@ -51,20 +51,6 @@ def compute_problem_length_summary(data: dict) -> dict:
         "per_mouse_blocklens": per_mouse_blocklens,
         "mice": mice,
     }
-
-
-def _mean_se_n(values: list) -> tuple[float, float, int]:
-    """Mean, standard error and count over the non-NaN *values*.
-
-    The standard error is NaN (never 0) with fewer than two values; the mean is
-    NaN, with a count of 0, when there are none.
-    """
-    vals = np.asarray(values, dtype=float)
-    vals = vals[~np.isnan(vals)]
-    n = int(vals.size)
-    if n == 0:
-        return float("nan"), float("nan"), n
-    return float(vals.mean()), float(nan_standard_error(vals[:, None])[0]), n
 
 
 def _mean_blocklen_per_mouse(problem_block_stats: dict, problems: list, mice: list) -> dict:
@@ -90,7 +76,7 @@ def _summarise_by_problem(per_mouse_blocklens: dict, problems: list) -> dict:
     """Across-mouse mean, standard error and n for each problem in *problems*."""
     mice = list(per_mouse_blocklens.keys())
     stats = [
-        _mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
+        mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
         for p in problems
     ]
     return {
@@ -196,7 +182,7 @@ def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
                 per_mouse_blocklens[m][p] = float(v)
 
     stats = [
-        _mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
+        mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
         for p in problems
     ]
     means = [mean for mean, _, _ in stats]

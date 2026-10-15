@@ -10,6 +10,7 @@ from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
 from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_good_reversal
 from src.behavior_analysis.get_total_reversals import get_total_reversals
 from src.behavior_analysis.matched_trial_budget import match_trial_budget
+from src.behavior_analysis.rank_proportions_summary import nan_standard_error
 from src.behavior_analysis.trial_block_summary import build_trial_block_tables
 
 RANKS = ("best", "second", "third")
@@ -102,18 +103,14 @@ def mouse_reversal_cell(label: str, problem, mouse: str, sessions: dict) -> Reve
 def mean_and_sem(values: list[list[float]]) -> tuple[np.ndarray, np.ndarray] | None:
     """Mean and SEM across mice for each of the three columns; ``None`` without mice.
 
-    NaN entries are ignored; the SEM is zero for a single mouse.
+    NaN entries are ignored (also in the count); a column with fewer than two
+    values has a NaN SEM, never 0.
     """
     arr = np.asarray(values, dtype=float)
     if not len(arr):
         return None
     mean = np.nanmean(arr, axis=0)
-    sem = (
-        np.nanstd(arr, axis=0, ddof=1) / np.sqrt(np.sum(np.isfinite(arr), axis=0))
-        if len(arr) > 1
-        else np.zeros(3)
-    )
-    return mean, sem
+    return mean, nan_standard_error(arr)
 
 
 def cap_problem_two(
