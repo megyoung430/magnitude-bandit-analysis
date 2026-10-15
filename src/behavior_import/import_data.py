@@ -64,6 +64,18 @@ def source_path(df) -> str:
     return df.attrs.get("source_path", "<unknown path>")
 
 
+def session_source_paths(session: dict) -> list[str]:
+    """The files a session record was read from (its ``"df"`` frames), without re-reading them.
+
+    Frames that did not come from :func:`collect_tsv_files` carry no path and are left out,
+    so the list can be empty.
+    """
+    frames = session.get("df")
+    frames = frames if isinstance(frames, list) else [frames]
+    paths = (getattr(frame, "attrs", {}).get("source_path") for frame in frames)
+    return [path for path in paths if path]
+
+
 def _build_session_record(df_list: list, towers: dict, assignment, evidence: dict) -> dict:
     """The per-session entry returned by :func:`import_data`.
 
