@@ -6,17 +6,21 @@ one dict per block with ``best/second/third`` counts, ``total`` and the matching
 ``*_prop`` proportions. A "unit" below is ``{rank: value}`` for one mouse or one
 block; the summaries are the mean and standard error across units.
 
-Known issue (shared by :func:`block_rows_for_subject`, :func:`rows_in_block`,
-:func:`proportions_by_block` and :func:`n_blocks_excluding_last`): these helpers
-treat each subject's last row as a "summary" entry and leave it out, but
-``get_rank_counts_by_good_reversal`` appends no summary row. Every subject's last
-real block is therefore missing from them, whereas :func:`proportions_by_mouse`
-uses all rows.
+Every row is a real block (``get_rank_counts_by_good_reversal`` appends no
+summary row), so all rows of every subject are used throughout.
+
+Each mean is paired with a standard error across the same units it averages:
+blocks for an unpooled mouse, trials for a pooled mouse, mice or blocks for the
+across-mouse and across-block summaries. NaN units count towards neither the
+mean nor n, and fewer than two units give a NaN standard error, never 0.
 """
 
+import warnings
 from collections.abc import Hashable
 
 import numpy as np
+
+from src.behavior_analysis.rank_proportions_summary import nan_standard_error
 
 RANKS = ("best", "second", "third")
 
@@ -43,14 +47,18 @@ def subject_rank_proportions(
 
 
 def standard_error(values: list[float]) -> float:
-    """Standard error of the mean, ``nanstd(ddof=1) / sqrt(len(values))``.
+    """Standard error of the mean over the non-NaN *values*.
 
-    Known issue: NaNs are left out of the spread but still count towards n, so
-    a unit with no data widens the denominator and the error is understated.
-    With fewer than two non-NaN values numpy returns NaN and emits a
-    ``RuntimeWarning``.
+    With fewer than two non-NaN values it is NaN and a ``RuntimeWarning`` is emitted.
     """
-    return np.nanstd(values, ddof=1) / np.sqrt(len(values))
+    column = np.asarray(values, dtype=float)[:, None]
+    if np.sum(~np.isnan(column)) < 2:
+        warnings.warn(
+            "fewer than two non-NaN values: the standard error is NaN",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return float(nan_standard_error(column)[0])
 
 
 def mean_by_rank(units: list[Unit], *, guard_empty: bool) -> list[float]:
@@ -91,16 +99,34 @@ def prop_units(rows: list[RankRow]) -> list[Unit]:
     return [dict(zip(RANKS, row_props(row), strict=True)) for row in rows]
 
 
-def block_rows_for_subject(
-    rows: list[RankRow], *, pool_trials_within_subject: bool = False
-) -> list[RankRow]:
-    """The rows of one subject that count as its blocks.
+def pooled_standard_errors(rows: list[RankRow]) -> list[float]:
+    """Per-rank SE across the pooled trials of *rows*, in :data:`RANKS` order.
 
-    The last row is dropped unless trials are pooled, as if it were a summary
-    entry. Known issue: ``get_rank_counts_by_good_reversal`` appends no summary
-    entry, so this drops a real block.
+    A pooled proportion is the mean over trials of a 0/1 indicator (the trial
+    chose that rank), so its SE is that indicator's sample SD over the trials,
+    ``sqrt(p * (1 - p) / (n - 1))``. NaN with fewer than two trials. Trials are
+    treated as independent although they come in blocks, so this understates the
+    uncertainty if blocks differ systematically.
     """
-    return rows if pool_trials_within_subject else rows[:-1]
+    n = sum(r.get("total", 0) for r in rows)
+    if n < 2:
+        return [np.nan] * len(RANKS)
+    proportions = [sum(r.get(rank, 0) for r in rows) / n for rank in RANKS]
+    return [float(np.sqrt(p * (1 - p) / (n - 1))) for p in proportions]
+
+
+def subject_rank_ses(
+    rows: list[RankRow], *, pool_trials_within_subject: bool = False
+) -> list[float]:
+    """SE of :func:`subject_rank_proportions`, across the units that mean averages.
+
+    Unpooled, the mean averages blocks, so this is the SE across the rows'
+    ``*_prop`` values. Pooled, it averages trials, so this is the SE across trials
+    (:func:`pooled_standard_errors`).
+    """
+    if pool_trials_within_subject:
+        return pooled_standard_errors(rows)
+    return se_by_rank(prop_units(rows), guard_single=True)
 
 
 def proportions_by_mouse(
@@ -117,22 +143,16 @@ def proportions_by_mouse(
 
 
 def rows_in_block(counts: RankCounts, block_idx: int) -> list[RankRow]:
-    """Each subject's row for *block_idx*, leaving out every subject's last row.
-
-    Known issue: same dropped last real block as :func:`block_rows_for_subject`.
-    """
-    return [rows[block_idx] for rows in counts.values() if block_idx < len(rows) - 1]
+    """Each subject's row for *block_idx*, for the subjects that have that block."""
+    return [rows[block_idx] for rows in counts.values() if block_idx < len(rows)]
 
 
 def proportions_by_block(counts: RankCounts) -> list[Unit]:
     """One ``{rank: proportion}`` unit per block, averaged over the subjects that have it.
 
-    Known issue: raises ``ValueError`` (from ``max()``) when
-    *counts* has subjects but every list is empty. Also leaves out each
-    subject's last row (see :func:`rows_in_block`).
+    Empty when there are no subjects or every subject has no rows.
     """
-    n_blocks = max((len(v) - 1) for v in counts.values() if len(v) > 0) if counts else 0
-    block_rows = (rows_in_block(counts, b) for b in range(n_blocks))
+    block_rows = (rows_in_block(counts, b) for b in range(n_blocks(counts)))
     return [
         {rank: np.nanmean([r.get(f"{rank}_prop", np.nan) for r in rows]) for rank in RANKS}
         for rows in block_rows
@@ -140,6 +160,6 @@ def proportions_by_block(counts: RankCounts) -> list[Unit]:
     ]
 
 
-def n_blocks_excluding_last(counts: RankCounts) -> int:
-    """The longest subject list minus its last row (0 if there are no rows)."""
-    return max((max(0, len(rows) - 1) for rows in counts.values()), default=0)
+def n_blocks(counts: RankCounts) -> int:
+    """The number of blocks of the longest subject (0 if there are no rows)."""
+    return max((len(rows) for rows in counts.values()), default=0)

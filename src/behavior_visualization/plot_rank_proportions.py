@@ -268,8 +268,7 @@ def plot_average_across_blocks(
 ) -> plt.Axes:
     """Bars (mean ± SE across blocks) with one coloured line per block.
 
-    Each subject's last row is left out (known issue: it is a real block, see
-    :func:`src.behavior_analysis.rank_proportions.rows_in_block`).
+    Every row of every subject is a block; block *b* averages the subjects that have it.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 5.5))
@@ -303,15 +302,14 @@ def plot_mouse_panel(
 ) -> plt.Axes:
     """One mouse: a coloured line per block row over bars of the mouse's mean ± SE.
 
-    The bar height is the mouse's proportion (pooled by trial count if
-    *pool_trials_within_subject*), but the error bar is always the SE across the
-    unpooled block proportions, so with pooling the two are not the same statistic.
+    The bar height is the mouse's proportion and the error bar the SE across the
+    same units: blocks, or with *pool_trials_within_subject* the pooled trials
+    (see :func:`src.behavior_analysis.rank_proportions.subject_rank_ses`).
 
     Args:
         subject: Title of the panel.
-        rows: The mouse's rank-count dicts to draw (see
-            :func:`src.behavior_analysis.rank_proportions.block_rows_for_subject`).
-        pool_trials_within_subject: Pool the rows' counts for the bar heights.
+        rows: The mouse's rank-count dicts to draw, one per block.
+        pool_trials_within_subject: Pool the rows' counts for the bars and errors.
         ax: Axes to draw into; a new figure is created if ``None``.
         show_ylabel: Whether to write the y-axis label.
     """
@@ -331,7 +329,7 @@ def plot_mouse_panel(
         rows, pool_trials_within_subject=pool_trials_within_subject
     )
     means = [proportions[rank] for rank in _summary.RANKS]
-    ses = _summary.se_by_rank(_summary.prop_units(rows), guard_single=True)
+    ses = _summary.subject_rank_ses(rows, pool_trials_within_subject=pool_trials_within_subject)
     _draw_bars(ax, means, ses, style=_MOUSE_PANEL_BAR_STYLE)
     # unlike the other panels, a NaN mean is written out as "nan"
     _label_means(ax, means, 12, finite_only=False)
@@ -354,8 +352,7 @@ def plot_block_panel(
 ) -> plt.Axes:
     """One block: a coloured line per mouse over bars of the mean ± SE across mice.
 
-    Known issue: the lines include every mouse that has a row at *block_idx*,
-    including a mouse's last row, but the bars leave each mouse's last row out.
+    The lines and the bars cover the same mice: those with a row at *block_idx*.
 
     Args:
         rank_counts: ``{subject: list[rank_count_dict]}``.
@@ -406,15 +403,7 @@ def plot_rank_proportions_average(
 
     Known issues:
 
-    - ``get_rank_counts_by_good_reversal`` appends no summary row, but the
-      right panel drops each subject's last row as if it were one, so every
-      mouse's last real block is missing there.  The left panel (bars, lines
-      and p-values) uses all rows.
-    - The SE divides by the number of units including NaN ones, so it is
-      understated when some units have no data.
     - If a bar's mean is not finite and p-values are given, ``IndexError``.
-    - If every subject's list is empty (but there are subjects),
-      ``ValueError`` raised from ``max()``, with the figure left open.
     - Single-mouse or empty data emit numpy ``RuntimeWarning``s (degrees of
       freedom, empty slice).
     - ``save_path`` must be a ``str`` in an existing folder (``Path`` raises
@@ -456,36 +445,23 @@ def plot_rank_proportions_by_mouse(
     subplot, bars (mean ± SE across blocks) are shown with individual block
     lines overlaid using ``BLOCK_COLORS``.
 
-    Known issues:
-
-    - Unless trials are pooled, each subject's last row is dropped as if it were
-      a summary entry, but ``get_rank_counts_by_good_reversal`` appends none, so
-      each mouse's last real block is missing from its lines and bars (across-mice
-      bars and p-values in the average figure use all blocks).
-    - With pooling the bars are the pooled proportions but the error bars are
-      still the SE across the unpooled block proportions.
-    - The SE divides by the number of blocks including NaN ones, so it is
-      understated when some blocks have no data.
-
     Args:
         rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
             where each dict contains ``"best_prop"``, ``"second_prop"``, and
             ``"third_prop"`` keys.
         save_path: Base path (without extension) for saving ``.pdf`` and
             ``.png`` output.  If ``None``, the figure is shown interactively.
-        pool_trials_within_subject: If ``True``, keep every row, and draw the
-            bars as the pooled proportion (weighted by trial count) instead of
-            the mean of the block proportions (default: ``False``).
+        pool_trials_within_subject: If ``True``, draw the bars as the pooled
+            proportion (weighted by trial count) with the SE across the pooled
+            trials, instead of the mean of the block proportions with the SE
+            across blocks (default: ``False``).
     """
     subjects = list(rank_counts_by_good_reversal)
     ncols = math.ceil(len(subjects) / 2)
     fig, axes = plt.subplots(2, ncols, figsize=(4.2 * ncols, 8), sharey=True)
     # the 2-row grid can have one more axis than subjects; leftovers are turned off below
     for ax, subject in zip(axes.flat, subjects, strict=False):
-        rows = _summary.block_rows_for_subject(
-            rank_counts_by_good_reversal[subject],
-            pool_trials_within_subject=pool_trials_within_subject,
-        )
+        rows = rank_counts_by_good_reversal[subject]
         if rows:
             plot_mouse_panel(
                 subject,
@@ -509,17 +485,6 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
     subplot, bars (mean ± SE across subjects) are shown with individual subject
     lines overlaid using ``MOUSE_COLORS``.
 
-    Known issues:
-
-    - The number of panels is the longest subject list minus one, and the bars
-      leave out each subject's last row as if it were a summary entry, but
-      ``get_rank_counts_by_good_reversal`` appends none.  Each mouse's last real
-      block is missing from the bars (across-mice bars and p-values in the
-      average figure use all blocks), and the longest mouse's last block gets no
-      panel.  The lines, in contrast, include every row that exists at that index.
-    - The SE divides by the number of mice including NaN ones, so it is
-      understated when some mice have no data.
-
     Args:
         rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
             where each dict contains ``"best_prop"``, ``"second_prop"``,
@@ -528,7 +493,7 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
         save_path: Base path (without extension) for saving ``.pdf`` and
             ``.png`` output.  If ``None``, the figure is shown interactively.
     """
-    n_blocks = _summary.n_blocks_excluding_last(rank_counts_by_good_reversal)
+    n_blocks = _summary.n_blocks(rank_counts_by_good_reversal)
     if n_blocks == 0:
         print("[WARN] No blocks found to plot.")
         return
