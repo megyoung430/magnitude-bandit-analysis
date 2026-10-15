@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import pytest
 
+from src.behavior_import.extract_trials import group_sessions_by_problem
 from src.behavior_import.import_data import import_data
 
 TOWERS = ["A1", "B1", "C1"]
@@ -163,26 +164,82 @@ def test_recording_without_a_run_start_row_raises(tmp_path):
         import_data(tmp_path)
 
 
-def test_problem_number_stays_1_even_when_the_choice_towers_change(tmp_path):
-    # Known issue: the problem counter compares dict keys, which never differ, so it
-    # never increments. This pins the current behaviour; fixing the counter must update it.
-    first = {"curr_choice_tows": ["A1", "B1", "C1"], "curr_initiation_tow": "B2"}
-    second = {"curr_choice_tows": ["A2", "B2", "C2"], "curr_initiation_tow": "B1"}
-    write_tsv(session_dir(tmp_path), "M1-2026-01-01-100000.tsv", run_start=first)
+def import_two_sessions(root, first, second):
+    write_tsv(session_dir(root), "M1-2026-01-01-100000.tsv", run_start=first)
     write_tsv(
-        session_dir(tmp_path, session="ses-2_date-20260102"),
+        session_dir(root, session="ses-2_date-20260102"),
         "M1-2026-01-02-100000.tsv",
         run_start=second,
     )
-    sessions = import_data(tmp_path)["M1"]
+    return import_data(root)["M1"]
+
+
+def test_problem_number_increments_when_the_choice_towers_change(tmp_path):
+    first = {"curr_choice_tows": ["A1", "B1", "C1"], "curr_initiation_tow": "B2"}
+    second = {"curr_choice_tows": ["A2", "B2", "C2"], "curr_initiation_tow": "B1"}
+    sessions = import_two_sessions(tmp_path, first, second)
     assert sessions["ses-1_date-20260101"]["choice_towers"] == {"A1", "B1", "C1"}
     assert sessions["ses-2_date-20260102"]["choice_towers"] == {"A2", "B2", "C2"}
+    assert [s["problem"] for s in sessions.values()] == [1, 2]
+
+
+def test_problem_number_ignores_tower_order_and_initiation_tower(tmp_path):
+    first = {"curr_choice_tows": ["A1", "B1", "C1"], "curr_initiation_tow": "B2"}
+    second = {"curr_choice_tows": ["C1", "A1", "B1"], "curr_initiation_tow": "A2"}
+    sessions = import_two_sessions(tmp_path, first, second)
     assert [s["problem"] for s in sessions.values()] == [1, 1]
 
 
-def test_recording_outside_any_session_folder_raises(tmp_path):
-    # Known issue: group_by_subj_and_ses documents only unparseable subjects as skipped;
-    # a missing session folder makes create_session_key raise instead.
-    write_tsv(tmp_path / "sub-01_id-M1", "M1-2026-01-01-100000.tsv")
-    with pytest.raises(AttributeError):
+def test_a_recurring_tower_set_starts_a_new_problem(tmp_path):
+    a = {"curr_choice_tows": ["A1", "B1", "C1"]}
+    b = {"curr_choice_tows": ["A2", "B2", "C2"]}
+    for n, run_start in enumerate([a, b, a], start=1):
+        write_tsv(
+            session_dir(tmp_path, session=f"ses-{n}_date-2026010{n}"),
+            f"M1-2026-01-0{n}-100000.tsv",
+            run_start=run_start,
+        )
+    assert [s["problem"] for s in import_data(tmp_path)["M1"].values()] == [1, 2, 3]
+
+
+def test_problem_numbers_agree_with_group_sessions_by_problem(tmp_path):
+    towers = [["A1", "B1", "C1"], ["A1", "B1", "C1"], ["A2", "B2", "C2"], ["A3", "B3", "C3"]]
+    for n, tows in enumerate(towers, start=1):
+        write_tsv(
+            session_dir(tmp_path, session=f"ses-{n}_date-2026010{n}"),
+            f"M1-2026-01-0{n}-100000.tsv",
+            run_start={"curr_choice_tows": tows},
+        )
+    imported = import_data(tmp_path)
+    # group_sessions_by_problem reads trial-level fields that extract_trials would add.
+    trials = {
+        subj: {
+            key: {"trial_info": [1], "choice_towers": [sorted(s["choice_towers"])]}
+            for key, s in sessions.items()
+        }
+        for subj, sessions in imported.items()
+    }
+    by_problem = group_sessions_by_problem(trials)
+    expected = {key: p for p, subjs in by_problem.items() for key in subjs["M1"]}
+    assert {k: s["problem"] for k, s in imported["M1"].items()} == expected
+
+
+def test_subjects_come_out_sorted(tmp_path):
+    names = ["M9", "M3", "M12", "M1", "M7", "M5", "M2", "M11", "M10", "M4", "M8", "M6"]
+    for n, name in enumerate(names, start=1):
+        write_tsv(session_dir(tmp_path, f"sub-{n:02d}_id-{name}"), f"{name}-2026-01-01-100000.tsv")
+    assert list(import_data(tmp_path)) == sorted(names)
+
+
+def test_recording_outside_any_session_folder_raises_naming_the_path(tmp_path):
+    path = write_tsv(tmp_path / "sub-01_id-M1", "M1-2026-01-01-100000.tsv")
+    with pytest.raises(ValueError, match="ses-<N>_date-<YYYYMMDD>") as excinfo:
         import_data(tmp_path)
+    assert str(path) in str(excinfo.value)
+
+
+def test_session_folder_with_a_malformed_date_raises_naming_the_path(tmp_path):
+    path = write_tsv(session_dir(tmp_path, session="ses-1_date-2026"), "M1-2026-01-01-100000.tsv")
+    with pytest.raises(ValueError) as excinfo:
+        import_data(tmp_path)
+    assert str(path) in str(excinfo.value)
