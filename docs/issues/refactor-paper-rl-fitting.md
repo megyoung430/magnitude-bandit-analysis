@@ -19,6 +19,9 @@ status: done
 > (settings + data fingerprint + library versions + an explicit
 > `FIT_ALGORITHM_VERSION`) so cosmetic edits stop invalidating caches.
 >
+> Superseded by `infra-run-store`: directories are now named by `ALGORITHM_VERSION` and
+> the configuration, not by source text.
+>
 > Known quirks kept as-is and now documented in the code: `_weight_decay` prefers
 > `weight_decay` over the legacy `l2_weight` and silently falls back to 0.0, and the
 > RL objective's `l2_weight` argument is unused (the trainer passes 0.0).

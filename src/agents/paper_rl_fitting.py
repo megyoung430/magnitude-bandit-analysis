@@ -13,6 +13,19 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
+from src.agents.run_store import (
+    fingerprint_sequences,
+    library_versions,
+    manifest_dir,
+    write_atomically,
+    write_json_atomically,
+)
+
+# Names the sweep directory together with the settings, data and library versions. It stands
+# for the fitting code in this module, which includes its own sticky, Best RL and released
+# CogMod models; the neural models have their own MODEL_VERSION (neural_bandit).
+# Bump when a change alters results; comments and refactors don't need a bump.
+ALGORITHM_VERSION = 1
 SOURCE_COMMIT = "baf38da49fd1c1537affbc3745e961bbf0ae547d"
 SOURCE_URL = "https://github.com/google-deepmind/hybrid_rnns_reward_learning"
 MODEL_NAMES = ("sticky_rl", "best_rl", "released_rl")
@@ -354,17 +367,17 @@ def _save_checkpoint(path, raw, state, key, best_raw, metadata):
     leaves, _ = jax.tree_util.tree_flatten(state)
     raw_leaves, _ = jax.tree_util.tree_flatten(raw)
     best_leaves, _ = jax.tree_util.tree_flatten(best_raw)
-    tmp = path.with_suffix(".tmp")
-    with tmp.open("wb") as file:
-        np.savez(
+    write_atomically(
+        path,
+        lambda file: np.savez(
             file,
             key=np.asarray(key),
             metadata=np.array(json.dumps(metadata, allow_nan=False)),
             **{f"raw_{i}": np.asarray(v) for i, v in enumerate(raw_leaves)},
             **{f"best_{i}": np.asarray(v) for i, v in enumerate(best_leaves)},
             **{f"opt_{i}": np.asarray(v) for i, v in enumerate(leaves)},
-        )
-    tmp.replace(path)
+        ),
+    )
 
 
 _MANIFEST_DESCRIPTIONS = dict(
@@ -475,59 +488,43 @@ def _split_sequences(sequences, split_seed, test_problem=None, validation_proble
     )
 
 
-def fingerprint_sequences(sequences: list[dict]) -> str:
-    """SHA-256 over identities, towers, actions and rewards, in input order."""
-    fingerprint = hashlib.sha256()
-    for s in sequences:
-        header = [s["mouse"], int(s["problem"]), s["session"], s["towers"]]
-        fingerprint.update(json.dumps(header).encode())
-        fingerprint.update(np.asarray(s["actions"], dtype=np.int64).tobytes())
-        fingerprint.update(np.asarray(s["rewards"], dtype=np.float64).tobytes())
-    return fingerprint.hexdigest()
-
-
 def _read_source_snapshots(models):
-    """Source text of the code that produced a sweep, so a code change changes the run id."""
-    from src.agents import best_rl, neural_bandit, released_rl
+    """Source text of the code that produced a sweep, recorded as provenance (not hashed)."""
+    from src.agents import neural_bandit
 
     snapshots = dict(implementation=Path(__file__).read_text())
     if any(model in neural_bandit.NEURAL_MODELS for model in models):
         snapshots["neural_implementation"] = Path(neural_bandit.__file__).read_text()
-        snapshots["neural_initialization"] = _NEURAL_INITIALIZATION
-    modules = [("best_rl", best_rl), ("released_rl", released_rl)]
-    snapshots["rl_implementations"] = {m: Path(mod.__file__).read_text() for m, mod in modules}
     return snapshots
 
 
-def _build_manifest(settings, split_details, identities, data_sha256, versions, snapshots):
-    """Everything that determines a sweep's results; its hash names the output directory."""
+def _neural_identity(models):
+    """Manifest fields that only matter when a neural model is among ``models``."""
+    from src.agents import neural_bandit
+
+    if any(model in neural_bandit.NEURAL_MODELS for model in models):
+        return dict(
+            neural_initialization=_NEURAL_INITIALIZATION,
+            model_versions=dict(neural_bandit=neural_bandit.MODEL_VERSION),
+        )
+    return {}
+
+
+def _build_manifest(settings, split_details, identities, data_sha256, versions, model_fields):
+    """Everything that determines a sweep's results; its hash names the output directory.
+
+    Holds the algorithm version but no source text (see ``_read_source_snapshots``).
+    """
     return dict(
         **settings,
         **split_details,
         split_mice=identities,
         data_sha256=data_sha256,
         **_MANIFEST_DESCRIPTIONS,
+        algorithm_version=ALGORITHM_VERSION,
         versions=versions,
-        **snapshots,
+        **model_fields,
     )
-
-
-def _encode_manifest(manifest):
-    """Canonical JSON text of a manifest: sorted keys, so equal manifests hash equally."""
-    return json.dumps(manifest, sort_keys=True, indent=2)
-
-
-def _manifest_id(manifest):
-    """First 12 hex digits of the SHA-256 of the canonical manifest; names the output directory."""
-    return hashlib.sha256(_encode_manifest(manifest).encode()).hexdigest()[:12]
-
-
-def _write_manifest(output_root, manifest):
-    """Create ``<output_root>/<manifest id>/`` and write ``manifest.json`` into it."""
-    output = Path(output_root) / _manifest_id(manifest)
-    output.mkdir(parents=True, exist_ok=True)
-    (output / "manifest.json").write_text(_encode_manifest(manifest))
-    return output
 
 
 def _initial_raw_parameters(model, init_key, hidden_units=16):
@@ -737,7 +734,7 @@ def _sweep_fits(models, grid, *, n_seeds, config, output, max_new_runs):
                     best_raw=best_raw,
                     metadata=metadata,
                 )
-                done_file.write_text(json.dumps(record, indent=2, allow_nan=False))
+                write_json_atomically(done_file, record, indent=2)
                 records.append(record)
                 completed_now += 1
     return records
@@ -750,11 +747,8 @@ def _select_winner(records, model):
 
 def _save_selected_parameters(path, best_raw):
     """Save a winner's raw parameters; neural models are saved one array per key."""
-    with path.open("wb") as file:
-        if isinstance(best_raw, dict):
-            np.savez(file, **best_raw)
-        else:
-            np.savez(file, parameters=np.asarray(best_raw))
+    arrays = best_raw if isinstance(best_raw, dict) else dict(parameters=np.asarray(best_raw))
+    write_atomically(path, lambda file: np.savez(file, **arrays))
 
 
 def _selected_parameters_name(model):
@@ -800,7 +794,15 @@ def _sweep_result(records, expected, *, output, identities, split_details, selec
 def _library_versions():
     """Versions of the numerical libraries a run depends on, recorded in the manifest."""
     jax, _, optax = dependencies()
-    return dict(jax=jax.__version__, optax=optax.__version__, numpy=np.__version__)
+    # The backend matters because CPU, GPU and TPU runs round differently.
+    return dict(
+        jax=jax.__version__,
+        optax=optax.__version__,
+        numpy=np.__version__,
+        **library_versions("jaxlib"),
+        jax_backend=jax.default_backend(),
+        jax_platform=jax.devices()[0].platform,
+    )
 
 
 def _finish_sweep(models, records, *, expected, parts, output, identities, split_details):
@@ -824,7 +826,7 @@ def _finish_sweep(models, records, *, expected, parts, output, identities, split
         selected=[summary for summary, _ in scored],
         test_sessions=[row for _, rows in scored for row in rows],
     )
-    (output / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
+    write_json_atomically(output / "results.json", result, indent=2)
     return result
 
 
@@ -881,15 +883,15 @@ def run_paper_sweep(
         split_seed=split_seed,
         fit_seed=fit_seed,
     )
-    manifest = _build_manifest(
+    identity = _build_manifest(
         settings,
         split_details,
         identities,
         fingerprint_sequences(sequences),
         _library_versions(),
-        _read_source_snapshots(models),
+        _neural_identity(models),
     )
-    output = _write_manifest(output_root, manifest)
+    output = manifest_dir(output_root, identity, _read_source_snapshots(models))
     config = _FitConfig(
         validation_sequences=parts["validation"],
         train_arrays=train_arrays,
@@ -987,5 +989,5 @@ def run_problem_sweep(
         result["test_sessions"] = [
             dict(row, test_problem=f["test_problem"]) for f in folds for row in f["test_sessions"]
         ]
-    (output / "results.json").write_text(json.dumps(result, indent=2, allow_nan=False))
+    write_json_atomically(output / "results.json", result, indent=2)
     return result

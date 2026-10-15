@@ -9,7 +9,7 @@ import pytest
 def edit_module_text(monkeypatch):
     """Return edit(module, old, new): Path.read_text then yields *module*'s source edited.
 
-    Experiment directories are named by hashing module source text; this simulates editing a
+    Manifests record module source text as provenance; this simulates editing a
     module without touching the file.
     """
 

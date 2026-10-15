@@ -5,7 +5,9 @@ resume, on-disk layout, summary rows) without depending on the optimiser.
 """
 
 import hashlib
+import importlib
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,6 +20,7 @@ from src.agents.cohort_fitting import (
     run_problem_cross_validation,
     sequence_log_probabilities,
 )
+from src.agents.run_store import ProvenanceMismatchWarning, identity_hash
 
 TOWERS = ["A1", "B1", "C1"]
 PARAMS = [0.2, 2.0, 0.5]
@@ -87,10 +90,14 @@ def run(sequences, root, **kwargs):
 
 def test_output_layout_and_manifest_hash(sequences, spy, tmp_path):
     _, _, _, output = run(sequences, tmp_path, n_starts=3, seed=5, source_metadata={"k": 1})
-    manifest_text = (output / "manifest.json").read_text()
+    manifest = json.loads((output / "manifest.json").read_text())
     assert output.parent == tmp_path
-    assert output.name == hashlib.sha256(manifest_text.encode()).hexdigest()[:12]
-    manifest = json.loads(manifest_text)
+    identity = {k: v for k, v in manifest.items() if k != "implementation"}
+    assert output.name == identity_hash(identity)
+    assert manifest["implementation"] == Path(cohort_fitting.__file__).read_text()
+    assert manifest["algorithm_version"] == cohort_fitting.ALGORITHM_VERSION
+    assert manifest["at_bound_atol"] == cohort_fitting._AT_BOUND_ATOL
+    assert set(manifest["versions"]) == {"numpy", "scipy"}
     assert manifest["problems"] == [5, 6, 7]
     assert (manifest["n_starts"], manifest["seed"], manifest["model"]) == (3, 5, "sticky_rl")
     assert manifest["source"] == {"k": 1}
@@ -120,12 +127,74 @@ def test_output_directory_changes_with_data_and_settings(sequences, spy, tmp_pat
     assert run(extra, tmp_path)[3] == base
 
 
-def test_output_directory_changes_with_a_module_constant(
+def test_output_directory_changes_with_a_module_constant(sequences, spy, tmp_path, monkeypatch):
+    base = run(sequences, tmp_path)[3]
+    monkeypatch.setattr(cohort_fitting, "_AT_BOUND_ATOL", 1e-3)
+    assert run(sequences, tmp_path)[3] != base
+
+
+def test_output_directory_changes_with_the_algorithm_version(sequences, spy, tmp_path, monkeypatch):
+    base = run(sequences, tmp_path)[3]
+    monkeypatch.setattr(cohort_fitting, "ALGORITHM_VERSION", cohort_fitting.ALGORITHM_VERSION + 1)
+    assert run(sequences, tmp_path)[3] != base
+
+
+def test_output_directory_changes_with_library_versions(sequences, spy, tmp_path, monkeypatch):
+    base = run(sequences, tmp_path)[3]
+    monkeypatch.setattr(
+        cohort_fitting, "library_versions", lambda *names: dict.fromkeys(names, "0")
+    )
+    assert run(sequences, tmp_path)[3] != base
+
+
+def test_editing_source_text_keeps_the_directory_and_resumes(
     sequences, spy, tmp_path, edit_module_text
 ):
-    base = run(sequences, tmp_path)[3]
-    edit_module_text(cohort_fitting, "ATOL = 1e-4", "ATOL = 1e-3")
-    assert run(sequences, tmp_path)[3] != base
+    _, _, _, base = run(sequences, tmp_path)
+    original = json.loads((base / "manifest.json").read_text())["implementation"]
+    n_fits = len(spy.calls)
+    edit_module_text(cohort_fitting, "_AT_BOUND_ATOL = 1e-4", "_AT_BOUND_ATOL = 1e-4  # note")
+    with pytest.warns(ProvenanceMismatchWarning, match="implementation"):
+        _, _, _, resumed = run(sequences, tmp_path)
+    assert resumed == base
+    assert len(spy.calls) == n_fits  # every fold was loaded, none refitted
+    # the manifest keeps describing the code that produced the saved folds
+    assert json.loads((resumed / "manifest.json").read_text())["implementation"] == original
+
+
+def _model_identity(sequences, model, module):
+    return cohort_fitting._build_manifest(
+        cohort_fitting._model_spec(model, module.DEFAULT_BOUNDS),
+        sequences,
+        problem_numbers=[5, 6, 7],
+        bounds=module.DEFAULT_BOUNDS,
+        n_starts=1,
+        seed=0,
+        model=model,
+        source_metadata=None,
+    )
+
+
+@pytest.mark.parametrize("model", ["best_rl", "released_rl"])
+def test_editing_model_source_changes_provenance_only(sequences, edit_module_text, model):
+    module = importlib.import_module(f"src.agents.{model}")
+    identity, provenance = _model_identity(sequences, model, module)
+    edit_module_text(module, "import", "import  # edited")
+    edited_identity, edited_provenance = _model_identity(sequences, model, module)
+    assert edited_identity == identity
+    assert edited_provenance["model_implementation"] != provenance["model_implementation"]
+
+
+@pytest.mark.parametrize(
+    ("model", "bumped"),
+    [("best_rl", ["best_rl"]), ("released_rl", ["released_rl"]), ("released_rl", ["best_rl"])],
+)
+def test_model_version_is_part_of_the_identity(sequences, monkeypatch, model, bumped):
+    module = importlib.import_module(f"src.agents.{model}")
+    base = identity_hash(_model_identity(sequences, model, module)[0])
+    version_module = importlib.import_module(f"src.agents.{bumped[0]}")
+    monkeypatch.setattr(version_module, "MODEL_VERSION", version_module.MODEL_VERSION + 1)
+    assert identity_hash(_model_identity(sequences, model, module)[0]) != base
 
 
 @pytest.mark.parametrize(("learning_rate", "expected"), [(0.00105, True), (0.00115, False)])
