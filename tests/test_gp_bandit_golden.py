@@ -370,7 +370,7 @@ GOLDEN = {
             ),
         ),
         (2, True): (
-            [3.224195388945405, 0.9166666666666666, 4.8, 2.039607805437114],
+            [3.2904143810168893, 0.9166666666666666, 4.8, 2.039607805437114],
             {
                 "vals3": [
                     [2.8781069526404006, 1.4545025942901944, 0.0],
@@ -428,10 +428,10 @@ GOLDEN = {
                 "best_minus_second": [
                     1.4236043583502063,
                     2.198748923146989,
-                    2.732445451501163,
-                    2.9265935322029044,
-                    3.231946045088506,
-                    3.5898232167393114,
+                    2.930126341929015,
+                    3.4894688003532903,
+                    3.7989159204674694,
+                    3.8515529924977376,
                     3.699955687778318,
                     3.4413873419491967,
                     3.189015869143704,
@@ -537,12 +537,11 @@ GOLDEN = {
         "Done sig=9.0, max_block_len=15\n",
     ),
     "sweep_raw": [
-        [[1.9059468661452001, 1.5821600969303795], [2.719495475259611, 2.54746925549714]],
-        [[0.4222222222222222, 0.2222222222222222], [0.6333333333333333, 0.6555555555555556]],
+        [[2.0203916549006027, 1.7639585466503922], [2.786946297698657, 3.2495997132408014]],
+        [[0.4444444444444445, 0.25555555555555554], [0.6444444444444444, 0.6555555555555556]],
         [[5.428571428571428, 5.833333333333333], [7.0, 7.0]],
         [[2.740532505855416, 3.3368818095710933], [4.584180290696357, 4.124551641152228]],
     ],
-    "keyerror": (0, (2,)),
     "plot": {
         "title": "Example GP session | sig=5.00, max_block_len=20 | gap_mean=1.63, frac≥2=0.47, "
         "run_mean=10.00, run_std=2.94",
@@ -583,7 +582,7 @@ GOLDEN = {
         "legend": ["Arm 0", "Arm 1", "Arm 2", "Block"],
     },
     "plot_raw": {
-        "title": "Example GP session | sig=5.00, max_block_len=20 | gap_mean=2.04, "
+        "title": "Example GP session | sig=5.00, max_block_len=20 | gap_mean=2.16, "
         "frac≥2=0.53, run_mean=8.00, run_std=3.58",
         "ylim": (-0.5, 7.567614473119156),
         "ylabel": "Latent value",
@@ -649,6 +648,37 @@ def test_simulate_3armed_blockswaps_gp_matches_golden(seed, use_raw):
     assert generator_state(rng) == state
 
 
+def assert_best_active_arm_becomes_inactive(session) -> None:
+    """Each boundary sends the best *active* arm to zero and never a zero arm to best.
+
+    Requires every active value to be non-zero, so the single zero in each row
+    identifies the inactive arm.
+    """
+    vals3 = session["vals3"]
+    T = len(vals3)
+    zero_arms = (vals3 == 0).sum(axis=1)
+    assert np.all(zero_arms == 1)
+    inactive = np.argmax(vals3 == 0, axis=1)
+    for stop in np.unique(session["boundaries"]):
+        if stop >= T:
+            continue
+        last = vals3[stop - 1]
+        active = [a for a in range(3) if a != inactive[stop - 1]]
+        best_active = max(active, key=lambda a: last[a])
+        assert inactive[stop] == best_active
+
+    # Metrics compare the two active arms: the inactive arm's 0 never wins or
+    # counts as second-best.
+    rows = np.arange(T)
+    best = session["best_arm_series"]
+    assert np.all(best != inactive)
+    active_sorted = np.sort(np.where(vals3 == 0, -np.inf, vals3), axis=1)
+    np.testing.assert_array_equal(
+        session["best_minus_second"], active_sorted[:, -1] - active_sorted[:, -2]
+    )
+    np.testing.assert_array_equal(vals3[rows, best], active_sorted[:, -1])
+
+
 SWEEP_KWARGS = dict(
     sig_values=np.array([4.0, 9.0]), max_block_lens=np.array([12, 15]), T=30, seed=0
 )
@@ -694,21 +724,21 @@ def test_sweep_gp_metrics_zero_n_sims_raises_before_printing(capsys):
     assert capsys.readouterr().out == ""
 
 
-# Non-positive reward values can make the inactive arm win the argmax at a block
-# boundary; a later role swap then looks up a stream that does not exist.
-def test_non_positive_values_raise_key_error():
-    seed, args = GOLDEN["keyerror"]
-    with pytest.raises(KeyError) as excinfo:
-        simulate_3armed_blockswaps_gp(
-            T=60,
-            sig=5.0,
-            max_block_len=8,
-            min_block_len=2,
-            shift=-3.0,
-            use_raw=True,
-            rng=np.random.default_rng(seed),
-        )
-    assert excinfo.value.args == args
+# The inactive arm pays 0, which beats negative active values; roles must still be
+# chosen among the active arms only.
+def test_non_positive_values_assign_roles_among_active_arms():
+    *_, session = simulate_3armed_blockswaps_gp(
+        T=60,
+        sig=5.0,
+        max_block_len=8,
+        min_block_len=2,
+        shift=-3.0,
+        use_raw=True,
+        rng=np.random.default_rng(0),
+        return_session=True,
+    )
+    assert len(np.unique(session["boundaries"])) > 3
+    assert_best_active_arm_becomes_inactive(session)
 
 
 def test_plot_example_session_gp_draws_expected_figure(monkeypatch):
