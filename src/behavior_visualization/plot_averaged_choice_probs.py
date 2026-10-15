@@ -38,6 +38,8 @@ def fraction_removed_by_problem(
     curves_by_problem: dict,
     x: np.ndarray,
     *,
+    good_idx_by_problem: dict,
+    bad_idx_by_problem: dict,
     exclude_anchor: bool = True,
 ) -> tuple[np.ndarray, list]:
     """Compute the average cumulative fraction-removed curve across problems.
@@ -50,6 +52,9 @@ def fraction_removed_by_problem(
         curves_by_problem: As returned by
             :func:`curves_by_problem_from_windows_dict`.
         x: Trial-offset array.
+        good_idx_by_problem: ``{problem: {subject: [trial index]}}`` good reversals.
+        bad_idx_by_problem: ``{problem: {subject: [trial index]}}`` bad reversals;
+            a reversal of either kind cuts a window.
         exclude_anchor: Passed to ``cumulative_total_events_over_post``
             (default: True).
 
@@ -74,7 +79,12 @@ def fraction_removed_by_problem(
             continue
         across_p = curves_by_problem[p]["across"]
         _, _, frac = cumulative_total_events_over_post(
-            rw, x, across_p, exclude_anchor=exclude_anchor
+            rw,
+            x,
+            across_p,
+            exclude_anchor=exclude_anchor,
+            good_idx=good_idx_by_problem[p],
+            bad_idx=bad_idx_by_problem[p],
         )
         fracs.append(np.asarray(frac, float))
         probs_used.append(p)

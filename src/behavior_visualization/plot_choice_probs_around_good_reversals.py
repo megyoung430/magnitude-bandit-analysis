@@ -7,9 +7,9 @@ fraction of data removed as subsequent reversals occur within the post window.
 Two cumulative-axis modes are available:
 
 - *total* mode (``use_total=True``): a single orange step-line showing the
-  fraction of anchor windows that have been "cut short" by a subsequent
-  reversal that is itself an anchor in the windows. Known issue: windows are
-  built from good reversals, so bad reversals never cut a window in this mode.
+  fraction of anchor windows that have been "cut short" by the next reversal of
+  either kind, good or bad (the good and bad lines added together). Needs both
+  ``all_good_idx`` and ``all_bad_idx``.
 - *good/bad* mode (default): separate orange (good) and red (bad) step-lines
   that together sum to ≤ 1.
 
@@ -370,12 +370,12 @@ def plot_choice_probs_around_good_reversals(
             :func:`add_cumulative_rev_axis` (default: ``True``).
         only_good: In good/bad mode, draw only the good-reversal line
             (default: ``False``).
-        use_total: If ``True``, use *total* mode (one line) instead of
-            good/bad mode (default: ``False``).
+        use_total: If ``True``, use *total* mode (one line, good plus bad)
+            instead of good/bad mode (default: ``False``).
         windows_for_cumulative_axis: ``{subject: [reversal_dict]}`` windows
             dict for the cumulative axis; required when ``add_cumulative_axis``.
-        all_good_idx: ``{subject: [int]}`` good-reversal indices (good/bad mode).
-        all_bad_idx: ``{subject: [int]}`` bad-reversal indices (good/bad mode).
+        all_good_idx: ``{subject: [int]}`` good-reversal indices (cumulative axis).
+        all_bad_idx: ``{subject: [int]}`` bad-reversal indices (cumulative axis).
         skip_n_trials_after_reversal: Post-reversal trials to omit (default: 0).
         save_path: Base path without extension for ``.pdf`` / ``.png`` output;
             if ``None``, the figure is shown.
@@ -426,10 +426,8 @@ def add_cumulative_rev_axis(
             :func:`plot_choice_probs_around_good_reversals`).
         windows_for_cumulative_axis: ``{subject: [reversal_dict]}`` windows
             dict used to compute the cumulative axis.
-        all_good_idx: ``{subject: [int]}`` good-reversal index lists.  Required
-            when ``use_total`` is falsy.
-        all_bad_idx: ``{subject: [int]}`` bad-reversal index lists.  Required
-            when ``use_total`` is falsy.
+        all_good_idx: ``{subject: [int]}`` good-reversal index lists.  Required.
+        all_bad_idx: ``{subject: [int]}`` bad-reversal index lists.  Required.
         save_path: Base path for saving ``.pdf`` / ``.png`` files.  If
             ``None``, the figure is shown interactively.
         plot_fraction_removed: If ``True``, plot the fraction of data removed
@@ -437,11 +435,12 @@ def add_cumulative_rev_axis(
             (default: ``True``).
         only_good: Suppress the bad-reversal line in good/bad mode (default:
             ``False``).
-        use_total: If truthy, use total-mode cumulative axis (one line); if
-            falsy, use good/bad-mode (two lines, default: ``None`` → falsy).
+        use_total: If truthy, use total-mode cumulative axis (one line, good
+            plus bad); if falsy, use good/bad-mode (two lines, default:
+            ``None`` → falsy).
 
     Raises:
-        ValueError: In good/bad mode if ``all_good_idx`` or ``all_bad_idx`` is missing.
+        ValueError: If ``all_good_idx`` or ``all_bad_idx`` is missing.
     """
     x = np.asarray(x, dtype=float)
     series = cumulative_removal_series(
@@ -510,17 +509,20 @@ def cumulative_reversal_events_over_post(
 
 
 def cumulative_total_events_over_post(
-    windows: dict, x: ArrayLike, across: dict | None, exclude_anchor: bool = True
+    windows: dict,
+    x: ArrayLike,
+    across: dict | None,
+    exclude_anchor: bool = True,
+    *,
+    good_idx: dict,
+    bad_idx: dict,
 ) -> tuple[np.ndarray, ...]:
     """Compute a single cumulative fraction-removed curve over the post window.
 
     For each aligned anchor reversal at index *g*, finds the first subsequent
-    reversal after *g* that is itself an anchor in *windows* and marks *g* as
-    removed for all offsets ``t >= (next_rev - g)``.
-
-    Known issue: windows are built from good reversals, so bad reversals never
-    cut a window here; use :func:`cumulative_reversal_events_over_post` to count
-    them.
+    reversal after *g*, good or bad, and marks *g* as removed for all offsets
+    ``t >= (next_rev - g)``.  The curve is the good and bad curves of
+    :func:`cumulative_reversal_events_over_post` added together.
 
     This produces a monotonically non-decreasing step function bounded in
     ``[0, 1]``.  The computation is
@@ -533,6 +535,8 @@ def cumulative_total_events_over_post(
         exclude_anchor: If ``True``, only count reversals strictly after anchor
             *g*; if ``False``, reversals at *g* itself are also eligible
             (default: ``True``).
+        good_idx: ``{subject: [int]}`` good-reversal trial indices.
+        bad_idx: ``{subject: [int]}`` bad-reversal trial indices.
 
     Returns:
         A three-tuple ``(x_disp, cum_total_full, frac_total_full)`` where each
@@ -541,4 +545,7 @@ def cumulative_total_events_over_post(
         at each offset (in ``[0, 1]``).
     """
     x = np.asarray(x, dtype=float)
-    return (x.copy(), *total_removal_curves(windows, x, exclude_anchor=exclude_anchor))
+    curves = total_removal_curves(
+        windows, x, exclude_anchor=exclude_anchor, good_idx=good_idx, bad_idx=bad_idx
+    )
+    return (x.copy(), *curves)

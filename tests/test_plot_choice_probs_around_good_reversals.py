@@ -21,7 +21,7 @@ from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
 X = np.arange(-3, 12)
 WINDOWS = {"A": [{"reversal_idx": 10}, {"reversal_idx": 20}], "B": [{"reversal_idx": 4}]}
 GOOD = {"A": [10], "B": [4]}
-BAD = {"A": [20]}
+BAD = {"A": [20], "B": []}
 SERIES = {"good": np.where(X >= 0, 0.2, np.nan), "bad": np.where(X >= 0, 0.1, np.nan)}
 GOODBAD_MESSAGE = "For mode='goodbad', provide all_good_idx and all_bad_idx."
 TITLE = "Good Reversal-Aligned Choices\n(mean ± se across subjects | n=2 subjects, n=3 reversals)\n"
@@ -310,10 +310,13 @@ def test_cumulative_wrappers_return_offsets_first_and_do_not_alias_input():
     assert x_disp.tolist() == x.tolist() and x_disp is not x
     assert cum_good.shape == cum_bad.shape == frac_good.shape == frac_bad.shape == x.shape
 
-    x_disp, cum_total, frac_total = cumulative_total_events_over_post(WINDOWS, x, across=None)
+    x_disp, cum_total, frac_total = cumulative_total_events_over_post(
+        WINDOWS, x, across=None, good_idx=GOOD, bad_idx=BAD
+    )
     assert x_disp.tolist() == x.tolist() and x_disp is not x
-    # only anchor 10 -> 20 (+10) is cut within the window; of 3 anchors
+    # only anchor 10 -> bad reversal 20 (+10) is cut within the window; of 3 anchors
     assert cum_total[-1] == 1 and frac_total[-1] == pytest.approx(1 / 3)
+    assert cum_total.tolist() == pytest.approx((cum_good + cum_bad).tolist(), nan_ok=True)
 
 
 # --- fine appearance details ------------------------------------------------

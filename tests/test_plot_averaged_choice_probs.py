@@ -261,9 +261,21 @@ def windows(*reversal_indices):
     return {"m": [{"reversal_idx": g} for g in reversal_indices]}
 
 
+def reversals_of(windows_dict):
+    """Every anchor is a good reversal and there are no bad ones."""
+    good = {
+        p: {s: [r["reversal_idx"] for r in revs] for s, revs in w.items()}
+        for p, w in windows_dict.items()
+    }
+    bad = {p: {s: [] for s in w} for p, w in windows_dict.items()}
+    return {"good_idx_by_problem": good, "bad_idx_by_problem": bad}
+
+
 def removed(windows_dict, **kwargs):
     curves = {p: {"across": {}} for p in windows_dict}
-    return fraction_removed_by_problem(windows_dict, curves, FX, **kwargs)
+    return fraction_removed_by_problem(
+        windows_dict, curves, FX, **reversals_of(windows_dict), **kwargs
+    )
 
 
 @ignore_nan_offsets
@@ -297,11 +309,21 @@ def test_fraction_removed_exclude_anchor_flag_is_forwarded():
 def test_fraction_removed_skips_problems_without_curves_or_windows():
     curves = {1: {"across": {}}, 3: {"across": {}}}
     windows_dict = {1: windows(10, 12), 2: windows(10, 12), 3: {}}
-    frac, used = fraction_removed_by_problem(windows_dict, curves, FX)
+    frac, used = fraction_removed_by_problem(windows_dict, curves, FX, **reversals_of(windows_dict))
     assert used == [1]
     np.testing.assert_allclose(frac[3], 1 / 2)
 
 
 def test_fraction_removed_is_all_nan_when_no_problem_contributes():
-    frac, used = fraction_removed_by_problem({1: {}}, {1: {"across": {}}}, FX)
+    frac, used = fraction_removed_by_problem(
+        {1: {}}, {1: {"across": {}}}, FX, good_idx_by_problem={}, bad_idx_by_problem={}
+    )
     assert used == [] and np.isnan(frac).all() and frac.shape == FX.shape
+
+
+@ignore_nan_offsets
+def test_fraction_removed_counts_bad_reversals_between_anchors():
+    windows_dict = {1: windows(10)}
+    kwargs = {"good_idx_by_problem": {1: {"m": [10]}}, "bad_idx_by_problem": {1: {"m": [12]}}}
+    frac, _ = fraction_removed_by_problem(windows_dict, {1: {"across": {}}}, FX, **kwargs)
+    np.testing.assert_allclose(frac[1:], [0, 0, 1, 1, 1])
