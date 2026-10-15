@@ -18,6 +18,7 @@ from src.behavior_analysis.value_change_windows import (
     ValueChangeConfig,
     ValueChangeCurves,
     ValueChangeWindows,
+    check_window,
     contamination_summary,
     get_value_change_windows,
     merge_value_change_windows,
@@ -30,6 +31,7 @@ from src.behavior_visualization.plot_value_change_choice_probs import (
 )
 
 CONTAMINATION_CSV = "value_change_contamination.csv"
+BIN_COUNTS_CSV = "value_change_bin_counts.csv"
 _FILTER_NAMES = {
     "all": "all_events",
     "rank_preserving": "rank_preserving",
@@ -53,9 +55,7 @@ def _check_arguments(
         raise ValueError("no problems given: pass {problem: {subject: {session: ...}}}")
     if not modes or not all(isinstance(m, bool) for m in modes):
         raise ValueError(f"truncate_modes must be a non-empty tuple of bools, got {modes!r}")
-    for name, value in (("pre", pre), ("post", post)):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError(f"{name} must be an integer >= 1, got {value!r}")
+    check_window(pre, post)
 
 
 def _pooled_windows(
@@ -81,6 +81,8 @@ def _curve_summary(curves: ValueChangeCurves) -> dict:
         "n_events": curves.num_events,
         "n_subjects": curves.num_subjects,
         "n_truncated": curves.num_truncated,
+        "n_events_per_bin": curves.n_events_per_bin,
+        "n_subjects_per_bin": curves.n_subjects_per_bin,
         "counts": curves.counts,
         "x": curves.x,
         "mean": curves.mean,
@@ -110,14 +112,36 @@ def _mode_summary(windows: ValueChangeWindows, out_dir: Path, show_individual_mi
 def _contamination_row(windows: ValueChangeWindows) -> dict:
     """One CSV row: the configuration, its contamination summary and its event accounting."""
     config = windows.config
+    contamination = contamination_summary(windows.events)
+    if contamination["n_events"] != windows.counts["n_events"]:
+        raise ValueError(
+            f"{config.label}: {contamination['n_events']} events summarised but "
+            f"{windows.counts['n_events']} counted"
+        )
     return {
         "config": config.label,
         "rank": config.rank,
         "direction": config.direction,
         "rank_filter": config.rank_filter,
-        **contamination_summary(windows.events),
+        **contamination,
         **windows.counts,
     }
+
+
+def _bin_count_rows(config: ValueChangeConfig, mode: str, summary: dict) -> list[dict]:
+    """One row per time point: how many events and mice have a trial there."""
+    return [
+        {
+            "config": config.label,
+            "mode": mode,
+            "t": int(t),
+            "n_events": int(n_events),
+            "n_subjects": int(n_subjects),
+        }
+        for t, n_events, n_subjects in zip(
+            summary["x"], summary["n_events_per_bin"], summary["n_subjects_per_bin"], strict=True
+        )
+    ]
 
 
 def run_value_change_analysis(
@@ -129,13 +153,14 @@ def run_value_change_analysis(
     truncate_modes: tuple[bool, ...] = (False, True),
     show_individual_mice: bool = False,
 ) -> dict:
-    """Value-change-aligned choice-probability figures and the contamination CSV.
+    """Value-change-aligned choice-probability figures, contamination CSV and per-bin counts.
 
     Writes, under *out_dir*, ``value_change_<rank>_<direction>_<filter>_<mode>.png/.pdf`` for
     each configuration with at least one event and each mode (``untruncated`` or
     ``truncated_at_rank_swap``), and ``value_change_contamination.csv`` (one row per
     configuration: contamination of the post windows and event accounting, from the
-    untruncated events).
+    untruncated events) and ``value_change_bin_counts.csv`` (per configuration, mode and
+    time point t: how many events and mice have a trial there, so thinning is visible).
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session}}}``.
@@ -149,9 +174,9 @@ def run_value_change_analysis(
 
     Returns:
         dict: ``summaries`` (``{config label: {mode: {n_events, n_subjects, n_truncated,
-        counts, x, mean, se, plotted, files}}}``), ``contamination`` (``{config label:
-        contamination dict}``), ``contamination_csv`` (Path) and ``files`` (every saved
-        figure path).
+        counts, x, mean, se, n_events_per_bin, n_subjects_per_bin, plotted, files}}}``),
+        ``contamination`` (``{config label: contamination dict}``), ``contamination_csv`` and
+        ``bin_counts_csv`` (Paths) and ``files`` (every saved figure path).
 
     Raises:
         ValueError: On empty input, bad ``pre``/``post``/``truncate_modes``, or any error
@@ -160,7 +185,7 @@ def run_value_change_analysis(
     _check_arguments(subjects_trials_by_problem, pre, post, truncate_modes)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    summaries, contamination, rows, files = {}, {}, [], []
+    summaries, contamination, rows, bin_rows, files = {}, {}, [], [], []
     for config in value_change_configs():
         pooled = _pooled_windows(subjects_trials_by_problem, config, pre, post)
         rows.append(_contamination_row(pooled))
@@ -171,11 +196,15 @@ def run_value_change_analysis(
             summary = _mode_summary(windows, out_dir, show_individual_mice)
             summaries[config.label][_mode_name(truncated)] = summary
             files += summary["files"]
+            bin_rows += _bin_count_rows(config, _mode_name(truncated), summary)
     csv_path = out_dir / CONTAMINATION_CSV
     pd.DataFrame(rows).to_csv(csv_path, index=False)
+    bin_path = out_dir / BIN_COUNTS_CSV
+    pd.DataFrame(bin_rows).to_csv(bin_path, index=False)
     return {
         "summaries": summaries,
         "contamination": contamination,
         "contamination_csv": csv_path,
+        "bin_counts_csv": bin_path,
         "files": files,
     }

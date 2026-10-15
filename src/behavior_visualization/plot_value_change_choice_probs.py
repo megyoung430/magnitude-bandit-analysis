@@ -9,6 +9,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import MaxNLocator
 
 from src.behavior_analysis.value_change_windows import ValueChangeCurves
 from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
@@ -31,8 +32,8 @@ LEGEND_LABELS = {
 }
 _FILTER_SUFFIX = {
     "all": "",
-    "rank_preserving": " [Rank-Preserving Only]",
-    "rank_swap": " [Rank-Swap Only]",
+    "rank_preserving": "[Rank-Preserving Only]",
+    "rank_swap": "[Rank-Swap Only]",
 }
 X_LABEL = "Trials from Value Change"
 Y_LABEL = "Choice Probability"
@@ -43,12 +44,13 @@ def _title(curves: ValueChangeCurves) -> str:
     rank = "Best" if config.rank == "best" else "Second-Best"
     events = f"n={curves.num_events} events"
     if curves.truncate_at_rank_swap:
-        events += f" ({curves.num_truncated} truncated at rank swap)"
+        events += f", {curves.num_truncated} truncated at rank swap"
+    average = "mean ± se" if curves.num_subjects >= 2 else "mean"
+    heading = f"Choice Probabilities Aligned to {rank} True Value {config.direction.capitalize()}"
+    suffix = _FILTER_SUFFIX[config.rank_filter].strip()
     return (
-        f"Choice Probabilities Aligned to {rank} True Value {config.direction.capitalize()}"
-        f"{_FILTER_SUFFIX[config.rank_filter]}\n"
-        f"(mean ± se across subjects | n={curves.num_subjects} subjects, {events})"
-    )
+        f"{heading}\n{suffix}\n" if suffix else f"{heading}\n"
+    ) + f"({average} across subjects | n={curves.num_subjects} subjects, {events})"
 
 
 def _draw_label(ax: plt.Axes, curves: ValueChangeCurves, label: str, individual: bool) -> None:
@@ -89,7 +91,8 @@ def plot_value_change_panel(
         ax.set_xlabel(X_LABEL)
         ax.set_ylabel(Y_LABEL)
         despine(ax)
-        ax.legend(loc="upper right", fontsize=10, framealpha=0.9)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=10, frameon=False)
         ax.set_title(_title(curves), pad=12)
     return ax
 

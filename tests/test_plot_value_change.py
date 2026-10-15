@@ -98,6 +98,33 @@ def test_title_shows_the_truncated_event_count():
     plt.close("all")
 
 
+def test_title_says_mean_only_for_one_mouse_and_has_no_stray_bracket():
+    one = plot_value_change_panel(curves_for({"m1": mouse_sessions()}, truncate=True)).get_title()
+    two = plot_value_change_panel(curves_for(two_mice(), truncate=True)).get_title()
+    assert "(mean across subjects" in one and "±" not in one
+    assert "(mean ± se across subjects" in two
+    assert not one.endswith("))") and not two.endswith("))")
+    plt.close("all")
+
+
+def test_filter_goes_on_its_own_title_line():
+    swap = {"m1": {key(1): session(recording(script(40, BASE, {10: mag(4, 6, 1)})))}}
+    curves = curves_for(swap, rank="second", direction="increase", rank_filter="rank_swap")
+    lines = plot_value_change_panel(curves).get_title().split("\n")
+    assert lines[1] == "[Rank-Swap Only]" and len(lines) == 3
+    plt.close("all")
+
+
+def test_x_ticks_are_integers_and_the_legend_is_outside_the_axes():
+    ax = plot_value_change_panel(curves_for(two_mice()))
+    ax.figure.canvas.draw()
+    ticks = [t for t in ax.get_xticks() if ax.get_xlim()[0] <= t <= ax.get_xlim()[1]]
+    assert all(float(t).is_integer() for t in ticks)
+    legend_left = ax.get_legend().get_window_extent().x0
+    assert legend_left > ax.get_window_extent().x1
+    plt.close("all")
+
+
 def test_wrapper_saves_png_and_pdf_and_closes(tmp_path):
     plot_value_change_choice_probs(curves_for(two_mice()), save_path=tmp_path / "sub" / "fig")
     assert (tmp_path / "sub" / "fig.png").exists() and (tmp_path / "sub" / "fig.pdf").exists()
@@ -183,7 +210,7 @@ def test_entry_summaries_report_counts_per_config_and_mode(full_run):
     s = result["summaries"]["best/decrease/rank_swap"]
     assert set(s) == {"untruncated", "truncated_at_rank_swap"}
     assert s["untruncated"]["n_events"] == s["truncated_at_rank_swap"]["n_events"] == 1
-    assert s["untruncated"]["counts"]["n_dropped_no_post_room"] == 0
+    assert s["untruncated"]["counts"]["n_third_arm_changed"] == 0
     assert s["untruncated"]["n_truncated"] == 0
     assert result["summaries"]["second/increase/rank_swap"]["untruncated"]["n_events"] == 1
 
@@ -200,6 +227,30 @@ def test_entry_curves_match_a_hand_computation(full_run):
     assert [s["mean"][r][t0] for r in ("best", "second", "third")] == [0.5, 0.5, 0.0]
     assert [s["mean"][r][tm1] for r in ("best", "second", "third")] == [1.0, 0.0, 0.0]
     assert np.isnan(s["se"]["best"]).all()  # one mouse: no spread across mice
+
+
+def test_entry_writes_per_bin_counts_that_show_the_thinning(full_run):
+    out_dir, result = full_run
+    table = pd.read_csv(out_dir / "value_change_bin_counts.csv")
+    assert result["bin_counts_csv"] == out_dir / "value_change_bin_counts.csv"
+    assert set(table.columns) == {"config", "mode", "t", "n_events", "n_subjects"}
+    best_up = table[(table["config"] == "best/increase/all") & (table["mode"] == "untruncated")]
+    assert list(best_up["t"]) == list(range(-5, 16)) and (best_up["n_events"] == 2).all()
+    truncated = table[
+        (table["config"] == "best/decrease/rank_swap") & (table["mode"] == "truncated_at_rank_swap")
+    ]
+    assert (truncated["n_events"] == 1).all()  # its single swap is the t = 0 exchange itself
+
+
+def test_entry_refuses_a_contamination_table_that_disagrees_with_the_counts(
+    tmp_path, no_figures, monkeypatch
+):
+    monkeypatch.setattr(
+        "src.pipelines.value_change_analysis.contamination_summary",
+        lambda events: {"n_events": -1},
+    )
+    with pytest.raises(ValueError, match="summarised"):
+        run_value_change_analysis({1: {"m1": swap_rich_mouse()}}, tmp_path)
 
 
 def test_entry_truncate_modes_select_the_figures(tmp_path):

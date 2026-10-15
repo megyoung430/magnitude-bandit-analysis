@@ -16,13 +16,6 @@ from src.behavior_analysis.value_change_windows import (
     value_change_configs,
 )
 
-RANK_NAMES = ("best", "second", "third")
-
-
-def rank_of(magnitudes, arm):
-    """Rank label of *arm*; tied arms share the better label."""
-    return RANK_NAMES[sum(v > magnitudes[arm] for v in magnitudes.values())]
-
 
 def script(n, start, changes):
     """Per-trial ``{arm: magnitude}`` list: *start* until a trial in *changes* sets a new state."""
@@ -40,7 +33,6 @@ def recording(rms, choices=None, blocks=None):
     return {
         "reward_magnitudes": list(rms),
         "choice": list(choices),
-        "chosen_rank": [rank_of(rm, c) for rm, c in zip(rms, choices, strict=True)],
         "blocks": list(blocks) if blocks is not None else [1] * n,
     }
 
@@ -101,17 +93,20 @@ def test_direction_and_rank_select_the_tracked_value():
     assert [e.trial_idx for e in w.events["m"]] == [10]
 
 
-def test_window_bounds_keep_full_windows_and_count_the_dropped_ones():
+def test_events_near_the_session_edges_are_kept_with_missing_trials_as_none():
     pre, post, n = 5, 15, 30
-    # events at 4 (no pre room), 5 (exactly enough), 14 (last with room), 15 (no post room)
+    # events at 4, 5, 14 and 15; the first has one trial too few before it, the last has
+    # none after trial 29 for its final offset
     rms = script(
-        n, mag(1, 0, 0), {4: mag(2, 0, 0), 5: mag(3, 0, 0), 14: mag(4, 0, 0), 15: mag(5, 0, 0)}
+        n, mag(3, 2, 0), {4: mag(4, 2, 0), 5: mag(5, 2, 0), 14: mag(6, 2, 0), 15: mag(7, 2, 0)}
     )
     w = windows({key(1): session(recording(rms))}, pre=pre, post=post)
-    assert [e.trial_idx for e in w.events["m"]] == [5, 14]
-    assert w.counts["n_dropped_no_pre_room"] == 1
-    assert w.counts["n_dropped_no_post_room"] == 1
-    assert w.counts["n_events"] == 2
+    by_idx = {e.trial_idx: e for e in w.events["m"]}
+    assert sorted(by_idx) == [4, 5, 14, 15]
+    assert by_idx[4].pre[0] is None and None not in by_idx[4].pre[1:]
+    assert None not in by_idx[5].pre and None not in by_idx[14].post
+    assert by_idx[15].post[-1] is None and None not in by_idx[15].post[:-1]
+    assert w.counts["n_events"] == w.counts["n_changes"] == 4
 
 
 def test_every_detected_change_is_accounted_for():
@@ -125,11 +120,7 @@ def test_every_detected_change_is_accounted_for():
         )
         c = w.counts
         assert c["n_changes"] == (
-            c["n_filtered_out"]
-            + c["n_tie_skipped"]
-            + c["n_dropped_no_pre_room"]
-            + c["n_dropped_no_post_room"]
-            + c["n_events"]
+            c["n_third_arm_changed"] + c["n_tie_skipped"] + c["n_filtered_out"] + c["n_events"]
         ), config.label
 
 
@@ -141,6 +132,66 @@ def test_changes_at_a_block_boundary_are_not_events_and_cut_the_window():
     assert event.trial_idx == 10
     assert event.post[:10] != (None,) * 10
     assert event.post[10:] == (None,) * 6  # trials 20.. belong to the next block
+
+
+def test_the_window_is_cut_where_the_third_arm_changes_within_a_block():
+    # C is the third arm until trial 14, when B drops below it; the event at 10 has post
+    # trials 10..13 only, and the event at 24 (A rises) has pre trials back to 14 only
+    rms = script(40, BASE, {10: mag(5, 2, 1), 14: mag(5, 0, 1), 24: mag(6, 0, 1)})
+    (first, second) = windows({key(1): session(recording(rms))}).events["m"]
+    assert first.trial_idx == 10 and second.trial_idx == 24
+    assert None not in first.post[:4] and first.post[4:] == (None,) * 12
+    assert not first.contaminated  # the change at 14 is outside the window
+    assert None not in second.pre  # trials 19..23 all have B as the third arm
+
+
+def test_the_third_arm_is_fixed_over_pre_trials_the_window_stops_at_the_first_difference():
+    rms = script(40, mag(4, 0, 1), {8: mag(4, 3, 1), 12: mag(5, 3, 1)})
+    (event,) = windows({key(1): session(recording(rms))}).events["m"]
+    assert event.trial_idx == 12
+    # third arm is B before trial 8 and C from trial 8 on: pre trials 7..8 -> t=-5..-1 are
+    # trials 7..11, so only trial 7 (third arm B) is outside
+    assert event.pre[0] is None and None not in event.pre[1:]
+
+
+def test_an_event_that_changes_the_third_arm_is_excluded_and_counted():
+    # A falls to the bottom: the old best becomes the third arm, a reversal-type change
+    rms = script(40, BASE, {10: mag(0, 2, 1)})
+    s = {key(1): session(recording(rms))}
+    for rank_filter in ("all", "rank_preserving"):
+        w = windows(s, rank="best", direction="decrease", rank_filter=rank_filter)
+        assert w.events == {} and w.counts["n_third_arm_changed"] == 1, rank_filter
+    swap = windows(s, rank="best", direction="decrease", rank_filter="rank_swap")
+    assert swap.events == {} and swap.counts["n_third_arm_changed"] == 1
+
+
+def test_a_tied_lowest_magnitude_leaves_the_third_arm_undetermined():
+    # B and C are both 1: even "all" cannot tell which arm is third
+    rms = script(40, mag(4, 1, 1), {10: mag(5, 1, 1)})
+    w = windows({key(1): session(recording(rms))})
+    assert w.events == {} and w.counts["n_tie_skipped"] == 1
+
+
+def test_a_trial_without_magnitudes_ends_the_window():
+    rms = script(40, BASE, {10: mag(5, 2, 1), 15: mag(1, 2, 0)})
+    rms[12] = None
+    (event,) = windows({key(1): session(recording(rms))}).events["m"]
+    assert None not in event.post[:2] and event.post[2:] == (None,) * 14
+    assert not event.contaminated  # the change at 15 lies beyond the missing trial
+
+
+def test_arms_that_change_within_a_window_raise():
+    rms = script(40, BASE, {10: mag(5, 2, 1)})
+    rms[13] = {"X": 5, "B": 2, "C": 1}  # same third arm, but the best arm has another name
+    with pytest.raises(ValueError, match="arms changed"):
+        windows({key(1): session(recording(rms))})
+
+
+def test_a_trial_with_other_than_three_arms_raises():
+    rms = script(40, BASE, {10: mag(5, 2, 1)})
+    rms[20] = {"A": 4, "B": 2}
+    with pytest.raises(ValueError, match="3 arms"):
+        windows({key(1): session(recording(rms))})
 
 
 def test_missing_or_misaligned_blocks_raise():
@@ -211,9 +262,9 @@ def test_sessions_are_visited_in_session_order_not_dict_order():
 def test_windows_do_not_cross_sessions():
     rms = script(30, BASE, {3: mag(5, 2, 1)})  # change 3 trials into the session
     sessions = {key(1): session(recording(script(30, BASE, {}))), key(2): session(recording(rms))}
-    w = windows(sessions)
-    assert w.events == {}
-    assert w.counts["n_dropped_no_pre_room"] == 1
+    (event,) = windows(sessions).events["m"]
+    assert event.session == key(2)
+    assert event.pre[:2] == (None, None) and None not in event.pre[2:]
 
 
 # -------------------------------------------------------------------- classification
@@ -260,11 +311,15 @@ def test_ties_are_counted_and_skipped_when_the_filter_depends_on_them():
         assert w.counts["n_tie_skipped"] == 1, rank_filter
 
 
-def test_a_tie_between_the_other_arms_does_not_block_the_classification():
-    rms = script(40, mag(4, 1, 1), {10: mag(5, 1, 1)})
-    s = {key(1): session(recording(rms))}
-    w = windows(s, rank="best", direction="increase", rank_filter="rank_preserving")
-    assert len(w.events["m"]) == 1  # A is clearly the best before and after; B = C is irrelevant
+def test_tied_best_and_second_trials_split_the_choice_evenly():
+    # from trial 12 on A and B tie at 4; the animal chooses A at 12 and C at 13
+    rms = script(40, BASE, {10: mag(5, 2, 1), 12: mag(4, 4, 1)})
+    choices = ["A"] * 40
+    choices[13] = "C"
+    (event,) = windows({key(1): session(recording(rms, choices=choices))}).events["m"]
+    assert event.post[2] == ("best", "second") and event.post[3] == "third"
+    x, _, across = aggregate_windows({"m": [event]}, 5, 15, ("best", "second", "third"))
+    assert across["mean"]["best"][5 + 2] == 0.5 and across["mean"]["second"][5 + 2] == 0.5
 
 
 # --------------------------------------------------------------------- label sets
@@ -278,6 +333,16 @@ def test_rank_swap_windows_use_previous_best_and_second_labels():
     assert event.pre[0] == "third"  # trial 5 is a choice of C, the arm that was third
 
 
+def test_swap_labels_name_the_arms_by_their_rank_before_the_event():
+    # B (second) passes A (best) at trial 10. The animal cycles A, B, C by trial number:
+    # trial 10 -> B was second, trial 12 -> A was best, trial 11 -> C was third.
+    s = {key(1): session(recording(swap_script()))}
+    (event,) = windows(s, rank="second", direction="increase", rank_filter="rank_swap").events["m"]
+    assert event.post[0] == "prev_second"
+    assert event.post[1] == "third"
+    assert event.post[2] == "prev_best"
+
+
 def test_aggregation_uses_the_filter_label_set_even_when_the_first_label_is_third():
     s = {key(1): session(recording(swap_script()))}
     w = windows(s, rank="second", direction="increase", rank_filter="rank_swap")
@@ -289,7 +354,7 @@ def test_aggregation_uses_the_filter_label_set_even_when_the_first_label_is_thir
         expected[lab][t] = 1.0
     for lab, curve in expected.items():
         np.testing.assert_array_equal(across["mean"][lab], curve)
-    assert across["mean"]["prev_best"].sum() > 0  # these were silently 0 when inferred from "third"
+    assert across["mean"]["prev_best"].sum() > 0
     assert list(x) == list(range(-5, 16))
 
 
@@ -421,9 +486,43 @@ def test_truncation_cuts_at_the_first_later_best_second_exchange():
 
 
 def test_truncation_leaves_other_later_changes_alone():
-    rms = script(40, BASE, {10: mag(5, 2, 1), 14: mag(5, 2, 3)})  # only the third arm moves
+    rms = script(40, BASE, {10: mag(5, 2, 1), 14: mag(5, 3, 1)})  # B rises but stays second
     (event,) = truncated(rms).events["m"]
     assert not event.truncated and None not in event.post
+    assert event.contaminated
+
+
+def test_a_swap_event_is_not_truncated_by_its_own_exchange():
+    # B passes A at 10 (the event); the order at t = 0 is the reference, so only a later
+    # return of A above B truncates
+    rms = script(60, BASE, {10: mag(4, 6, 1)})
+    s = {key(1): session(recording(rms))}
+    kwargs = dict(rank="second", direction="increase", rank_filter="rank_swap")
+    (alone,) = windows(s, truncate_at_rank_swap=True, **kwargs).events["m"]
+    assert not alone.truncated and None not in alone.post
+    back = script(60, BASE, {10: mag(4, 6, 1), 20: mag(7, 6, 1)})
+    s = {key(1): session(recording(back))}
+    event = windows(s, truncate_at_rank_swap=True, **kwargs).events["m"][0]
+    assert event.truncated and event.rank_swap_offset == 10
+    assert None not in event.post[:10] and event.post[10:] == (None,) * 6
+
+
+def test_the_swap_filter_and_the_truncation_use_the_same_exchange():
+    # A returns above B at trial 20: the swap filter sees that as a second/increase swap event
+    # (A, the second arm, moved up and passed B), and truncation of the first event fires at
+    # exactly that trial
+    rms = script(60, BASE, {10: mag(4, 6, 1), 20: mag(7, 6, 1)})
+    s = {key(1): session(recording(rms))}
+    kwargs = dict(rank="second", direction="increase", rank_filter="rank_swap")
+    assert [e.trial_idx for e in windows(s, **kwargs).events["m"]] == [10, 20]
+    first = windows(s, truncate_at_rank_swap=True, **kwargs).events["m"][0]
+    assert first.trial_idx + first.rank_swap_offset == 20
+    # A falling further without passing B is neither a swap nor a truncation
+    rms2 = script(60, BASE, {10: mag(4, 6, 1), 20: mag(3, 6, 1)})
+    (event,) = windows(
+        {key(1): session(recording(rms2))}, truncate_at_rank_swap=True, **kwargs
+    ).events["m"]
+    assert not event.truncated
 
 
 def test_truncation_needs_a_strict_exchange_not_a_tie():
