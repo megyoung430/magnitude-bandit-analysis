@@ -12,11 +12,29 @@ from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_coun
 RANK_NAMES = ("best", "second", "third")
 
 
-def make_session(n, *, blocks=None, good=None, **extra):
-    """A synthetic session of *n* trials; every trial picks one rank (cycling)."""
+# The best tower changes at merged trials 2, 3, 5 and 7, so every reversal used below
+# has a different best tower after it than before it (otherwise it is dropped as a
+# suspected detection bug).
+BEST_CHANGES = (2, 3, 5, 7)
+
+
+def magnitudes(first, n):
+    """Per-tower magnitudes for merged trials first..first+n-1 (best tower 5, others 3 and 1)."""
+    segments = [sum(i >= c for c in BEST_CHANGES) for i in range(first, first + n)]
+    return {
+        t: [5 if j == s % 3 else 3 if j == (s + 1) % 3 else 1 for s in segments]
+        for j, t in enumerate("ABC")
+    }
+
+
+def make_session(n, *, first=0, blocks=None, good=None, **extra):
+    """A synthetic session of *n* trials starting at merged trial *first*.
+
+    Every trial picks one rank (cycling).
+    """
     session = {
         "trial": list(range(1, n + 1)),
-        "reward_magnitudes_by_tower": {t: [5] * n for t in "ABC"},
+        "reward_magnitudes_by_tower": magnitudes(first, n),
         "choices_by_tower": {t: [int(i % 3 == k) for i in range(n)] for k, t in enumerate("ABC")},
         "choices_by_rank": {
             r: [int(i % 3 == k) for i in range(n)] for k, r in enumerate(RANK_NAMES)
@@ -41,11 +59,11 @@ def block_rows(data):
 # trials 3-6 (0-based; the first 2 in session 1 and the last 2 in session 2).
 LEGACY = {
     "ses-1": make_session(5, blocks=[1, 1, 1, 2, 2]),
-    "ses-2": make_session(4, blocks=[1, 1, 2, 2]),
+    "ses-2": make_session(4, first=5, blocks=[1, 1, 2, 2]),
 }
 COUNTER = {
     "ses-1": make_session(5, good=[0, 0, 1, 1, 1]),
-    "ses-2": make_session(4, good=[0, 0, 1, 1]),
+    "ses-2": make_session(4, first=5, good=[0, 0, 1, 1]),
 }
 
 
