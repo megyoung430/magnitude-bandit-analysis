@@ -1,0 +1,322 @@
+"""One problem-numbering rule, shared by ``import_data`` and ``group_sessions_by_problem``.
+
+A *problem* is a tower layout: the set of choice towers plus the initiation tower.
+Sessions are taken per subject in :func:`session_sort_key` order (date, then session
+number). Sessions that are not bandit problems are skipped first (below); the rest are cut
+into *runs* of consecutive sessions with the same layout, and each run is compared with the
+**last unflagged layout**, not with the session before it:
+
+- Same layout as the last unflagged one: the run continues that problem (so
+  A, flagged B, A is problems 1, None, 1, whatever the evidence of the resumed A).
+- A new layout that lasts exactly one session before the layout changes again is a
+  *suspected settings error*: problem ``None``, flag :data:`SUSPECTED_SETTINGS_ERROR`.
+  It is neither a new problem nor pooled with another, and does not become the last
+  unflagged layout.
+- A new layout that lasts two or more sessions (or is the final run of the data, whose
+  duration is not yet known) is a real problem, numbered from its first session, even
+  after a return to an earlier layout (A, B, B, A is 1, 2, 2, 3). If its first session
+  fails the evidence checks, it keeps the number but gets flag :data:`REVIEW_SETTINGS`
+  and a warning for manual review. Checks, on the first ``run_start`` and printed trials:
+
+  c. the session starts with ``found_ports`` false;
+  b. port finding happened: a printed trial dict carries ``num_t_found`` (the
+     ``num_t_found`` key of ``run_start`` is always present and says nothing). Not
+     checked when (c) already failed.
+
+- A first run that lasts one session before the layout changes (B, A, A) is a settings
+  error like any other one-session layout, and the next layout is problem 1. A first run
+  that is the only layout in the data, or the last one, is problem 1.
+- The first problem of a subject is not evidence-checked: its first session is often
+  mid-problem.
+- The number of a final run of one session is provisional (``ProblemAssignment.provisional``,
+  named in the warning): a later session can turn it into a settings error.
+
+Sessions that are not bandit problems get problem ``None``, are ignored when comparing the
+sessions around them (A, skipped, A is 1, None, 1) and stay in the data:
+
+1. *Pretraining* (task name, see :func:`is_pretraining`): flag :data:`PRETRAINING`, no
+   warning.
+2. No choice towers and port-finding trials printed: flag :data:`PORT_FINDING`, warning.
+3. No choice towers otherwise: flag :data:`NO_CHOICE_TOWERS`, warning, rather than guessing.
+"""
+
+import re
+import warnings
+from typing import NamedTuple
+
+SUSPECTED_SETTINGS_ERROR = "suspected_settings_error"
+REVIEW_SETTINGS = "review_settings"
+PRETRAINING = "pretraining"
+PORT_FINDING = "port_finding"
+NO_CHOICE_TOWERS = "no_choice_towers"
+
+# Pretraining tasks, recognised from the ``task_name`` info row (e.g.
+# ``Meg\3x3_field_drifting_value_bandit``) by its last path component, case-insensitive.
+# The lab's cohort-fitting notebook excludes task names containing "mag" or "pretraining";
+# "mag" is matched as the whole name here so that a task such as "..._magnitude_bandit" is
+# not mistaken for pretraining.
+PRETRAINING_TASK_NAMES = frozenset({"mag"})
+PRETRAINING_TASK_NAME_PARTS = ("pretraining",)
+DEFAULT_INITIATION_TOWER = "B2"
+
+
+class ProblemNumberingWarning(UserWarning):
+    """A session was flagged or skipped by the numbering rule."""
+
+
+# Always shown, so rerunning an import in a notebook warns again.
+warnings.simplefilter("always", ProblemNumberingWarning)
+
+TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
+
+
+class SessionFacts(NamedTuple):
+    """What the numbering rule needs to know about one session."""
+
+    layout: tuple | None  # from :func:`tower_layout`; ``None`` without choice towers
+    starts_found_ports_false: bool
+    has_port_finding_trials: bool  # a printed trial dict carries ``num_t_found``
+    task_name: str | None = None
+
+
+class ProblemAssignment(NamedTuple):
+    problem: int | None  # ``None`` for a skipped or settings-error session
+    flag: str | None
+    reasons: tuple  # which of the checks fired, for the warning text
+    # True for a final run of one session: a later session can turn it into a settings error.
+    provisional: bool = False
+
+
+def normalize_tower_token(x):
+    """Normalise a single tower token into a sortable, comparable tuple.
+
+    Converts letter+digit tokens (e.g. ``"A1"``, ``" b02 "``) to
+    ``(LETTER, int)`` tuples for robust comparison.  Falls back gracefully
+    for raw strings, numbers, and nested tuples.
+
+    Args:
+        x: A tower token — typically a string like ``"A1"`` or ``"C3"``, a
+            number, or a tuple of such values.
+
+    Returns:
+        A normalised ``(prefix, value)`` tuple:
+
+        - String matching ``[A-Za-z]+[0-9]+`` → ``(UPPER_LETTER, int)``.
+        - Other strings → ``("RAW", stripped_string)``.
+        - Integers/floats → ``("NUM", x)``.
+        - Tuples → recursively normalised tuple.
+
+    Raises:
+        TypeError: If *x* is an unsupported type.
+    """
+    if isinstance(x, str):
+        s = x.strip()
+        m = TOWER_TOKEN_RE.match(s)
+        if m:
+            return (m.group(1).upper(), int(m.group(2)))
+        return ("RAW", s)
+
+    # If your signature can include richer token types, extend this section.
+    # For now, keep numbers comparable as-is.
+    if isinstance(x, (int, float)):
+        return ("NUM", x)
+
+    # If you already produce normalized tuples in choice_towers_signature,
+    # keep them comparable by normalizing elements recursively.
+    if isinstance(x, tuple):
+        return tuple(normalize_tower_token(e) for e in x)
+
+    # Fail fast for unsupported objects so you don't silently create bad grouping.
+    raise TypeError(f"Unsupported tower token type: {type(x)!r} (value={x!r})")
+
+
+def permutation_invariant_signature(raw_sig):
+    """Canonicalise a tower-set signature to be permutation-invariant.
+
+    Normalises each token with :func:`normalize_tower_token` and sorts the
+    result so that two tower sets with the same members but different orderings
+    produce identical signatures.
+
+    Rule of thumb:
+
+    - Sequence-like (list/tuple/set/frozenset) → unordered multiset,
+      canonicalised by normalising each token and sorting.
+    - Dict → sort normalised ``(key, value)`` pairs.
+    - Single string → normalise it.
+    - ``None`` → kept as ``None``.
+
+    Args:
+        raw_sig: A raw signature as returned by :func:`choice_towers_signature`:
+            a sequence, dict, string, or ``None``.
+
+    Returns:
+        A sorted, normalised tuple suitable for equality comparison, or
+        ``None`` if *raw_sig* is ``None``.
+    """
+    if raw_sig is None:
+        return None
+
+    if (
+        isinstance(raw_sig, tuple)
+        and len(raw_sig) == 2
+        and isinstance(raw_sig[0], tuple)
+        and isinstance(raw_sig[1], str)
+    ):
+        towers_norm = tuple(sorted(normalize_tower_token(x) for x in raw_sig[0]))
+        init_norm = normalize_tower_token(raw_sig[1])
+        return (towers_norm, init_norm)
+
+    if isinstance(raw_sig, (list, tuple, set, frozenset)):
+        normalized = [normalize_tower_token(x) for x in raw_sig]
+        return tuple(sorted(normalized))
+
+    if isinstance(raw_sig, dict):
+        items = [(normalize_tower_token(k), normalize_tower_token(v)) for k, v in raw_sig.items()]
+        return tuple(sorted(items))
+
+    if isinstance(raw_sig, str):
+        return normalize_tower_token(raw_sig)
+
+    return raw_sig
+
+
+def tower_layout(choice_towers, initiation_tower):
+    """Canonical, hashable layout of a session, or ``None`` if it has no choice towers.
+
+    Tower order and letter case do not matter. A missing initiation tower means the
+    protocol default, ``"B2"``.
+    """
+    if not choice_towers:
+        return None
+    towers = tuple(sorted(choice_towers, key=str))
+    return permutation_invariant_signature((towers, initiation_tower or DEFAULT_INITIATION_TOWER))
+
+
+def is_pretraining(task_name):
+    """True if *task_name* (the ``task_name`` info row, or ``None``) is a pretraining task."""
+    if not task_name:
+        return False
+    name = re.split(r"[\\/]", task_name.strip())[-1].casefold()
+    return name in PRETRAINING_TASK_NAMES or any(
+        part in name for part in PRETRAINING_TASK_NAME_PARTS
+    )
+
+
+def _skip_assignment(session):
+    """The assignment for a session that is not a bandit problem, or ``None`` if it is one."""
+    if is_pretraining(session.task_name):
+        return ProblemAssignment(None, PRETRAINING, ())
+    if session.layout is not None:
+        return None
+    if session.has_port_finding_trials:
+        return ProblemAssignment(None, PORT_FINDING, ("no choice towers; port-finding trials",))
+    return ProblemAssignment(None, NO_CHOICE_TOWERS, ("no choice towers",))
+
+
+def session_sort_key(session_id):
+    """Chronological sort key for session keys such as ``ses-3_date-20260102``.
+
+    Date first, then session number, then the key itself (so ``_part-01`` segments keep
+    recording order). Keys without a date or number sort last. Both ``import_data`` and
+    ``group_sessions_by_problem`` use this key, so they number sessions in the same order.
+    """
+    m_date = re.search(r"date-(\d{8})", session_id)
+    m_ses = re.search(r"ses-(\d+)", session_id)
+    date = int(m_date.group(1)) if m_date else float("inf")
+    ses_num = int(m_ses.group(1)) if m_ses else float("inf")
+    return (date, ses_num, session_id)
+
+
+def _evidence_reasons(session):
+    """Why the first session of a new problem needs review (empty if it passes)."""
+    if not session.starts_found_ports_false:
+        return ("does not start with found_ports false",)
+    if not session.has_port_finding_trials:
+        return ("no port-finding trials (num_t_found) printed",)
+    return ()
+
+
+def _layout_runs(facts, indices):
+    """Group *indices* (session positions, in order) into runs of equal layout."""
+    runs = []
+    for index in indices:
+        if runs and facts[runs[-1][0]].layout == facts[index].layout:
+            runs[-1].append(index)
+        else:
+            runs.append([index])
+    return runs
+
+
+def assign_problems(facts):
+    """Problem number and flag for one subject's sessions, given in session order.
+
+    See the module docstring for the rule. Returns one :class:`ProblemAssignment` per
+    session.
+    """
+    assignments = {i: a for i, f in enumerate(facts) if (a := _skip_assignment(f))}
+    runs = _layout_runs(facts, [i for i in range(len(facts)) if i not in assignments])
+    problem, last_layout = 0, None
+    # Each run is judged against the last unflagged layout, so this is a loop.
+    for position, run in enumerate(runs):
+        layout = facts[run[0]].layout
+        if layout == last_layout:
+            first = ProblemAssignment(problem, None, ())
+        elif len(run) == 1 and position < len(runs) - 1:
+            reasons = ("layout lasts one session before changing again",)
+            assignments[run[0]] = ProblemAssignment(None, SUSPECTED_SETTINGS_ERROR, reasons)
+            continue
+        else:
+            problem, last_layout = problem + 1, layout
+            reasons = _evidence_reasons(facts[run[0]]) if problem > 1 else ()
+            first = ProblemAssignment(problem, REVIEW_SETTINGS if reasons else None, reasons)
+            first = first._replace(provisional=len(run) == 1 and position == len(runs) - 1)
+        assignments[run[0]] = first
+        for index in run[1:]:
+            assignments[index] = ProblemAssignment(problem, None, ())
+    return [assignments[i] for i in range(len(facts))]
+
+
+def warn_flagged(subject, session_ids, assignments, *, report=None, stacklevel=2):
+    """One :class:`ProblemNumberingWarning` per flagged session (pretraining is silent).
+
+    Args:
+        subject: Subject id, named in the warnings.
+        session_ids: Session keys, in the same order as *assignments*.
+        assignments: As returned by :func:`assign_problems`.
+        report: Optional booleans, one per session; only sessions marked ``True`` warn.
+        stacklevel: Passed to ``warnings.warn``; 2 points at this function's caller.
+    """
+    report = [True] * len(assignments) if report is None else report
+    for session_id, assignment, wanted in zip(session_ids, assignments, report, strict=True):
+        if not (wanted and assignment.flag and assignment.flag != PRETRAINING):
+            continue
+        outcome = (
+            "excluded from problem numbering"
+            if assignment.problem is None
+            else f"kept as problem {assignment.problem}"
+        )
+        if assignment.provisional:
+            outcome += " (provisional: a later session can turn it into a settings error)"
+        warnings.warn(
+            f"{subject} {session_id}: {assignment.flag.replace('_', ' ')} ("
+            + "; ".join(assignment.reasons)
+            + f"); {outcome}.",
+            ProblemNumberingWarning,
+            stacklevel=stacklevel,
+        )
+
+
+def number_subject_sessions(subject, session_ids, facts, *, warn=True, stacklevel=2):
+    """:func:`assign_problems` plus a warning (see :func:`warn_flagged`) per flagged session.
+
+    Args:
+        subject: Subject id, named in the warnings.
+        session_ids: Session keys, in the same order as *facts*.
+        facts: One :class:`SessionFacts` per session.
+        warn: ``False`` to stay silent.
+        stacklevel: Passed to ``warnings.warn``; 2 points at this function's caller.
+    """
+    assignments = assign_problems(facts)
+    if warn:
+        warn_flagged(subject, session_ids, assignments, stacklevel=stacklevel + 1)
+    return assignments

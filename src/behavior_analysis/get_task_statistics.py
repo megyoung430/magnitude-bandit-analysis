@@ -10,6 +10,7 @@ from itertools import pairwise
 import numpy as np
 
 from src.behavior_analysis.get_total_reversals import get_all_reversal_indices
+from src.behavior_analysis.stats import mean_se_n
 
 
 def _boundary_indices(*, goods, bads, boundary):
@@ -58,9 +59,8 @@ def _pool_by_block(per_mouse_blocklens):
 
 
 def _standard_error(vals):
-    """Standard error of the mean; 0.0 when there are fewer than two values."""
-    vals = np.asarray(vals, dtype=float)
-    return np.std(vals, ddof=1) / np.sqrt(len(vals)) if len(vals) >= 2 else 0.0
+    """Standard error of the mean over the non-NaN values; NaN with fewer than two."""
+    return mean_se_n(vals)[1]
 
 
 def get_block_lengths(subjects_trials, boundary="all"):

@@ -10,6 +10,9 @@ import numpy as np
 from scipy.optimize import minimize
 from src.agents import best_rl
 
+# Bump when a change alters what this model computes; comments and refactors don't need a bump.
+# Runs that use this model record the version in their saved-run identity.
+MODEL_VERSION = 1
 PARAMETER_NAMES = ['learning_rate', 'beta', 'kappa', 'forgetting', 'q_init']
 DEFAULT_BOUNDS = [(1e-6, 1-1e-6), (0., None), (-1+1e-6, 1-1e-6),
                   (1e-6, 1-1e-6), (None, None)]

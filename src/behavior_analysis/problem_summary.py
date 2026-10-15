@@ -13,6 +13,7 @@ from collections import defaultdict
 import numpy as np
 
 from src.behavior_analysis.get_total_reversals import get_total_reversals
+from src.behavior_analysis.stats import mean_se_n
 
 
 def compute_problem_length_summary(data: dict) -> dict:
@@ -34,23 +35,13 @@ def compute_problem_length_summary(data: dict) -> dict:
     for m, vals in data.items():
         per_mouse_blocklens[m] = {i + 1: float(v) for i, v in enumerate(vals)}
 
-    means, ses, ns = [], [], []
-    for b in blocks:
-        vals_b = np.asarray(
-            [per_mouse_blocklens[m][b] for m in mice if b in per_mouse_blocklens[m]],
-            dtype=float,
-        )
-        n = int(vals_b.size)
-        ns.append(n)
-        if n == 0:
-            means.append(float("nan"))
-            ses.append(float("nan"))
-        elif n == 1:
-            means.append(float(vals_b.mean()))
-            ses.append(0.0)
-        else:
-            means.append(float(vals_b.mean()))
-            ses.append(float(vals_b.std(ddof=1) / np.sqrt(n)))
+    stats = [
+        mean_se_n([per_mouse_blocklens[m][b] for m in mice if b in per_mouse_blocklens[m]])
+        for b in blocks
+    ]
+    means = [mean for mean, _, _ in stats]
+    ses = [se for _, se, _ in stats]
+    ns = [n for _, _, n in stats]
 
     return {
         "blocks": blocks,
@@ -60,17 +51,6 @@ def compute_problem_length_summary(data: dict) -> dict:
         "per_mouse_blocklens": per_mouse_blocklens,
         "mice": mice,
     }
-
-
-def _mean_se_n(values: list) -> tuple[float, float, int]:
-    """Mean, standard error and count; the standard error is 0.0 for one value, NaN for none."""
-    vals = np.asarray(values, dtype=float)
-    n = int(vals.size)
-    if n == 0:
-        return float("nan"), float("nan"), n
-    if n == 1:
-        return float(vals.mean()), 0.0, n
-    return float(vals.mean()), float(vals.std(ddof=1) / np.sqrt(n)), n
 
 
 def _mean_blocklen_per_mouse(problem_block_stats: dict, problems: list, mice: list) -> dict:
@@ -96,7 +76,7 @@ def _summarise_by_problem(per_mouse_blocklens: dict, problems: list) -> dict:
     """Across-mouse mean, standard error and n for each problem in *problems*."""
     mice = list(per_mouse_blocklens.keys())
     stats = [
-        _mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
+        mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
         for p in problems
     ]
     return {
@@ -182,6 +162,29 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
     return per_mouse_avg
 
 
+def compute_suspect_good_reversals_per_session(subjects_trials: dict) -> dict:
+    """Average suspect and uncheckable good reversals per session, beside the logged counts.
+
+    Args:
+        subjects_trials: ``{subject: {session_key: trials}}``
+
+    Returns:
+        ``{subject: {"suspect": avg, "uncheckable": avg}}``, averaged over the subject's
+        sessions like :func:`compute_avg_good_reversals_per_session`, which stays as logged.
+        Sessions without good/bad counters count as 0.
+    """
+    per_subject = {}
+    for subj, sessions in subjects_trials.items():
+        stats = [get_total_reversals({key: trials}) for key, trials in sessions.items()]
+        per_subject[subj] = {
+            name: float(np.mean([s.get(f"{name}_good_reversals", 0) for s in stats]))
+            if stats
+            else float("nan")
+            for name in ("suspect", "uncheckable")
+        }
+    return per_subject
+
+
 def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
     """Summarise average good reversals per session across mice and problems.
 
@@ -201,23 +204,13 @@ def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
             if np.isfinite(float(v)):
                 per_mouse_blocklens[m][p] = float(v)
 
-    means, ses, ns = [], [], []
-    for p in problems:
-        vals = np.asarray(
-            [per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]],
-            dtype=float,
-        )
-        n = int(vals.size)
-        ns.append(n)
-        if n == 0:
-            means.append(float("nan"))
-            ses.append(float("nan"))
-        elif n == 1:
-            means.append(float(vals.mean()))
-            ses.append(0.0)
-        else:
-            means.append(float(vals.mean()))
-            ses.append(float(vals.std(ddof=1) / np.sqrt(n)))
+    stats = [
+        mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
+        for p in problems
+    ]
+    means = [mean for mean, _, _ in stats]
+    ses = [se for _, se, _ in stats]
+    ns = [n for _, _, n in stats]
 
     return {
         "blocks": problems,

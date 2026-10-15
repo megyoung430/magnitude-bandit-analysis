@@ -42,16 +42,14 @@ def import_code_version() -> str:
     return digest.hexdigest()
 
 
-def _import_and_extract(root: Path, merge_recurring_problems: bool) -> dict:
-    return extract_trials_grouped_by_problem(
-        import_data(root), merge_recurring_problems=merge_recurring_problems
-    )
+def _import_and_extract(root: Path) -> dict:
+    return extract_trials_grouped_by_problem(import_data(root))
 
 
-def _load(root: str, fingerprint, code_version: str, merge_recurring_problems: bool) -> dict:
+def _load(root: str, fingerprint, code_version: str) -> dict:
     # fingerprint and code_version are not used here: they are arguments only
     # so that they become part of the cache key
-    return _import_and_extract(Path(root), merge_recurring_problems)
+    return _import_and_extract(Path(root))
 
 
 @lru_cache
@@ -62,7 +60,6 @@ def _cached_load(cache_dir: Path):
 def load_trials_by_problem(
     root: Path,
     *,
-    merge_recurring_problems: bool = False,
     cache_dir: Path | None = None,
     use_cache: bool = True,
 ) -> dict:
@@ -70,7 +67,6 @@ def load_trials_by_problem(
 
     Args:
         root: Raw-data folder, e.g. ``<data_root>/<experiment>/<cohort>/rawdata``.
-        merge_recurring_problems: Passed to ``extract_trials_grouped_by_problem``.
         cache_dir: Cache location (default: ``get_settings().cache_dir``).
         use_cache: ``False`` always re-imports and leaves the cache untouched.
 
@@ -81,10 +77,10 @@ def load_trials_by_problem(
     if not root.is_dir():
         raise FileNotFoundError(f"Raw data folder not found (is the share mounted?): {root}")
     if not use_cache:
-        return _import_and_extract(root, merge_recurring_problems)
+        return _import_and_extract(root)
 
     load = _cached_load(Path(cache_dir or get_settings().cache_dir))
-    args = (str(root), raw_data_fingerprint(root), import_code_version(), merge_recurring_problems)
+    args = (str(root), raw_data_fingerprint(root), import_code_version())
     if load.check_call_in_cache(*args):
         print(f"[INFO] Loading trials for {root} from cache")
     return load(*args)

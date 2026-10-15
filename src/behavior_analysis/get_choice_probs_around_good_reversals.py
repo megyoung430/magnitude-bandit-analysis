@@ -14,7 +14,10 @@ from functools import partial
 
 import numpy as np
 
-from src.behavior_analysis.get_good_reversal_info import classify_towers_at_good_reversals
+from src.behavior_analysis.get_good_reversal_info import (
+    classify_towers_at_good_reversals,
+    exclude_best_unchanged,
+)
 
 # Roles of the three towers around a good reversal, in the order returned by
 # classify_towers_at_good_reversals.
@@ -200,6 +203,9 @@ def get_choice_probs_around_good_reversals(
           and ``"num_reversals"``, where ``"mean"`` and ``"se"`` are themselves
           dicts keyed by ``"prev_best"``, ``"next_best"``, ``"third"``.
 
+    Reversals whose best tower did not change have no third tower and are left
+    out; a ``UserWarning`` reports how many per subject.
+
     Raises:
         ValueError: If ``skip_n_trials_after_reversal < 0`` or
             ``>= post``.
@@ -212,6 +218,9 @@ def get_choice_probs_around_good_reversals(
 
     per_subject = {}
     for subj, reversals in reversal_windows.items():
+        reversals = exclude_best_unchanged(
+            reversals, subject=subj, caller="get_choice_probs_around_good_reversals"
+        )
         if not reversals:
             print(f"[INFO] Skipping subject {subj} with no good reversals.")
             continue

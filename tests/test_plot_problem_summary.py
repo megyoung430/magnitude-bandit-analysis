@@ -141,6 +141,15 @@ def test_metric_all_nan_bars_fall_back_to_unit_top(drawn):
     assert ax.get_ylim() == pytest.approx((0, 1.5 * 1.02))
 
 
+def test_metric_with_nan_error_still_places_labels_and_limits_from_the_mean(drawn):
+    nan_se = {**summary(), "ses": [0.5, nan, nan]}
+    pps.plot_metric_by_problem(nan_se, title="T", ylabel="Y", jitter=0)
+    (ax,) = drawn.figures[0].axes
+    assert [t.get_text() for t in ax.texts] == ["2.00", "4.50"]
+    # the tallest bar is 4.5 (no error bar to add); labels default to 1.5x that
+    assert {t.get_position()[1] for t in ax.texts} == {6.75}
+
+
 def test_lengths_figure_defaults_and_style(drawn):
     pps.plot_problem_lengths(summary(), jitter=0)
     (fig,) = drawn.figures

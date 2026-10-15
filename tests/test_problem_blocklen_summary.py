@@ -34,7 +34,7 @@ def test_problems_are_sorted_and_mice_missing_from_one_are_skipped_there():
     assert out["blocks"] == [1, 3]
     assert out["means"] == [2.0, 9.0]
     assert out["ns"] == [2, 1]
-    assert out["ses"][1] == 0.0  # a single mouse has no spread
+    assert math.isnan(out["ses"][1])  # a single mouse has no spread: NaN, never 0
     assert out["per_mouse_blocklens"] == {"a": {1: 1.0, 3: 9.0}, "b": {1: 3.0}}
 
 

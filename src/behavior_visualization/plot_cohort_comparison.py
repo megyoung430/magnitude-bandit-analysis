@@ -114,7 +114,7 @@ def _plot_across_problems_panel(
     ax.errorbar(
         means.index,
         means["mean"],
-        yerr=means["sem"].fillna(0),
+        yerr=means["sem"],
         color="black",
         fmt="o-",
         capsize=4,
