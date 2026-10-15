@@ -5,8 +5,11 @@ Three views are available, all accessible through the top-level
 
 - *By Mouse* — one panel per subject, blocks as coloured lines.
 - *By Block* — one panel per block number, subjects as coloured lines.
-- *Average* — a two-panel summary: left panel averages across mice (mouse
-  colours), right panel averages across blocks (block colours).
+- *Average across mice* — one panel: bars over mice, a line per mouse (mouse colours).
+- *Average across blocks* — one panel: bars over blocks, a line per block (block colours).
+
+:func:`plot_rank_proportions_average` still draws the two averages side by side in one
+figure, but the dispatcher does not call it.
 
 Each panel is a function that draws into an ``ax`` you pass (or a new figure if
 you don't), so it can be one panel of a larger figure; the ``plot_rank_proportions*``
@@ -61,9 +64,10 @@ def plot_rank_proportions(
     rank_counts_by_good_reversal,
     average_across_mice_pvalues=None,
     save_path=None,
-    by_mouse=True,
-    by_block=True,
-    average=True,
+    by_mouse=False,
+    by_block=False,
+    average_by_mouse=True,
+    average_by_block=False,
     pool_trials_within_subject=False,
 ):
     """Dispatcher that creates one or more rank-proportion figures.
@@ -82,12 +86,15 @@ def plot_rank_proportions(
         save_path: Base path (without extension) shared by all sub-functions.
             Each sub-function appends its own suffix before the file extension.
             If ``None``, figures are shown interactively.
-        by_mouse: If ``True``, produce the by-mouse panel grid (default:
-            ``True``).
-        by_block: If ``True``, produce the by-block panel grid (default:
-            ``True``).
-        average: If ``True``, produce the two-panel average summary (default:
-            ``True``).
+        by_mouse: If ``True``, produce the by-mouse panel grid, saved as
+            ``<save_path> by Mouse`` (default: ``False``).
+        by_block: If ``True``, produce the by-block panel grid, saved as
+            ``<save_path> by Block`` (default: ``False``).
+        average_by_mouse: If ``True``, produce the across-mice figure (with
+            p-values), saved as ``<save_path> by Average Across Mice``
+            (default: ``True``).
+        average_by_block: If ``True``, produce the across-blocks figure, saved as
+            ``<save_path> by Average Across Blocks`` (default: ``False``).
         pool_trials_within_subject: If ``True``, the by-mouse grid and the
             average-across-mice panel weight each mouse's blocks by trial count
             (pooled proportions) instead of averaging the block proportions
@@ -96,23 +103,32 @@ def plot_rank_proportions(
     See the sub-functions for known issues in what each view includes.
     """
     if by_mouse:
-        mouse_save_path = save_path + " by Mouse" if save_path else None
         plot_rank_proportions_by_mouse(
             rank_counts_by_good_reversal,
-            save_path=mouse_save_path,
+            save_path=_view_path(save_path, "by Mouse"),
             pool_trials_within_subject=pool_trials_within_subject,
         )
     if by_block:
-        block_save_path = save_path + " by Block" if save_path else None
-        plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=block_save_path)
-    if average:
-        average_save_path = save_path + " by Average" if save_path else None
-        plot_rank_proportions_average(
+        plot_rank_proportions_by_block(
+            rank_counts_by_good_reversal, save_path=_view_path(save_path, "by Block")
+        )
+    if average_by_mouse:
+        plot_rank_proportions_average_by_mouse(
             rank_counts_by_good_reversal,
             average_across_mice_pvalues=average_across_mice_pvalues,
-            save_path=average_save_path,
+            save_path=_view_path(save_path, "by Average Across Mice"),
             pool_trials_within_subject=pool_trials_within_subject,
         )
+    if average_by_block:
+        plot_rank_proportions_average_by_block(
+            rank_counts_by_good_reversal,
+            save_path=_view_path(save_path, "by Average Across Blocks"),
+        )
+
+
+def _view_path(save_path, view):
+    """``"<save_path> <view>"``, or ``None`` (show the figure) when there is no *save_path*."""
+    return f"{save_path} {view}" if save_path else None
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +139,9 @@ _RANK_LABELS = ["Best", "Second", "Third"]
 _X = np.arange(len(_RANK_LABELS))
 _BAR_WIDTH = 0.55
 _Y_LIMITS = (0.0, 1.07)
+
+# half the width of the combined two-panel average figure (13 x 5.5)
+_SINGLE_PANEL_FIGSIZE = (6.5, 5.5)
 
 _BAR_STYLE = dict(color="#999999", linewidth=1.5, alpha=0.55)
 _MOUSE_PANEL_BAR_STYLE = dict(color="#9E9E9E", linewidth=1.4, alpha=0.45)
@@ -422,6 +441,55 @@ def plot_rank_proportions_average(
         plt.close(fig)
         raise TypeError(f"save_path must be a str, got {save_path!r}")
     _helpers.save_or_show(fig, save_path or None, make_parent=False)
+
+
+def plot_rank_proportions_average_by_mouse(
+    rank_counts_by_good_reversal,
+    average_across_mice_pvalues=None,
+    save_path=None,
+    pool_trials_within_subject=False,
+):
+    """Single-panel figure of :func:`plot_average_across_mice`.
+
+    It draws what the left panel of :func:`plot_rank_proportions_average` draws.
+    Known issues are those of :func:`plot_average_across_mice`.
+
+    Args:
+        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``.
+        average_across_mice_pvalues: Optional ``"best_vs_second"``,
+            ``"best_vs_third"``, ``"second_vs_third"`` p-values to annotate.
+        save_path: Base path (``str`` or ``Path``, without extension) for the
+            ``.pdf`` and ``.png`` files; missing folders are created. If ``None``,
+            the figure is shown interactively.
+        pool_trials_within_subject: Use each mouse's pooled proportion (weighted by
+            trial count); the panel is then titled "Pooled Trials Within Mouse".
+    """
+    fig, ax = plt.subplots(figsize=_SINGLE_PANEL_FIGSIZE)
+    plot_average_across_mice(
+        rank_counts_by_good_reversal,
+        pvalues=average_across_mice_pvalues,
+        pool_trials_within_subject=pool_trials_within_subject,
+        ax=ax,
+    )
+    fig.tight_layout()
+    _helpers.save_or_show(fig, save_path or None)
+
+
+def plot_rank_proportions_average_by_block(rank_counts_by_good_reversal, save_path=None):
+    """Single-panel figure of :func:`plot_average_across_blocks`.
+
+    It draws what the right panel of :func:`plot_rank_proportions_average` draws.
+
+    Args:
+        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``.
+        save_path: Base path (``str`` or ``Path``, without extension) for the
+            ``.pdf`` and ``.png`` files; missing folders are created. If ``None``,
+            the figure is shown interactively.
+    """
+    fig, ax = plt.subplots(figsize=_SINGLE_PANEL_FIGSIZE)
+    plot_average_across_blocks(rank_counts_by_good_reversal, ax=ax)
+    fig.tight_layout()
+    _helpers.save_or_show(fig, save_path or None)
 
 
 def plot_rank_proportions_by_mouse(
