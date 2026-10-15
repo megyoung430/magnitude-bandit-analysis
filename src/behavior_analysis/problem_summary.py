@@ -13,6 +13,7 @@ from collections import defaultdict
 import numpy as np
 
 from src.behavior_analysis.get_total_reversals import get_total_reversals
+from src.behavior_analysis.rank_proportions_summary import nan_standard_error
 
 
 def compute_problem_length_summary(data: dict) -> dict:
@@ -34,23 +35,13 @@ def compute_problem_length_summary(data: dict) -> dict:
     for m, vals in data.items():
         per_mouse_blocklens[m] = {i + 1: float(v) for i, v in enumerate(vals)}
 
-    means, ses, ns = [], [], []
-    for b in blocks:
-        vals_b = np.asarray(
-            [per_mouse_blocklens[m][b] for m in mice if b in per_mouse_blocklens[m]],
-            dtype=float,
-        )
-        n = int(vals_b.size)
-        ns.append(n)
-        if n == 0:
-            means.append(float("nan"))
-            ses.append(float("nan"))
-        elif n == 1:
-            means.append(float(vals_b.mean()))
-            ses.append(0.0)
-        else:
-            means.append(float(vals_b.mean()))
-            ses.append(float(vals_b.std(ddof=1) / np.sqrt(n)))
+    stats = [
+        _mean_se_n([per_mouse_blocklens[m][b] for m in mice if b in per_mouse_blocklens[m]])
+        for b in blocks
+    ]
+    means = [mean for mean, _, _ in stats]
+    ses = [se for _, se, _ in stats]
+    ns = [n for _, _, n in stats]
 
     return {
         "blocks": blocks,
@@ -63,14 +54,17 @@ def compute_problem_length_summary(data: dict) -> dict:
 
 
 def _mean_se_n(values: list) -> tuple[float, float, int]:
-    """Mean, standard error and count; the standard error is 0.0 for one value, NaN for none."""
+    """Mean, standard error and count over the non-NaN *values*.
+
+    The standard error is NaN (never 0) with fewer than two values; the mean is
+    NaN, with a count of 0, when there are none.
+    """
     vals = np.asarray(values, dtype=float)
+    vals = vals[~np.isnan(vals)]
     n = int(vals.size)
     if n == 0:
         return float("nan"), float("nan"), n
-    if n == 1:
-        return float(vals.mean()), 0.0, n
-    return float(vals.mean()), float(vals.std(ddof=1) / np.sqrt(n)), n
+    return float(vals.mean()), float(nan_standard_error(vals[:, None])[0]), n
 
 
 def _mean_blocklen_per_mouse(problem_block_stats: dict, problems: list, mice: list) -> dict:
@@ -201,23 +195,13 @@ def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
             if np.isfinite(float(v)):
                 per_mouse_blocklens[m][p] = float(v)
 
-    means, ses, ns = [], [], []
-    for p in problems:
-        vals = np.asarray(
-            [per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]],
-            dtype=float,
-        )
-        n = int(vals.size)
-        ns.append(n)
-        if n == 0:
-            means.append(float("nan"))
-            ses.append(float("nan"))
-        elif n == 1:
-            means.append(float(vals.mean()))
-            ses.append(0.0)
-        else:
-            means.append(float(vals.mean()))
-            ses.append(float(vals.std(ddof=1) / np.sqrt(n)))
+    stats = [
+        _mean_se_n([per_mouse_blocklens[m][p] for m in mice if p in per_mouse_blocklens[m]])
+        for p in problems
+    ]
+    means = [mean for mean, _, _ in stats]
+    ses = [se for _, se, _ in stats]
+    ns = [n for _, _, n in stats]
 
     return {
         "blocks": problems,
