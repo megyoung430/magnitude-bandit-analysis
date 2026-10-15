@@ -12,6 +12,10 @@ def session_order(key):
 def get_vars_across_all_sessions(data):
     """Merge aligned trials, carrying terminal reversals into the next session.
 
+    The rig's counters (good/bad reversals, block number) restart at each session, so each
+    session's values are offset by what the earlier sessions ended on. Merging counters that
+    do not restart would double count.
+
     End-of-session events affect totals even without a following trial. They
     enter trial-aligned counters only when another trial is available. Sessions
     retain their incoming boundary corrections when selected as a subset.

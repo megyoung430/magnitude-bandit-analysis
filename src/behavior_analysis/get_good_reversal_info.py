@@ -3,11 +3,14 @@
 Functions here identify good-reversal boundaries from merged session data, apply
 quality filters (zero-reward gate), and slice choice/reward arrays into pre/post
 windows for downstream analyses.
+
+Importing this module sets the ``"always"`` warnings filter for :class:`ReversalWarning`.
 """
 
 import warnings
 from dataclasses import dataclass
 
+from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import (
     get_vars_across_all_sessions,
@@ -244,23 +247,6 @@ def _best_tower(magnitudes, label, where):
     return max(magnitudes, key=magnitudes.get)
 
 
-def _has_tie(magnitudes):
-    """True if more than one tower has the highest magnitude."""
-    values = list(magnitudes.values())
-    return values.count(max(values)) > 1
-
-
-def _best_change_problem(before, after, where):
-    """Why a reversal is suspect (``None`` when the best tower changes).
-
-    A good reversal should change the best tower. When it does not, the reason says whether
-    a tie for best could be behind it, so that a tie is not mistaken for an off-by-one.
-    """
-    if _best_tower(before, "before", where) != _best_tower(after, "after", where):
-        return None
-    return "tie for best" if _has_tie(before) or _has_tie(after) else "best tower unchanged"
-
-
 def _build_reversal(
     series, towers, boundary_source, idx, pre_idx, post_idx, *, before, after, first_block, where
 ):
@@ -332,7 +318,7 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
         after = _rewards_at(series.reward_by_tower, towers, idx)
         # The first block is not a reversal: its "before" and "after" both come from trial 0,
         # so an unchanged best tower there is expected.
-        problem = None if first_block else _best_change_problem(before, after, where)
+        problem = None if first_block else best_change_problem(before, after)
         if problem is not None:
             # A dropped reversal is still a real block change in the data, so (like a
             # skipped one) it keeps ending the window of the reversal before it.
@@ -358,6 +344,30 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
     return reversals, dropped, [s.key for s in spans if s.bad_only]
 
 
+def _check_aligned(subj, merged):
+    """Raise if a merged per-trial series does not have one entry per trial.
+
+    The merge concatenates sessions by position, so sessions with different formats (a
+    counter and a blocks-only session) or different tower sets silently shift or cut trials.
+    An empty series counts as "not logged" and is not checked.
+    """
+    n_trials = len(merged.get("trial") or [])
+    series = {
+        "good_reversals": merged.get("good_reversals"),
+        "blocks": merged.get("blocks"),
+        **{
+            f"reward_magnitudes_by_tower[{t!r}]": arr
+            for t, arr in (merged.get("reward_magnitudes_by_tower") or {}).items()
+        },
+    }
+    for name, values in series.items():
+        if values and len(values) != n_trials:
+            raise ValueError(
+                f"{subj}: {name} has {len(values)} entries but the merged trial list has "
+                f"{n_trials}; sessions merged by position must be aligned trial by trial."
+            )
+
+
 def _warn_dropped(dropped):
     """One warning listing every dropped reversal (a list of ``_Dropped``) and their count."""
     listing = "; ".join(
@@ -365,8 +375,9 @@ def _warn_dropped(dropped):
     )
     warnings.warn(
         f"dropped {len(dropped)} good reversal(s) because the best tower did not change "
-        f"(a tied best counts): {listing}. A good reversal should change the best tower; "
-        "these are left out of every analysis but still end the windows of their neighbours.",
+        f"(a tied best counts) or a reward magnitude was missing: {listing}. A good reversal "
+        "should change the best tower; these are left out of every analysis but still end "
+        "the windows of their neighbours.",
         ReversalWarning,
         stacklevel=3,
     )
@@ -400,7 +411,15 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     dropped reversal is still a real block change, so it keeps ending the
     post-window of its neighbour, like a reversal skipped by the zero-reward gate.
     The first-block record is never dropped for this reason: it is not a reversal.
-    A reward magnitude of ``None`` next to a reversal raises ``ValueError``.
+    A reversal with a missing reward magnitude on either side (an unlogged trial,
+    a tower with no magnitude, or arrays that end before the trial) is dropped the
+    same way, with the reason "missing magnitude".
+
+    Counters (good/bad reversals, block number) are assumed to restart at each
+    session, as the rig's do; the merge across sessions offsets them accordingly.
+    The merged per-trial series must have as many entries as there are trials:
+    a mismatch (for example sessions with different tower sets) raises
+    ``ValueError`` naming the subject.
 
     Args:
         data: Nested dict ``{subject: {session_key: session_dict}}``.
@@ -442,7 +461,8 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         - ``"reward_magnitudes_by_tower_before"`` (dict): Tower → magnitude on
           the trial immediately before the reversal.
         - ``"reward_magnitudes_by_tower_after"`` (dict): Tower → magnitude on
-          the reversal trial itself (value is ``None`` if out of range).
+          the reversal trial itself. Never ``None``: a reversal with a missing
+          magnitude is dropped (only the first-block record can hold ``None``).
         - ``"choices_by_tower"`` (dict): Tower → ``{"pre": [...], "post":
           [...]}`` one-hot choice slices.
         - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
@@ -451,6 +471,7 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     merged_subject_data_across_all_sessions, _ = get_vars_across_all_sessions(data)
     result, dropped, bad_only = {}, [], []
     for subj, d in merged_subject_data_across_all_sessions.items():
+        _check_aligned(subj, d)
         result[subj], subj_dropped, subj_bad_only = _subject_reversals(
             subj,
             _SubjectSeries.from_merged(d),

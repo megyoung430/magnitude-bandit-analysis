@@ -11,6 +11,7 @@ import pytest
 
 from src.behavior_analysis import get_good_reversal_info as mod
 from src.behavior_analysis.get_good_reversal_info import _SubjectSeries
+from src.behavior_import.extract_trials import reward_magnitude_features
 
 
 def series(**fields):
@@ -106,6 +107,7 @@ def test_good_reversal_number_prefers_good_array():
 def test_get_good_reversal_info_end_to_end_from_blocks(monkeypatch):
     merged = {
         "x": dict(
+            trial=[1, 2, 3, 4, 5],
             blocks=[1, 1, 2, 2, 2],
             reward_magnitudes_by_tower=rewards_swapping_best_at(2, 5),
             choices_by_tower={t: [0, 1, 0, 1, 0] for t in "ABC"},
@@ -231,6 +233,7 @@ def test_subject_without_towers_gets_an_empty_list(capsys):
 def test_boundary_beyond_blocks_array_yields_no_good_reversal_number(monkeypatch):
     merged = {
         "m": dict(
+            trial=[1, 2, 3, 4],
             num_blocks=[0, 0, 1, 1],
             reward_magnitudes_by_tower=rewards_swapping_best_at(2, 4),
         )
@@ -419,12 +422,95 @@ def test_first_block_record_is_not_dropped_even_though_its_best_is_unchanged():
     assert second["first_block"] is False
 
 
-def test_missing_magnitude_next_to_a_reversal_raises_naming_the_location():
-    rewards = rewards_swapping_best_at(4, 8)
-    rewards["C"][4] = None
+def features_rewards(mags_seq, towers_seq=None):
+    """Per-tower reward arrays exactly as the importer builds them."""
+    _, by_arm, _ = reward_magnitude_features(mags_seq, None, towers_seq)
+    return by_arm
+
+
+def magnitudes_swapping_best_at(trial, n=8):
+    return [{"A": 4, "B": 0, "C": 1} if i < trial else {"A": 0, "B": 4, "C": 1} for i in range(n)]
+
+
+def dropped_for_missing_magnitude(rewards):
     sess = make_session(8, good=[0] * 4 + [1] * 4, rewards=rewards, blocks=[1] * 8)
-    with pytest.raises(ValueError, match=r"m ses-1 trial 4.*'C'"):
-        mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)
+    with pytest.warns(mod.ReversalWarning) as caught:
+        out = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)
+    assert out == {"m": []}
+    message = str(caught[0].message)
+    assert "dropped 1 good reversal" in message and "m ses-1 trial 4" in message
+    assert "missing magnitude" in message
+
+
+def test_trial_without_logged_magnitudes_drops_the_reversal():
+    # The importer gives {} for a trial with no magnitude print: None for every tower.
+    mags = magnitudes_swapping_best_at(4)
+    mags[4] = {}
+    dropped_for_missing_magnitude(features_rewards(mags))
+
+
+def test_tower_listed_but_absent_from_the_magnitudes_drops_the_reversal():
+    # C is on offer (c_tows) but never in the magnitude dict: None throughout.
+    mags = [{k: v for k, v in m.items() if k != "C"} for m in magnitudes_swapping_best_at(4)]
+    dropped_for_missing_magnitude(features_rewards(mags, [["A", "B", "C"]] * 8))
+
+
+def test_reward_arrays_ending_before_the_reversal_trial_drop_the_reversal():
+    # After-values past the end of the arrays are missing, not an error. The merge always
+    # aligns the arrays with the trials, so this builds the series directly.
+    rewards = rewards_swapping_best_at(5, 5)
+    series = _SubjectSeries.from_merged(
+        dict(blocks=[1] * 5 + [2] * 3, reward_magnitudes_by_tower=rewards)
+    )
+    reversals, dropped, _ = mod._subject_reversals(
+        "m", series, {}, pre=1, post=None, include_first_block=False, max_zero_count=1
+    )
+    assert reversals == []
+    assert [d.reason for d in dropped] == ["missing magnitude"]
+
+
+def test_dropped_missing_magnitude_reversal_still_ends_the_window_before_it():
+    mags = magnitudes_swapping_best_at(3, 10)
+    mags[6] = {}
+    sess = make_session(10, good=[0] * 3 + [1] * 3 + [2] * 4, rewards=features_rewards(mags))
+    with pytest.warns(mod.ReversalWarning):
+        (rev,) = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=1)["m"]
+    assert rev["reversal_idx"] == 3
+    assert rev["trial_window_idx"]["post"] == [3, 4, 5]
+
+
+# --- length check ---
+
+
+def test_series_longer_or_shorter_than_the_trials_raise_naming_the_subject(monkeypatch):
+    merged = dict(
+        trial=[1, 2, 3, 4],
+        blocks=[1, 1, 2],
+        reward_magnitudes_by_tower=rewards_swapping_best_at(2, 4),
+    )
+    monkeypatch.setattr(
+        mod, "get_vars_across_all_sessions", lambda data: ({"mouse7": merged}, None)
+    )
+    with pytest.raises(ValueError, match=r"mouse7.*blocks.*3.*4"):
+        mod.get_good_reversal_info({"mouse7": {"ses-1": {}}})
+
+
+def test_sessions_with_different_tower_sets_raise_instead_of_misaligning():
+    first = make_session(8, good=[0] * 4 + [1] * 4, rewards=rewards_swapping_best_at(4, 8))
+    second = make_session(
+        8,
+        good=[0] * 8,
+        rewards={"A": [4] * 8, "B": [0] * 8},
+        blocks=[1] * 8,
+    )
+    with pytest.raises(ValueError, match=r"m: reward_magnitudes_by_tower\['C'\].*8.*16"):
+        mod.get_good_reversal_info({"m": {"ses-1": first, "ses-2": second}})
+
+
+def test_subject_without_blocks_or_counters_is_not_a_length_error():
+    sess = make_session(8, blocks=[], rewards=rewards_swapping_best_at(4, 8), has_good=False)
+    sess.pop("blocks")
+    assert mod.get_good_reversal_info({"m": {"ses-1": sess}}) == {"m": []}
 
 
 def test_classifier_raises_on_a_missing_magnitude_naming_the_location():

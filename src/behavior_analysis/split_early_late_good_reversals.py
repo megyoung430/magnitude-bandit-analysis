@@ -43,6 +43,10 @@ def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=Non
     Reversals are sorted by ``"good_reversal_number"`` within each subject
     before splitting.
 
+    The windows come from :func:`get_good_reversal_info`, which has already
+    dropped reversals whose best tower did not change. The split therefore
+    counts valid reversals only: "the first N" means the first N valid ones.
+
     Splitting modes:
 
     - **Default** (both *first_n* and *last_n* are ``None``): splits at the

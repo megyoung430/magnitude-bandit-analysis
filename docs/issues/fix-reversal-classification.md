@@ -44,13 +44,38 @@ Bugs in `get_good_reversal_info.py`, `get_bad_reversal_info.py` and the first-le
     `first_block=True` and is never dropped or warned about. The two classifying analyses drop it
     silently (no third tower); no caller combines `include_first_block=True` with them.
   - Records now also carry `subject`, `session` and `session_trial`.
-  - A `None` reward magnitude on either side of a reversal raises `ValueError` naming
-    subject, session and trial, in both `get_good_reversal_info` and the classifier (the
-    classifier used to raise `TypeError`, and the builder used to treat the record as fine).
-  - Not covered: totals that come from the logged counters (`get_total_reversals`,
-    `reversals_by_session`, `problem_summary`, `get_all_reversal_indices`) never see reward
-    magnitudes, so they still count a suspect reversal. Excluding it there needs the reward
-    data per session; left for the PI to decide.
+  - **Missing magnitudes are dropped, not errors.** The importer represents a missing magnitude
+    as `None` in three ways: `{}` for a trial with no `curr_rew_mag` print, a tower listed in
+    `c_tows` but absent from the magnitude dict (`None` throughout), and arrays that end before
+    the trial. A reversal with a missing magnitude on either side is dropped with the same
+    `ReversalWarning` and the reason "missing magnitude", and still ends its neighbours'
+    windows. Each representation has a test. The classifier, given a record with a `None`, still
+    raises `ValueError` naming subject, session and trial (records from `get_good_reversal_info`
+    never contain one, except the first-block record).
+  - **Logged totals stay as the task logged them; suspect counts sit beside them.**
+    `get_total_reversals` returns `suspect_good_reversals` and `uncheckable_good_reversals` next
+    to the unchanged `good_reversals`/`bad_reversals`/`total_reversals`; they reach
+    `reversal_counts_by_session`, `reversal_totals_by_subject` and the cohort-comparison CSV rows
+    as new columns, and `compute_suspect_good_reversals_per_session` (problem_summary) gives
+    per-subject averages beside the unchanged `compute_avg_good_reversals_per_session`. A
+    within-session increment of the good counter is suspect when `best_change_problem` (the
+    rule `get_good_reversal_info` uses) finds a problem between the previous trial and the
+    increment trial. Reversals between runs (`between_runs`) and terminal events (`run_end`)
+    have no trial to compare and are counted as uncheckable, as are the increments of a session
+    with no reward magnitudes. The rule lives in `best_change.py`, the counting in
+    `suspect_reversals.py`.
+  - **Early/late split:** stays "the first N valid reversals" (PI), because the suspect ones are
+    dropped before the split. Documented in the split's docstring.
+  - **Length check:** `get_good_reversal_info` raises `ValueError` naming the subject when
+    `good_reversals`, `blocks` or a reward array is not as long as the merged `trial` list
+    (empty means "not logged"). Merging by position silently shifts or cuts trials when sessions
+    have different formats or tower sets. This also covers the case of reward arrays shorter than
+    the trials: through the public function that is now an error, not a dropped reversal.
+  - **Counters restart at each session** (PI, matching the rig). The merge in
+    `get_vars_across_all_sessions` relies on it; documented there and in
+    `get_good_reversal_info`.
+  - Importing `get_good_reversal_info` sets the `"always"` filter for `ReversalWarning`;
+    stated in the module docstring.
 - **Warnings.** `ReversalWarning` (a `UserWarning`) is registered as `"always"` so a rerun
   shows it again. The warnings are raised in the public functions, so `stacklevel` points at the
   caller. The existing `print("[WARN]")` lines are untouched.
@@ -128,7 +153,10 @@ Three steps that would settle the timing of good reversals:
   (`tests/test_best_unchanged_exclusion.py`).
 - A bad-only session yields no good reversals and warns; a legacy session in the same subject
   keeps its block-change boundaries, first-block record and full window.
-- A `None` magnitude raises `ValueError` naming the location, in the builder and the classifier.
+- A reversal with a missing magnitude is dropped (three representations tested); the classifier
+  raises `ValueError` naming the location for a record that has one.
+- Suspect and uncheckable counts appear beside the logged totals and leave them unchanged.
+- A merged series whose length differs from the trial count raises `ValueError` naming the subject.
 - Each bad-reversal record owns its `towers` list; an explicit `post` in
   `get_bad_reversal_info` never extends past the next boundary.
 - Outputs on inputs untouched by these changes are identical to main.
@@ -146,6 +174,7 @@ byte-identical on main and on this branch.
 | bad reversals, sample cohort | 0 | 0 |
 | first-leave counts, sample cohort | new_best 0, third 0, total 0 | same |
 | reversals dropped for unchanged best tower, sample cohort | n/a | 0 |
+| `suspect_good_reversals` / `uncheckable_good_reversals`, sample cohort | n/a | not present (no good/bad counters) |
 
 On synthetic subjects (best tower changing at every reversal, so nothing is dropped), the
 good-reversal windows, rank counts, early/late split, first-leave counts, choice probabilities and

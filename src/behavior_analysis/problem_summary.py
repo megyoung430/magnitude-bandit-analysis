@@ -182,6 +182,29 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
     return per_mouse_avg
 
 
+def compute_suspect_good_reversals_per_session(subjects_trials: dict) -> dict:
+    """Average suspect and uncheckable good reversals per session, beside the logged counts.
+
+    Args:
+        subjects_trials: ``{subject: {session_key: trials}}``
+
+    Returns:
+        ``{subject: {"suspect": avg, "uncheckable": avg}}``, averaged over the subject's
+        sessions like :func:`compute_avg_good_reversals_per_session`, which stays as logged.
+        Sessions without good/bad counters count as 0.
+    """
+    per_subject = {}
+    for subj, sessions in subjects_trials.items():
+        stats = [get_total_reversals({key: trials}) for key, trials in sessions.items()]
+        per_subject[subj] = {
+            name: float(np.mean([s.get(f"{name}_good_reversals", 0) for s in stats]))
+            if stats
+            else float("nan")
+            for name in ("suspect", "uncheckable")
+        }
+    return per_subject
+
+
 def compute_problem_goodrev_summary(problem_to_per_mouse_avg: dict) -> dict:
     """Summarise average good reversals per session across mice and problems.
 
