@@ -46,7 +46,8 @@ def classify_task_name(task_name: str | None) -> str:
         return DRIFTING
     raise ValueError(
         f"unrecognised task name {task_name!r}: expected a name containing "
-        f"{' / '.join(BLOCKED_NAME_PARTS)} (blocked) or {' / '.join(DRIFTING_NAME_PARTS)} (drifting)"
+        f"{' / '.join(BLOCKED_NAME_PARTS)} (blocked) or "
+        f"{' / '.join(DRIFTING_NAME_PARTS)} (drifting)"
     )
 
 

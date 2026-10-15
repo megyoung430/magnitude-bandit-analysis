@@ -35,9 +35,7 @@ def test_every_problem_runs_every_selected_section(calls):
 
 
 def test_task_type_adds_a_folder_between_cohort_and_problem(calls):
-    run_problem(
-        2, {}, task="t", cohort="c", output_root=Path("out"), task_type="drifting"
-    )
+    run_problem(2, {}, task="t", cohort="c", output_root=Path("out"), task_type="drifting")
     assert {str(d.parent) for _, d in calls} == {"out/t/c/drifting/problem-02"}
 
 
