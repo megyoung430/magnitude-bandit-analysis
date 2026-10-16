@@ -236,6 +236,7 @@ def run_poke_analysis(
         colorbar_label="Pokes after choice (count per port)",
         current_ports=current,
         previous_ports=previous,
+        initiation_port=initiation_ports,
         titles=_panel_titles(per_session, "after_choice"),
         suptitle=f"Pokes after choice (ITI until next initiation)\n{_SCALE_NOTE}",
         save_path=out_dir / AFTER_CHOICE_STEM,

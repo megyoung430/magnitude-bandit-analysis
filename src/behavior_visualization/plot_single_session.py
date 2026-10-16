@@ -492,6 +492,7 @@ def plot_poke_maps(
         ax=choice_ax,
         colorbar_ax=choice_cax,
         title=f"Pokes after choice\n({scale})",
+        initiation_port=maps.initiation_port,
         **common,
     )
 

@@ -163,7 +163,7 @@ def test_current_choice_ports_are_outlined_green_and_initiation_port_blue(figure
     plot_single_session(session_with_pokes())
     (fig,) = figures
     assert ring_ids(fig) == sorted(
-        [f"ring:{p}:current" for p in TOWERS] * 2 + ["ring:B2:initiation"]
+        [f"ring:{p}:current" for p in TOWERS] * 2 + ["ring:B2:initiation"] * 2
     )
 
 
@@ -252,7 +252,8 @@ def test_initiation_outline_follows_the_sessions_own_initiation_tower(figures):
     full_trial(rec, choice="C1")
     session = {**base_session(), **session_record([rec.to_frame()], initiation_tower="B3")}
     plot_single_session(session)
-    assert [g for g in ring_ids(figures[0]) if g.endswith(":initiation")] == ["ring:B3:initiation"]
+    rings = [g for g in ring_ids(figures[0]) if g.endswith(":initiation")]
+    assert rings == ["ring:B3:initiation"] * 2
 
 
 def test_only_parser_errors_are_caught(figures):
