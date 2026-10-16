@@ -197,8 +197,26 @@ def plot_trial_block_summaries(
     share a date). Problem plots average within mouse first, then show mean ± SEM
     across mice; n is the number of mice. Blocks include observed edge portions.
 
+    Args:
+        sessions (pd.DataFrame): One row per session with trials, as built by
+            :func:`src.behavior_analysis.trial_block_summary.build_trial_block_tables`; columns
+            ``mouse``, ``subject_number``, ``group``, ``problem``, ``session``, ``date`` and
+            ``trials``.
+        blocks (pd.DataFrame): One row per block, same columns as *sessions* plus the block
+            columns (``block``, ``block_id``, ``start_date``, ``edge_block``); ``trials`` is the
+            block length in trials.
+        save_dir (str | Path): Directory for figures and CSV tables; created if missing.
+        show (bool): Also display each figure after saving it. Default True.
+        split_subject_groups (bool): Draw the distribution figure with separate panels for
+            groups ``sub-01-04`` and ``sub-05-08``; mice in neither group are then left out of
+            those panels. Default True.
+
     Returns:
-        The saved PNG and PDF paths, in figure order (PNG first for each figure).
+        list[Path]: The saved PNG and PDF paths, in figure order (PNG first for each
+        figure). The CSV tables are written too but not listed.
+
+    Raises:
+        ValueError: If *sessions* or *blocks* is empty.
 
     If drawing or saving raises, the files already written are kept and no figure is
     left open.

@@ -143,12 +143,22 @@ def plot_block_length_panel(
     """Draw per-block median lengths (bars, ± SE) with per-mouse overlay lines.
 
     Args:
-        block_lengths_summary: Dict as returned by
-            :func:`src.behavior_analysis.get_task_statistics.get_block_lengths`.
-        jitter: Maximum half-width of the uniform x-jitter on per-mouse points;
-            ``0`` disables it. The jitter is seeded, so it is the same on every run.
-        annotate_y: Y of the bar-value labels; derived from the tallest bar if ``None``.
-        ax: Axes to draw into; a new 10 x 4.8 inch figure is created if ``None``.
+        block_lengths_summary (dict): Dict as returned by
+            :func:`src.behavior_analysis.get_task_statistics.get_block_lengths`, with keys
+            ``"blocks"`` (block numbers), ``"meds"`` and ``"ses"`` (one value per block),
+            ``"per_mouse_blocklens"`` (``{mouse: {block: length}}``) and ``"mice"``.
+        jitter (float): Maximum half-width of the uniform x-jitter on per-mouse points;
+            0 disables it. The jitter is seeded, so it is the same on every run. Default 0.06.
+        annotate_y (float | None): Y of the bar-value labels; derived from the tallest bar if
+            None. Default None.
+        ax (plt.Axes | None): Axes to draw into; a new 10 x 4.8 inch figure is created if None.
+            Default None.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+
+    Raises:
+        KeyError: If the summary lacks one of the keys above.
     """
     blocks = block_lengths_summary["blocks"]
     meds = np.asarray(block_lengths_summary["meds"], dtype=float)
@@ -181,17 +191,19 @@ def plot_block_lengths(
     connected per-mouse data points with optional x-jitter.
 
     Args:
-        block_lengths_summary: Dict as returned by
+        block_lengths_summary (dict): Dict as returned by
             :func:`src.behavior_analysis.get_task_statistics.get_block_lengths`,
             containing keys ``"blocks"``, ``"meds"``, ``"ses"``,
             ``"per_mouse_blocklens"``, and ``"mice"``.
-        jitter: Maximum half-width of the uniform random x-jitter applied to
-            per-mouse data points (default: ``0.06``).  Set to ``0`` to disable.
-        annotate_y: Y-coordinate for bar-value text annotations.  If ``None``,
-            the value is derived automatically from the tallest bar (default:
-            ``None``).
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output.  If ``None``, the figure is shown interactively.
+        jitter (float): Maximum half-width of the uniform x-jitter applied to
+            per-mouse data points. Set to 0 to disable. Default 0.06.
+        annotate_y (float | None): Y-coordinate for bar-value text annotations. If None,
+            the value is derived automatically from the tallest bar. Default None.
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output. If None or empty, the figure is shown interactively. Default None.
+
+    Raises:
+        KeyError: If the summary lacks one of the keys above.
     """
     ax = plot_block_length_panel(block_lengths_summary, jitter=jitter, annotate_y=annotate_y)
     fig = ax.figure

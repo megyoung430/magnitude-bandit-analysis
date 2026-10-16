@@ -85,7 +85,16 @@ def annotation_position(mean: float, *, above: bool) -> tuple[float, str]:
 
 
 class Placement(NamedTuple):
-    """Where one mean label goes: y, vertical and horizontal alignment, and x offset sign."""
+    """Where one mean label goes: y, vertical and horizontal alignment, and x offset sign.
+
+    Attributes:
+        y (float): Y position of the text, in data units.
+        va (str): Vertical alignment (``"bottom"``, ``"top"`` or ``"center"``).
+        ha (str): Horizontal alignment (``"center"``, ``"left"`` or ``"right"``). Default
+            ``"center"``.
+        dx_sign (int): Sign of the horizontal offset from the point: 1 to the right, -1 to the
+            left, 0 for none. Default 0.
+    """
 
     y: float
     va: str
@@ -144,6 +153,13 @@ def label_placements(mean_best: float, mean_second: float) -> tuple[Placement, P
 def tie_label(tie_mode: str) -> str:
     """``"Excluded"`` or ``"Split"``, for titles and file names.
 
+    Args:
+        tie_mode (str): One of ``TIE_MODES``: exclude tied trials or split them between the
+            tied arms.
+
+    Returns:
+        str: ``"Excluded"`` for the exclude mode, ``"Split"`` otherwise.
+
     Raises:
         ValueError: If *tie_mode* is not one of the tie modes.
     """
@@ -156,6 +172,18 @@ def tie_summary(ties: dict[str, int], tie_mode: str) -> str:
     """One line with the tied-trial totals and what this figure did with them.
 
     The three categories are mutually exclusive and count trials eligible for binning.
+
+    Args:
+        ties (dict[str, int]): Tied-trial counts with keys ``"best_second"``,
+            ``"second_third"`` and ``"all_three"``.
+        tie_mode (str): The tie mode of the figure; the exclude mode reports the ties as left
+            out, any other as split evenly between the tied arms.
+
+    Returns:
+        str: The one-line summary.
+
+    Raises:
+        KeyError: If *ties* lacks one of the keys above.
     """
     fate = (
         "left out of this figure"
