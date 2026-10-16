@@ -39,7 +39,7 @@ def settings_table(sessions, flags=()):
 def changes_of(table):
     return [
         (r["comparison"], r["key"], r["value_before"], r["value_after"])
-        for r in table.to_dict("records")
+        for r in table.replace({pd.NA: None}).to_dict("records")
     ]
 
 
@@ -154,10 +154,33 @@ def test_a_key_logged_on_one_side_only_is_not_a_change():
     assert settings_table({S1: session([recording(start, with_settings())])}).empty
 
 
-def test_a_recording_without_run_end_or_run_start_is_skipped():
-    crashed = recording(with_settings(), None)
+def test_a_recording_without_run_end_gets_a_not_checked_row():
+    crashed = recording(with_settings(), None, path="M1-crashed.tsv")
+    table = settings_table({S1: session([crashed])})
+    (row,) = table.to_dict("records")
+    assert (row["session"], row["file"], row["comparison"]) == (
+        S1,
+        "M1-crashed.tsv",
+        ss.NOT_CHECKED,
+    )
+    assert row["reason"] == "not checked: no run_end"
+    assert pd.isna(row["key"]) and pd.isna(row["flag"])
+
+
+def test_a_recording_without_run_start_gets_a_not_checked_row():
     bare = recording(None, with_settings(ITI_dur=1.0))
-    assert settings_table({S1: session([crashed]), S2: session([bare])}).empty
+    (row,) = settings_table({S1: session([bare])}).to_dict("records")
+    assert row["comparison"] == ss.NOT_CHECKED
+    assert row["reason"] == "not checked: no run_start"
+
+
+def test_a_recording_with_neither_snapshot_says_so():
+    (row,) = settings_table({S1: session([recording(None, None)])}).to_dict("records")
+    assert row["reason"] == "not checked: no run_start, no run_end"
+
+
+def test_recordings_with_both_snapshots_get_no_not_checked_row():
+    assert settings_table({S1: session()}).empty
 
 
 # --- settings that change between recordings of a session ---
@@ -190,7 +213,8 @@ def test_a_crashed_recording_does_not_hide_the_comparison_of_its_neighbours():
     crashed = recording(with_settings(), None)
     third = recording(with_settings(ITI_dur=5.0), with_settings(ITI_dur=5.0))
     table = settings_table({S1: session([first, crashed, third])})
-    assert changes_of(table) == []  # no run_end on the crashed one to compare with the third
+    # no run_end on the crashed one to compare with the third; only the crashed one is listed
+    assert changes_of(table) == [(ss.NOT_CHECKED, None, None, None)]
 
 
 # --- the expected change at the start of a problem ---
@@ -286,3 +310,64 @@ def test_read_snapshots_treats_a_truncated_run_end_as_missing_but_not_a_bad_run_
 
 def test_the_documented_key_list_matches_the_module_constant_groups():
     assert set(SETTINGS_KEYS) == {k for keys in ss.SETTINGS_KEY_GROUPS.values() for k in keys}
+
+
+# --- pinned behaviour ---
+
+
+def test_port_finding_between_two_recordings_of_a_first_session_is_still_listed():
+    first = recording(PORT_FINDING_START, with_settings(found_ports=False), path="a.tsv")
+    second = recording(
+        with_settings(found_ports=True), with_settings(found_ports=True), path="b.tsv"
+    )
+    table = settings_table({S1: session([first, second])})
+    assert changes_of(table) == [("run_end vs next run_start", "found_ports", "False", "True")]
+
+
+def test_numbering_rows_come_before_the_settings_rows_of_the_same_session():
+    changed = session([recording(with_settings(), with_settings(ITI_dur=2.0))])
+    table = settings_table({S1: changed}, [flag(S1, "review_settings", problem=1)])
+    assert table["comparison"].tolist() == ["problem numbering", "run_start vs run_end"]
+
+
+# --- which logged keys are settings ---
+
+# Every key of a run_start / run_end in the staged drifting and blocked recordings.
+LOGGED_KEYS = (
+    "ITI_dur arm_to_stream base_choice_vol best_val can_switch change_chosen curr_block_len "
+    "curr_poke curr_rew_mag found_port_counts found_ports found_t_thresh hw_solenoid_calibration "
+    "i inactive_arm init_cue_dur init_rew_vol led long_pokes max_block_len min_block_len min_hold "
+    "no_rew_cue_dur num_back_b num_back_s num_bad_rev num_blocks num_good_rev num_init_rew "
+    "num_long_pokes num_problem num_rew_pulses num_t num_t_found num_t_in_block num_t_rev "
+    "num_t_switch p_bi p_ud perf_thresh poke_hold_dur problems pulse_isi pulses_deliv rank_counts "
+    "rew_mag rew_mags s second_perf_thresh ses_length stream_hold stream_state switch_best "
+    "t_ses_start t_thresh tot_num_bad_rev tot_num_blocks tot_num_good_rev tot_num_t "
+    "tot_num_t_switch tot_rew_amt with_LED with_init_rew"
+).split()
+
+
+def test_every_logged_key_is_either_compared_or_documented_as_not_a_setting():
+    documented = {key for keys in ss.NOT_SETTINGS.values() for key in keys}
+    assert not documented & set(SETTINGS_KEYS)
+    assert set(LOGGED_KEYS) == documented | set(SETTINGS_KEYS)
+
+
+def test_best_val_and_switch_best_are_configuration():
+    assert {"best_val", "switch_best"} <= set(SETTINGS_KEYS)
+    start = with_settings(best_val=4, switch_best=False)
+    end = with_settings(best_val=3, switch_best=True)
+    table = settings_table({S1: session([recording(start, end)])})
+    assert changes_of(table) == [
+        ("run_start vs run_end", "best_val", "4", "3"),
+        ("run_start vs run_end", "switch_best", "False", "True"),
+    ]
+
+
+def test_can_switch_and_the_solenoid_constants_are_not_settings():
+    start = with_settings(can_switch=False, i=10, s=7)
+    end = with_settings(can_switch=True, i=11, s=8)
+    assert settings_table({S1: session([recording(start, end)])}).empty
+    for key in ("can_switch", "i", "s", "hw_solenoid_calibration"):
+        assert key not in SETTINGS_KEYS
+    assert {"i", "s", "hw_solenoid_calibration"} <= set(ss.NOT_SETTINGS["solenoid calibration"])
+    assert "can_switch" in ss.NOT_SETTINGS["changes as the task runs"]

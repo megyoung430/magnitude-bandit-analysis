@@ -5,6 +5,8 @@ the importer's trial variables, task name and overall problem number. Each probl
 choice ports, so the red outlines of "the previous problem" can be told apart.
 """
 
+import json
+
 from src.behavior_import.extract_trials import extract_session_trials
 from tests.poke_fixtures import Recording, full_trial, session_record
 
@@ -21,9 +23,13 @@ MICE = ("m1", "m2")
 
 
 def recording_frame(towers, n_trials=4):
+    """A recording with its ``run_start`` and ``run_end`` rows, like the files the task writes."""
     rec = Recording(towers=towers)
     for i in range(n_trials):
         full_trial(rec, choice=towers[i % 3], after_choice=("A2",) if i == 0 else ())
+    settings = json.dumps({"ITI_dur": 1000.0, "ses_length": 60})
+    rec.rows.insert(1, (0.001, "variable", "run_start", settings))
+    rec.rows.append((round(rec.t + 1, 3), "variable", "run_end", settings))
     return rec.to_frame()
 
 

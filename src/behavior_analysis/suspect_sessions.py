@@ -1,6 +1,6 @@
 """A table of sessions where a mouse may have been run on incorrect settings.
 
-Two kinds of row, told apart by ``comparison``:
+Three kinds of row, told apart by ``comparison``:
 
 ``problem numbering``
     The problem numbering (:mod:`src.behavior_import.problem_numbering`) flagged the session.
@@ -19,11 +19,17 @@ Two kinds of row, told apart by ``comparison``:
     ``value_before`` and ``value_after``. Only the sessions that are in a problem are compared.
     Differences between sessions are not settings changes of a session and are not listed.
 
-Settings are compared through :data:`SETTINGS_KEYS` only. Everything that changes as the task
-runs is left out: trial and block counters, reversal counters, totals, current magnitudes and
-arms, the last poke, choice and rank counts, found-port counts, ``with_init_rew`` (switched off
-after the initial rewards) and the like. ``hw_solenoid_calibration`` is the rig's calibration,
-which the experimenter updates between sessions, not a task setting. A key logged on one side only
+``not checked``
+    A recording has no ``run_start`` or no ``run_end`` (the task crashed or was stopped before
+    logging it), so its settings cannot be compared. One row per such recording, with the missing
+    snapshot named in ``reason``.
+
+Settings are compared through :data:`SETTINGS_KEYS` only. Every other key the task logs is in
+:data:`NOT_SETTINGS`, with the reason it is not compared: counters and totals, state that
+changes as the task runs (current magnitudes and arms, the last poke, choice and rank counts,
+``with_init_rew`` switched off after the initial rewards, ``can_switch``) and the solenoid
+calibration (``hw_solenoid_calibration``, and the drifting task's shared intercept ``i`` and
+slope ``s``), which the experimenter updates between sessions. A key logged on one side only
 (files from another task version) is not compared.
 
 One change is expected and not listed: ``found_ports`` going ``False`` to ``True`` during a
@@ -70,14 +76,55 @@ SETTINGS_KEY_GROUPS = {
         "second_perf_thresh",
         "num_back_b",
         "num_back_s",
+        "best_val",
+        "switch_best",
     ),
     "cues and options": ("led", "with_LED", "change_chosen"),
     "problem": ("num_problem", "problems"),
     "port finding": ("found_ports",),
 }
 SETTINGS_KEYS = tuple(key for keys in SETTINGS_KEY_GROUPS.values() for key in keys)
+# The other keys of the staged run_start / run_end rows, with the reason each is not compared.
+NOT_SETTINGS = {
+    "counters and totals": (
+        "num_t",
+        "num_t_in_block",
+        "num_t_found",
+        "num_t_rev",
+        "num_t_switch",
+        "num_blocks",
+        "num_good_rev",
+        "num_bad_rev",
+        "tot_num_t",
+        "tot_num_t_switch",
+        "tot_num_blocks",
+        "tot_num_good_rev",
+        "tot_num_bad_rev",
+        "tot_rew_amt",
+        "num_rew_pulses",
+        "pulses_deliv",
+        "num_long_pokes",
+        "long_pokes",
+        "found_port_counts",
+        "rank_counts",
+    ),
+    "changes as the task runs": (
+        "curr_block_len",
+        "curr_poke",
+        "curr_rew_mag",
+        "arm_to_stream",
+        "inactive_arm",
+        "stream_hold",
+        "stream_state",
+        "t_ses_start",
+        "with_init_rew",
+        "can_switch",
+    ),
+    "solenoid calibration": ("hw_solenoid_calibration", "i", "s"),
+}
 
 NUMBERING = "problem numbering"
+NOT_CHECKED = "not checked"
 WITHIN_RECORDING = "run_start vs run_end"
 BETWEEN_RECORDINGS = "run_end vs next run_start"
 
@@ -185,6 +232,19 @@ def _change_rows(
     return rows
 
 
+def _not_checked_row(start: dict | None, end: dict | None, file: str | None) -> dict | None:
+    """The row for a recording that lacks a snapshot, ``None`` if it has both."""
+    missing = [name for name, snap in (("run_start", start), ("run_end", end)) if snap is None]
+    if not missing:
+        return None
+    return {
+        "file": file,
+        "file_after": None,
+        "comparison": NOT_CHECKED,
+        "reason": "not checked: no " + ", no ".join(missing),
+    }
+
+
 def session_setting_rows(sess: dict, *, first_of_problem: bool) -> list[dict]:
     """The settings that changed within one session, as table rows without the session columns.
 
@@ -195,13 +255,17 @@ def session_setting_rows(sess: dict, *, first_of_problem: bool) -> list[dict]:
 
     Returns:
         list[dict]: One row per changed setting, recording by recording: the change inside the
-        recording, then the change into the next one.
+        recording, then the change into the next one; a recording without a ``run_start`` or
+        ``run_end`` gets a ``not checked`` row.
     """
     frames = sess["df"] if isinstance(sess["df"], list) else [sess["df"]]
     paths = session_source_paths(sess)
     snapshots = [read_snapshots(frame) for frame in frames]
     rows = []
     for i, (start, end) in enumerate(snapshots):
+        unchecked = _not_checked_row(start, end, _file_name(paths, i))
+        if unchecked:
+            rows.append(unchecked)
         if start is not None and end is not None:
             files = (_file_name(paths, i), None)
             rows += _change_rows(
