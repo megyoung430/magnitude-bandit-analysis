@@ -259,7 +259,7 @@ def test_tie_label_names_the_mode_and_rejects_unknown_ones():
 
 def test_tie_summary_gives_the_three_totals_and_the_fate_of_the_trials():
     excluded = tie_summary(TIES, "exclude")
-    assert "best/second: 4" in excluded and "second/third: 0" in excluded
+    assert "best/second only: 4" in excluded and "second/third only: 0" in excluded
     assert "all three: 2" in excluded and "left out" in excluded
     assert "split evenly" in tie_summary(TIES, "split")
 
@@ -291,7 +291,7 @@ def test_every_figure_prints_the_tie_totals_and_the_mode(monkeypatch, tie_mode, 
     for draw in drawers:
         draw()
         fig = seen["fig"]
-        assert len(tie_line(fig)) == 1 and "best/second: 4" in tie_line(fig)[0]
+        assert len(tie_line(fig)) == 1 and "best/second only: 4" in tie_line(fig)[0]
         assert f"Ties {word}" in fig._suptitle.get_text()
 
 
@@ -316,3 +316,75 @@ def test_one_mouse_is_not_pluralised(monkeypatch):
     curves = psychometric_curves({"m1": counts_for(CELLS)}, pool_trials=True)
     plot_psychometric_curves(curves, "True", True, TIES, "split")
     assert seen["fig"]._suptitle.get_text().endswith("1 mouse")
+
+
+# --- side labels, NaN means, centring, whitespace ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mean_best, mean_second, best_side",
+    [(0.97, 0.95, 1), (0.95, 0.97, -1)],
+)
+def test_side_labels_put_the_higher_mean_on_the_right(mean_best, mean_second, best_side):
+    best, second = label_placements(mean_best, mean_second)
+    assert (best.dx_sign, second.dx_sign) == (best_side, -best_side)
+    right, left = (best, second) if best_side == 1 else (second, best)
+    assert (right.ha, left.ha) == ("left", "right")
+
+
+def test_side_labels_are_drawn_beside_their_points_with_a_nonzero_offset():
+    edge = {(4, 1): (100, 97, 95), (3, 1): (100, 50, 40)}  # P(best) .97 and P(second) .95 at 4
+    ax = draw_panel({"m1": counts_for(edge), "m2": counts_for(edge)})
+    by_text = {t.get_text(): t for t in ax.texts}
+    high, low = by_text["0.97"], by_text["0.95"]
+    assert high.get_position()[0] > 4 > low.get_position()[0]
+    assert (high.get_horizontalalignment(), low.get_horizontalalignment()) == ("left", "right")
+    # stacked labels stay centred on their x
+    assert by_text["0.50"].get_position()[0] == 3 and by_text["0.40"].get_position()[0] == 3
+
+
+def test_a_mean_that_is_nan_for_only_one_choice_raises():
+    from src.behavior_visualization.plot_value_psychometrics import _placements_at
+
+    assert _placements_at(np.nan, np.nan) == (None, None)
+    with pytest.raises(ValueError, match="NaN together"):
+        _placements_at(0.5, np.nan)
+
+
+def figure_after_drawing(monkeypatch, draw):
+    seen = capture_figure(monkeypatch)
+    draw()
+    fig = seen["fig"]
+    fig.canvas.draw()
+    return fig, fig.canvas.get_renderer()
+
+
+def panel_span(fig):
+    positions = [ax.get_position() for ax in fig.axes]
+    return min(p.x0 for p in positions), max(p.x1 for p in positions)
+
+
+@pytest.mark.parametrize("which", ["overall", "per_mouse", "curves"])
+def test_title_and_footer_are_centred_over_the_panels(monkeypatch, which):
+    tables = heatmap_tables(two_mice())
+    curves = psychometric_curves(two_mice(), pool_trials=True)
+    draw = {
+        "overall": lambda: plot_overall_heatmaps(tables, "True", "split"),
+        "per_mouse": lambda: plot_per_mouse_heatmaps(tables, "True", "split"),
+        "curves": lambda: plot_psychometric_curves(curves, "True", True, tables.ties, "split"),
+    }[which]
+    fig, _ = figure_after_drawing(monkeypatch, draw)
+    left, right = panel_span(fig)
+    footer = next(t for t in fig.texts if t.get_text().startswith("Trials with ties"))
+    assert fig._suptitle.get_position()[0] == pytest.approx((left + right) / 2)
+    assert footer.get_position()[0] == pytest.approx((left + right) / 2)
+
+
+def test_the_gap_between_title_and_panel_titles_is_small(monkeypatch):
+    tables = heatmap_tables(two_mice())
+    fig, renderer = figure_after_drawing(
+        monkeypatch, lambda: plot_overall_heatmaps(tables, "True", "split")
+    )
+    title_bottom = fig._suptitle.get_window_extent(renderer).y0
+    panel_top = max(ax.get_tightbbox(renderer).y1 for ax in fig.axes)
+    assert 0 <= (title_bottom - panel_top) / fig.dpi <= 0.3  # inches

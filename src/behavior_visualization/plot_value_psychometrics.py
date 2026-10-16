@@ -39,7 +39,7 @@ _LABEL_HEIGHT = 0.05
 _LABEL_PAD = 0.05
 
 # Figure margins in inches: room for the title above and the tie summary below the panels.
-_TITLE_MARGIN = 0.55
+_TITLE_MARGIN = 0.4
 _FOOTER_MARGIN = 0.45
 
 PANELS = (
@@ -153,15 +153,19 @@ def tie_label(tie_mode: str) -> str:
 
 
 def tie_summary(ties: dict[str, int], tie_mode: str) -> str:
-    """One line with the tied-trial totals and what this figure did with them."""
+    """One line with the tied-trial totals and what this figure did with them.
+
+    The three categories are mutually exclusive and count trials eligible for binning.
+    """
     fate = (
         "left out of this figure"
         if tie_mode == TIE_EXCLUDE
         else "split evenly between the tied arms"
     )
     return (
-        f"Trials with ties - best/second: {ties['best_second']}, "
-        f"second/third: {ties['second_third']}, all three: {ties['all_three']} ({fate})"
+        "Trials with ties among those eligible for binning - "
+        f"best/second only: {ties['best_second']}, "
+        f"second/third only: {ties['second_third']}, all three: {ties['all_three']} ({fate})"
     )
 
 
@@ -174,12 +178,17 @@ def _finish_figure(fig: plt.Figure, title: str, ties: dict[str, int], tie_mode: 
     """Add the title above and the tie summary below the panels, then lay the panels out between.
 
     The margins are fixed in inches so the title and footer never overlap the panels, however
-    many rows the figure has.
+    many rows the figure has; both are centred over the panels (colour bars included).
     """
     height = fig.get_figheight()
-    fig.suptitle(title, y=1 - 0.08 / height, va="top", fontsize=12)
-    fig.text(0.5, 0.1 / height, tie_summary(ties, tie_mode), ha="center", va="bottom", fontsize=9)
     fig.tight_layout(rect=(0, _FOOTER_MARGIN / height, 1, 1 - _TITLE_MARGIN / height))
+    fig.canvas.draw()  # equal-aspect panels and colour bars only settle their positions on draw
+    positions = [ax.get_position() for ax in fig.axes]
+    centre = (min(p.x0 for p in positions) + max(p.x1 for p in positions)) / 2
+    fig.suptitle(title, x=centre, y=1 - 0.08 / height, va="top", fontsize=12)
+    fig.text(
+        centre, 0.1 / height, tie_summary(ties, tie_mode), ha="center", va="bottom", fontsize=9
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -332,13 +341,17 @@ def _draw_mean(ax: plt.Axes, curve: Curve, color: str, label: str) -> None:
 
 
 def _placements_at(mean_best: float, mean_second: float) -> tuple[Placement | None, ...]:
-    """Placements of the two labels at one x; a NaN mean has no label."""
-    if np.isnan(mean_best) and np.isnan(mean_second):
-        return None, None
-    if np.isnan(mean_second):
-        return Placement(*annotation_position(mean_best, above=True)), None
+    """Placements of the two labels at one x; ``(None, None)`` where there is no mean.
+
+    Both means come from the same trials, so they are NaN together.
+
+    Raises:
+        ValueError: If exactly one of the means is NaN.
+    """
+    if np.isnan(mean_best) != np.isnan(mean_second):
+        raise ValueError(f"P(best)={mean_best} and P(second)={mean_second} must be NaN together")
     if np.isnan(mean_best):
-        return None, Placement(*annotation_position(mean_second, above=False))
+        return None, None
     return label_placements(mean_best, mean_second)
 
 

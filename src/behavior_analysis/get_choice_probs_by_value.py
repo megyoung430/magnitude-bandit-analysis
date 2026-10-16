@@ -276,14 +276,10 @@ def _warn_out_of_grid(subject_id, counts):
     total = int(counts.denom.to_numpy().sum()) + n_out
     cells = ", ".join(f"({b}, {s}) x{n}" for (b, s), n in sorted(counts.out_of_grid.items()))
     logger.warning(
-        "%s: %d of %d trials fell outside the value grid and were not counted (%d is the "
-        "trials that reached the grid check: those counted plus these; trials skipped for other "
-        "reasons are in MouseCounts.dropped and are not included). Their (best, second) values "
-        "are not a cell of best in %s x second in %s; this includes ties at 4 and 4 or 1 and 1: "
-        "%s.",
+        "%s: %d of %d trials (counted plus out-of-grid; other skips are not included) have "
+        "best/second values outside the grid (best %s, second %s) and were not counted: %s.",
         subject_id,
         n_out,
-        total,
         total,
         BEST_VALS,
         SECOND_VALS,
@@ -295,14 +291,16 @@ def count_choice_probs(
     subject_trials_by_value_problem: dict,
     use_believed: bool = False,
     tie_mode: str = TIE_SPLIT,
+    warn_out_of_grid: bool = True,
 ) -> dict[str, MouseCounts]:
     """Per-mouse cell counts, pooling a mouse's trials across all problems.
 
     ``subject_trials_by_value_problem[problem][subject_id][session_id]`` is a session dict
     (see :func:`accumulate_choice_probs`). Counting is done within each problem, so believed
     values start empty at every problem boundary and carry over the problem's sessions in
-    session order; the counts of a mouse's problems are then added. A warning is logged for
-    each mouse with trials outside the value grid.
+    session order; the counts of a mouse's problems are then added. Unless
+    *warn_out_of_grid* is off, a warning is logged for each mouse with trials outside the
+    value grid.
 
     Args:
         subject_trials_by_value_problem (dict): Sessions by problem, mouse and session id.
@@ -311,6 +309,7 @@ def count_choice_probs(
         tie_mode (str): ``"split"`` shares each tied rank position evenly among the tied arms;
             ``"exclude"`` drops every trial with a tie among the top three values. Ties are
             counted in ``MouseCounts.ties`` either way.
+        warn_out_of_grid (bool): Log a warning for each mouse with out-of-grid trials.
 
     Returns:
         dict[str, MouseCounts]: Counts per mouse.
@@ -329,8 +328,9 @@ def count_choice_probs(
             _count_mouse_problem(
                 counts, subject_id, sessions_dict, use_believed=use_believed, tie_mode=tie_mode
             )
-    for subject_id, counts in counts_by_mouse.items():
-        _warn_out_of_grid(subject_id, counts)
+    if warn_out_of_grid:
+        for subject_id, counts in counts_by_mouse.items():
+            _warn_out_of_grid(subject_id, counts)
     return counts_by_mouse
 
 

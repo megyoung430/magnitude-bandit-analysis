@@ -4,6 +4,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pytest
 
 from src.pipelines.value_psychometrics import run_value_psychometric_analysis
@@ -140,6 +141,28 @@ def test_unknown_options_are_rejected_before_anything_is_written(tmp_path, kwarg
     with pytest.raises(ValueError, match="must only contain"):
         run_value_psychometric_analysis(data(), tmp_path / "x", **kwargs)
     assert not (tmp_path / "x").exists()
+
+
+def test_numpy_bools_are_valid_pooling_modes(tmp_path):
+    results = run_value_psychometric_analysis(
+        data(), tmp_path, value_bases=("true",), pooling_modes=(np.True_,), tie_modes=("split",)
+    )
+    assert (
+        tmp_path / "Psychometric Curves (True Value) (Ties Split) (Pool Trials True).png"
+    ).exists()
+    assert len(results["true"]["split"]["psychometric"]) == 1
+
+
+def test_out_of_grid_warning_is_logged_once_per_mouse_and_value_basis(tmp_path, caplog):
+    off_grid = {"A": 1, "B": 1, "C": 0}
+    choices = ["A", "B", "C", "A", "B", "A"]
+    sessions = {"ses-1": session([off_grid] * 6, choices, ["best"] * 6)}
+    with caplog.at_level("WARNING"):
+        run_value_psychometric_analysis(
+            {1: {"m1": sessions}}, tmp_path, pooling_modes=(True,)
+        )  # two value bases, two tie modes
+    warned = [r.getMessage() for r in caplog.records if r.name.endswith("by_value")]
+    assert len(warned) == 2 and all("m1" in m for m in warned)
 
 
 def test_no_subjects_raises(tmp_path):

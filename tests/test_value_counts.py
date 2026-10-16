@@ -234,4 +234,5 @@ def test_the_warning_says_what_the_total_counts(caplog):
     with caplog.at_level("WARNING"):
         count_choice_probs(one_session(sess))
     message = caplog.records[0].getMessage()
-    assert "1 of 2 trials" in message and "other reasons" in message
+    assert "1 of 2 trials" in message and "other skips" in message
+    assert "tie" not in message

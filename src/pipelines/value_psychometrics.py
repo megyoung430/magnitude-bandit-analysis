@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import numpy as np
+
 from src.behavior_analysis.get_choice_probs_by_value import TIE_MODES, count_choice_probs
 from src.behavior_analysis.value_psychometrics import heatmap_tables, psychometric_curves
 from src.behavior_visualization.plot_value_psychometrics import (
@@ -23,7 +25,7 @@ def _check_choices(name: str, values, allowed: tuple) -> None:
 
 def _check_bools(name: str, values) -> None:
     """Raise ValueError unless every entry of *values* is a real ``bool`` (not 1 or "yes")."""
-    unknown = [v for v in values if not isinstance(v, bool)]
+    unknown = [v for v in values if not isinstance(v, (bool, np.bool_))]
     if unknown:
         raise ValueError(f"{name} must only contain True and/or False, got {unknown}")
 
@@ -59,8 +61,7 @@ def run_value_psychometric_analysis(
     over that problem's sessions in session order; each mouse's counts are then pooled across
     problems. A believed trial counts only once all three arms have been sampled in its
     problem. Mice are the replicates for every mean and standard error. A warning is logged
-    for each mouse with trials outside the value grid (best 2-4, second 1-3; ties at 4/4 and
-    1/1 are outside it).
+    once per mouse and value basis for trials outside the value grid (best 2-4, second 1-3).
 
     Every figure is made once per tie mode: ``"exclude"`` leaves out every trial with a tie
     among the best three values (best/second, second/third or all three), ``"split"`` divides
@@ -97,13 +98,19 @@ def run_value_psychometric_analysis(
     _check_bools("pooling_modes", pooling_modes)
     _check_choices("tie_modes", tie_modes, TIE_MODES)
     out_dir = Path(out_dir)
+    # Out-of-grid counts differ by tie mode (excluded ties never reach the grid), so the
+    # warning comes from one mode: split, whose out-of-grid set is the larger.
+    warn_mode = "split" if "split" in tie_modes else tie_modes[0] if tie_modes else None
     results = {}
     for basis in value_bases:
         label = basis.capitalize()
         results[basis] = {}
         for tie_mode in tie_modes:
             counts = count_choice_probs(
-                subjects_trials_by_problem, use_believed=basis == "believed", tie_mode=tie_mode
+                subjects_trials_by_problem,
+                use_believed=basis == "believed",
+                tie_mode=tie_mode,
+                warn_out_of_grid=tie_mode == warn_mode,
             )
             if not counts:
                 raise ValueError("no subjects in subjects_trials_by_problem")
