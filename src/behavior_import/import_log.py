@@ -1,6 +1,6 @@
 """A structured record of what the importer skipped or flagged, returned next to the data.
 
-The importer prints a ``[WARN]`` line (or warns) wherever it leaves data out, and the sessions
+The importer warns (:class:`ImportSkipWarning`) wherever it leaves data out, and the sessions
 it leaves out of the problems are not in the dict it returns. An :class:`ImportLog` is filled
 as the import runs, so a table can list every skip and flag afterwards. Passing a log changes
 nothing that is loaded or printed.
@@ -24,6 +24,15 @@ from typing import NamedTuple
 from src.behavior_import.warning_records import WarningRecord
 
 FILE, RECORDING, SESSION = "file", "recording", "session"
+
+
+class ImportSkipWarning(UserWarning):
+    """The importer left a file, recording or session out of the data.
+
+    Raised next to the matching :class:`SkipRecord`, so the skip reaches the console and the
+    warnings log as well as ``no_trial_sessions.csv``.
+    """
+
 
 UNREADABLE_FILE = "unreadable_file"
 NO_SUBJECT = "no_subject"

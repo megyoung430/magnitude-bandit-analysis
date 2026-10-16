@@ -210,8 +210,9 @@ def test_subject_without_towers_gets_an_empty_list(capsys):
         choices_by_tower={},
         choices_by_rank={},
     )
-    assert mod.get_good_reversal_info({"m": {"ses-1": empty}}) == {"m": []}
-    assert "[WARN] m: no towers" in capsys.readouterr().out
+    with pytest.warns(mod.ReversalWarning, match="m: no towers found in reward_magnitudes"):
+        assert mod.get_good_reversal_info({"m": {"ses-1": empty}}) == {"m": []}
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.xfail(

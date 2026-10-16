@@ -2,7 +2,10 @@
 
 import copy
 
+import pytest
+
 from src.behavior_analysis.get_bad_reversal_info import get_bad_reversal_info
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning
 
 TOWERS = ("A", "B", "C")
 
@@ -205,16 +208,20 @@ def test_no_towers_at_all_warns_and_returns_empty(capsys):
     session = make_session(BAD)
     session["reward_magnitudes_by_tower"] = {}
     session["choices_by_tower"] = {}
-    assert get_bad_reversal_info(one_subject(session))["mouse"] == []
-    assert capsys.readouterr().out == (
-        "[WARN] mouse: no towers found in reward_magnitudes_by_tower or choices_by_tower\n"
-    )
+    with pytest.warns(ReversalWarning) as caught:
+        assert get_bad_reversal_info(one_subject(session))["mouse"] == []
+    assert [str(w.message) for w in caught] == [
+        "mouse: no towers found in reward_magnitudes_by_tower or choices_by_tower"
+    ]
+    assert capsys.readouterr().out == ""
 
 
 def test_blocks_length_mismatch_warns_and_block_id_is_none_past_the_end(capsys):
     session = make_session(BAD, blocks=[1, 1, 1, 2, 2])
-    out = get_bad_reversal_info(one_subject(session))["mouse"]
-    assert capsys.readouterr().out == "[WARN] mouse: blocks length 5 != bad_reversals length 10\n"
+    with pytest.warns(ReversalWarning) as caught:
+        out = get_bad_reversal_info(one_subject(session))["mouse"]
+    assert [str(w.message) for w in caught] == ["mouse: blocks length 5 != bad_reversals length 10"]
+    assert capsys.readouterr().out == ""
     assert [r["block_id"] for r in out] == [2, None]
 
 

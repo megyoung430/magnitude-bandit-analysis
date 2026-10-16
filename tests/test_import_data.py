@@ -11,6 +11,7 @@ from src.behavior_import.extract_trials import (
     group_sessions_by_problem,
 )
 from src.behavior_import.import_data import import_data
+from src.behavior_import.import_log import ImportSkipWarning
 from src.behavior_import.problem_numbering import ProblemNumberingWarning
 
 TOWERS = ["A1", "B1", "C1"]
@@ -179,11 +180,13 @@ def test_unreadable_file_and_files_outside_a_subject_folder_are_skipped_with_a_w
     write_tsv(session_dir(tmp_path), "M1-2026-01-01-100000.tsv")
     (session_dir(tmp_path) / "empty.tsv").write_text("")
     write_tsv(tmp_path / "loose" / "ses-1_date-20260101", "x-2026-01-01-100000.tsv")
-    data = import_data(tmp_path)
-    out = capsys.readouterr().out
+    with pytest.warns(ImportSkipWarning) as caught:
+        data = import_data(tmp_path)
+    texts = [str(w.message) for w in caught]
     assert list(data) == ["M1"] and len(data["M1"]["ses-1_date-20260101"]["df"]) > 1
-    assert "[WARN] Failed to read" in out and "empty.tsv" in out
-    assert "[WARN] Skipping" in out and "no subject_id parsed" in out
+    assert any("Failed to read" in t and "empty.tsv" in t for t in texts)
+    assert any("Skipping" in t and "no subject_id parsed" in t for t in texts)
+    assert "[WARN]" not in capsys.readouterr().out
 
 
 def test_prints_how_many_subjects_and_sessions_were_processed(tmp_path, capsys):

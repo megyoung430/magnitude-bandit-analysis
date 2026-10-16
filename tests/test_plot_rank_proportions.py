@@ -529,8 +529,9 @@ def test_public_plots_show_and_close_when_no_save_path(counts, monkeypatch):
 
 
 def test_by_block_without_blocks_warns_and_draws_nothing(capsys):
-    plot_rank_proportions_by_block({"m1": []})
-    assert "[WARN] No blocks found to plot." in capsys.readouterr().out
+    with pytest.warns(UserWarning, match="No blocks found to plot"):
+        plot_rank_proportions_by_block({"m1": []})
+    assert capsys.readouterr().out == ""
     assert plt.get_fignums() == []
 
 

@@ -611,7 +611,7 @@ def run_single_session_analysis(
     for subject, sessions in subjects_trials.items():
         for session, session_data in sessions.items():
             if not session_data["trial_info"]:
-                print(f"Skipping {subject} | {session}. There are no trials.")
+                warnings.warn(f"Skipping {subject} | {session}. There are no trials.", stacklevel=2)
                 continue
             print(f"Plotting {subject} | {session}")
             plot_single_session(

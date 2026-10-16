@@ -417,7 +417,11 @@ def _subject_reversals(
         return [], [], []
     towers = _list_towers(series)
     if not towers:
-        print(f"[WARN] {subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower")
+        warnings.warn(
+            f"{subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower",
+            ReversalWarning,
+            stacklevel=2,
+        )
         return [], [], []
 
     any_good = any(sess.get("has_good", False) for sess in sessions.values())

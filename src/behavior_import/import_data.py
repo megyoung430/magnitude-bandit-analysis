@@ -29,6 +29,7 @@ from src.behavior_import.import_log import (
     UNNUMBERED_SESSION,
     UNREADABLE_FILE,
     ImportLog,
+    ImportSkipWarning,
     SkipRecord,
 )
 from src.behavior_import.problem_numbering import (
@@ -356,7 +357,7 @@ def collect_tsv_files(root: Path, log: ImportLog | None = None) -> list:
     Returns:
         list[tuple[Path, pd.DataFrame]]: ``(tsv_path, dataframe)`` tuples for every ``.tsv``
         file that was read successfully.  Files that raise an exception during reading are
-        skipped with a ``[WARN]`` message printed to stdout.
+        skipped with an :class:`~src.behavior_import.import_log.ImportSkipWarning`.
     """
     tsv_files = []
     for tsv_path in root.rglob("*.tsv"):
@@ -367,7 +368,7 @@ def collect_tsv_files(root: Path, log: ImportLog | None = None) -> list:
         # Known issue: every read failure is reduced to a printed warning and the file is
         # skipped, so a corrupt recording silently shrinks the session instead of raising.
         except Exception as e:
-            print(f"[WARN] Failed to read {tsv_path}: {e}.")
+            warnings.warn(f"Failed to read {tsv_path}: {e}.", ImportSkipWarning, stacklevel=2)
             if log is not None:
                 log.add_skip(
                     _file_skip(tsv_path, UNREADABLE_FILE, f"the file could not be read: {e}")
@@ -630,7 +631,7 @@ def group_by_subj_and_ses(tsv_files: list, log: ImportLog | None = None) -> dict
         dict[tuple[str, str], list[pd.DataFrame]]: Keyed by ``(subject_id, session_key)``;
         each value is the session's recordings sorted chronologically by
         file timestamp (earliest first).  Files whose subject cannot be parsed
-        are skipped with a ``[WARN]`` message, and files in a non-numeric session folder
+        are skipped with an ``ImportSkipWarning``, and files in a non-numeric session folder
         (``ses-test`` etc.) with a warning.
 
     Raises:
@@ -641,7 +642,9 @@ def group_by_subj_and_ses(tsv_files: list, log: ImportLog | None = None) -> dict
     for tsv_path, df in tsv_files:
         subject_id, subject_number, subject_key = create_subject_id(tsv_path)
         if not subject_id:
-            print(f"[WARN] Skipping {tsv_path}: no subject_id parsed.")
+            warnings.warn(
+                f"Skipping {tsv_path}: no subject_id parsed.", ImportSkipWarning, stacklevel=2
+            )
             if log is not None:
                 reason = "no sub-<N>_id-<mouse> folder in the file's path"
                 log.add_skip(_file_skip(tsv_path, NO_SUBJECT, reason))

@@ -1,5 +1,6 @@
 """Extract and process trial-by-trial data from behavioral experiment recordings."""
 
+import warnings
 from copy import deepcopy
 
 import pandas as pd
@@ -16,6 +17,7 @@ from src.behavior_import.import_log import (
     ONLY_PORT_FINDING,
     RECORDING,
     SESSION,
+    ImportSkipWarning,
     SessionFlag,
     SkipRecord,
 )
@@ -178,13 +180,15 @@ def bandit_trial_info(df, subject, session_key):
 
     Returns:
         list[dict]: The per-trial dicts of :func:`recording_trial_info`, or ``[]`` if the
-        recording printed no trials or none with a bandit field (a warning is printed).
+        recording printed no trials or none with a bandit field (an ``ImportSkipWarning``).
     """
     trial_info = recording_trial_info(df)
     if trial_info and not session_has_any_key(trial_info, BANDIT_KEYS):
-        print(
-            "[WARNING] Skipping recording with no bandit trial fields "
-            f"for subject {subject}, session {session_key}"
+        warnings.warn(
+            "Skipping recording with no bandit trial fields "
+            f"for subject {subject}, session {session_key}",
+            ImportSkipWarning,
+            stacklevel=2,
         )
         return []
     return trial_info
@@ -400,7 +404,11 @@ def extract_session_trials(session_data, subject, session_key, log=None):
         ):
             log.add_skip(skip)
     if not any(trial_info_list):
-        print(f"[WARNING] No trial information found for subject {subject}, session {session_key}")
+        warnings.warn(
+            f"No trial information found for subject {subject}, session {session_key}",
+            ImportSkipWarning,
+            stacklevel=2,
+        )
         session_data["trial_variables"] = {}
         session_data["trial_info"] = []
         return session_data
@@ -1053,9 +1061,11 @@ def signed_sessions(subject_id, subject_sessions):
     for session_id in ordered_session_keys(subject_id, subject_sessions):
         sess = subject_sessions[session_id]
         if not sess.get("trial_info"):
-            print(
-                f"[WARNING] Skipping session {session_id} for subject {subject_id} "
-                "due to missing trial information."
+            warnings.warn(
+                f"Skipping session {session_id} for subject {subject_id} "
+                "due to missing trial information.",
+                ImportSkipWarning,
+                stacklevel=2,
             )
             continue
         signed.append((session_id, session_facts(subject_id, session_id, sess)))
