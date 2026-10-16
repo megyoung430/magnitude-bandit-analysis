@@ -12,12 +12,13 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import PurePath
 
-from src.behavior_analysis.best_change import best_change_problem
+from src.behavior_analysis.best_change import block_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 from src.behavior_analysis.reversal_alignment import window_bounds, window_indices
 from src.behavior_analysis.reversal_format import check_formats_agree
 from src.behavior_analysis.suspect_reversals import good_event_counts
+from src.behavior_import.problem_numbering import known_task_type
 from src.behavior_import.session_order import ordered_session_keys
 
 
@@ -89,6 +90,7 @@ class _SessionSpan:
     run_lengths: tuple  # trials in each recording run of the session (empty if unknown)
     run_files: tuple  # file name of each recording run (``None`` where not recorded)
     events: tuple  # ``((session-local trial, good reversals logged while not recording), ...)``
+    task_type: str | None = None  # ``"blocked"``, ``"drifting"`` or ``None`` (no task information)
 
 
 def _run_lengths(sess):
@@ -119,7 +121,14 @@ def _session_spans(subject, sessions):
             events = tuple(sorted(good_event_counts(sess).items()))
             spans.append(
                 _SessionSpan(
-                    key, start, start + n, bad_only, _run_lengths(sess), _run_files(sess), events
+                    key,
+                    start,
+                    start + n,
+                    bad_only,
+                    _run_lengths(sess),
+                    _run_files(sess),
+                    events,
+                    known_task_type(sess),
                 )
             )
             start += n
@@ -171,6 +180,11 @@ def _locate_trial(subj, spans, idx):
             run, run_trial = _run_position(span, local)
             return _Where(subj, span.key, local, run, idx, _file_of(span, run), run_trial)
     return _Where(subj, None, None, None, idx)
+
+
+def _task_type_at(spans, idx):
+    """Task type of the session that holds merged trial *idx*; ``None`` if none does."""
+    return next((span.task_type for span in spans if span.start <= idx < span.stop), None)
 
 
 def _in_spans(idx, masked):
@@ -324,9 +338,9 @@ def _build_reversal(
 
 @dataclass(frozen=True)
 class DroppedReversal:
-    """A boundary left out of the output because its best tower did not change.
+    """A boundary left out of the output because it does not show in the magnitudes.
 
-    ``reason`` is the :func:`~src.behavior_analysis.best_change.best_change_problem` result.
+    ``reason`` is the :func:`~src.behavior_analysis.best_change.block_change_problem` result.
     ``count`` is the reversals on the boundary trial (a jump of two in the counter is two),
     of which ``events`` were logged while nothing was recording (between runs, or after a
     run's last trial). ``before`` and ``after`` are the ``{tower: magnitude}`` dicts that the
@@ -336,7 +350,8 @@ class DroppedReversal:
     Attributes:
         where (_Where): Subject, session, session-local trial, recording run and merged
             trial of the boundary (``.text()`` gives a readable label).
-        reason (str): ``"missing magnitude"``, ``"tie for best"`` or ``"best tower unchanged"``.
+        reason (str): ``"missing magnitude"``, ``"tie for best"`` or ``"best tower unchanged"``
+            (blocked task), or ``"missing magnitude"`` or ``"zero arm unchanged"`` (drifting).
         count (int): Reversals on the boundary trial. Default 1.
         good_reversal_number (int | None): Logged good counter at the boundary.
         before (dict | None): ``{tower: magnitude}`` on the trial before the boundary.
@@ -437,7 +452,9 @@ def _subject_reversals(
         after = _rewards_at(series.reward_by_tower, towers, idx)
         # The first block is not a reversal: its "before" and "after" both come from trial 0,
         # so an unchanged best tower there is expected.
-        problem = None if first_block else best_change_problem(before, after)
+        problem = (
+            None if first_block else block_change_problem(before, after, _task_type_at(spans, idx))
+        )
         if problem is not None:
             # A dropped reversal is still a real block change in the data, so (like a
             # skipped one) it keeps ending the window of the reversal before it.
@@ -513,9 +530,10 @@ def _warn_dropped(dropped):
     )
     warnings.warn(
         f"dropped {sum(d.count for d in dropped)} good reversal(s) because the best tower did "
-        f"not change (a tied best counts) or a reward magnitude was missing: {listing}. "
-        "A good reversal "
-        "should change the best tower; these are left out of every analysis but still end "
+        "not change (a tied best counts; blocked task), the zero arm did not move (drifting "
+        f"task) or a reward magnitude was missing: {listing}. "
+        "A good reversal should change the best tower and a block change the zero arm; these "
+        "are left out of every analysis but still end "
         "the windows of their neighbours. See suspect_reversal_table for a reviewable list.",
         ReversalWarning,
         stacklevel=3,
@@ -601,10 +619,16 @@ def get_good_reversal_info(
     subject and session), but they still end the post-window of the reversal
     before them.
 
-    A good reversal should change the best-rewarding tower. A reversal where it
-    does not (including a tie for best) is a suspected data or detection bug and
-    is left out of the result, so every analysis downstream sees only valid
-    reversals. One ``ReversalWarning`` per call lists the dropped reversals
+    In the blocked task a good reversal should change the best-rewarding tower. A
+    reversal where it does not (including a tie for best) is a suspected data or
+    detection bug and is left out of the result, so every analysis downstream sees
+    only valid reversals. In the drifting task the most-chosen arm drops to 0 at a
+    block change, which can be the best or the second-best arm, so an unchanged best
+    tower is normal and the block change is kept; the check is that the zero arm
+    moves, and a block change where it does not is dropped with the reason "zero arm
+    unchanged". The task type is the session's ``task_type``, else the one its task
+    name gives; a session with neither (hand-built data) gets the blocked check.
+    One ``ReversalWarning`` per call lists the dropped reversals
     (subject, session, session-local trial, recording run) and their count.
     :func:`~src.behavior_analysis.suspect_reversal_table.suspect_reversal_table` lists
     the same reversals as a table to review by hand against the raw files.
@@ -774,10 +798,11 @@ def exclude_best_unchanged(reversals, *, subject, caller):
     """Drop reversals that have no third tower; warn how many were best-unchanged.
 
     Used by the analyses that classify towers as prev-best / next-best / third.
-    :func:`get_good_reversal_info` already drops suspect reversals, so this only
-    matters for hand-built windows and for the first-block record (not a
-    reversal; dropped without a warning). A record has no third tower when its
-    best tower is unchanged.
+    :func:`get_good_reversal_info` already drops suspect good reversals of the blocked
+    task, so there this only matters for hand-built windows and for the first-block record
+    (not a reversal; dropped without a warning). In the drifting task a block change with an
+    unchanged best tower is kept (it is normal there), and it is excluded here with a
+    warning. A record has no third tower when its best tower is unchanged.
 
     Args:
         reversals (list[dict]): A subject's list of reversal dicts.

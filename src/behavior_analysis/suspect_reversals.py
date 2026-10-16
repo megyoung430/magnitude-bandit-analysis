@@ -1,5 +1,10 @@
 """Count the logged good reversals whose best tower does not change.
 
+Only the blocked task logs a good counter. The drifting task has block changes and no counter, so
+a drifting session has nothing to count here: its best tower often stays the best at a block
+change (the most-chosen arm drops to 0, which can be the second best), and the check that its
+zero arm moves is made by :func:`get_good_reversal_info` and listed by ``suspect_reversal_table``.
+
 The task logs its own good-reversal totals, which stay as they are. This module counts, beside
 them, with the rule that :func:`get_good_reversal_info` uses when it drops reversals (see
 :mod:`src.behavior_analysis.best_change`):
