@@ -19,6 +19,7 @@ from src.behavior_import.import_data import _sorted_session_keys
 from src.behavior_import.reconcile_reversals import reconcile_reversals
 from src.behavior_import.session_order import (
     check_session_order,
+    compress_numbers,
     ordered_session_keys,
     session_sort_key,
 )
@@ -164,3 +165,20 @@ def test_agreeing_orders_work_everywhere():
     assert [k for k, _ in signed_sessions("m", group["m"])] == list(data["m"])
     group_sessions_by_problem(group)
     assert flatten_trials({k: [{}] for k in data["m"]}, subject="m") == [{}, {}]
+
+
+@pytest.mark.parametrize(
+    ("numbers", "text"),
+    [
+        ([], ""),
+        ([5], "5"),
+        ([1, 2], "1-2"),
+        ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "1-10"),
+        ([3, 4, 5, 6, 7, 8, 20], "3-8, 20"),
+        ([20, 3, 4, 7, 5, 6, 8, 3], "3-8, 20"),
+        ([1, 3, 5], "1, 3, 5"),
+        ([1, 2, 4, 5, 9], "1-2, 4-5, 9"),
+    ],
+)
+def test_compress_numbers(numbers, text):
+    assert compress_numbers(numbers) == text

@@ -65,6 +65,25 @@ def session_sort_key(session_id):
     )
 
 
+def compress_numbers(numbers):
+    """Session numbers as ranges: ``[3, 4, 5, 6, 7, 8, 20]`` as ``"3-8, 20"``.
+
+    Args:
+        numbers (Iterable[int]): Session numbers, in any order; repeats count once.
+
+    Returns:
+        str: Runs of consecutive numbers as ``"first-last"`` (a lone number as itself),
+        ascending, separated by ``", "``; ``""`` for no numbers.
+    """
+    runs = []
+    for number in sorted(set(numbers)):
+        if runs and number == runs[-1][1] + 1:
+            runs[-1][1] = number
+        else:
+            runs.append([number, number])
+    return ", ".join(str(a) if a == b else f"{a}-{b}" for a, b in runs)
+
+
 def check_session_order(subject, keys):
     """Raise if the session keys of *subject* cannot be ordered unambiguously.
 
