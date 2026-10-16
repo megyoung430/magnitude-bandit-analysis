@@ -17,7 +17,9 @@ from src.behavior_analysis.poke_events import (
     LongPokeCheck,
     PokeParseError,
     TrialPokes,
+    count_port_finding,
     cross_check_long_pokes,
+    is_port_finding,
     parse_session,
     pokes_after_choice,
     pokes_after_initiation,
@@ -42,6 +44,8 @@ class SessionPokeCounts(NamedTuple):
     ``n_dropped_inconsistent`` the other drops. ``long_poke_check`` compares the raw long
     pokes of the analysed trials with the printed lists. ``parse_error`` is the reason the
     session's raw events could not be read (all counts are then zero), else ``None``.
+    ``n_port_finding_trials`` counts the session's port-finding trials; they are not task
+    trials, so they are in neither ``n_trials`` nor any drop count.
 
     Attributes:
         after_initiation (dict[str, int]): ``{port: count}`` over the nine ports of long pokes
@@ -55,6 +59,7 @@ class SessionPokeCounts(NamedTuple):
         n_dropped_no_print (int): Trials dropped for lacking a usable summary print.
         n_dropped_inconsistent (int): Trials dropped for any other reason.
         parse_error (str | None): Why the raw events could not be read, else ``None``.
+        n_port_finding_trials (int): Port-finding trials (prints with ``num_t_found``). Default 0.
     """
 
     after_initiation: dict[str, int]
@@ -66,6 +71,7 @@ class SessionPokeCounts(NamedTuple):
     n_dropped_no_print: int
     n_dropped_inconsistent: int
     parse_error: str | None = None
+    n_port_finding_trials: int = 0
 
 
 def count_ports(sequences: Iterable[Iterable[str]]) -> dict[str, int]:
@@ -116,7 +122,9 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
     Returns:
         SessionPokeCounts: The counts. Dropped trials are left out of both counts; trials
         whose after-choice window never closed (a recording's last printed trial) are left out of
-        ``after_choice`` only.
+        ``after_choice`` only. A window ends with the next trial's initiating poke, which counts
+        as a poke at the initiation port. Port-finding trials are counted in
+        ``n_port_finding_trials`` and are otherwise ignored.
     """
     initiation = session.get("initiation_tower") or DEFAULT_INITIATION_TOWER
     trials = parse_session(session, initiation, label=label)
@@ -129,7 +137,10 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
         long_poke_check=cross_check_long_pokes(trials),
         n_valid=len(valid),
         n_dropped_no_print=sum(t.drop_reason == NO_PRINT for t in trials),
-        n_dropped_inconsistent=sum(t.drop_reason not in (None, NO_PRINT) for t in trials),
+        n_dropped_inconsistent=sum(
+            t.drop_reason not in (None, NO_PRINT) and not is_port_finding(t) for t in trials
+        ),
+        n_port_finding_trials=count_port_finding(trials),
     )
 
 
