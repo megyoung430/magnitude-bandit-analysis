@@ -5,12 +5,14 @@ def get_num_long_pokes(subjects_trials):
     """Compute mean number of non-choice long pokes per session for each subject.
 
     Args:
-        subjects_trials: Nested dict ``subjects_trials[subject][session] = session_dict``,
-            where each ``session_dict`` must contain a ``"num_long_pokes"`` list.
+        subjects_trials (dict): Nested dict ``subjects_trials[subject][session] = session_dict``,
+            where each ``session_dict`` must contain a ``"num_long_pokes"`` list. Sessions
+            without one are reported on stdout and skipped.
 
     Returns:
-        Dict mapping each subject (plus an ``"average_across_subjects"`` key) to a
-        dict of ``{session: mean_pokes}`` values.
+        dict: Maps each subject (plus an ``"average_across_subjects"`` key) to a
+        dict of ``{session: mean_pokes (float)}`` values; the average entry covers the
+        sessions of the first subject.
     """
     all_subjects = list(subjects_trials.keys())
     avg_num_pokes_across_subjects = {}

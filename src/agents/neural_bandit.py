@@ -27,8 +27,27 @@ PAPER_CHOSEN = {
 def initialize_parameters(key, model, hidden_units=16, num_arms=3):
     """Haiku Linear distribution: truncated N(0, 1/sqrt(fan_in)); zero biases.
 
-    Fitted Q/c initial scalars ~ N(1,1), raw forgetting ~ N(0,1).
-    Matches upstream distributions, not Haiku module PRNG key allocation.
+    Fitted Q/c initial scalars ~ N(1,1), raw forgetting ~ N(0,1). Matches upstream distributions,
+    not Haiku module PRNG key allocation.
+
+    Args:
+        key (jax.Array): JAX PRNG key.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+        hidden_units (int): Width ``h`` of the hidden layers. Default 16.
+        num_arms (int): Number of arms ``k``. Default 3.
+
+    Returns:
+        dict: Float64 JAX arrays. For ``'vanilla_rnn'``: ``joint_w1`` ``(k+1+h, h)``, ``joint_b1``
+            ``(h,)``, ``joint_w2`` ``(h, k)``, ``joint_b2`` ``(k,)``. For the other models:
+            ``reward_w1`` ``(n_reward_inputs, h)`` (inputs 2, ``2+k`` or ``2+h`` for RL, Context,
+            Memory), ``reward_b1`` ``(h,)``, ``reward_w2`` ``(h, 1)``, ``reward_b2`` ``(1,)``,
+            ``action_w1`` ``(n_action_inputs, h)`` (inputs ``k``, ``2k`` or ``k+h``), ``action_b1``
+            ``(h,)``, ``action_w2`` ``(h, k)``, ``action_b2`` ``(k,)``, and the scalars
+            ``forgetting_raw``, ``q_init`` and ``c_init``.
+
+    Raises:
+        ValueError: If *model* is unknown, ``hidden_units`` < 1 or ``num_arms`` < 2.
     """
     jax, jnp, _ = dependencies()
     if model not in NEURAL_MODELS or hidden_units < 1 or num_arms < 2:
@@ -53,10 +72,34 @@ def initialize_parameters(key, model, hidden_units=16, num_arms=3):
 
 
 def hidden_width(parameters, model):
+    """Number of hidden units of a network.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+
+    Returns:
+        int: The hidden width ``h``, read from the first-layer bias.
+    """
     return int(parameters['joint_b1' if model == 'vanilla_rnn' else 'reward_b1'].shape[0])
 
 
 def parameter_summary(parameters, model):
+    """Human-scale summary of a fitted neural network's parameters.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+
+    Returns:
+        dict: ``hidden_units`` (int) and ``n_parameters`` (int, total array elements). For models
+            other than ``'vanilla_rnn'`` also ``forgetting`` (float, sigmoid of the raw value),
+            ``q_init`` (float) and ``c_init`` (float).
+    """
     jax, _, _ = dependencies()
     summary = dict(hidden_units=hidden_width(parameters, model),
                    n_parameters=sum(np.asarray(v).size for v in parameters.values()))
@@ -67,6 +110,28 @@ def parameter_summary(parameters, model):
 
 
 def initial_state(parameters, model, batch_size=1, num_arms=3):
+    """Initial recurrent state of a batch of independent sessions.
+
+    Q starts at ``q_init`` and the context at ``c_init`` (both 0 for ``'vanilla_rnn'``); every
+    hidden state starts at zero.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+        batch_size (int): Number of sessions run in parallel. Default 1.
+        num_arms (int): Number of arms. Default 3.
+
+    Returns:
+        dict: ``q`` and ``c`` (``(batch, num_arms)`` value and action-context channels),
+            ``reward_hidden``, ``action_hidden`` and ``joint_hidden`` (``(batch, hidden_units)``
+            hidden states of the reward, action and vanilla-RNN networks).
+
+    Raises:
+        ValueError: If a non-vanilla *parameters* dict has no ``c_init`` (weights from an older
+            implementation).
+    """
     _, jnp, _ = dependencies()
     if model != 'vanilla_rnn' and 'c_init' not in parameters:
         raise ValueError('Pre-release-alignment neural checkpoint: c_init is missing. Refit with the updated implementation; do not reuse old weights.')
@@ -80,13 +145,47 @@ def initial_state(parameters, model, batch_size=1, num_arms=3):
 
 
 def choice_logits(parameters, state, model):
+    """Choice logits for the next trial.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        state (dict): Recurrent state as returned by ``initial_state`` or ``observe``.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+
+    Returns:
+        jax.Array: ``(batch, num_arms)`` logits: ``q + c`` for the hybrid models, the readout of
+            ``joint_hidden`` for ``'vanilla_rnn'``.
+    """
     if model == 'vanilla_rnn':
         return state['joint_hidden'] @ parameters['joint_w2']+parameters['joint_b2']
     return state['q']+state['c']
 
 
 def observe(parameters, state, model, actions, rewards):
-    """Advance batch states after rewards; the returned state predicts next choice."""
+    """Advance batch states after rewards; the returned state predicts next choice.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        state (dict): Recurrent state before the trial, as returned by ``initial_state`` or
+            ``observe``.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+        actions (jax.Array): ``(batch,)`` int chosen-arm indices.
+        rewards (jax.Array): ``(batch,)`` float rewards received.
+
+    Returns:
+        dict: ``q`` and ``c`` (``(batch, num_arms)`` value and action-context channels),
+            ``reward_hidden``, ``action_hidden`` and ``joint_hidden`` (``(batch, hidden_units)``
+            hidden states of the reward, action and vanilla-RNN networks). The state after the
+            update, with the same shapes as *state*; the channels a model does not use are carried
+            over unchanged.
+
+    Raises:
+        ValueError: If *model* is unknown.
+    """
     jax, jnp, _ = dependencies()
     q, c = state['q'], state['c']
     k, batch = q.shape[1], q.shape[0]
@@ -122,6 +221,32 @@ def observe(parameters, state, model, actions, rewards):
 
 
 def make_backend(model, hidden_units=16, num_arms=3):
+    """Build the jitted scoring, objective and trainer functions of a neural model.
+
+    Args:
+        model (str): One of ``NEURAL_MODELS``.
+        hidden_units (int): Accepted for symmetry with ``paper_rl_fitting.make_backend``; not used
+            here, since the width is taken from the parameters. Default 16.
+        num_arms (int): Number of arms. Default 3.
+
+    Returns:
+        tuple[Callable, Callable, Callable]: ``(statistics, objective, trainer)``.
+            ``statistics(parameters, actions, rewards, mask, released_loss=False,
+            skip_first=False)`` takes padded ``(batch, n_trials)`` arrays (int actions, float
+            rewards, bool mask of real trials) and returns ``(nll, correct)``, two ``(batch,)``
+            arrays of summed negative log likelihood and count of argmax-correct trials;
+            ``released_loss`` applies the released affine probability safeguard and ``skip_first``
+            leaves out the first trial. ``objective(parameters, actions, rewards, mask, l2_weight)``
+            returns the scalar released-loss objective, the summed negative log likelihood of the
+            scored trials averaged over sessions; ``l2_weight`` is ignored. ``trainer(setting)``
+            takes a dict with ``optimizer_learning_rate``, ``batch_size`` and ``weight_decay`` (or
+            the legacy ``l2_weight``) and returns ``(optimizer, chunk)``, an AdamW optimizer and a
+            jitted ``chunk(parameters, opt_state, key, actions, rewards, mask, steps)`` that runs
+            *steps* minibatch updates and returns ``((parameters, opt_state, key), last_loss)``.
+
+    Raises:
+        ValueError: If *model* is not a neural model.
+    """
     jax, jnp, optax = dependencies()
     if model not in NEURAL_MODELS:
         raise ValueError('Unknown model.')
@@ -174,7 +299,23 @@ def make_backend(model, hidden_units=16, num_arms=3):
 
 
 def trace_sequence(parameters, sequence, model):
-    """Pre-choice probabilities/logits/states and post-observation channel states."""
+    """Pre-choice log probabilities, logits and states, and post-observation channel states.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        sequence (dict): One session as built by ``prepare_cohort_sequences``, with ``towers``,
+            ``actions`` and ``rewards``.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+
+    Returns:
+        dict[str, np.ndarray]: Arrays with one row per trial: ``logits`` and ``log_probabilities``
+            ``(n_trials, num_arms)`` (before seeing the trial's choice); ``pre_q`` and ``pre_c``
+            ``(n_trials, num_arms)``; ``pre_reward_hidden``, ``pre_action_hidden`` and
+            ``pre_joint_hidden`` ``(n_trials, hidden_units)``; ``post_q`` and ``post_c``
+            ``(n_trials, num_arms)`` after the trial's reward.
+    """
     from src.agents.paper_rl_fitting import pack_sequences
     jax, jnp, _ = dependencies()
     num_arms = len(sequence['towers'])
@@ -201,8 +342,25 @@ def trace_sequence(parameters, sequence, model):
 class NeuralBanditMouse:
     """Adapter to DriftingBanditTask.simulate; reset between independent sessions.
 
-    q_values exposes hybrid Q contributions or vanilla logits for plotting only.
-    The task's previous_action is ignored: observe already carries the history.
+    q_values exposes hybrid Q contributions or vanilla logits for plotting only. The task's
+    previous_action is ignored: observe already carries the history.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        model (str): One of ``NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``, ``'memory_ann'`` or
+            ``'vanilla_rnn'``.
+        num_arms (int): Number of arms. Default 3.
+        seed (int): Seed of the generator that samples choices. Default 0.
+
+    Attributes:
+        parameters (dict): As in Args.
+        model (str): As in Args.
+        num_arms (int): As in Args.
+        rng (np.random.Generator): Samples choices from the softmax of the logits.
+        state (dict): Current recurrent state for a batch of one, as returned by ``initial_state``.
+        q_values (np.ndarray): ``(num_arms,)`` current Q values, or the logits for
+            ``'vanilla_rnn'``.
     """
     def __init__(self, parameters, model, num_arms=3, seed=0):
         self.parameters, self.model, self.num_arms = parameters, model, num_arms
@@ -234,9 +392,32 @@ def probe_reward_module(parameters, model, rewards, chosen_values=(0.,), context
                         reward_hidden=None, chosen_arm=0):
     """Probe the released hybrid chosen-value computation (including residual path).
 
-    Context-ANN sets context[chosen_arm] to each chosen value for consistency.
-    Memory-ANN ignores chosen_values and uses a fixed GLOBAL reward hidden state.
-    These probes describe the supplied network, not validated behavioral effects.
+    Context-ANN sets context[chosen_arm] to each chosen value for consistency. Memory-ANN ignores
+    chosen_values and uses a fixed GLOBAL reward hidden state. These probes describe the supplied
+    network, not validated behavioral effects.
+
+    Args:
+        parameters (dict): Network parameters as built by ``initialize_parameters``: a dict of
+            float64 JAX arrays.
+        model (str): ``'rl_ann'``, ``'context_ann'`` or ``'memory_ann'``.
+        rewards (array-like): ``(n_rewards,)`` finite rewards to probe.
+        chosen_values (array-like): ``(n_values,)`` finite prior values of the chosen arm. Default
+            ``(0.,)``.
+        context (array-like | None): ``(num_arms,)`` context vector for ``'context_ann'``; None
+            means zeros. Default None.
+        reward_hidden (array-like | None): ``(hidden_units,)`` reward hidden state for
+            ``'memory_ann'``; None means zeros. Default None.
+        chosen_arm (int): Index of the chosen arm, used by ``'context_ann'``. Default 0.
+
+    Returns:
+        np.ndarray: ``(n_values, n_rewards)`` updated chosen-arm value for each prior value and
+            reward: decayed prior value plus the network output, or the network output alone for
+            ``'memory_ann'``.
+
+    Raises:
+        ValueError: If *model* is ``'vanilla_rnn'`` or unknown, *rewards* or *chosen_values* is not
+            finite and one-dimensional, *chosen_arm* is out of range, or *context* or
+            *reward_hidden* has the wrong length.
     """
     jax, jnp, _ = dependencies()
     if model not in NEURAL_MODELS[:3]:

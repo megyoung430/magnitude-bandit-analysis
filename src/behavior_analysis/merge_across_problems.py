@@ -26,10 +26,11 @@ def sum_count_dicts(dicts: list[dict]) -> dict:
     """Sum a list of count dicts into one, ensuring required keys exist.
 
     Args:
-        dicts: List of dicts mapping category names to numeric counts.
+        dicts (list[dict]): Dicts mapping category names to numeric counts. Non-dict entries
+            and ``None`` values are skipped.
 
     Returns:
-        A single dict with summed values across all input dicts.
+        dict: A single dict with summed values across all input dicts.
         Always contains keys ``"new_best"``, ``"third"``, and ``"total"``.
     """
     out: dict[str, Any] = {}
@@ -53,11 +54,16 @@ def normalize_subject_value(c: Any) -> dict | None:
     dicts.  This function collapses all forms into a single summed count dict.
 
     Args:
-        c: Raw subject value from ``get_first_leave_after_good_reversals``.
+        c (dict | list | tuple | None): Raw subject value from
+            ``get_first_leave_after_good_reversals``: a count dict, a list of count dicts, or a
+            nested list of count dicts.
 
     Returns:
-        A single count dict, or ``None`` if *c* is ``None`` or holds only empty
-        lists. Any other structure raises ``TypeError``.
+        dict | None: A single count dict, or ``None`` if *c* is ``None`` or holds only empty
+        lists.
+
+    Raises:
+        TypeError: If *c* has any other structure or a count is non-numeric.
     """
     if c is None:
         return None
@@ -84,10 +90,11 @@ def merge_first_leave_dicts(counts_by_problem: dict[Any, dict]) -> dict:
     """Merge per-problem first-leave count dicts into a single per-subject dict.
 
     Args:
-        counts_by_problem: ``{problem: {subject: count_dict_or_list}}``
+        counts_by_problem (dict): ``{problem: {subject: count_dict_or_list}}``; empty problems
+            are skipped.
 
     Returns:
-        ``{subject: summed_count_dict}`` with counts accumulated across all
+        dict: ``{subject: summed_count_dict}`` with counts accumulated across all
         problems.  Subjects whose value is ``None`` are skipped.
     """
     merged: dict[str, dict] = {}
@@ -119,10 +126,11 @@ def merge_windows_by_subject(windows_by_problem: dict[Any, dict]) -> dict:
     """Concatenate per-problem reversal windows into a single per-subject list.
 
     Args:
-        windows_by_problem: ``{problem: {subject: list[reversal_dict]}}``
+        windows_by_problem (dict): ``{problem: {subject: list[reversal_dict]}}``; ``None``
+            problems and empty lists are skipped.
 
     Returns:
-        ``{subject: list[reversal_dict]}`` with all reversals from all problems
+        dict: ``{subject: list[reversal_dict]}`` with all reversals from all problems
         concatenated together.
     """
     merged: dict[str, list] = {}

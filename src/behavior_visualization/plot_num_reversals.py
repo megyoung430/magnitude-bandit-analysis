@@ -45,7 +45,18 @@ THRESHOLD_STYLE = dict(color="#DCDCDC", linewidth=2, linestyle="--", alpha=0.7)
 def plot_reversal_totals(
     totals: pd.DataFrame, kinds: tuple[str, ...], ax: plt.Axes | None = None
 ) -> plt.Axes:
-    """Bar chart of total reversals per subject (rows of *totals*)."""
+    """Bar chart of total reversals per subject (rows of *totals*).
+
+    Args:
+        totals (pd.DataFrame): One row per subject, indexed by subject, with integer-valued
+            columns ``good`` and ``bad`` or ``total`` (as from ``reversal_totals_by_subject``).
+        kinds (tuple[str, ...]): ``("good", "bad")`` draws paired bars; anything else (normally
+            ``("total",)``) draws one bar per subject from the ``total`` column.
+        ax (plt.Axes | None): Axes to draw into; a new 10 x 5 inch figure if None. Default None.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+    """
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 5))
     x_pos = np.arange(len(totals))
@@ -88,10 +99,21 @@ def plot_reversal_curves_across_mice(
     """Faint per-mouse curves plus a bold across-mouse mean for each reversal kind.
 
     Args:
-        curves: ``{kind: {subject: values}}`` with kinds from ``KIND_COLORS``.
-        x_start: Session-axis value of the first point (0 or 1).
-        mean_styles: Optional ``{kind: (color, label)}`` overrides for the mean line.
-        threshold: Draw a dashed reference line at this y-value, if given.
+        curves (dict[str, dict[str, np.ndarray]]): ``{kind: {subject: values}}`` with kinds from
+            ``KIND_COLORS`` (``"good"``, ``"bad"``, ``"total"``); each ``values`` is a 1-D array
+            in session order. Every kind needs the subjects of the first kind.
+        ax (plt.Axes | None): Axes to draw into; a new 10 x 6 inch figure if None. Default None.
+        x_start (int): Session-axis value of the first point (0 or 1). Default 0.
+        individual_alpha (float): Opacity of the per-mouse lines. Default 0.4.
+        mean_styles (dict[str, tuple[str, str]] | None): Optional ``{kind: (color, label)}``
+            overrides for the mean line. Default None.
+        threshold (float | None): Draw a dashed reference line at this y-value, if given.
+            Default None.
+        ylabel (str): Y-axis label. Default ``""``.
+        title (str): Axes title. Default ``""``.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 6))
@@ -137,10 +159,21 @@ def plot_reversal_curves_for_mouse(
     """One mouse's reversal curves against its session labels.
 
     Args:
-        curves: ``{kind: values}`` in session order.
-        labels: Optional ``{kind: legend label}`` overrides.
-        show_labels: Give lines legend labels; turn off for all but one panel
-            of a grid so the shared legend lists each kind once.
+        curves (dict[str, np.ndarray]): ``{kind: values}`` with kinds from ``KIND_COLORS``, each
+            a 1-D array in session order.
+        session_labels (list[str]): X-tick labels, one per session; about ten are shown.
+        ax (plt.Axes | None): Axes to draw into; a new 6 x 3.5 inch figure if None. Default None.
+        labels (dict[str, str] | None): Optional ``{kind: legend label}`` overrides. Default
+            None.
+        threshold (float | None): Draw a dashed reference line at this y-value, if given.
+            Default None.
+        show_labels (bool): Give lines legend labels; turn off for all but one panel
+            of a grid so the shared legend lists each kind once. Default True.
+        ylabel (str): Y-axis label. Default ``""``.
+        title (str): Axes title. Default ``""``.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 3.5))
@@ -213,9 +246,15 @@ def plot_num_reversals(subjects_trials, save_path=None):
     """Bar chart of total good and bad (or total) reversals per subject.
 
     Args:
-        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
-        save_path: Base path (without extension) for ``.pdf`` and ``.png``
-            output. If ``None``, the figure is shown.
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        save_path (str | Path | None): Base path (without extension) for ``.pdf`` and ``.png``
+            output. If None or empty, the figure is shown. Default None.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If *subjects_trials* is empty.
     """
     _print_subject_totals(subjects_trials)
     totals = reversal_totals_by_subject(subjects_trials)
@@ -233,10 +272,14 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
     Shorter mice are carried forward at their final count in the mean.
 
     Args:
-        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
-        threshold: Dashed reference line (e.g. the criterion reversal count);
-            ``None`` for none.
-        save_path: Base path without extension; if ``None``, figures are shown.
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        threshold (float | None): Dashed reference line (e.g. the criterion reversal count);
+            None for none. Default 10.
+        save_path (str | Path | None): Base path without extension; if None or empty, figures
+            are shown. Default None.
+
+    Returns:
+        None
 
     Raises:
         ValueError: If there are no sessions, a session key lacks ``ses-<n>``,
@@ -286,11 +329,15 @@ def plot_moving_avg_reversals_over_time(
     per 100 trials (suffix ``(By Trial, <trial_window>-Trial Window)``).
 
     Args:
-        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
-        window: Width of the centered session moving average; it shrinks at
-            the ends of each mouse's history (default 3).
-        trial_window: Trailing trial window for the companion plots (default 100).
-        save_path: Base path without extension; if ``None``, figures are shown.
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        window (int): Width of the centered session moving average; it shrinks at
+            the ends of each mouse's history. Default 3.
+        trial_window (int): Trailing trial window for the companion plots. Default 100.
+        save_path (str | Path | None): Base path without extension; if None or empty, figures
+            are shown. Default None.
+
+    Returns:
+        None
 
     Raises:
         ValueError: As for :func:`plot_num_reversals_over_time`.

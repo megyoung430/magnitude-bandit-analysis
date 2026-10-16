@@ -45,6 +45,16 @@ class Curve:
     ``per_mouse`` is ``(n_mice, n_x)`` with NaN where a mouse has no trials at that x.
     ``se`` is NaN where fewer than two mice have a value. ``n_mice`` counts the mice with a
     value at each x and ``n_trials`` the trials of all mice there.
+
+    Attributes:
+        x (np.ndarray): The x values (best value, second value or their difference), shape
+            ``(n_x,)``.
+        mice (list[str]): Mouse ids, the rows of ``per_mouse``.
+        per_mouse (np.ndarray): Choice probability per mouse and x, shape ``(n_mice, n_x)``.
+        mean (np.ndarray): Mean across mice, shape ``(n_x,)``.
+        se (np.ndarray): Standard error across mice, shape ``(n_x,)``.
+        n_mice (np.ndarray): Mice with a value at each x, shape ``(n_x,)``.
+        n_trials (np.ndarray): Trials of all mice at each x, shape ``(n_x,)``.
     """
 
     x: np.ndarray
@@ -62,6 +72,18 @@ class HeatmapTables(NamedTuple):
     The ``p_*`` and ``n_trials`` tables are over all mice: the mean of the mice's cell
     probabilities (every mouse equal, empty cells ignored) and the summed trial counts; ``ties``
     totals the tied trials of all mice by category.
+
+    Attributes:
+        p_best (pd.DataFrame): Mean across mice of the probability of choosing the best arm;
+            index ``best_value`` (2, 3, 4), columns ``second_value`` (1, 2, 3).
+        p_second (pd.DataFrame): Same for the second-best arm.
+        n_trials (pd.DataFrame): Trials summed over mice, same grid.
+        per_mouse_p_best (dict[str, pd.DataFrame]): ``{mouse: grid}`` of best-arm probabilities.
+        per_mouse_p_second (dict[str, pd.DataFrame]): ``{mouse: grid}`` of second-arm
+            probabilities.
+        per_mouse_n (dict[str, pd.DataFrame]): ``{mouse: grid}`` of trial counts.
+        ties (dict[str, int]): Tied trials summed over mice for ``"best_second"``,
+            ``"second_third"`` and ``"all_three"``.
     """
 
     p_best: pd.DataFrame

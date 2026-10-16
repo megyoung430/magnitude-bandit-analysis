@@ -37,6 +37,14 @@ def subject_rank_proportions(
     Pooled, each rank's count is summed over rows and divided by the summed
     ``total`` (NaN if there are no trials); unpooled, it is the mean of the
     rows' ``*_prop`` values (NaN rows ignored).
+
+    Args:
+        rows (list[RankRow]): One subject's count dicts, one per block.
+        pool_trials_within_subject (bool): Pool trials over rows instead of averaging the
+            rows' proportions. Default False.
+
+    Returns:
+        Unit: ``{"best", "second", "third"}`` proportions.
     """
     if pool_trials_within_subject:
         total = sum(r.get("total", 0) for r in rows)
@@ -50,6 +58,12 @@ def standard_error(values: list[float]) -> float:
     """Standard error of the mean over the non-NaN *values*.
 
     With fewer than two non-NaN values it is NaN and a ``RuntimeWarning`` is emitted.
+
+    Args:
+        values (list[float]): Values to summarise; NaN entries are ignored.
+
+    Returns:
+        float: Standard error of the mean.
     """
     column = np.asarray(values, dtype=float)[:, None]
     if np.sum(~np.isnan(column)) < 2:
@@ -67,6 +81,13 @@ def mean_by_rank(units: list[Unit], *, guard_empty: bool) -> list[float]:
     With *guard_empty* an empty *units* gives NaN silently; without it numpy
     emits a ``RuntimeWarning``. Callers choose per figure: where the warning is
     the only sign that an across-mice SE is NaN, they leave the guard off.
+
+    Args:
+        units (list[Unit]): ``{rank: value}`` per mouse or block.
+        guard_empty (bool): Return NaNs silently for empty *units*.
+
+    Returns:
+        list[float]: Three means (NaN-skipping) in :data:`RANKS` order.
     """
     if guard_empty and not units:
         return [np.nan] * len(RANKS)
@@ -80,6 +101,13 @@ def se_by_rank(units: list[Unit], *, guard_single: bool) -> list[float]:
     silently; without it :func:`standard_error` emits a ``RuntimeWarning`` for that
     rank. Callers choose per figure, because the warning is the only sign that an
     across-mice SE is NaN.
+
+    Args:
+        units (list[Unit]): ``{rank: value}`` per mouse or block.
+        guard_single (bool): Return NaN silently for a rank with fewer than two non-NaN units.
+
+    Returns:
+        list[float]: Three standard errors in :data:`RANKS` order.
     """
     ses = []
     for rank in RANKS:
@@ -92,14 +120,32 @@ def se_by_rank(units: list[Unit], *, guard_single: bool) -> list[float]:
 
 
 def row_props(row: RankRow, *, strict: bool = False) -> list[float]:
-    """The three ``*_prop`` values of a count row; *strict* raises on a missing key."""
+    """The three ``*_prop`` values of a count row; *strict* raises on a missing key.
+
+    Args:
+        row (RankRow): A count dict with ``best_prop``, ``second_prop``, ``third_prop``.
+        strict (bool): Raise instead of returning NaN for a missing key. Default False.
+
+    Returns:
+        list[float]: The proportions in :data:`RANKS` order (NaN for missing keys unless *strict*).
+
+    Raises:
+        KeyError: If *strict* and a ``*_prop`` key is missing.
+    """
     if strict:
         return [row[f"{rank}_prop"] for rank in RANKS]
     return [row.get(f"{rank}_prop", np.nan) for rank in RANKS]
 
 
 def prop_units(rows: list[RankRow]) -> list[Unit]:
-    """One ``{rank: proportion}`` unit per count row."""
+    """One ``{rank: proportion}`` unit per count row.
+
+    Args:
+        rows (list[RankRow]): Count dicts, one per block.
+
+    Returns:
+        list[Unit]: One unit per row, in order; NaN for missing proportions.
+    """
     return [dict(zip(RANKS, row_props(row), strict=True)) for row in rows]
 
 
@@ -118,6 +164,14 @@ def pooled_standard_errors(rows: list[RankRow]) -> list[float]:
     weights and ``total`` counts eligible choices, so the indicator is not 0/1;
     ``p * (1 - p)`` is then an upper bound of its variance and the formula is only
     approximate.
+
+    Args:
+        rows (list[RankRow]): Count dicts (with ``best``, ``second``, ``third`` and ``total``
+            counts) whose trials are pooled.
+
+    Returns:
+        list[float]: Three standard errors in :data:`RANKS` order; all NaN with fewer than two
+        trials.
     """
     n = sum(r.get("total", 0) for r in rows)
     if n < 2:
@@ -134,6 +188,13 @@ def subject_rank_ses(
     Unpooled, the mean averages blocks, so this is the SE across the rows'
     ``*_prop`` values. Pooled, it averages trials, so this is the SE across trials
     (:func:`pooled_standard_errors`).
+
+    Args:
+        rows (list[RankRow]): One subject's count dicts, one per block.
+        pool_trials_within_subject (bool): Whether the mean pools trials. Default False.
+
+    Returns:
+        list[float]: Three standard errors in :data:`RANKS` order.
     """
     if pool_trials_within_subject:
         return pooled_standard_errors(rows)
@@ -143,7 +204,15 @@ def subject_rank_ses(
 def proportions_by_mouse(
     counts: RankCounts, *, pool_trials_within_subject: bool = False
 ) -> dict[Hashable, Unit]:
-    """``{subject: {rank: proportion}}`` for subjects that have any rows (all rows used)."""
+    """``{subject: {rank: proportion}}`` for subjects that have any rows (all rows used).
+
+    Args:
+        counts (RankCounts): ``{subject: list of count dicts, one per block}``.
+        pool_trials_within_subject (bool): As in :func:`subject_rank_proportions`. Default False.
+
+    Returns:
+        dict[Hashable, Unit]: One unit per subject with at least one row.
+    """
     return {
         subject: subject_rank_proportions(
             rows, pool_trials_within_subject=pool_trials_within_subject
@@ -154,7 +223,15 @@ def proportions_by_mouse(
 
 
 def rows_in_block(counts: RankCounts, block_idx: int) -> list[RankRow]:
-    """Each subject's row for *block_idx*, for the subjects that have that block."""
+    """Each subject's row for *block_idx*, for the subjects that have that block.
+
+    Args:
+        counts (RankCounts): ``{subject: list of count dicts, one per block}``.
+        block_idx (int): Zero-based block index.
+
+    Returns:
+        list[RankRow]: The count dicts at that index, one per subject that has it.
+    """
     return [rows[block_idx] for rows in counts.values() if block_idx < len(rows)]
 
 
@@ -162,6 +239,12 @@ def proportions_by_block(counts: RankCounts) -> list[Unit]:
     """One ``{rank: proportion}`` unit per block, averaged over the subjects that have it.
 
     Empty when there are no subjects or every subject has no rows.
+
+    Args:
+        counts (RankCounts): ``{subject: list of count dicts, one per block}``.
+
+    Returns:
+        list[Unit]: One ``{rank: mean proportion}`` per block index, in block order.
     """
     block_rows = (rows_in_block(counts, b) for b in range(n_blocks(counts)))
     return [
@@ -172,5 +255,12 @@ def proportions_by_block(counts: RankCounts) -> list[Unit]:
 
 
 def n_blocks(counts: RankCounts) -> int:
-    """The number of blocks of the longest subject (0 if there are no rows)."""
+    """The number of blocks of the longest subject (0 if there are no rows).
+
+    Args:
+        counts (RankCounts): ``{subject: list of count dicts, one per block}``.
+
+    Returns:
+        int: Length of the longest row list.
+    """
     return max((len(rows) for rows in counts.values()), default=0)

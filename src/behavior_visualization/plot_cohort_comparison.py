@@ -319,8 +319,24 @@ def plot_cohort_comparison(
     Rank proportions use the existing good-block quality filters and pool
     retained trials within mouse. No between-cohort significance test is implied.
 
+    Args:
+        cohorts (dict): ``{cohort_label: {problem: {mouse: {session_key: session_data}}}}``
+            with exactly two cohorts; each must contain every problem in *problems*.
+        subject_numbers (dict): ``{cohort_label: {mouse: int}}`` subject numbers, used to
+            group mice in the trial-count tables.
+        output_dir (str | Path): Directory for the figures and CSV tables; created if missing.
+        problems (Iterable[int]): Problems drawn, one row of panels each. Default ``(1, 2, 3)``.
+        trial_budget (int | None): Trial cap per mouse for the extra problem-2 comparison;
+            it is only made when 2 is in *problems* and this is not None. Default 510.
+        show (bool): Also display each figure after saving it. Default False.
+
     Returns:
-        The saved PNG and PDF paths, in figure order (PNG first for each figure).
+        list[Path]: The saved PNG and PDF paths, in figure order (PNG first for each
+        figure). The CSV tables are written too but not listed.
+
+    Raises:
+        ValueError: If *cohorts* does not hold exactly two cohorts, or a cohort lacks one of
+            *problems*.
 
     If drawing or saving raises, the files already written are kept and no figure is
     left open.

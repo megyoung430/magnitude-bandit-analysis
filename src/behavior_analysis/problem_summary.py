@@ -20,12 +20,14 @@ def compute_problem_length_summary(data: dict) -> dict:
     """Summarise the number of sessions to complete each problem per mouse.
 
     Args:
-        data: ``{mouse: [n_sessions_problem1, n_sessions_problem2, ...]}``
+        data (dict): ``{mouse: [n_sessions_problem1, n_sessions_problem2, ...]}``
             where mice may have different numbers of completed problems.
 
     Returns:
-        A summary dict with keys ``"blocks"``, ``"means"``, ``"ses"``,
-        ``"ns"``, ``"per_mouse_blocklens"``, and ``"mice"``.
+        dict: Summary with keys ``"blocks"`` (list[int], problem numbers ``1..max``),
+        ``"means"``, ``"ses"`` (list[float], across mice per problem), ``"ns"`` (list[int], mice
+        per problem), ``"per_mouse_blocklens"`` (``{mouse: {problem number: float}}``) and
+        ``"mice"`` (list[str], in input order).
     """
     mice = list(data.keys())
     max_problems = max((len(v) for v in data.values()), default=0)
@@ -94,14 +96,16 @@ def compute_problem_blocklen_summary(
     """Summarise mean block length per problem averaged across mice.
 
     Args:
-        problem_block_stats: ``{problem: {"block_stats": {...}}}`` as returned
+        problem_block_stats (dict): ``{problem: {"block_stats": {...}}}`` as returned
             by ``get_block_lengths()``.
-        drop_last_problem_per_mouse: If ``True``, each mouse's last (highest)
-            problem is excluded before averaging (default: ``False``).
+        drop_last_problem_per_mouse (bool): If ``True``, each mouse's last (highest)
+            problem is excluded before averaging. Default ``False``.
 
     Returns:
-        A summary dict with keys ``"blocks"``, ``"means"``, ``"ses"``,
-        ``"ns"``, ``"per_mouse_blocklens"``, and ``"mice"``.
+        dict: Summary with keys ``"blocks"`` (list of problems), ``"means"``, ``"ses"``,
+        ``"ns"`` (across mice per problem), ``"per_mouse_blocklens"``
+        (``{mouse: {problem: mean block length}}``) and ``"mice"`` (list[str]; mice left with no
+        problem are omitted).
     """
     problems = sorted(problem_block_stats.keys())
     mice = sorted(
@@ -131,10 +135,14 @@ def compute_avg_good_reversals_per_session(subjects_trials: dict) -> dict:
     """Compute each subject's average number of good reversals per session.
 
     Args:
-        subjects_trials: ``{subject: {session_key: trials}}``
+        subjects_trials (dict): ``{subject: {session_key: trials}}``
 
     Returns:
-        ``{subject: avg_good_reversals_per_session}``
+        dict[str, float]: ``{subject: avg_good_reversals_per_session}``, the mean of the
+        per-session ``good_reversals`` counts.
+
+    Raises:
+        ValueError: If a session key lacks ``ses-<n>``.
     """
 
     _ses_re = re.compile(r"ses-(\d+)")
@@ -166,11 +174,12 @@ def compute_suspect_good_reversals_per_session(subjects_trials: dict) -> dict:
     """Average suspect and uncheckable good reversals per session, beside the logged counts.
 
     Args:
-        subjects_trials: ``{subject: {session_key: trials}}``
+        subjects_trials (dict): ``{subject: {session_key: trials}}``
 
     Returns:
-        ``{subject: {"suspect": avg, "uncheckable": avg}}``, averaged over the subject's
-        sessions like :func:`compute_avg_good_reversals_per_session`, which stays as logged.
+        dict[str, dict[str, float]]: ``{subject: {"suspect": avg, "uncheckable": avg}}``,
+        averaged over the subject's sessions like
+        :func:`compute_avg_good_reversals_per_session`, which stays as logged.
         Sessions without good/bad counters count as 0.
     """
     per_subject = {}
@@ -191,13 +200,13 @@ def compute_problem_goodrev_summary(
     """Summarise average good reversals per session across mice and problems.
 
     Args:
-        problem_to_per_mouse_avg: ``{problem: {mouse: avg_good_reversals}}``
-        problem_to_per_mouse_suspect: Optional ``{problem: {mouse: {"suspect": avg,
+        problem_to_per_mouse_avg (dict): ``{problem: {mouse: avg_good_reversals}}``
+        problem_to_per_mouse_suspect (dict | None): Optional ``{problem: {mouse: {"suspect": avg,
             "uncheckable": avg}}}``, the per-problem results of
-            :func:`compute_suspect_good_reversals_per_session`.
+            :func:`compute_suspect_good_reversals_per_session`. Default ``None``.
 
     Returns:
-        A summary dict with keys ``"blocks"``, ``"means"``, ``"ses"``,
+        dict: A summary dict with keys ``"blocks"``, ``"means"``, ``"ses"``,
         ``"ns"``, ``"per_mouse_blocklens"``, and ``"mice"`` for the logged counts. With
         *problem_to_per_mouse_suspect* it also has ``"suspect"`` and ``"uncheckable"``, each
         a summary dict with the same keys for those counts.
@@ -247,10 +256,11 @@ def drop_last_problem_per_mouse(problem_to_per_mouse_avg: dict) -> dict:
     """Remove each mouse's last completed problem from a per-problem dict.
 
     Args:
-        problem_to_per_mouse_avg: ``{problem: {mouse: value}}``
+        problem_to_per_mouse_avg (dict): ``{problem: {mouse: value}}``
 
     Returns:
-        A new dict with the highest-numbered problem per mouse removed.
+        dict: A new ``{problem: {mouse: value}}`` with the highest-numbered problem per mouse
+        removed; problems left with no mouse are omitted.
     """
     last_problem: dict = {}
     for p, d in problem_to_per_mouse_avg.items():

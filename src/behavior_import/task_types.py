@@ -27,7 +27,19 @@ MAP_COLUMNS = ("mouse", "task_type", "problem_in_type", "overall_problem", "sess
 
 
 def session_task_type(subject: str, session_key: str, session: dict) -> str:
-    """:func:`classify_task_name` of one session; errors name the subject, session and file."""
+    """:func:`classify_task_name` of one session; errors name the subject, session and file.
+
+    Args:
+        subject (str): Subject id, named in the error message.
+        session_key (str): Session key, named in the error message.
+        session (dict): Session dict carrying the importer's ``"task_name"``.
+
+    Returns:
+        str: ``"blocked"`` or ``"drifting"``.
+
+    Raises:
+        ValueError: If the task name is missing, unrecognised or matches both types.
+    """
     return _classify(
         subject,
         session_key,
@@ -55,8 +67,12 @@ def number_within_task_type(subjects_trials_by_problem: dict) -> dict:
     ``("blocked", 1)``, the second ``("blocked", 2)``, and likewise for drifting.
 
     Args:
-        subjects_trials_by_problem: ``{problem: {subject: {session_key: session_dict}}}``,
+        subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``,
             every session carrying the importer's ``"task_name"``.
+
+    Returns:
+        dict[tuple[str, int], tuple[str, int]]: ``{(subject, overall_problem): (task_type, k)}``
+        with ``task_type`` ``"blocked"`` or ``"drifting"`` and ``k`` counting from 1.
 
     Raises:
         ValueError: If a session's task name is not recognised, or one problem of a mouse has
@@ -80,9 +96,15 @@ def regroup_by_task_type(subjects_trials_by_problem: dict, numbering: dict | Non
     mouse's overall problem number. Keys are sorted: blocked before drifting, then by ``k``.
 
     Args:
-        subjects_trials_by_problem: ``{problem: {subject: {session_key: session_dict}}}``.
-        numbering: The result of :func:`number_within_task_type` of the same data, to avoid
-            computing it again (default: compute it).
+        subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``.
+        numbering (dict | None): The result of :func:`number_within_task_type` of the same
+            data, to avoid computing it again. Default ``None``: compute it.
+
+    Returns:
+        dict[tuple[str, int], dict]: ``{(task_type, k): {subject: {session_key: session_dict}}}``.
+
+    Raises:
+        ValueError: As :func:`number_within_task_type`, when *numbering* is not given.
     """
     if numbering is None:
         numbering = number_within_task_type(subjects_trials_by_problem)
@@ -100,6 +122,16 @@ def problem_map_table(
 
     Columns are :data:`MAP_COLUMNS`; ``sessions`` lists the session keys in session order,
     separated by ``;``. *numbering* is as for :func:`regroup_by_task_type`.
+
+    Args:
+        subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``.
+        numbering (dict | None): The result of :func:`number_within_task_type` of the same
+            data. Default ``None``: compute it.
+
+    Returns:
+        pd.DataFrame: One row per mouse and problem, sorted by ``mouse`` then
+        ``overall_problem``; columns ``mouse`` (str), ``task_type`` (str), ``problem_in_type``
+        (int), ``overall_problem`` (int) and ``sessions`` (str, ``;``-separated keys).
     """
     if numbering is None:
         numbering = number_within_task_type(subjects_trials_by_problem)

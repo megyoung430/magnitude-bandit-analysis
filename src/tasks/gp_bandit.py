@@ -61,19 +61,24 @@ def sample_two_gp_bandits(
     """Sample two GP-driven reward streams of length *T*.
 
     Args:
-        T: Number of time steps.
-        sig: GP length-scale parameter (controls temporal smoothness).
-        scale: Amplitude scaling of the GP samples (default: 2.0).
-        shift: Mean shift applied to GP samples (default: 2.5).
-        clip: ``(min, max)`` clipping range for integer reward values
-            (default: ``(1, 5)``).
-        jitter: Small diagonal regularisation added to the GP kernel for
-            numerical stability (default: 1e-6).
-        rng: Optional NumPy random generator.  Created fresh if not provided.
+        T (int): Number of time steps.
+        sig (float): GP length-scale parameter (controls temporal smoothness).
+        scale (float): Amplitude scaling of the GP samples. Default 2.0.
+        shift (float): Mean shift applied to GP samples. Default 2.5.
+        clip (tuple[int, int]): ``(min, max)`` clipping range for integer reward values. Default
+            ``(1, 5)``.
+        jitter (float): Small diagonal regularisation added to the GP kernel for numerical
+            stability. Default 1e-6.
+        rng (np.random.Generator | None): Random generator; None creates a fresh unseeded one.
+            Default None.
 
     Returns:
-        ``(gp_int, gp_raw)`` — integer (clipped) and continuous (raw) reward
-        arrays of shape ``(T, 2)``.
+        tuple[np.ndarray, np.ndarray]: ``(gp_int, gp_raw)``: integer (rounded and clipped) and
+            continuous (raw) reward arrays, each of shape ``(T, 2)``.
+
+    Raises:
+        numpy.linalg.LinAlgError: If the kernel is not positive definite (for example *jitter* too
+            small for a large *sig*).
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -95,7 +100,15 @@ def sample_two_gp_bandits(
 
 
 def check_min_block_len(min_block_len: int, max_block_len: int) -> None:
-    """Raise ``ValueError`` unless ``1 <= min_block_len <= max_block_len``."""
+    """Raise ``ValueError`` unless ``1 <= min_block_len <= max_block_len``.
+
+    Args:
+        min_block_len (int): Shortest block length, in trials.
+        max_block_len (int): Longest block length, in trials.
+
+    Raises:
+        ValueError: If *min_block_len* is below 1 or above *max_block_len*.
+    """
     if min_block_len < 1:
         raise ValueError(
             f"min_block_len must be >= 1, got {min_block_len} "
@@ -110,6 +123,12 @@ def check_finite(**values) -> None:
     """Raise ``ValueError`` if any named number (or sequence of numbers) is not finite.
 
     Non-finite rewards make the gap metrics ``nan`` without any other symptom.
+
+    Args:
+        **values: Named numbers or sequences to check; the keyword is used in the error message.
+
+    Raises:
+        ValueError: If any value contains NaN or infinity.
     """
     for name, value in values.items():
         if not np.all(np.isfinite(np.asarray(value, dtype=float))):
@@ -119,8 +138,14 @@ def check_finite(**values) -> None:
 def check_sweep_max_block_lens(max_block_lens: np.ndarray) -> None:
     """Raise ``ValueError`` if a sweep row would get a minimum block length below 1.
 
-    A sweep derives ``min_block_len = max_block_len - 10`` for every row, so each
-    entry of *max_block_lens* must exceed 10.
+    A sweep derives ``min_block_len = max_block_len - 10`` for every row, so each entry of
+    *max_block_lens* must exceed 10.
+
+    Args:
+        max_block_lens (np.ndarray): Maximum block lengths to be swept.
+
+    Raises:
+        ValueError: If any entry is 10 or less.
     """
     too_short = [int(m) for m in max_block_lens if int(m) <= 10]
     if too_short:
@@ -140,12 +165,23 @@ def draw_block_boundaries(
 ) -> np.ndarray:
     """Trial indices at which blocks end, drawn from random block lengths.
 
-    Block lengths are uniform on ``[min_block_len, max_block_len]``; boundaries at
-    or beyond *T* are dropped. *min_block_len* must be at least 1 so the boundaries
-    are strictly increasing (:func:`simulate_3armed_blockswaps_gp` checks this).
+    Block lengths are uniform on ``[min_block_len, max_block_len]``; boundaries at or beyond *T* are
+    dropped. *min_block_len* must be at least 1 so the boundaries are strictly increasing
+    (:func:`simulate_3armed_blockswaps_gp` checks this).
 
-    All *n_blocks_draw* lengths come from one ``rng.integers`` call, so the
-    generator advances identically however many boundaries survive.
+    All *n_blocks_draw* lengths come from one ``rng.integers`` call, so the generator advances
+    identically however many boundaries survive.
+
+    Args:
+        rng (np.random.Generator): Random generator.
+        T (int): Session length in trials (keyword-only).
+        min_block_len (int): Shortest block, in trials (keyword-only).
+        max_block_len (int): Longest block, in trials (keyword-only).
+        n_blocks_draw (int): Number of block lengths to draw (keyword-only).
+
+    Returns:
+        np.ndarray: 1-D int array of cumulative block ends below *T*; entry ``b`` means a swap
+            follows trial ``b - 1`` (0-based).
     """
     block_lengths = rng.integers(min_block_len, max_block_len + 1, size=n_blocks_draw)
     boundaries = np.cumsum(block_lengths)
@@ -153,7 +189,15 @@ def draw_block_boundaries(
 
 
 def remaining_active_arm(best_arm: int, *, active_arms: list[int]) -> int:
-    """First active arm that is not *best_arm*; it stays active across the swap."""
+    """First active arm that is not *best_arm*; it stays active across the swap.
+
+    Args:
+        best_arm (int): Index of the arm that becomes inactive.
+        active_arms (list[int]): Indices of the two currently active arms (keyword-only).
+
+    Returns:
+        int: The active arm other than *best_arm*.
+    """
     return next(a for a in active_arms if a != best_arm)
 
 
@@ -165,16 +209,23 @@ def swap_arm_roles(
 ) -> tuple[int, list[int], dict[int, int]]:
     """Arm roles after a block boundary.
 
-    The active arm that is best in *row* becomes inactive. The previously
-    inactive arm takes over the best arm's stream, and the first remaining active
-    arm keeps its own stream.
+    The active arm that is best in *row* becomes inactive. The previously inactive arm takes over
+    the best arm's stream, and the first remaining active arm keeps its own stream.
 
-    Only active arms compete: the inactive arm pays 0, which would beat negative
-    active values and leave two arms sharing a stream. Ties go to the lowest arm
-    index, whatever the order of *active_arms*.
+    Only active arms compete: the inactive arm pays 0, which would beat negative active values and
+    leave two arms sharing a stream. Ties go to the lowest arm index, whatever the order of
+    *active_arms*.
+
+    Args:
+        row (np.ndarray): ``(3,)`` reward of each arm on the last trial of the block.
+        inactive_arm (int): Index of the currently inactive arm.
+        active_arms (list[int]): Indices of the two currently active arms.
+        arm_to_stream (dict[int, int]): For each active arm, the column of the reward streams it
+            reads.
 
     Returns:
-        ``(inactive_arm, active_arms, arm_to_stream)`` for the next block.
+        tuple[int, list[int], dict[int, int]]: ``(inactive_arm, active_arms, arm_to_stream)`` for
+            the next block.
     """
     best_arm = max(sorted(active_arms), key=row.__getitem__)
     other_active = remaining_active_arm(best_arm, active_arms=active_arms)
@@ -188,16 +239,23 @@ def swap_arm_roles(
 def build_arm_roles(streams: np.ndarray, boundaries: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Per-trial reward of the three arms and the inactive arm of each trial.
 
-    Two arms are active and read the two *streams*; the third is inactive and
-    pays zero. At each boundary the best active arm turns inactive (see
-    :func:`swap_arm_roles`), so only the roles change, not the streams.
+    Two arms are active and read the two *streams*; the third is inactive and pays zero. At each
+    boundary the best active arm turns inactive (see :func:`swap_arm_roles`), so only the roles
+    change, not the streams.
 
-    *boundaries* come from :func:`draw_block_boundaries`: strictly increasing and
-    inside ``[1, len(streams))``. Repeated boundaries, boundaries below 1 and
-    boundaries at or beyond ``len(streams)`` are ignored for direct callers.
+    *boundaries* come from :func:`draw_block_boundaries`: strictly increasing and inside ``[1,
+    len(streams))``. Repeated boundaries, boundaries below 1 and boundaries at or beyond
+    ``len(streams)`` are ignored for direct callers.
+
+    Args:
+        streams (np.ndarray): ``(T, 2)`` rewards of the two reward streams.
+        boundaries (np.ndarray): 1-D int array of trial indices, as from ``draw_block_boundaries``:
+            ``b`` means the block ends before trial ``b`` (0-based), so a swap follows trial ``b -
+            1``.
 
     Returns:
-        ``(vals3, inactive_arms)`` of shapes ``(T, 3)`` and ``(T,)``.
+        tuple[np.ndarray, np.ndarray]: ``(vals3, inactive_arms)`` of shapes ``(T, 3)`` (float
+            rewards) and ``(T,)`` (int index of the inactive arm).
     """
     T = len(streams)
     vals3 = np.zeros((T, 3), dtype=float)
@@ -219,15 +277,32 @@ def build_arm_roles(streams: np.ndarray, boundaries: np.ndarray) -> tuple[np.nda
 
 
 def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
-    """Per-trial reward of the three arms, shape ``(T, 3)``; see :func:`build_arm_roles`."""
+    """Per-trial reward of the three arms, shape ``(T, 3)``; see :func:`build_arm_roles`.
+
+    Args:
+        streams (np.ndarray): ``(T, 2)`` rewards of the two reward streams.
+        boundaries (np.ndarray): 1-D int array of trial indices, as from ``draw_block_boundaries``:
+            ``b`` means the block ends before trial ``b`` (0-based), so a swap follows trial ``b -
+            1``.
+
+    Returns:
+        np.ndarray: ``(T, 3)`` float reward of each arm per trial.
+    """
     return build_arm_roles(streams, boundaries)[0]
 
 
 def active_arm_values(vals3: np.ndarray, inactive_arms: np.ndarray) -> np.ndarray:
     """Copy of *vals3* with each trial's inactive arm set to ``-inf``.
 
-    The inactive arm pays 0 whatever the active values are, so it must not compete
-    for best or second-best when active values are zero or negative.
+    The inactive arm pays 0 whatever the active values are, so it must not compete for best or
+    second-best when active values are zero or negative.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial.
+        inactive_arms (np.ndarray): ``(T,)`` int index of the inactive arm on each trial.
+
+    Returns:
+        np.ndarray: ``(T, 3)`` float copy of *vals3* with ``-inf`` at each trial's inactive arm.
     """
     masked = vals3.copy()
     masked[np.arange(len(vals3)), inactive_arms] = -np.inf
@@ -235,13 +310,28 @@ def active_arm_values(vals3: np.ndarray, inactive_arms: np.ndarray) -> np.ndarra
 
 
 def gap_best_minus_second(vals3: np.ndarray) -> np.ndarray:
-    """Per-trial value of the best arm minus the second-best arm."""
+    """Per-trial value of the best arm minus the second-best arm.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial; use ``active_arm_values``
+            output so the inactive arm is excluded.
+
+    Returns:
+        np.ndarray: ``(T,)`` gap on each trial.
+    """
     sorted_vals = np.sort(vals3, axis=1)
     return sorted_vals[:, -1] - sorted_vals[:, -2]
 
 
 def best_run_lengths(best_arm_series: np.ndarray) -> np.ndarray:
-    """Lengths of consecutive stretches in which the same arm is best."""
+    """Lengths of consecutive stretches in which the same arm is best.
+
+    Args:
+        best_arm_series (np.ndarray): ``(T,)`` int index of the best arm on each trial.
+
+    Returns:
+        np.ndarray: ``(n_runs,)`` float run lengths in trials; they sum to ``T``.
+    """
     changes = np.where(best_arm_series[1:] != best_arm_series[:-1])[0] + 1
     return np.diff(np.r_[0, changes, len(best_arm_series)]).astype(float)
 
@@ -251,9 +341,15 @@ def session_metrics(
 ) -> tuple[float, float, float, float]:
     """Summary of a session.
 
+    Args:
+        best_minus_second (np.ndarray): ``(T,)`` per-trial gap between the best and second-best arm
+            (keyword-only).
+        best_arm_series (np.ndarray): ``(T,)`` int index of the best arm on each trial
+            (keyword-only).
+
     Returns:
-        ``(mean gap, fraction of trials with gap >= 2, mean best-run length,
-        std of best-run length)``.
+        tuple[float, float, float, float]: ``(mean gap, fraction of trials with gap >= 2, mean
+            best-run length, std of best-run length)``.
     """
     run_lengths = best_run_lengths(best_arm_series)
     return (
@@ -273,7 +369,24 @@ def build_session(
     gp_int: np.ndarray,
     gp_raw: np.ndarray,
 ) -> dict:
-    """Session dict returned by :func:`simulate_3armed_blockswaps_gp`."""
+    """Session dict returned by :func:`simulate_3armed_blockswaps_gp`.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial.
+        boundaries (np.ndarray): 1-D int array of trial indices, as from ``draw_block_boundaries``:
+            ``b`` means the block ends before trial ``b`` (0-based), so a swap follows trial ``b -
+            1``.
+        best_arm_series (np.ndarray): ``(T,)`` int index of the best active arm on each trial
+            (keyword-only).
+        best_minus_second (np.ndarray): ``(T,)`` gap between the best and second-best active arm
+            (keyword-only).
+        gp_int (np.ndarray): ``(T, 2)`` integer GP reward streams (keyword-only).
+        gp_raw (np.ndarray): ``(T, 2)`` continuous GP reward streams (keyword-only).
+
+    Returns:
+        dict: The arguments gathered under the keys ``vals3``, ``boundaries``, ``best_arm_series``,
+            ``best_minus_second``, ``gp_int`` and ``gp_raw``.
+    """
     return {
         "vals3": vals3,
         "boundaries": boundaries,
@@ -300,31 +413,38 @@ def simulate_3armed_blockswaps_gp(
 ) -> tuple[float, float, float, float] | tuple[float, float, float, float, dict]:
     """Simulate a 3-armed GP bandit session with block-swap dynamics.
 
-    Two arms are active at any time; at each block boundary the current best
-    arm becomes inactive and a previously inactive arm re-enters.
+    Two arms are active at any time; at each block boundary the current best arm becomes inactive
+    and a previously inactive arm re-enters.
 
     Args:
-        T: Session length in trials.
-        sig: GP length-scale.
-        max_block_len: Maximum block length in trials.
-        min_block_len: Minimum block length (defaults to
-            ``max_block_len - 10``). A value below 1 (including a
-            default derived from ``max_block_len <= 10``) raises ``ValueError``.
-        n_blocks_draw: Number of block lengths to pre-sample (default: 1000).
-        rng: Optional random generator.
-        scale: GP amplitude scaling (default: 2.0).
-        shift: GP mean shift (default: 2.5).
-        clip: Integer clipping range (default: ``(1, 5)``).
-        jitter: GP kernel jitter (default: 1e-6).
-        use_raw: If ``True``, use continuous GP values instead of integers
-            for metric computation (default: False).
-        return_session: If ``True``, also return a session dict with
-            ``vals3``, ``boundaries``, etc. (default: False).
+        T (int): Session length in trials.
+        sig (float): GP length-scale.
+        max_block_len (int): Maximum block length in trials.
+        min_block_len (int | None): Minimum block length (defaults to ``max_block_len - 10``). A
+            value below 1 (including a default derived from ``max_block_len <= 10``) raises
+            ``ValueError``.
+        n_blocks_draw (int): Number of block lengths to pre-sample. Default 1000.
+        rng (np.random.Generator | None): Random generator; None creates a fresh unseeded one.
+            Default None.
+        scale (float): GP amplitude scaling. Default 2.0.
+        shift (float): GP mean shift. Default 2.5.
+        clip (tuple[int, int]): Integer clipping range. Default ``(1, 5)``.
+        jitter (float): GP kernel jitter. Default 1e-6.
+        use_raw (bool): If True, use continuous GP values instead of integers for metric
+            computation. Default False.
+        return_session (bool): If True, also return a session dict. Default False.
 
     Returns:
-        ``(mean_best_minus_second, frac_gap_ge2, mean_best_run_length,
-        std_best_run_length)`` and optionally a *session* dict when
-        *return_session* is ``True``.
+        tuple[float, float, float, float] | tuple[float, float, float, float, dict]:
+            ``(mean_best_minus_second, frac_gap_ge2, mean_best_run_length, std_best_run_length)``,
+            followed by a *session* dict when *return_session* is True. The dict has keys ``vals3``
+            (``(T, 3)`` arm rewards), ``boundaries``, ``best_arm_series`` (``(T,)``),
+            ``best_minus_second`` (``(T,)``), ``gp_int`` and ``gp_raw`` (``(T, 2)`` each). The
+            metrics compare the two active arms only.
+
+    Raises:
+        ValueError: If the minimum block length is below 1 or above *max_block_len*, or *sig*,
+            *scale*, *shift* or *jitter* is not finite.
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -374,16 +494,21 @@ def simulate_3armed_blockswaps_gp(
 def mean_left_to_right(values: Iterable[float], *, count: int | None = None) -> float:
     """Mean of *values*, added one at a time in order.
 
-    Python's built-in ``sum`` compensates rounding error from version 3.12 on,
-    which would change the last bit of a heatmap cell between interpreters.
-    Plain left-to-right addition gives the same result everywhere.
+    Python's built-in ``sum`` compensates rounding error from version 3.12 on, which would change
+    the last bit of a heatmap cell between interpreters. Plain left-to-right addition gives the same
+    result everywhere.
 
     Args:
-        values: Numbers to average.
-        count: Divisor; defaults to the number of *values*. When given, it is
-            the divisor whatever the number of *values*: 0 raises
-            ``ZeroDivisionError`` and a negative value gives -0.0 for an empty
-            input.
+        values (Iterable[float]): Numbers to average.
+        count (int | None): Divisor; defaults to the number of *values*. When given, it is the
+            divisor whatever the number of *values*: 0 raises ``ZeroDivisionError`` and a negative
+            value gives -0.0 for an empty input. Keyword-only. Default None.
+
+    Returns:
+        float: The sum of *values* divided by the divisor.
+
+    Raises:
+        ZeroDivisionError: If the divisor is 0.
     """
     values = list(values)
     return reduce(operator.add, values, 0.0) / (len(values) if count is None else count)
@@ -393,12 +518,17 @@ def summarize_sweep_cell(results: list[tuple], *, n_sims: int) -> tuple[float, f
     """Average the simulations of one (max_block_len, sig) cell.
 
     Args:
-        results: One :func:`simulate_3armed_blockswaps_gp` return per simulation.
-        n_sims: Number of simulations requested for the cell. It is the divisor:
-            0 raises ``ZeroDivisionError`` and a negative value gives -0.0.
+        results (list[tuple]): One :func:`simulate_3armed_blockswaps_gp` return per simulation (only
+            the first four entries are used).
+        n_sims (int): Number of simulations requested for the cell. It is the divisor: 0 raises
+            ``ZeroDivisionError`` and a negative value gives -0.0 (keyword-only).
 
     Returns:
-        ``(gap_mean, gap_ge2, run_mean, run_std)``.
+        tuple[float, float, float, float]: ``(gap_mean, gap_ge2, run_mean, run_std)``, each averaged
+            over the simulations.
+
+    Raises:
+        ZeroDivisionError: If *n_sims* is 0.
     """
     gap_mean, gap_ge2, run_mean, run_std = (
         mean_left_to_right((r[k] for r in results), count=n_sims) for k in range(4)
@@ -420,21 +550,29 @@ def sweep_gp_metrics(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Sweep over GP parameter combinations and compute summary metrics.
 
+    Every cell uses ``min_block_len = max_block_len - 10`` and shares one random generator, drawn in
+    row-major cell order, so cells are not independent. Progress is printed for each cell.
+
     Args:
-        sig_values: Array of GP length-scale values to sweep.
-        max_block_lens: Array of maximum block lengths to sweep.
-        T: Session length (default: 150).
-        n_sims: Number of simulations per parameter combination (default: 1000).
-        seed: Random seed (default: 0).
-        scale: GP amplitude (default: 2.0).
-        shift: GP mean shift (default: 2.5).
-        clip: Integer reward range (default: ``(1, 5)``).
-        jitter: GP kernel jitter (default: 1e-6).
-        use_raw: Use continuous GP values (default: False).
+        sig_values (np.ndarray): GP length-scale values to sweep (columns). Default
+            ``DEFAULT_SIG_VALUES``.
+        max_block_lens (np.ndarray): Maximum block lengths to sweep (rows); each must exceed 10.
+            Default ``DEFAULT_MAX_BLOCK_LENS``.
+        T (int): Session length. Default 150.
+        n_sims (int): Number of simulations per parameter combination. Default 1000.
+        seed (int): Random seed. Default 0.
+        scale (float): GP amplitude. Default 2.0.
+        shift (float): GP mean shift. Default 2.5.
+        clip (tuple[int, int]): Integer reward range. Default ``(1, 5)``.
+        jitter (float): GP kernel jitter. Default 1e-6.
+        use_raw (bool): Use continuous GP values. Default False.
 
     Returns:
-        Four 2-D arrays ``(H_gap_mean, H_gap_ge2, H_run_mean, H_run_std)``
-        of shape ``(len(max_block_lens), len(sig_values))``.
+        tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Four 2-D arrays ``(H_gap_mean,
+            H_gap_ge2, H_run_mean, H_run_std)`` of shape ``(len(max_block_lens), len(sig_values))``.
+
+    Raises:
+        ValueError: If any entry of *max_block_lens* is 10 or less.
     """
     check_sweep_max_block_lens(max_block_lens)
     rng = np.random.default_rng(seed)
@@ -480,11 +618,14 @@ def plot_gp_heatmaps_pair_1(
 ) -> None:
     """Plot heatmaps of gap-metric sweeps for the GP bandit.
 
+    Draws a new two-panel figure and shows it.
+
     Args:
-        H_gap_mean: Mean (best − second-best) heatmap.
-        H_gap_ge2: Fraction of trials with gap ≥ 2 heatmap.
-        sig_values: GP length-scale values used in the sweep.
-        max_block_lens: Maximum block-length values used in the sweep.
+        H_gap_mean (np.ndarray): Mean (best - second-best) heatmap, shape ``(len(max_block_lens),
+            len(sig_values))``.
+        H_gap_ge2 (np.ndarray): Fraction of trials with gap >= 2 heatmap, same shape.
+        sig_values (np.ndarray): GP length-scale values used in the sweep (x axis).
+        max_block_lens (np.ndarray): Maximum block-length values used in the sweep (y axis).
     """
     extent = [sig_values[0], sig_values[-1], max_block_lens[0], max_block_lens[-1]]
     fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
@@ -512,11 +653,14 @@ def plot_gp_heatmaps_pair_2(
 ) -> None:
     """Plot heatmaps of run-length-metric sweeps for the GP bandit.
 
+    Draws a new two-panel figure and shows it.
+
     Args:
-        H_run_mean: Mean best-run length heatmap.
-        H_run_std: Std dev of best-run length heatmap.
-        sig_values: GP length-scale values.
-        max_block_lens: Maximum block-length values.
+        H_run_mean (np.ndarray): Mean best-run length heatmap, shape ``(len(max_block_lens),
+            len(sig_values))``.
+        H_run_std (np.ndarray): Std dev of best-run length heatmap, same shape.
+        sig_values (np.ndarray): GP length-scale values (x axis).
+        max_block_lens (np.ndarray): Maximum block-length values (y axis).
     """
     extent = [sig_values[0], sig_values[-1], max_block_lens[0], max_block_lens[-1]]
     fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
@@ -550,9 +694,24 @@ def simulate_example_session(
 ) -> tuple[tuple[float, float, float, float], dict]:
     """Simulate one seeded session.
 
+    All arguments are keyword-only. The block lengths are ``max_block_len - 10`` to
+    ``max_block_len``.
+
+    Args:
+        sig (float): GP length-scale.
+        max_block_len (int): Maximum block length in trials.
+        T (int): Session length in trials.
+        seed (int): Seed of the random generator.
+        scale (float): GP amplitude scaling.
+        shift (float): GP mean shift.
+        clip (tuple[int, int]): Integer clipping range.
+        jitter (float): GP kernel jitter.
+        use_raw (bool): Use continuous GP values for the metrics.
+
     Returns:
-        ``((gap_mean, gap_ge2, run_mean, run_std), session)`` as returned by
-        :func:`simulate_3armed_blockswaps_gp` with ``return_session=True``.
+        tuple[tuple[float, float, float, float], dict]: ``((gap_mean, gap_ge2, run_mean, run_std),
+            session)`` as returned by :func:`simulate_3armed_blockswaps_gp` with
+            ``return_session=True``.
     """
     # The generator comes first so an invalid seed is reported before an invalid
     # sig or max_block_len.
@@ -580,7 +739,18 @@ def format_session_title(
     max_block_len: int,
     title: str | None = None,
 ) -> str:
-    """*title* if given, otherwise a summary of the parameters and session metrics."""
+    """*title* if given, otherwise a summary of the parameters and session metrics.
+
+    Args:
+        metrics (tuple[float, float, float, float]): ``(gap_mean, gap_ge2, run_mean, run_std)`` of
+            the session.
+        sig (float): GP length-scale (keyword-only).
+        max_block_len (int): Maximum block length (keyword-only).
+        title (str | None): Custom title that replaces the summary. Default None.
+
+    Returns:
+        str: The title text.
+    """
     gap_mean, gap_ge2, run_mean, run_std = metrics
     return title or (
         f"Example GP session | sig={sig:.2f}, max_block_len={max_block_len} "
@@ -592,8 +762,15 @@ def format_session_title(
 def y_axis_max(vals3: np.ndarray, *, clip: tuple[int, int], use_raw: bool) -> float | int:
     """Largest reward the y-axis must show: the clip maximum, or the data maximum if raw.
 
-    The clip maximum keeps its type (an ``int`` for the default clip); the data
-    maximum is a float.
+    The clip maximum keeps its type (an ``int`` for the default clip); the data maximum is a float.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial.
+        clip (tuple[int, int]): Integer clipping range (keyword-only).
+        use_raw (bool): Whether the rewards are continuous GP values (keyword-only).
+
+    Returns:
+        float | int: ``np.nanmax(vals3)`` if *use_raw*, else ``max(clip)``.
     """
     return np.nanmax(vals3) if use_raw else max(clip)
 
@@ -609,20 +786,22 @@ def plot_session_panel(
 ) -> plt.Axes:
     """Draw the three arms' rewards over trials, with block boundaries and choices.
 
-    The y-label is "Reward Magnitude"; a caller plotting latent values relabels it.
-    The caller sets the title, so the panel can sit in a larger figure. A caller
-    that must set the title first passes ``legend=False`` and adds the legend itself.
+    The y-label is "Reward Magnitude"; a caller plotting latent values relabels it. The caller sets
+    the title, so the panel can sit in a larger figure. A caller that must set the title first
+    passes ``legend=False`` and adds the legend itself.
 
     Args:
-        vals3: ``(T, 3)`` reward of each arm per trial.
-        boundaries: Trial indices where blocks end.
-        y_max: Largest reward value; sets the y-limit.
-        choices: Optional ``(T,)`` int array of chosen arm indices (0–2).
-        ax: Axes to draw into; a new figure is created if ``None``.
-        legend: Add the legend (default: True).
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial.
+        boundaries (np.ndarray): 1-D array of trial indices where blocks end (a dashed line is drawn
+            before each).
+        y_max (float): Largest reward value; sets the y-limit (keyword-only).
+        choices (np.ndarray | None): ``(T,)`` int array of chosen arm indices (0-2), drawn as black
+            dots; None draws none. Default None.
+        ax (plt.Axes | None): Axes to draw into; a new figure is created if None. Default None.
+        legend (bool): Add the legend. Default True.
 
     Returns:
-        The axes drawn into.
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
@@ -668,21 +847,26 @@ def plot_example_session_gp(
 ) -> dict:
     """Plot a single example GP bandit session.
 
+    Simulates the session, draws it in a new figure and shows it.
+
     Args:
-        sig: GP length-scale.
-        max_block_len: Maximum block length.
-        T: Session length (default: 150).
-        seed: Random seed (default: 0).
-        scale: GP amplitude (default: 2.0).
-        shift: GP mean shift (default: 2.5).
-        clip: Integer reward range (default: ``(1, 5)``).
-        jitter: GP kernel jitter (default: 1e-6).
-        use_raw: Plot continuous GP values (default: False).
-        choices: Optional ``(T,)`` int array of chosen arm indices (0–2).
-        title: Custom figure title.
+        sig (float): GP length-scale.
+        max_block_len (int): Maximum block length.
+        T (int): Session length. Default 150.
+        seed (int): Random seed. Default 0.
+        scale (float): GP amplitude. Default 2.0.
+        shift (float): GP mean shift. Default 2.5.
+        clip (tuple[int, int]): Integer reward range. Default ``(1, 5)``.
+        jitter (float): GP kernel jitter. Default 1e-6.
+        use_raw (bool): Plot continuous GP values. Default False.
+        choices (np.ndarray | None): ``(T,)`` int array of chosen arm indices (0-2) to overlay.
+            Default None.
+        title (str | None): Custom figure title; None builds one from the parameters and metrics.
+            Default None.
 
     Returns:
-        The session dict from :func:`simulate_3armed_blockswaps_gp`.
+        dict: The session dict from :func:`simulate_3armed_blockswaps_gp`: ``vals3``,
+            ``boundaries``, ``best_arm_series``, ``best_minus_second``, ``gp_int`` and ``gp_raw``.
     """
     metrics, session = simulate_example_session(
         sig=sig,
@@ -721,14 +905,19 @@ def collect_gp_run_stats(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Collect mean and std dev of best-arm run lengths for each sig value.
 
+    Sessions use ``max_block_len=80`` and ``min_block_len=70`` with the default GP settings, and one
+    shared random generator across all *sig_values*. Progress is printed for each value.
+
     Args:
-        sig_values: Array of GP length-scale values.
-        T: Session length (default: 150).
-        n_sims: Simulations per sig value (default: 1000).
-        seed: Random seed (default: 0).
+        sig_values (np.ndarray): GP length-scale values.
+        T (int): Session length. Default 150.
+        n_sims (int): Simulations per sig value. Default 1000.
+        seed (int): Random seed. Default 0.
 
     Returns:
-        ``(mean_runs, std_runs)`` arrays of shape ``(len(sig_values),)``.
+        tuple[np.ndarray, np.ndarray]: ``(mean_runs, std_runs)``, each of shape
+            ``(len(sig_values),)``: the per-sig average over simulations of each session's mean and
+            std of best-run length.
     """
     rng = np.random.default_rng(seed)
     mean_runs, std_runs = [], []

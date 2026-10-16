@@ -63,7 +63,15 @@ class RunStartError(ValueError):
 
 
 def source_path(df) -> str:
-    """The file a DataFrame was read from, for error messages."""
+    """The file a DataFrame was read from, for error messages.
+
+    Args:
+        df (pd.DataFrame): A recording read by :func:`collect_tsv_files`, which stores its
+            path in ``df.attrs["source_path"]``.
+
+    Returns:
+        str: The path string, or ``"<unknown path>"`` if the frame carries none.
+    """
     return df.attrs.get("source_path", "<unknown path>")
 
 
@@ -72,6 +80,13 @@ def session_source_paths(session: dict) -> list[str]:
 
     Frames that did not come from :func:`collect_tsv_files` carry no path and are left out,
     so the list can be empty.
+
+    Args:
+        session (dict): A session record from :func:`import_data`; its ``"df"`` entry is one
+            DataFrame or a list of them.
+
+    Returns:
+        list[str]: One path per recording that carries one, in the order of ``session["df"]``.
     """
     frames = session.get("df")
     frames = frames if isinstance(frames, list) else [frames]
@@ -85,9 +100,17 @@ def session_task_type(
     """``"blocked"`` or ``"drifting"`` for a session's task name; errors name where it is from.
 
     Args:
-        subject, session_key, paths: The session and its files, named in the error message.
-        task_name: The session's ``task_name`` info row, or ``None`` if the file has none.
-        skip_pretraining: If true, a pretraining task gives ``None`` instead of being classified.
+        subject (str): Subject id, named in the error message.
+        session_key (str): Session key ``"ses-<N>_date-<YYYYMMDD>"``, named in the error message.
+        task_name (str | None): The session's ``task_name`` info row, or ``None`` if the file
+            has none.
+        paths (list[str]): The session's files, named in the error message.
+        skip_pretraining (bool): If true, a pretraining task gives ``None`` instead of being
+            classified. Keyword-only.
+
+    Returns:
+        str | None: ``"blocked"`` or ``"drifting"``; ``None`` for a pretraining task when
+        *skip_pretraining* is true.
 
     Raises:
         ValueError: If the task name is missing, unrecognised or matches both types.
@@ -224,12 +247,13 @@ def import_data(root: str | Path, *, classify_task_types: bool = False) -> dict:
     such as the grid maze, have other task names.
 
     Args:
-        root: Root directory containing subject/session sub-directories with
+        root (str | Path): Root directory containing subject/session sub-directories with
             ``.tsv`` files.
-        classify_task_types: Classify and number by task type (see above).
+        classify_task_types (bool): Classify and number by task type (see above). Keyword-only.
+            Default ``False``.
 
     Returns:
-        Nested dict of the form::
+        dict: Nested dict of the form::
 
             {
               subject_id: {
@@ -291,11 +315,11 @@ def collect_tsv_files(root: Path) -> list:
     """Recursively scan *root* and read every TSV file found.
 
     Args:
-        root: Directory to search recursively.
+        root (Path): Directory to search recursively.
 
     Returns:
-        List of ``(tsv_path, dataframe)`` tuples for every ``.tsv`` file that
-        was read successfully.  Files that raise an exception during reading are
+        list[tuple[Path, pd.DataFrame]]: ``(tsv_path, dataframe)`` tuples for every ``.tsv``
+        file that was read successfully.  Files that raise an exception during reading are
         skipped with a ``[WARN]`` message printed to stdout.
     """
     tsv_files = []
@@ -315,11 +339,11 @@ def read_tsv_file(tsv_path, sep="\t"):
     """Read a single TSV file into a pandas DataFrame.
 
     Args:
-        tsv_path: Path to the ``.tsv`` file.
-        sep: Column separator (default: ``"\\t"``).
+        tsv_path (str | Path): Path to the ``.tsv`` file.
+        sep (str): Column separator. Default ``"\\t"``.
 
     Returns:
-        A ``pandas.DataFrame`` with one row per line of the file.
+        pd.DataFrame: One row per line of the file.
     """
     df = pd.read_csv(tsv_path, sep=sep)
     return df
@@ -334,7 +358,7 @@ def extract_session_towers(df):
     protocol-version differences.
 
     Args:
-        df: A session DataFrame as returned by :func:`read_tsv_file`, expected
+        df (pd.DataFrame): A session DataFrame as returned by :func:`read_tsv_file`, expected
             to contain at least one row with ``type=="variable"`` and
             ``subtype=="run_start"``.
 
@@ -349,6 +373,13 @@ def extract_session_towers(df):
 
 def read_run_start(df) -> dict:
     """Parse the first ``run_start`` variable row of a recording.
+
+    Args:
+        df (pd.DataFrame): A recording with ``type``, ``subtype`` and ``content`` columns.
+
+    Returns:
+        dict: The parsed JSON object of the first row with ``type == "variable"`` and
+        ``subtype == "run_start"``.
 
     Raises:
         RunStartError: If the recording has no such row, or its content is empty or
@@ -372,11 +403,12 @@ def settings_evidence(df_list, run_start: dict) -> dict:
     """The facts the settings-error check needs about a session.
 
     Args:
-        df_list: The session's recordings, earliest first.
-        run_start: The parsed ``run_start`` of the earliest recording.
+        df_list (list[pd.DataFrame]): The session's recordings, earliest first. Each needs
+            ``type``, ``subtype`` and ``content`` columns.
+        run_start (dict): The parsed ``run_start`` of the earliest recording.
 
     Returns:
-        ``{"starts_found_ports_false": bool, "has_port_finding_trials": bool,
+        dict: ``{"starts_found_ports_false": bool, "has_port_finding_trials": bool,
         "task_name": str | None}``.
         ``has_port_finding_trials`` is true if any recording prints a trial dict with
         ``num_t_found`` (the port-finding trials); the ``num_t_found`` key of
@@ -399,13 +431,28 @@ def settings_evidence(df_list, run_start: dict) -> dict:
 
 
 def read_task_name(df) -> str | None:
-    """The recording's ``task_name`` info row (pyControl header), or ``None`` if absent."""
+    """The recording's ``task_name`` info row (pyControl header), or ``None`` if absent.
+
+    Args:
+        df (pd.DataFrame): A recording with ``type``, ``subtype`` and ``content`` columns.
+
+    Returns:
+        str | None: The first ``task_name`` row's content as a string, or ``None``.
+    """
     rows = df.loc[(df["type"] == "info") & (df["subtype"] == "task_name"), "content"]
     return str(rows.iloc[0]) if not rows.empty else None
 
 
 def towers_from_run_start(run_start: dict) -> dict:
-    """The towers dict of :func:`extract_session_towers` from a parsed ``run_start``."""
+    """The towers dict of :func:`extract_session_towers` from a parsed ``run_start``.
+
+    Args:
+        run_start (dict): A parsed ``run_start`` row, e.g. from :func:`read_run_start`.
+
+    Returns:
+        dict: ``{"choice_towers": set, "initiation_tower": str | None}``. The set is empty and
+        the initiation tower ``None`` when ``run_start`` names none.
+    """
     towers = {"choice_towers": set(), "initiation_tower": None}
 
     for key in CHOICE_TOWERS_KEYS:
@@ -448,11 +495,11 @@ def expand_content_columns(df, content_col="content"):
     in-place to *df*.
 
     Args:
-        df: A ``pandas.DataFrame`` containing a column of JSON strings.
-        content_col: Name of the column to expand (default: ``"content"``).
+        df (pd.DataFrame): A frame containing a column of JSON strings.
+        content_col (str): Name of the column to expand. Default ``"content"``.
 
     Returns:
-        The same ``df`` with additional columns added for each JSON key found.
+        pd.DataFrame: The same ``df`` with additional columns added for each JSON key found.
     """
     parsed = df[content_col].map(parse_content_json)
     norm = pd.json_normalize(parsed, sep=".")
@@ -467,6 +514,17 @@ def parse_content_json(x):
     Returns ``{}`` for missing cells and for plain-text rows: event, state and
     most info rows log text such as ``poke_A``, which is not JSON. Any other
     failure (e.g. a non-string cell) is unexpected and raises.
+
+    Args:
+        x (object): One cell of a ``content`` column: a JSON string, an already parsed
+            dict or list, or NaN.
+
+    Returns:
+        dict | list | object: ``x`` itself if it is a dict or list; ``{}`` for NaN and for
+        text that is not JSON; otherwise whatever ``json.loads`` returns (normally a dict).
+
+    Raises:
+        TypeError: If ``x`` is neither a string, bytes, dict, list nor float NaN.
     """
     if isinstance(x, (dict, list)):
         return x
@@ -491,12 +549,12 @@ def parse_file_timestamp(tsv_path, df=None):
        ``FileNotFoundError`` if the file does not exist.
 
     Args:
-        tsv_path: Path to the ``.tsv`` file.
-        df: Optional ``pandas.DataFrame`` for the same file; used to try
-            reading the ``start_time`` info row (default: ``None``).
+        tsv_path (str | Path): Path to the ``.tsv`` file.
+        df (pd.DataFrame | None): Optional frame for the same file; used to try
+            reading the ``start_time`` info row. Default ``None``.
 
     Returns:
-        A ``datetime.datetime`` object (timezone-naive).
+        datetime.datetime: Timezone-naive timestamp of the recording.
     """
     p = Path(tsv_path)
     m = FILE_RE.match(p.name)
@@ -524,14 +582,15 @@ def group_by_subj_and_ses(tsv_files: list) -> dict:
     """Group DataFrames by (subject_id, session_key), sorted within-session by time.
 
     Args:
-        tsv_files: List of ``(tsv_path, dataframe)`` tuples as returned by
-            :func:`collect_tsv_files`.
+        tsv_files (list[tuple[Path, pd.DataFrame]]): ``(tsv_path, dataframe)`` tuples as
+            returned by :func:`collect_tsv_files`.
 
     Returns:
-        Dict keyed by ``(subject_id, session_key)`` tuples, where each value
-        is a list of ``pandas.DataFrame`` objects sorted chronologically by
+        dict[tuple[str, str], list[pd.DataFrame]]: Keyed by ``(subject_id, session_key)``;
+        each value is the session's recordings sorted chronologically by
         file timestamp (earliest first).  Files whose subject cannot be parsed
-        are skipped with a ``[WARN]`` message.
+        are skipped with a ``[WARN]`` message, and files in a non-numeric session folder
+        (``ses-test`` etc.) with a warning.
 
     Raises:
         ValueError: If a file's path has no valid ``ses-<N>_date-<YYYYMMDD>``
@@ -564,15 +623,15 @@ def create_subject_id(tsv_path) -> tuple:
     ``sub-<N>_id-<id>``.
 
     Args:
-        tsv_path: Path to a ``.tsv`` file whose directory tree contains a
+        tsv_path (str | Path): Path to a ``.tsv`` file whose directory tree contains a
             ``sub-<N>_id-<id>`` component.
 
     Returns:
-        A three-tuple ``(subject_id, subject_number, subject_key)`` where
+        tuple[str | None, int | None, str]: ``(subject_id, subject_number, subject_key)`` where
         *subject_id* is the string after ``id-``, *subject_number* is the
         integer after ``sub-``, and *subject_key* is the full
-        ``"sub-<N>_id-<id>"`` string.  All three are ``None`` / ``"sub-None_id-None"``
-        if the pattern is not found.
+        ``"sub-<N>_id-<id>"`` string.  If the pattern is not found the id and number are
+        ``None`` and the key is ``"sub-None_id-None"``.
     """
     tsv_path = Path(tsv_path)
     subject_id = None
@@ -599,16 +658,18 @@ def create_session_key(tsv_path) -> tuple:
     ``ses-<N>_date-<YYYYMMDD>``.
 
     Args:
-        tsv_path: Path to a ``.tsv`` file whose directory tree contains a
+        tsv_path (str | Path): Path to a ``.tsv`` file whose directory tree contains a
             ``ses-<N>_date-<YYYYMMDD>`` component.
 
     Returns:
-        A three-tuple ``(session_num, session_date, session_key)`` where
-        *session_num* is the integer after ``ses-``, *session_date* is a
-        ``datetime.datetime`` object, and *session_key* is the normalised
-        string ``"ses-<N>_date-<YYYYMMDD>"``.
+        tuple[int, datetime.datetime, str]: ``(session_num, session_date, session_key)`` where
+        *session_num* is the integer after ``ses-``, *session_date* is the folder's date
+        at midnight, and *session_key* is the normalised string
+        ``"ses-<N>_date-<YYYYMMDD>"``.
 
     Raises:
+        UnnumberedSessionError: A ``ValueError`` subclass, if the session folder's label is
+            not a number (``ses-test_date-...``).
         ValueError: If no path component matches ``ses-<N>_date-<YYYYMMDD>``, or its
             date is not a real calendar date.  The message names the path.
     """

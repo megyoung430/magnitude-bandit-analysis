@@ -36,11 +36,11 @@ def keep_zero_then_skip(post_list: Sequence, skip: int) -> list:
     """Drop post trials ``1 .. skip``, keeping the reversal trial (index 0).
 
     Args:
-        post_list: Values from the reversal trial on.
-        skip: Number of trials after the reversal trial to drop (``<= 0`` drops none).
+        post_list (Sequence): Values from the reversal trial on.
+        skip (int): Number of trials after the reversal trial to drop (``<= 0`` drops none).
 
     Returns:
-        A list with ``len(post_list) - skip`` entries when *post_list* is long enough.
+        list: A list with ``len(post_list) - skip`` entries when *post_list* is long enough.
     """
     post_list = list(post_list)
     if skip <= 0:
@@ -64,12 +64,12 @@ def bin_offsets(*, pre: int, post: int, skip: int = 0) -> np.ndarray:
     """Bin numbers ``[-pre, 0)`` followed by ``[0, post - skip)``, without the skip shift.
 
     Args:
-        pre: Number of pre-reversal bins.
-        post: Number of post-reversal trials before skipping.
-        skip: Post trials ``1 .. skip`` that are dropped.
+        pre (int): Number of pre-reversal bins.
+        post (int): Number of post-reversal trials before skipping.
+        skip (int): Post trials ``1 .. skip`` that are dropped. Default 0.
 
     Returns:
-        Int array of length ``pre + post - skip``.
+        np.ndarray: Int array of length ``pre + post - skip``.
 
     Raises:
         ValueError: If *skip* is negative or ``>= post``, or *pre* is negative.
@@ -82,12 +82,13 @@ def true_trial_offsets(*, pre: int, post: int, skip: int = 0) -> np.ndarray:
     """Trials between each bin and the reversal: post bins after the first sit *skip* later.
 
     Args:
-        pre: Number of pre-reversal bins.
-        post: Number of post-reversal trials before skipping.
-        skip: Post trials ``1 .. skip`` that are dropped.
+        pre (int): Number of pre-reversal bins.
+        post (int): Number of post-reversal trials before skipping.
+        skip (int): Post trials ``1 .. skip`` that are dropped. Default 0.
 
     Returns:
-        Int array of length ``pre + post - skip``; equals :func:`bin_offsets` for ``skip = 0``.
+        np.ndarray: Int array of length ``pre + post - skip``; equals :func:`bin_offsets` for
+        ``skip = 0``.
 
     Raises:
         ValueError: As :func:`bin_offsets`.
@@ -108,17 +109,18 @@ def align_window_values(
     """One row of ``pre + post - skip`` bins from a reversal's pre and post values.
 
     Args:
-        pre_values: Values of the trials before the reversal, oldest first.
-        post_values: Values from the reversal trial on.
-        pre: Pre-reversal bins in the row.
-        post: Post-reversal trials in the row, before skipping.
-        skip: Post trial 0 is kept and post trials ``1 .. skip`` are dropped.
-        truncate: If ``True`` a window longer than the axis is cut (the last *pre* pre
-            values, the first ``post - skip`` post values); if ``False`` it raises.
+        pre_values (Sequence[float]): Values of the trials before the reversal, oldest first.
+        post_values (Sequence[float]): Values from the reversal trial on.
+        pre (int): Pre-reversal bins in the row.
+        post (int): Post-reversal trials in the row, before skipping.
+        skip (int): Post trial 0 is kept and post trials ``1 .. skip`` are dropped. Default 0.
+        truncate (bool): If ``True`` a window longer than the axis is cut (the last *pre* pre
+            values, the first ``post - skip`` post values); if ``False`` it raises. Default
+            ``False``.
 
     Returns:
-        Float array. The last pre value is in bin ``pre - 1`` (offset -1), the first post
-        value in bin ``pre`` (offset 0); bins without a value are NaN.
+        np.ndarray: Float array. The last pre value is in bin ``pre - 1`` (offset -1), the first
+        post value in bin ``pre`` (offset 0); bins without a value are NaN.
 
     Raises:
         ValueError: If *skip* is negative or leaves no post window, or if a window is longer
@@ -153,18 +155,18 @@ def window_bounds(
     """Earliest pre trial and one-past-last post trial allowed around boundary number *k*.
 
     Args:
-        boundaries: Sorted reversal indices.
-        k: Which boundary to window.
-        n_trials: Number of trials in the data.
-        block_changes: ``None`` keeps the boundary-only rule: the pre window may reach back
-            to the start of the data and the post window ends at the next boundary (or the
-            last trial).  A sequence of block-change indices bounds both sides to the block
-            of the reversal: the pre window starts at the previous boundary or block change
-            and the post window ends at the next one.
+        boundaries (Sequence[int]): Sorted reversal indices.
+        k (int): Which boundary to window.
+        n_trials (int): Number of trials in the data.
+        block_changes (Sequence[int] | None): ``None`` keeps the boundary-only rule: the pre
+            window may reach back to the start of the data and the post window ends at the next
+            boundary (or the last trial).  A sequence of block-change indices bounds both sides
+            to the block of the reversal: the pre window starts at the previous boundary or block
+            change and the post window ends at the next one. Default ``None``.
 
     Returns:
-        ``(pre_start, post_end)``: the pre window may use trials ``pre_start .. idx - 1``
-        and the post window trials ``idx .. post_end - 1``.
+        tuple[int, int]: ``(pre_start, post_end)``: the pre window may use trials
+        ``pre_start .. idx - 1`` and the post window trials ``idx .. post_end - 1``.
     """
     idx = boundaries[k]
     if block_changes is None:
@@ -187,16 +189,19 @@ def window_indices(
     """Absolute ``(pre_idx, post_idx)`` trial indices around boundary number *k*.
 
     Args:
-        boundaries: Sorted reversal indices.
-        k: Which boundary to window.
-        n_trials: Number of trials in the data.
-        pre: Maximum number of pre trials.
-        post: Maximum number of post trials; ``None`` runs to the end of the allowed range.
-        block_changes: As in :func:`window_bounds`; ``None`` leaves the pre window
-            unbounded by earlier blocks, a sequence confines both windows to one block.
+        boundaries (Sequence[int]): Sorted reversal indices.
+        k (int): Which boundary to window.
+        n_trials (int): Number of trials in the data.
+        pre (int): Maximum number of pre trials.
+        post (int | None): Maximum number of post trials; ``None`` runs to the end of the
+            allowed range.
+        block_changes (Sequence[int] | None): As in :func:`window_bounds`; ``None`` leaves the
+            pre window unbounded by earlier blocks, a sequence confines both windows to one
+            block. Default ``None``.
 
     Returns:
-        ``(pre_idx, post_idx)`` lists of trial indices; the pre list may be shorter than *pre*.
+        tuple[list[int], list[int]]: ``(pre_idx, post_idx)`` lists of trial indices; the pre
+        list may be shorter than *pre*.
     """
     idx = boundaries[k]
     pre_start, post_end = window_bounds(boundaries, k, n_trials, block_changes=block_changes)
@@ -225,13 +230,13 @@ def nan_moving_average(
     ``[i - w/2, i + w/2 - 1]`` (two before and one after for ``w = 4``).
 
     Args:
-        y: Values to smooth.
-        window: Window width; ``None`` or ``<= 1`` returns *y* as a float array.
-        mode: ``"trailing"`` averages the current and previous ``window - 1`` bins; anything
-            else is centred.
+        y (Sequence[float]): Values to smooth.
+        window (int | None): Window width; ``None`` or ``<= 1`` returns *y* as a float array.
+        mode (str): ``"trailing"`` averages the current and previous ``window - 1`` bins;
+            anything else is centred. Default ``"centered"``.
 
     Returns:
-        Float array of the same length as *y*.
+        np.ndarray: Float array of the same length as *y*.
     """
     y = np.asarray(y, dtype=float)
     if window is None or window <= 1:
@@ -260,13 +265,14 @@ def smooth_pre_post(
     """Smooth *y* separately on the ``pre_mask`` and ``~pre_mask`` segments.
 
     Args:
-        y: Values over the bins of the row.
-        pre_mask: Boolean array, ``True`` for pre-reversal bins.
-        window: Window width (see :func:`nan_moving_average`).
-        mode: ``"centered"`` or ``"trailing"``.
+        y (Sequence[float]): Values over the bins of the row.
+        pre_mask (np.ndarray): Boolean array of the length of *y*, ``True`` for pre-reversal
+            bins.
+        window (int | None): Window width (see :func:`nan_moving_average`).
+        mode (str): ``"centered"`` or ``"trailing"``. Default ``"centered"``.
 
     Returns:
-        Float array of the length of *y*; no value crosses the pre/post boundary.
+        np.ndarray: Float array of the length of *y*; no value crosses the pre/post boundary.
     """
     y = np.asarray(y, dtype=float)
     out = np.full_like(y, np.nan, dtype=float)

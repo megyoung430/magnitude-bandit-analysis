@@ -8,7 +8,23 @@ from src.agents.neural_bandit import DISPLAY_NAMES, NEURAL_MODELS
 
 
 def held_out_sessions(results, sequences):
-    """Pair each eligible session with its completed test-fold result only."""
+    """Pair each eligible session with its completed test-fold result only.
+
+    A session is eligible when its mouse (and, for problem splits, its problem) is in the test
+    partition of a completed fold that selected a model for all four neural architectures.
+
+    Args:
+        results (dict): Result of ``run_paper_sweep`` (one fold) or ``run_problem_sweep`` (has
+            ``folds``).
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``.
+
+    Returns:
+        list[tuple[dict, dict]]: ``(sequence, fold)`` pairs in the order of *sequences*; *fold* is
+            the ``run_paper_sweep`` result whose test partition holds the session.
+
+    Raises:
+        ValueError: If a session belongs to more than one test fold.
+    """
     folds = results.get("folds", [results])
     eligible = []
     for sequence in sequences:
@@ -36,7 +52,26 @@ def held_out_sessions(results, sequences):
 
 
 def replay_numpy(parameters, sequence, model):
-    """Replay saved weights on CPU without JAX compilation (plotting only)."""
+    """Replay saved weights on CPU without JAX compilation (plotting only).
+
+    Args:
+        parameters (dict): Network weights as saved for a selected run: arrays keyed as built by
+            ``neural_bandit.initialize_parameters``.
+        sequence (dict): One session as built by ``prepare_cohort_sequences``, with ``mouse``,
+            ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        model (str): One of ``neural_bandit.NEURAL_MODELS``: ``'rl_ann'``, ``'context_ann'``,
+            ``'memory_ann'`` or ``'vanilla_rnn'``.
+
+    Returns:
+        dict[str, np.ndarray]: Arrays with one row per trial: ``logits`` and ``log_probabilities``
+            ``(n_trials, num_arms)`` before the trial's choice is seen; ``pre_q`` and ``pre_c``
+            ``(n_trials, num_arms)``; ``pre_reward_hidden``, ``pre_action_hidden`` and
+            ``pre_joint_hidden`` ``(n_trials, hidden_units)``; ``post_q`` and ``post_c``
+            ``(n_trials, num_arms)`` after the trial's reward.
+
+    Raises:
+        ValueError: If *model* is unknown.
+    """
     p = {k: np.asarray(v, dtype=float) for k, v in parameters.items()}
     k = len(sequence["towers"])
     vanilla = model == "vanilla_rnn"
@@ -88,7 +123,19 @@ def replay_numpy(parameters, sequence, model):
 
 
 def session_traces(sequence, fold):
-    """Load each architecture's selected weights and replay the observed history."""
+    """Load each architecture's selected weights and replay the observed history.
+
+    Args:
+        sequence (dict): One session as built by ``prepare_cohort_sequences``, with ``mouse``,
+            ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        fold (dict): A ``run_paper_sweep`` result with ``selected`` rows for all four architectures
+            and an ``output_dir`` holding their parameter files.
+
+    Returns:
+        dict[str, dict[str, np.ndarray]]: ``{model: traces}`` for each of
+            ``neural_bandit.NEURAL_MODELS``, where *traces* is the dict returned by
+            ``replay_numpy``.
+    """
     traces = {}
     for model in NEURAL_MODELS:
         selected = next(row for row in fold["selected"] if row["model"] == model)
@@ -100,7 +147,24 @@ def session_traces(sequence, fold):
 
 
 def plot_trajectories(sequence, traces, metric="probability", trial_range=None):
-    """Four model panels plus observed actions/rewards, with consistent arm colors."""
+    """Four model panels plus observed actions/rewards, with consistent arm colors.
+
+    Args:
+        sequence (dict): One session as built by ``prepare_cohort_sequences``, with ``mouse``,
+            ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        traces (dict): Output of ``session_traces`` for this session.
+        metric (str): ``'probability'``, ``'logits'``, ``'q'`` or ``'c'``. The last two show a note
+            for the vanilla RNN, which has no such channel. Default ``'probability'``.
+        trial_range (tuple[int, int] | None): ``(first, last)`` trials to show, one-based and
+            inclusive; None shows the whole session. Default None.
+
+    Returns:
+        matplotlib.figure.Figure: Six stacked panels sharing the trial axis: the four architectures'
+            pre-choice trajectory, the observed choice and the reward.
+
+    Raises:
+        ValueError: If *metric* is unknown or *trial_range* is not within the session.
+    """
     import matplotlib.pyplot as plt
 
     keys = dict(probability="log_probabilities", logits="logits", q="pre_q", c="pre_c")
@@ -284,7 +348,23 @@ class _TrajectoryViewer:
 
 
 def trajectory_viewer(results, sequences):
-    """Return linked subject/session dropdowns and a held-out trajectory plot."""
+    """Return linked subject/session dropdowns and a held-out trajectory plot.
+
+    For use in a Jupyter notebook; choosing a subject, session, trajectory type or trial window
+    redraws the plot.
+
+    Args:
+        results (dict): Result of ``run_paper_sweep`` or ``run_problem_sweep`` covering all four
+            neural architectures.
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``.
+
+    Returns:
+        ipywidgets.VBox: The controls and the output area; display it in a notebook cell.
+
+    Raises:
+        ValueError: If no session has completed fits for all four architectures.
+        ImportError: If ipywidgets, IPython or matplotlib is missing.
+    """
     widgets = _import_ipywidgets()
     # IPython is imported first so a missing IPython is reported before a missing matplotlib.
     from IPython.display import clear_output, display  # noqa: I001

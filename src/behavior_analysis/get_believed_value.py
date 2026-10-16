@@ -77,7 +77,15 @@ def rank_weights(chosen_magnitude: float, magnitudes, n_ranks: int = 3) -> tuple
 
 
 def rank_position_shares(chosen_magnitude: float, magnitudes) -> tuple[float, float]:
-    """``(best_share, second_share)`` of an arm of *chosen_magnitude* (see :func:`rank_weights`)."""
+    """``(best_share, second_share)`` of an arm of *chosen_magnitude* (see :func:`rank_weights`).
+
+    Args:
+        chosen_magnitude (float): Magnitude of the arm that was chosen.
+        magnitudes (Iterable[float]): Magnitudes of every ranked arm, the chosen arm's included.
+
+    Returns:
+        tuple[float, float]: Shares of the best and second rank positions held by the chosen arm.
+    """
     best, second = rank_weights(chosen_magnitude, magnitudes, n_ranks=2)
     return best, second
 
@@ -112,7 +120,8 @@ def _trial_belief(choice, believed: dict) -> dict:
 
 
 def compute_believed_value(choices, reward_magnitudes):
-    """
+    """For each trial i, infer the animal's believed arm values.
+
     For each trial i, infer:
       - The believed magnitude for every arm (last observed value before trial i).
       - The believed rank of the chosen arm, derived by re-ranking only the
@@ -125,26 +134,25 @@ def compute_believed_value(choices, reward_magnitudes):
     magnitudes tie; use 'believed_best_share' / 'believed_second_share' for anything that
     must not: they split each rank position evenly among the arms tied for it.
 
-    Parameters
-    ----------
-    choices           : list[str]  — arm chosen on each trial
-    reward_magnitudes : list[dict] — true arm->magnitude mapping per trial
+    Args:
+        choices (list[str]): Arm chosen on each trial.
+        reward_magnitudes (list[dict]): True ``{arm: magnitude}`` mapping per trial, the same
+            length as *choices*.
 
-    Returns
-    -------
-    list of dicts with keys:
-        believed_best_mag   : float | None  (None if fewer than 1 seen arm)
-        believed_second_mag : float | None  (None if fewer than 2 seen arms)
-        believed_chosen_rank: str | None    ("best"/"second"/"third"/None if
-                                             chosen arm is unseen)
-        tied                : bool          (True if best and second believed
-                                             magnitudes are equal)
-        n_seen              : int           (number of arms with a believed value)
-        believed_best_share : float | None  (share of "best" held by the chosen arm;
-                                             None if the chosen arm is unseen)
-        believed_second_share: float | None (share of "second", likewise)
-        believed_tie        : str | None    (tie category among the believed values, see
-                                             tie_category)
+    Returns:
+        list[dict]: One dict per trial with keys:
+
+        - ``believed_best_mag`` (float | None): None if fewer than 1 seen arm.
+        - ``believed_second_mag`` (float | None): None if fewer than 2 seen arms.
+        - ``believed_chosen_rank`` (str | None): ``"best"``/``"second"``/``"third"``, or None
+          if the chosen arm is unseen.
+        - ``tied`` (bool): True if the best and second believed magnitudes are equal.
+        - ``n_seen`` (int): Number of arms with a believed value.
+        - ``believed_best_share`` (float | None): Share of "best" held by the chosen arm;
+          None if the chosen arm is unseen.
+        - ``believed_second_share`` (float | None): Share of "second", likewise.
+        - ``believed_tie`` (str | None): Tie category among the believed values, see
+          :func:`tie_category`.
     """
     last_seen = {}
     results = []

@@ -332,6 +332,17 @@ class DroppedReversal:
     run's last trial). ``before`` and ``after`` are the ``{tower: magnitude}`` dicts that the
     check compared; ``good_reversal_number`` is the logged counter at the boundary, or
     ``None`` when no counter was logged.
+
+    Attributes:
+        where (_Where): Subject, session, session-local trial, recording run and merged
+            trial of the boundary (``.text()`` gives a readable label).
+        reason (str): ``"missing magnitude"``, ``"tie for best"`` or ``"best tower unchanged"``.
+        count (int): Reversals on the boundary trial. Default 1.
+        good_reversal_number (int | None): Logged good counter at the boundary.
+        before (dict | None): ``{tower: magnitude}`` on the trial before the boundary.
+        after (dict | None): ``{tower: magnitude}`` on the boundary trial.
+        events (int): How many of the ``count`` reversals were logged while nothing was
+            recording. Default 0.
     """
 
     where: _Where
@@ -520,10 +531,25 @@ def collect_good_reversals(
     :func:`~src.behavior_analysis.suspect_reversal_table.suspect_reversal_table`, so that
     the table lists exactly the reversals that the analyses drop.
 
+    Args:
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        pre (int): Trials before the reversal index in the pre-window. Keyword-only.
+        post (int | None): Trials after the reversal index in the post-window; ``None``
+            extends to the next boundary. Keyword-only.
+        include_first_block (bool): If ``True``, prepend index ``0`` to the boundaries.
+            Keyword-only.
+        max_zero_count (int): Maximum towers with zero reward on the trial before a reversal;
+            reversals above it are skipped. Keyword-only.
+        stop_at_block_changes (bool): If ``True``, both windows stay inside the reversal's
+            block. Keyword-only. Default False.
+
     Returns:
-        ``(result, dropped, bad_only)``: the ``{subject: [reversal_dict]}`` result, the
-        :class:`DroppedReversal` list across subjects, and ``(subject, session)`` of each
-        bad-only session.
+        tuple[dict, list[DroppedReversal], list[tuple]]: ``(result, dropped, bad_only)``: the
+        ``{subject: [reversal_dict]}`` result, the :class:`DroppedReversal` list across
+        subjects, and ``(subject, session)`` of each bad-only session.
+
+    Raises:
+        ValueError: As for :func:`get_good_reversal_info`.
     """
     for subj, subject_sessions in data.items():
         check_formats_agree(subj, subject_sessions)
@@ -608,21 +634,21 @@ def get_good_reversal_info(
     ``ValueError`` naming the subject.
 
     Args:
-        data: Nested dict ``{subject: {session_key: session_dict}}``.
-        pre: Number of trials before the reversal index to include in the
-            pre-window (default: 5).
-        post: Number of trials after the reversal index to include in the
-            post-window.  If ``None``, extends to the next reversal boundary
-            (default: ``None``).
-        include_first_block: If ``True``, prepend index ``0`` to the boundary
-            list so the very first block is also represented (default:
-            ``False``). Not done when trial 0 belongs to a bad-only session
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        pre (int): Number of trials before the reversal index to include in the
+            pre-window. Default 5.
+        post (int | None): Number of trials after the reversal index to include in the
+            post-window.  If ``None``, extends to the next reversal boundary.
+            Default None.
+        include_first_block (bool): If ``True``, prepend index ``0`` to the boundary
+            list so the very first block is also represented. Default
+            ``False``. Not done when trial 0 belongs to a bad-only session
             and the subject has no good counter: that session has no good
             reversals, and its first block ends at a bad reversal.
-        max_zero_count: Maximum number of towers allowed to have a zero reward
+        max_zero_count (int): Maximum number of towers allowed to have a zero reward
             magnitude on the trial immediately before the reversal.  Reversals
-            exceeding this count are skipped (default: 1).
-        stop_at_block_changes: If ``True``, both windows stay inside the block of the
+            exceeding this count are skipped. Default 1.
+        stop_at_block_changes (bool): If ``True``, both windows stay inside the block of the
             reversal: the pre window starts at the previous block change and the post window
             ends at the next one, bad reversals included (block changes are the changes in
             the merged ``blocks`` series). Sessions of a problem are not bounded at their
@@ -632,7 +658,7 @@ def get_good_reversal_info(
             block they belong to, and the post window ends at the next reversal boundary.
 
     Returns:
-        Dict ``{subject: list[reversal_dict]}`` where each *reversal_dict*
+        dict: ``{subject: list[reversal_dict]}`` where each *reversal_dict*
         contains:
 
         - ``"reversal_idx"`` (int): Trial index of the reversal.
@@ -665,6 +691,12 @@ def get_good_reversal_info(
           [...]}`` one-hot choice slices.
         - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
           [...]}`` one-hot choice slices.
+
+    Raises:
+        ValueError: If a subject mixes counter and blocks-only sessions, its merged per-trial
+            series are not aligned with the trial list, its session numbers and dates
+            disagree, or (with *stop_at_block_changes*) it has no ``blocks`` series or a
+            reversal boundary is not a block change.
     """
     result, dropped, bad_only = collect_good_reversals(
         data,
@@ -694,12 +726,13 @@ def classify_towers_at_good_reversals(reversal):
     reversal, which became the best arm after, and which is neither.
 
     Args:
-        reversal: A reversal dict as returned by :func:`get_good_reversal_info`,
+        reversal (dict): A reversal dict as returned by :func:`get_good_reversal_info`,
             containing ``"reward_magnitudes_by_tower_before"`` and
             ``"reward_magnitudes_by_tower_after"`` keys.
 
     Returns:
-        A three-tuple ``(prev_best, next_best, third)``. When the best tower
+        tuple[str, str, str | None]: A three-tuple ``(prev_best, next_best, third)`` of
+        tower keys. When the best tower
         changes, ``third`` is the remaining tower. When it is unchanged
         (``prev_best == next_best``) there is no meaningful third tower and
         ``third`` is ``None``. Ties for best resolve to the tower listed first.
@@ -743,12 +776,12 @@ def exclude_best_unchanged(reversals, *, subject, caller):
     best tower is unchanged.
 
     Args:
-        reversals: A subject's list of reversal dicts.
-        subject: Subject name, for the warning.
-        caller: Name of the calling analysis, for the warning.
+        reversals (list[dict]): A subject's list of reversal dicts.
+        subject (str): Subject name, for the warning. Keyword-only.
+        caller (str): Name of the calling analysis, for the warning. Keyword-only.
 
     Returns:
-        The reversals that can be classified, in their original order.
+        list[dict]: The reversals that can be classified, in their original order.
     """
     has_third = [classify_towers_at_good_reversals(r)[2] is not None for r in reversals]
     kept = [r for r, ok in zip(reversals, has_third, strict=True) if ok]

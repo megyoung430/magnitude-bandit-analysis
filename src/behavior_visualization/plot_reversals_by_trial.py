@@ -12,6 +12,30 @@ from src.behavior_visualization.plot_style import BAD_COLOR, GOOD_COLOR, TOTAL_C
 
 
 def plot_reversals_by_trial(subjects_trials, *, window=None, threshold=None, save_path=None):
+    """Plot reversals against the number of trials completed, across mice and per mouse.
+
+    Saves two figures, ``<save_path> Across Mice`` (faint per-mouse lines plus the mean of the
+    mice observed at each trial) and ``<save_path> By Mouse`` (one panel per mouse, three
+    panels per row), each as ``.png`` and ``.pdf``. Without *window* the y axis is the
+    cumulative reversal count; with it, a trailing reversal rate per 100 trials.
+
+    Args:
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}``.
+        window (int | None): Trailing window in trials for the reversal rate (a positive
+            integer); None plots cumulative counts instead. Default None.
+        threshold (float | None): Dashed reference line at this cumulative count; ignored when
+            *window* is given. Default None.
+        save_path (str | Path | None): Base path without extension; None or empty shows the
+            figures instead. Default None.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: If no mouse has trials, a mouse mixes counter and blocks-only sessions, a
+            mouse's reversal counters are not aligned and cumulative, or *window* is not a
+            positive integer.
+    """
     series = reversal_trial_series(subjects_trials)
     colors = {"good": GOOD_COLOR, "bad": BAD_COLOR, "total": TOTAL_COLOR}
     if window is not None:

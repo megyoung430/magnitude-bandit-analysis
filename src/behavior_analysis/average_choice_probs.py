@@ -56,18 +56,23 @@ def compute_curve_from_windows(
     """Compute choice-probability curves from a single problem's reversal windows.
 
     Args:
-        reversal_windows: ``{subject: list[reversal_dict]}`` for one problem.
-        pre: Number of trials before the reversal to include.
-        post: Number of trials after the reversal to include.
-        skip_n: Number of post-reversal trials, after the reversal trial itself,
-            that are left out of the curves (default: 0).
-        do_moving_avg: If ``True``, apply a centred moving average to the
-            curves (default: False).
-        moving_avg_window: Window size for the moving average (default: 4).
+        reversal_windows (dict): ``{subject: list[reversal_dict]}`` for one problem.
+        pre (int): Number of trials before the reversal to include.
+        post (int): Number of trials after the reversal to include.
+        skip_n (int): Number of post-reversal trials, after the reversal trial itself,
+            that are left out of the curves. Default 0.
+        do_moving_avg (bool): If ``True``, apply a centred moving average to the
+            curves. Default False.
+        moving_avg_window (int): Window size for the moving average. Default 4.
 
     Returns:
-        ``(x, per_subject, across)`` as returned by
-        :func:`src.behavior_analysis.get_choice_probs_around_good_reversals.get_choice_probs_around_good_reversals`.
+        tuple: ``(x, per_subject, across)`` as returned by
+        :func:`src.behavior_analysis.get_choice_probs_around_good_reversals.get_choice_probs_around_good_reversals`:
+        ``x`` is a 1-D int array of trial offsets, ``per_subject`` is
+        ``{subject: dict}`` of per-subject choice matrices and mean curves, and
+        ``across`` is a dict with ``"mean"``/``"se"`` (each keyed by
+        ``"prev_best"``, ``"next_best"``, ``"third"``), ``"num_subjects"`` and
+        ``"num_reversals"``.
     """
     from src.behavior_analysis.get_choice_probs_around_good_reversals import (
         apply_moving_average_to_choice_probs,
@@ -99,16 +104,20 @@ def curves_by_problem_from_windows_dict(
     """Compute per-problem choice-probability curves from a dict of windows.
 
     Args:
-        windows_dict: ``{problem: reversal_windows}``
-        pre: Trials before reversal.
-        post: Trials after reversal.
-        skip_n: Trials to skip after reversal (default: 0).
-        do_moving_avg: Apply moving average (default: False).
-        moving_avg_window: Moving-average window size (default: 4).
+        windows_dict (dict): ``{problem: reversal_windows}`` where each
+            ``reversal_windows`` is ``{subject: list[reversal_dict]}``. Problems with
+            empty windows are skipped.
+        pre (int): Trials before reversal.
+        post (int): Trials after reversal.
+        skip_n (int): Trials to skip after reversal. Default 0.
+        do_moving_avg (bool): Apply moving average. Default False.
+        moving_avg_window (int): Moving-average window size. Default 4.
 
     Returns:
-        ``{problem: {"x": ..., "across": ..., "subjects": set, "num_reversals": int}}``
-        for each problem that had at least one subject contributing data.
+        dict: ``{problem: {"x": np.ndarray (float), "across": dict, "subjects": set,
+        "num_reversals": int}}`` for each problem that had at least one subject
+        contributing data. ``across`` is the across-subject summary from
+        :func:`compute_curve_from_windows`.
     """
     out: dict = {}
     for p, rw in windows_dict.items():
@@ -139,11 +148,12 @@ def average_across_problem_curves(curves_by_problem: dict) -> tuple:
     Each problem contributes equally (one replicate) to the mean.
 
     Args:
-        curves_by_problem: Dict as returned by
+        curves_by_problem (dict): Dict as returned by
             :func:`curves_by_problem_from_windows_dict`.
 
     Returns:
-        ``(x, across_avg)`` where *across_avg* contains keys
+        tuple: ``(x, across_avg)``. ``x`` is the shared 1-D ``np.ndarray`` of trial
+        offsets and *across_avg* (dict) contains keys
         ``"mean"``, ``"se"``, ``"num_subjects"``, ``"num_reversals"``,
         ``"num_problems"``, and ``"problems_used"``.  Only problems with
         at least one finite mean value count as used, and the subject and

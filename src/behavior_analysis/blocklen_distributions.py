@@ -15,12 +15,15 @@ def collect_blocklens(
     """Collect raw block lengths per problem per mouse.
 
     Args:
-        problem_block_stats: ``{problem: {"block_stats": {...}}}``
+        problem_block_stats (dict): ``{problem: {"block_stats": {"per_mouse_blocklens":
+            {mouse: {block: length}}}}}``.
 
     Returns:
-        A three-tuple ``(problems, mice, blocklens_by_problem_mouse)`` where
+        tuple[list, list, dict]: ``(problems, mice, blocklens_by_problem_mouse)``
+        with sorted ``problems`` and sorted union of ``mice``;
         *blocklens_by_problem_mouse* is
-        ``{problem: {mouse: np.ndarray of block lengths}}``.
+        ``{problem: {mouse: 1-D float np.ndarray of finite block lengths}}``, with an
+        empty array where a mouse has no blocks in a problem.
     """
     problems = sorted(problem_block_stats.keys())
     mice = sorted(
@@ -53,13 +56,16 @@ def drop_last_problem_per_mouse_raw(
     Problems and mice left with no data are removed from the returned lists.
 
     Args:
-        problems: Sorted list of problem numbers.
-        mice: Sorted list of mouse identifiers.
-        blocklens_by_problem_mouse: ``{problem: {mouse: np.ndarray}}``.
+        problems (list): Sorted list of problem numbers.
+        mice (list): Sorted list of mouse identifiers.
+        blocklens_by_problem_mouse (dict): ``{problem: {mouse: np.ndarray}}`` as
+            returned by :func:`collect_blocklens`; every problem and mouse listed
+            must be present.
 
     Returns:
-        Updated ``(problems_new, mice_new, data_new)`` with last problems
-        removed.
+        tuple[list, list, dict]: ``(problems_new, mice_new, data_new)`` with last
+        problems removed; ``data_new`` is ``{problem: {mouse: np.ndarray}}`` over the
+        retained problems and mice (copies, input is not modified).
     """
     data = {p: {m: blocklens_by_problem_mouse[p][m].copy() for m in mice} for p in problems}
 
@@ -78,9 +84,14 @@ def pooled_blocklens(data: dict, problems: list, mice: list) -> np.ndarray:
     """Block lengths of the given *problems* and *mice*, concatenated (empty if none).
 
     Args:
-        data: ``{problem: {mouse: np.ndarray}}`` from :func:`collect_blocklens`.
-        problems, mice: Which entries of *data* to pool; pass one of each to
+        data (dict): ``{problem: {mouse: np.ndarray}}`` from :func:`collect_blocklens`.
+        problems (list): Problems of *data* to pool.
+        mice (list): Mice of *data* to pool; pass one problem and one mouse to
             get one mouse's lengths in one problem.
+
+    Returns:
+        np.ndarray: 1-D array of the concatenated block lengths; empty if no
+        selected entry has data.
     """
     parts = [data[p][m] for p in problems for m in mice if data[p][m].size > 0]
     return np.concatenate(parts, axis=0) if parts else np.array([])

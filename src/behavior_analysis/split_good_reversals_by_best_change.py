@@ -12,11 +12,11 @@ def split_good_reversals_by_best_change(reversal_windows):
     """Partition good-reversal windows by whether the best arm became second or third.
 
     Args:
-        reversal_windows: ``{subject: list[reversal_dict]}`` as returned by
+        reversal_windows (dict): ``{subject: list[reversal_dict]}`` as returned by
             :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
 
     Returns:
-        A two-tuple ``(best_to_second, best_to_third)`` where each element is
+        tuple[dict, dict]: A two-tuple ``(best_to_second, best_to_third)`` where each element is
         a ``{subject: list[reversal_dict]}`` dict.  Each reversal dict in the
         output has an additional ``"best_change_type"`` key set to either
         ``"best_to_second"`` or ``"best_to_third"``.  Reversals that cannot
@@ -50,14 +50,15 @@ def classify_best_change(rev, best_val=4, second_val=1, third_val=0):
     reversal and checks what magnitude it received after the reversal.
 
     Args:
-        rev: A reversal dict containing ``"reward_magnitudes_by_tower_before"``
-            and ``"reward_magnitudes_by_tower_after"`` keys.
-        best_val: Expected magnitude of the best arm (default: 4).
-        second_val: Expected magnitude of the second-best arm (default: 1).
-        third_val: Expected magnitude of the third arm (default: 0).
+        rev (dict): A reversal dict containing ``"reward_magnitudes_by_tower_before"``
+            and ``"reward_magnitudes_by_tower_after"`` keys (``{tower: magnitude}``).
+        best_val (float): Expected magnitude of the best arm. Default 4. Not used in the
+            classification.
+        second_val (float): Expected magnitude of the second-best arm. Default 1.
+        third_val (float): Expected magnitude of the third arm. Default 0.
 
     Returns:
-        ``"best_to_second"`` if the previously-best arm's post-reversal
+        str | None: ``"best_to_second"`` if the previously-best arm's post-reversal
         magnitude equals *second_val*, ``"best_to_third"`` if it equals
         *third_val*, or ``None`` if the values are missing or the pattern
         is unexpected.

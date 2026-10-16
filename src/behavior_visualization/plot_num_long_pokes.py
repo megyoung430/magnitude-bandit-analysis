@@ -77,7 +77,17 @@ def _plot_mouse_lines(
 
 
 def relative_session_label(session_key: str) -> str:
-    """The number of a ``rel_ses-NN`` key without leading zeros (``"rel_ses-03"`` -> ``"3"``)."""
+    """The number of a ``rel_ses-NN`` key without leading zeros (``"rel_ses-03"`` -> ``"3"``).
+
+    Args:
+        session_key (str): A relative session key such as ``"rel_ses-03"``.
+
+    Returns:
+        str: The session number as a string, e.g. ``"3"``.
+
+    Raises:
+        ValueError: If *session_key* is not of the form ``rel_ses-<digits>``.
+    """
     match = re.fullmatch(r"rel_ses-0*(\d+)", session_key)
     if match is None:
         raise ValueError(f"not a relative session key: {session_key!r}")
@@ -124,16 +134,26 @@ def plot_num_pokes_panel(
     """Draw mean non-choice long pokes per session with per-mouse overlays.
 
     Args:
-        avg_num_pokes_across_subjects: ``{mouse: {session_key: mean_pokes}}``; see
+        avg_num_pokes_across_subjects (dict): ``{mouse: {session_key: mean_pokes}}``; see
             :func:`plot_num_pokes_across_mice`.
-        y_text: Y-coordinate for bar-value annotations and the upper y-limit.
-        ax: Axes to draw into; a new 12 x 5.5 inch figure is created if ``None``.
-        rng: Generator for the per-mouse x-jitter. Known issue: when ``None`` an
-            unseeded generator is used, so the jitter differs on every call.
-        xlabel: X-axis label.
-        title: Axes title; default is the across-sessions title with the subject count.
-        tick_label: Maps a session key to its x-tick label (default: the short ``ses-XX``
-            form; :func:`relative_session_label` for ``rel_ses-NN`` keys).
+        y_text (float): Y-coordinate for bar-value annotations and the upper y-limit.
+        ax (plt.Axes | None): Axes to draw into; a new 12 x 5.5 inch figure is created if
+            None. Default None.
+        rng (np.random.Generator | None): Generator for the per-mouse x-jitter. Known issue:
+            when None an unseeded generator is used, so the jitter differs on every call.
+            Default None.
+        xlabel (str): X-axis label. Default ``"Session"``.
+        title (str | None): Axes title; the default (None) is the across-sessions title with
+            the subject count.
+        tick_label (Callable[[str], str]): Maps a session key to its x-tick label. Default the
+            short ``ses-XX`` form (``get_short_session_label``); use
+            :func:`relative_session_label` for ``rel_ses-NN`` keys.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+
+    Raises:
+        ValueError: If there are no mice or no sessions.
     """
     summary = summarize_pokes_by_session(avg_num_pokes_across_subjects)
     x = np.arange(len(summary.sessions))
@@ -163,16 +183,23 @@ def plot_num_pokes_across_mice(
     ``ses-XX`` index; x-tick labels show the short ``ses-XX`` form.
 
     Args:
-        avg_num_pokes_across_subjects: Nested dict
+        avg_num_pokes_across_subjects (dict): Nested dict
             ``{mouse: {session_key: mean_pokes_float}}``, optionally including
             an ``"average_across_subjects"`` key which is excluded from the
             per-mouse overlay.
-        y_text: Y-coordinate for bar-value annotations and the upper y-limit
+        y_text (float): Y-coordinate for bar-value annotations and the upper y-limit
             of the axis.
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output, creating the parent directory if needed.  If ``None``,
-            the figure is shown interactively.
-        rng, xlabel, title, tick_label: As for :func:`plot_num_pokes_panel`.
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output, creating the parent directory if needed. If None or empty,
+            the figure is shown interactively. Default None.
+        rng (np.random.Generator | None): As for :func:`plot_num_pokes_panel`. Default None.
+        xlabel (str): As for :func:`plot_num_pokes_panel`. Default ``"Session"``.
+        title (str | None): As for :func:`plot_num_pokes_panel`. Default None.
+        tick_label (Callable[[str], str]): As for :func:`plot_num_pokes_panel`. Default the
+            short ``ses-XX`` form.
+
+    Raises:
+        ValueError: If there are no mice or no sessions.
     """
     ax = plot_num_pokes_panel(
         avg_num_pokes_across_subjects,

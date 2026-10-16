@@ -14,16 +14,16 @@ def plot_run_mean_vs_std(
 ) -> None:
     """Scatter-plot mean vs std dev of best-arm run length for both bandit types.
 
-    Points are colour-coded by their respective parameter value (sig for GP,
-    p_ud for Markov).
+    Points are colour-coded by their respective parameter value (sig for GP, p_ud for Markov). Draws
+    on a new figure and shows it; the title states a fixed max_block_len of 80.
 
     Args:
-        gp_means: Mean run lengths for each GP sig value.
-        gp_stds: Std dev of run lengths for each GP sig value.
-        markov_means: Mean run lengths for each Markov pud value.
-        markov_stds: Std dev of run lengths for each Markov pud value.
-        sig_values: GP length-scale values (used for colour mapping).
-        pud_values: Markov transition probabilities (used for colour mapping).
+        gp_means (np.ndarray): Mean run lengths for each GP sig value.
+        gp_stds (np.ndarray): Std dev of run lengths for each GP sig value.
+        markov_means (np.ndarray): Mean run lengths for each Markov pud value.
+        markov_stds (np.ndarray): Std dev of run lengths for each Markov pud value.
+        sig_values (np.ndarray): GP length-scale values (used for colour mapping).
+        pud_values (np.ndarray): Markov transition probabilities (used for colour mapping).
     """
     plt.figure(figsize=(7, 6))
 

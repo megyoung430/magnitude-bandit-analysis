@@ -127,7 +127,20 @@ DEFAULT_CHOICE = ChoiceProbabilitySettings(
 
 
 class CohortResult(NamedTuple):
-    """What :func:`run_cohort` computed (the files are already written)."""
+    """What :func:`run_cohort` computed (the files are already written).
+
+    Attributes:
+        problem_map (pd.DataFrame): One row per mouse and problem, from
+            :func:`~src.behavior_import.task_types.problem_map_table`.
+        suspect_reversals (pd.DataFrame): The suspect-reversal review table with ``task_type``,
+            ``problem_in_type`` and ``overall_problem`` in front (see
+            :func:`suspect_table_with_task_types`).
+        rank_results (dict): ``{(task_type, k): rank results of run_problem}``, each
+            ``{value_basis: {pool_trials: {"counts": ..., "p_values": ...}}}`` or ``{}``.
+        pooled_drifting_ranks (dict): Output of :func:`pooled_drifting_rank_results`:
+            ``{value_basis: {pool_trials: {"problems", "counts", "p_values"}}}``; ``{}`` if the
+            cohort has no drifting problems.
+    """
 
     problem_map: pd.DataFrame
     suspect_reversals: pd.DataFrame
@@ -141,14 +154,35 @@ class CohortResult(NamedTuple):
 
 
 def cohort_name(cohort_id: int) -> str:
-    """``3`` as ``"cohort-03"``."""
+    """``3`` as ``"cohort-03"``.
+
+    Args:
+        cohort_id (int): Cohort number, 1 or more.
+
+    Returns:
+        str: ``"cohort-"`` followed by the number zero-padded to two digits.
+
+    Raises:
+        ValueError: If *cohort_id* is not a positive integer.
+    """
     if not isinstance(cohort_id, int) or cohort_id < 1:
         raise ValueError(f"cohort id must be a positive integer, got {cohort_id!r}")
     return f"cohort-{cohort_id:02d}"
 
 
 def cohort_raw_dir(data_root: Path, cohort_id: int) -> Path:
-    """``<data_root>/3x3_field_magnitude_bandit/rawdata/cohort-0N``."""
+    """``<data_root>/3x3_field_magnitude_bandit/rawdata/cohort-0N``.
+
+    Args:
+        data_root (Path): Folder holding the experiment folder ``3x3_field_magnitude_bandit``.
+        cohort_id (int): Cohort number, 1 or more.
+
+    Returns:
+        Path: The cohort's raw-data folder (not checked for existence).
+
+    Raises:
+        ValueError: If *cohort_id* is not a positive integer.
+    """
     return Path(data_root) / EXPERIMENT_FOLDER / "rawdata" / cohort_name(cohort_id)
 
 
@@ -158,6 +192,16 @@ def selection_for_task_type(
     drifting: AnalysisSelection = DRIFTING_SELECTION,
 ) -> AnalysisSelection:
     """The analysis selection that applies to *task_type*.
+
+    Args:
+        task_type (str): ``"blocked"`` or ``"drifting"``.
+        blocked (AnalysisSelection): Selection used for blocked problems. Default
+            ``BLOCKED_SELECTION``.
+        drifting (AnalysisSelection): Selection used for drifting problems. Default
+            ``DRIFTING_SELECTION``.
+
+    Returns:
+        AnalysisSelection: *blocked* or *drifting* itself, per *task_type*.
 
     Raises:
         ValueError: For an unknown task type, or a blocked selection that asks for a
@@ -187,6 +231,13 @@ def _tables_dir(results_root: Path, cohort: str) -> Path:
 def subject_numbers_from_sessions(subjects_trials_by_problem: dict) -> dict:
     """``{mouse: subject number}`` from the file paths the sessions were imported from.
 
+    Args:
+        subjects_trials_by_problem (dict): ``{problem: {mouse: {session_key: session_dict}}}``;
+            the sessions' raw ``"df"`` frames carry the paths (``sub-<N>_id-<mouse>``).
+
+    Returns:
+        dict[str, int]: The ``N`` of ``sub-<N>_id-<mouse>`` for every mouse.
+
     Raises:
         ValueError: If a mouse has no session with a recorded file path.
     """
@@ -208,13 +259,15 @@ def suspect_table_with_task_types(grouped: dict, problem_map: pd.DataFrame) -> p
     """Suspect-reversal rows of every problem, with where each sits in its mouse's numbering.
 
     Args:
-        grouped: ``{(task_type, k): {subject: sessions}}`` from
+        grouped (dict): ``{(task_type, k): {subject: sessions}}`` from
             :func:`~src.behavior_import.task_types.regroup_by_task_type`.
-        problem_map: The cohort's :func:`~src.behavior_import.task_types.problem_map_table`,
-            which supplies each mouse's overall problem number.
+        problem_map (pd.DataFrame): The cohort's
+            :func:`~src.behavior_import.task_types.problem_map_table`, which supplies each
+            mouse's overall problem number.
 
     Returns:
-        The columns ``task_type``, ``problem_in_type``, ``overall_problem``, then
+        pd.DataFrame: One row per suspect reversal, with the columns ``task_type``,
+        ``problem_in_type``, ``overall_problem``, then
         :data:`~src.behavior_analysis.suspect_reversal_table.COLUMNS`.
     """
     leading = ["task_type", "problem_in_type", "overall_problem"]
@@ -245,14 +298,17 @@ def pooled_drifting_rank_results(
     beliefs about the arms reset at every problem boundary.
 
     Args:
-        drifting_problems: ``{k: {subject: sessions}}``.
-        value_bases: ``"true"`` and/or ``"believed"``.
-        pooling_modes: ``pool_trials_within_subject`` values. ``True`` sums counts within each
-            mouse, ``False`` gives equal weight to each block; mice stay the replicates.
+        drifting_problems (dict): ``{k: {subject: sessions}}``, ``k`` the drifting problem
+            number within the type.
+        value_bases (tuple[str, ...]): ``"true"`` and/or ``"believed"``.
+        pooling_modes (tuple[bool, ...]): ``pool_trials_within_subject`` values. ``True`` sums
+            counts within each mouse, ``False`` gives equal weight to each block; mice stay the
+            replicates.
 
     Returns:
-        ``{value_basis: {pool_trials: {"problems", "counts", "p_values"}}}``; a basis with no
-        rank windows in any problem is left out.
+        dict: ``{value_basis: {pool_trials: {"problems", "counts", "p_values"}}}``, where
+        ``"problems"`` lists the ``k`` pooled; a basis with no rank windows in any problem is
+        left out.
     """
     windows = {
         k: get_good_reversal_info(trials, include_first_block=True)
@@ -287,7 +343,15 @@ def pooled_drifting_rank_results(
 
 
 def plot_pooled_drifting_rank(results: dict, save_dir: Path) -> None:
-    """One rank-proportion figure per value basis and pooling mode of *results*."""
+    """One rank-proportion figure per value basis and pooling mode of *results*.
+
+    Args:
+        results (dict): As returned by :func:`pooled_drifting_rank_results`.
+        save_dir (Path): Folder that receives the figures (created if missing).
+
+    Returns:
+        None: Returns nothing; the figures are written to *save_dir*.
+    """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     for value_basis, by_mode in results.items():
@@ -309,6 +373,9 @@ def each_reversal_warning_once() -> Iterator[None]:
     Several analyses of one problem find the same dropped reversals again, and each says so.
     Other warnings are untouched, and the filter is gone on leaving the block, so a rerun in
     the same session warns again.
+
+    Yields:
+        None: Nothing; use as ``with each_reversal_warning_once(): ...``.
     """
     seen: set[str] = set()
     show_warning = warnings.showwarning
@@ -377,15 +444,27 @@ def run_cohort(
     """Run the whole analysis suite for one cohort; see the module docstring for the outputs.
 
     Args:
-        cohort_id: 1 for ``cohort-01``, and so on.
-        data_root: Folder holding ``3x3_field_magnitude_bandit`` (default: the
-            ``BANDIT_DATA_ROOT`` setting).
-        results_root: Folder that receives ``figures/`` and ``tables/``.
-        blocked_selection, drifting_selection: Which analyses run for each task type.
-        choice: Choice-probability figure toggles and windows.
-        reversal_trial_window: Trials per bin of the trial-based reversal-rate plots.
-        use_cache: Use the on-disk import cache (keyed on the raw files).
-        trials_by_problem: Already-loaded ``{problem: {subject: sessions}}``, to skip the load.
+        cohort_id (int): 1 for ``cohort-01``, and so on.
+        data_root (Path | None): Folder holding ``3x3_field_magnitude_bandit``. Default
+            ``None``: the ``BANDIT_DATA_ROOT`` setting. Keyword-only.
+        results_root (Path): Folder that receives ``figures/`` and ``tables/``. Default
+            ``DEFAULT_RESULTS_ROOT`` (``<repo>/results``). Keyword-only.
+        blocked_selection (AnalysisSelection): Which analyses run for blocked problems.
+            Default ``BLOCKED_SELECTION``. Keyword-only.
+        drifting_selection (AnalysisSelection): Which analyses run for drifting problems.
+            Default ``DRIFTING_SELECTION``. Keyword-only.
+        choice (ChoiceProbabilitySettings): Choice-probability figure toggles and windows.
+            Default ``DEFAULT_CHOICE``. Keyword-only.
+        reversal_trial_window (int): Trials per bin of the trial-based reversal-rate plots.
+            Default ``REVERSAL_TRIAL_WINDOW`` (100). Keyword-only.
+        use_cache (bool): Use the on-disk import cache (keyed on the raw files). Default
+            ``True``. Keyword-only.
+        trials_by_problem (dict | None): Already-loaded ``{problem: {subject: sessions}}``, to
+            skip the load. Default ``None``: load the cohort. Keyword-only.
+
+    Returns:
+        CohortResult: The problem map, suspect-reversal table, per-problem rank results and
+        pooled drifting rank results.
 
     Raises:
         ValueError: If the cohort has no problems, or a session's task name is not recognised.
@@ -462,8 +541,15 @@ def run_cohorts(cohort_ids, *, continue_on_error: bool = False, **settings) -> d
     By default the first failing cohort stops the run. With ``continue_on_error`` the other
     cohorts still run, and the failures are raised together at the end.
 
+    Args:
+        cohort_ids (Iterable[int]): Cohort numbers to run, in order.
+        continue_on_error (bool): Keep going after a failing cohort. Default ``False``.
+            Keyword-only.
+        **settings: Keyword arguments of :func:`run_cohort` (``data_root``, ``results_root``,
+            selections, ...), applied to every cohort.
+
     Returns:
-        ``{cohort_id: CohortResult}``.
+        dict[int, CohortResult]: ``{cohort_id: CohortResult}``.
 
     Raises:
         RuntimeError: Naming each cohort that failed and why.

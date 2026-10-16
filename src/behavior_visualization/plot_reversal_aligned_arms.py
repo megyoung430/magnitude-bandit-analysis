@@ -120,14 +120,17 @@ def plot_reversal_aligned_arms(
     The SE band of a curve is left out where its SE is NaN (fewer than two subjects).
 
     Args:
-        result: Output of
+        result (ReversalAlignedArms): Output of
             :func:`~src.behavior_analysis.reversal_aligned_arms.compute_reversal_aligned_arms`.
-        ax: Axes for the choice probabilities; a new figure if ``None``. Its zorder and
-            background are changed so the twin's curves show behind it.
-        scope: Text for the title naming the data, e.g. ``"problem-04"`` or ``"pooled"``.
+        ax (plt.Axes | None): Axes for the choice probabilities; a new 10 x 5.5 inch figure if
+            None. Its zorder and background are changed so the twin's curves show behind it.
+            Default None.
+        scope (str): Text for the title naming the data, e.g. ``"problem-04"`` or
+            ``"pooled"``. Default ``""`` (none).
 
     Returns:
-        ``(ax, ax2)``: the choice-probability axes and the magnitude (right-hand) axes.
+        tuple[plt.Axes, plt.Axes]: ``(ax, ax2)``, the choice-probability axes and the
+        magnitude (right-hand) axes.
 
     Raises:
         ValueError: If the result holds no reversals.
@@ -171,10 +174,13 @@ def save_reversal_aligned_arms(
     """Draw the figure and save it as ``<save_path>.png`` and ``.pdf``, or show it.
 
     Args:
-        result: See :func:`plot_reversal_aligned_arms`.
-        save_path: Base path without extension (parent folders are created); ``None`` or
-            ``""`` shows the figure instead.
-        scope: See :func:`plot_reversal_aligned_arms`.
+        result (ReversalAlignedArms): See :func:`plot_reversal_aligned_arms`.
+        save_path (str | Path | None): Base path without extension (parent folders are
+            created); None or ``""`` shows the figure instead.
+        scope (str): See :func:`plot_reversal_aligned_arms`. Default ``""``.
+
+    Raises:
+        ValueError: If the result holds no reversals.
     """
     ax, _ = plot_reversal_aligned_arms(result, scope=scope)
     ax.figure.tight_layout()

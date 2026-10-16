@@ -83,7 +83,15 @@ def _vlines(ax: Axes, indices: list[int], color: str, label: str) -> None:
 def add_reversal_lines(
     ax: Axes, good_idx: list[int], bad_idx: list[int], block_idx: list[int]
 ) -> None:
-    """Draw dashed lines for good/bad reversals, or for blocks when neither exists."""
+    """Draw dashed lines for good/bad reversals, or for blocks when neither exists.
+
+    Args:
+        ax (Axes): Axes to draw on, in place; the x axis is trial number.
+        good_idx (list[int]): Trial indices of good reversals (green lines).
+        bad_idx (list[int]): Trial indices of bad reversals (red lines).
+        block_idx (list[int]): Trial indices of block starts, drawn only when both *good_idx*
+            and *bad_idx* are empty.
+    """
     if good_idx or bad_idx:
         _vlines(ax, good_idx, _GOOD_REVERSAL_COLOR, "Good Rev")
         _vlines(ax, bad_idx, _BAD_REVERSAL_COLOR, "Bad Rev")
@@ -103,8 +111,19 @@ def plot_magnitudes_and_choices(
     """Per-tower reward magnitude traces with the chosen magnitude as black dots.
 
     Args:
-        reversals: ``(good_idx, bad_idx, block_idx)`` as from
+        mags_by (Mapping[str, Sequence[float]]): ``{tower: magnitude per trial}``; all the same
+            length.
+        choices_by (Mapping[str, Sequence[float]]): ``{tower: one-hot choice per trial}``.
+        towers (Sequence[str]): Tower names to draw, in order; at most the first three are
+            coloured and drawn.
+        reversals (Reversals): ``(good_idx, bad_idx, block_idx)`` as from
             :func:`reversal_event_indices`.
+        title (str | None): Axes title; ``"Reward Magnitudes & Choices"`` if None or empty.
+            Default None.
+        ax (Axes | None): Axes to draw into; a new figure if None. Default None.
+
+    Returns:
+        Axes: The axes drawn into.
     """
     ax = _ensure_ax(ax)
     N = len(mags_by[towers[0]])
@@ -129,10 +148,13 @@ def add_choice_probabilities(probabilities: np.ndarray, towers: Sequence[str], a
     """Overlay dashed per-tower model choice probabilities on a right-hand twin of *ax*.
 
     Args:
-        probabilities: ``(N, len(towers))`` array, one column per tower.
+        probabilities (np.ndarray): ``(N, len(towers))`` array, one column per tower.
+        towers (Sequence[str]): Tower names, in column order; at most the first three are
+            drawn.
+        ax (Axes): Axes to attach the twin to.
 
     Returns:
-        The new twin axis.
+        Axes: The new twin axis.
     """
     probability_axis = ax.twinx()
     x = np.arange(len(probabilities))
@@ -161,7 +183,19 @@ def plot_ema_traces(
     N: int,
     ax: Axes | None = None,
 ) -> Axes:
-    """EMA choice curves over *N* trials for the keys in *ema_keys* that the session holds."""
+    """EMA choice curves over *N* trials for the keys in *ema_keys* that the session holds.
+
+    Args:
+        session_data (Mapping[str, Any]): Session dict holding one length-*N* array per EMA key.
+        ema_keys (Sequence[str]): Keys to plot; keys absent from *session_data* are skipped.
+        reversals (Reversals): ``(good_idx, bad_idx, block_idx)`` as from
+            :func:`reversal_event_indices`.
+        N (int): Number of trials on the x axis.
+        ax (Axes | None): Axes to draw into; a new figure if None. Default None.
+
+    Returns:
+        Axes: The axes drawn into.
+    """
     ax = _ensure_ax(ax)
     x = np.arange(N)
     for k in ema_keys:
@@ -207,7 +241,17 @@ def plot_choices_by_tower(
     N: int,
     ax: Axes | None = None,
 ) -> Axes:
-    """Bar chart of how often each tower was chosen over the first *N* trials."""
+    """Bar chart of how often each tower was chosen over the first *N* trials.
+
+    Args:
+        choices_by (Mapping[str, Sequence[float]]): ``{tower: one-hot choice per trial}``.
+        towers (Sequence[str]): Towers to count, in bar order.
+        N (int): Number of leading trials counted.
+        ax (Axes | None): Axes to draw into; a new figure if None. Default None.
+
+    Returns:
+        Axes: The axes drawn into.
+    """
     ax = _ensure_ax(ax)
     counts = choice_counts_by_tower(choices_by, towers, N)
     _bar_with_percent_labels(ax, towers, counts, _TOWER_COLORS[: len(towers)], "Count by Tower")
@@ -215,7 +259,16 @@ def plot_choices_by_tower(
 
 
 def plot_choices_by_rank(rank_counts: Mapping[str, float] | None, ax: Axes | None = None) -> Axes:
-    """Bar chart of choices per rank; a placeholder text when *rank_counts* is empty/None."""
+    """Bar chart of choices per rank; a placeholder text when *rank_counts* is empty/None.
+
+    Args:
+        rank_counts (Mapping[str, float] | None): ``{rank: count}`` with ranks ``"best"``,
+            ``"second"``, ``"third"``; None or empty draws "No rank data".
+        ax (Axes | None): Axes to draw into; a new figure if None. Default None.
+
+    Returns:
+        Axes: The axes drawn into.
+    """
     ax = _ensure_ax(ax)
     if rank_counts:
         names, counts = ordered_rank_counts(rank_counts)
@@ -238,7 +291,16 @@ _MAP_ROW_INCHES = 4.4
 
 
 class PokeMaps(NamedTuple):
-    """What the two maze panels of the single-session figure show."""
+    """What the two maze panels of the single-session figure show.
+
+    Attributes:
+        counts (SessionPokeCounts): The session's poke counts; ``after_initiation`` and
+            ``after_choice`` give the count per port for the left and right map.
+        current_ports (frozenset[str]): The session's choice ports, outlined in green.
+        previous_ports (frozenset[str] | None): The previous problem's choice ports, outlined
+            in red; None for a mouse without a previous problem.
+        initiation_port (str): The initiation port, outlined in blue.
+    """
 
     counts: SessionPokeCounts
     current_ports: frozenset[str]
@@ -316,6 +378,18 @@ def poke_maps_for_session(
     by ``session_poke_counts`` or ``mouse_poke_counts``) the raw events are not read again; a
     result with a ``parse_error`` draws no maps and does not warn a second time.
 
+    Args:
+        session_data (Mapping[str, Any]): Session dict; ``"df"`` holds the raw recordings and
+            ``"initiation_tower"`` (optional) the initiation port.
+        previous_choice_towers (Collection[str] | None): Choice ports of the mouse's previous
+            problem; None for a mouse without one.
+        label (str): Name of the session used in the warning. Default ``"session"``.
+        poke_counts (SessionPokeCounts | None): Already parsed poke counts; None parses
+            ``session_data["df"]`` here. Default None.
+
+    Returns:
+        PokeMaps | None: The maze-panel data, or None when there is nothing to draw.
+
     Raises:
         ValueError: From :func:`src.behavior_analysis.poke_counts.session_choice_ports` if the
             session has no choice towers.
@@ -348,6 +422,11 @@ def plot_poke_maps(maps: PokeMaps, axes: tuple[Axes, Axes]) -> None:
 
     Each map is coloured from 0 to its own largest count; the colorbar says so. Green outlines
     are the session's choice ports, red ones the previous problem's, blue the initiation port.
+
+    Args:
+        maps (PokeMaps): The data of the two maps.
+        axes (tuple[Axes, Axes]): ``(initiation_ax, choice_ax)``, the axes for the long pokes
+            after initiation and for the pokes after the choice.
     """
     scale = "colour scale 0 to this session's maximum"
     counts = maps.counts
@@ -452,29 +531,30 @@ def plot_single_session(
     after the choice, each coloured from 0 to its own maximum.
 
     Args:
-        session_data: Session dict containing at minimum
+        session_data (Mapping[str, Any]): Session dict containing at minimum
             ``"reward_magnitudes_by_tower"`` and ``"choices_by_tower"``, and
             optionally ``"good_reversals"``, ``"bad_reversals"``, ``"blocks"``,
             ``"rank_counts"``, and EMA keys.
-        mag_key: Key for the per-tower magnitude dict
-            (default: ``"reward_magnitudes_by_tower"``).
-        choice_key: Key for the per-tower one-hot choice dict
-            (default: ``"choices_by_tower"``).
-        ema_keys: Tuple of keys whose values are plotted as EMA traces
-            (default: ``("ema_best_arm_choices", "ema_second_arm_choices")``).
-        title: Custom figure title for the top panel (default: ``None``).
-        choice_probabilities_by_tower: Optional normalized pre-choice probabilities
-            by physical tower, aligned to session trials; dashed lines on a right axis.
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output.  If ``None``, the figure is shown interactively.
-        previous_choice_towers: Choice ports of the mouse's previous problem, outlined in red
-            on the maze maps (the session's own choice ports are outlined in green and the
-            initiation port in blue); ``None`` for a mouse without a previous problem. Ignored
-            when the session has no raw recordings.
-        poke_counts: The session's already parsed poke counts (a
+        mag_key (str): Key for the per-tower magnitude dict
+            ``{tower: magnitude per trial}``. Default ``"reward_magnitudes_by_tower"``.
+        choice_key (str): Key for the per-tower one-hot choice dict
+            ``{tower: choice per trial}``. Default ``"choices_by_tower"``.
+        ema_keys (Sequence[str]): Keys whose values are plotted as EMA traces. Default
+            ``("ema_best_arm_choices", "ema_second_arm_choices")``.
+        title (str | None): Custom figure title for the top panel. Default None.
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output. If None or empty, the figure is shown interactively. Default None.
+        choice_probabilities_by_tower (Mapping[str, Sequence[float]] | None): Optional
+            normalized pre-choice probabilities by physical tower, aligned to session trials;
+            dashed lines on a right axis. Default None.
+        previous_choice_towers (Collection[str] | None): Choice ports of the mouse's previous
+            problem, outlined in red on the maze maps (the session's own choice ports are
+            outlined in green and the initiation port in blue); None for a mouse without a
+            previous problem. Ignored when the session has no raw recordings. Default None.
+        poke_counts (SessionPokeCounts | None): The session's already parsed poke counts (a
             :class:`~src.behavior_analysis.poke_counts.SessionPokeCounts`, e.g. from
             ``session_poke_counts``), so the raw events are parsed once per session when
-            several analyses use them. ``None`` parses ``session_data["df"]`` here.
+            several analyses use them. None parses ``session_data["df"]`` here. Default None.
 
     Raises:
         KeyError: if *mag_key* or *choice_key* is missing from *session_data*.

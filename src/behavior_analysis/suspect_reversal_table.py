@@ -152,13 +152,16 @@ def suspect_reversal_table(
     warned about and the input is not changed.
 
     Args:
-        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
-        pre, post, include_first_block, max_zero_count: As in ``get_good_reversal_info``.
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        pre (int): As in ``get_good_reversal_info``. Default 5.
+        post (int | None): As in ``get_good_reversal_info``. Default ``None``.
+        include_first_block (bool): As in ``get_good_reversal_info``. Default ``False``.
+        max_zero_count (int): As in ``get_good_reversal_info``. Default 1.
 
     Returns:
-        A DataFrame with the columns of :data:`COLUMNS` (see the module docstring), in the
-        order of the subjects and, within a subject, of the trials. Empty, with the same
-        columns and dtypes, if nothing is dropped.
+        pd.DataFrame: A DataFrame with the columns of :data:`COLUMNS` (see the module
+        docstring), in the order of the subjects and, within a subject, of the trials. Empty,
+        with the same columns and dtypes, if nothing is dropped.
     """
     _, dropped, _ = collect_good_reversals(
         subjects_trials,
@@ -174,8 +177,12 @@ def suspect_reversal_table_by_problem(subjects_trials_by_problem, **kwargs):
     """:func:`suspect_reversal_table` of every problem, stacked, with a leading ``problem`` column.
 
     Args:
-        subjects_trials_by_problem: ``{problem: {subject: {session_key: session_dict}}}``.
+        subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``.
         **kwargs: Passed on to :func:`suspect_reversal_table`.
+
+    Returns:
+        pd.DataFrame: The tables concatenated, with columns ``problem`` followed by
+        :data:`COLUMNS`; empty, with those columns, if nothing is dropped in any problem.
     """
     tables = {p: suspect_reversal_table(d, **kwargs) for p, d in subjects_trials_by_problem.items()}
     # Empty tables are left out of the concatenation so that it keeps every column's dtype.
@@ -189,10 +196,13 @@ def write_suspect_reversal_table(table, path):
     """Write *table* to the CSV *path*, creating its folder.
 
     Args:
-        table: A table from :func:`suspect_reversal_table` or
+        table (pd.DataFrame): A table from :func:`suspect_reversal_table` or
             :func:`suspect_reversal_table_by_problem`, optionally with the leading columns of
             :data:`LEADING_COLUMN_SETS`.
-        path: Destination file.
+        path (str | os.PathLike): Destination file.
+
+    Returns:
+        None: Nothing; writes the CSV without the index.
 
     Raises:
         ValueError: If *table* does not have exactly the expected columns.

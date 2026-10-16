@@ -41,6 +41,17 @@ FULL_GRID = [
 
 
 def dependencies() -> tuple[Any, Any, Any]:
+    """Import JAX and Optax lazily and switch JAX to 64-bit floats.
+
+    Importing here keeps the SciPy workflows free of these packages. As a side effect it sets the
+    global ``jax_enable_x64`` option.
+
+    Returns:
+        tuple[Any, Any, Any]: The modules ``(jax, jax.numpy, optax)``.
+
+    Raises:
+        ImportError: If jax or optax is not installed.
+    """
     try:
         import jax
         import jax.numpy as jnp
@@ -61,8 +72,24 @@ def split_by_mouse(
 ) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     """Seeded mouse split: no session of a mouse can cross partitions.
 
-    Floor training and validation counts, with at least one mouse per partition.
-    Small cohorts cannot exactly match 80/10/10; returned identities are auditable.
+    Floor training and validation counts, with at least one mouse per partition. Small cohorts
+    cannot exactly match 80/10/10; returned identities are auditable.
+
+    Args:
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``, with keys
+            ``mouse``, ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        seed (int): Seed of the shuffle that assigns mice to partitions. Default 42.
+        fractions (tuple[float, float, float]): Train, validation and test fractions of mice;
+            positive and summing to one. Default ``(0.8, 0.1, 0.1)``.
+
+    Returns:
+        tuple[dict[str, list[dict]], dict[str, list[str]]]: ``(parts, ids)``. ``parts`` maps
+            ``'train'``, ``'validation'`` and ``'test'`` to the sessions of the mice in that
+            partition; ``ids`` maps the same keys to the mouse names.
+
+    Raises:
+        ValueError: If *fractions* is not three positive numbers summing to one, or there are fewer
+            than three mice.
     """
     if len(fractions) != 3 or min(fractions) <= 0 or not np.isclose(sum(fractions), 1):
         raise ValueError("Need three positive fractions summing to one.")
@@ -85,9 +112,26 @@ def split_by_problem(
 ) -> tuple[dict[str, list[dict]], dict[str, list[int]]]:
     """Pooled, whole-problem split; numbers are mouse-relative problem indices.
 
-    Hold the same index out across mice. By default validation is the next
-    available index cyclically, chosen without inspecting behavioral outcomes.
-    Every validation/test mouse must be represented in training.
+    Hold the same index out across mice. By default validation is the next available index
+    cyclically, chosen without inspecting behavioral outcomes. Every validation/test mouse must be
+    represented in training.
+
+    Args:
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``, with keys
+            ``mouse``, ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        test_problem (int): Problem index held out as the test partition.
+        validation_problem (int | None): Problem index used for validation; None picks the next
+            available problem after *test_problem*, wrapping around. Default None.
+
+    Returns:
+        tuple[dict[str, list[dict]], dict[str, list[int]]]: ``(parts, ids)``. ``parts`` maps
+            ``'train'``, ``'validation'`` and ``'test'`` to sessions; ``ids`` maps the same keys to
+            the problem indices in each partition.
+
+    Raises:
+        ValueError: If there are fewer than three problems, *test_problem* is not among them,
+            *validation_problem* is unavailable or equals *test_problem*, or a validation or test
+            mouse has no training data.
     """
     problems = sorted({int(s["problem"]) for s in sequences})
     if len(problems) < 3 or test_problem not in problems:
@@ -114,7 +158,24 @@ def split_by_problem(
 def pack_sequences(
     sequences: list[dict], max_trials: int | None = None, num_arms: int = 3
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Pad complete sessions; masked trials contribute no loss and no state update."""
+    """Pad complete sessions; masked trials contribute no loss and no state update.
+
+    Args:
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``, with keys
+            ``mouse``, ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        max_trials (int | None): Padded length; None uses the longest session. Default None.
+        num_arms (int): Required number of towers in every session. Default 3.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, np.ndarray]: ``(actions, rewards, mask)``, each ``(n_sessions,
+            length)``: int32 chosen-arm indices, float rewards and a bool mask that is True for real
+            trials. Padding is 0 / 0.0 / False.
+
+    Raises:
+        ValueError: If *sequences* is empty, a session is longer than *max_trials*, or a session has
+            the wrong number of towers, non-integer or out-of-range actions, mismatched or
+            non-finite rewards, or no trials.
+    """
     if not sequences:
         raise ValueError("Empty data partition.")
     length = max(len(s["actions"]) for s in sequences)
@@ -145,9 +206,22 @@ def pack_sequences(
 def transform_parameters(raw: Any, model: str) -> Any:
     """Transform trainable coordinates; regularization is on these raw coordinates.
 
-    Best/published RL: sigmoid rates, ReLU beta, tanh perseverance, free q_init.
-    Paper-equation Best RL additionally has tanh bias, absent in released CogMod.
-    Sticky RL: sigmoid maps to existing fitting bounds for rate/beta/stickiness.
+    Best/published RL: sigmoid rates, ReLU beta, tanh perseverance, free q_init. Paper-equation Best
+    RL additionally has tanh bias, absent in released CogMod. Sticky RL: sigmoid maps to existing
+    fitting bounds for rate/beta/stickiness.
+
+    Args:
+        raw (array-like): Raw parameters: 3 entries for ``'sticky_rl'`` (learning rate, beta,
+            alpha), 6 for ``'best_rl'`` (learning rate, beta, kappa, bias, forgetting, q_init), 5
+            for ``'released_rl'`` (learning rate, beta, kappa, forgetting, q_init).
+        model (str): One of ``MODEL_NAMES``.
+
+    Returns:
+        jax.Array: Parameters in model units, same length and order as *raw* (see
+            ``PARAMETER_NAMES``).
+
+    Raises:
+        ValueError: If *model* is unknown.
     """
     jax, jnp, _ = dependencies()
     if model == "sticky_rl":
@@ -306,6 +380,33 @@ def _make_trainer(jax, optax, value_grad):
 
 
 def make_backend(model: str, num_arms: int = 3, hidden_units: int = 16) -> tuple[Any, Any, Any]:
+    """Build the jitted scoring, objective and trainer functions for a model.
+
+    Neural models are delegated to ``neural_bandit.make_backend``.
+
+    Args:
+        model (str): One of ``MODEL_NAMES`` or ``neural_bandit.NEURAL_MODELS``.
+        num_arms (int): Number of arms. Default 3.
+        hidden_units (int): Hidden width of a neural model; ignored for the RL models. Default 16.
+
+    Returns:
+        tuple[Callable, Callable, Callable]: ``(statistics, objective, trainer)``. ``statistics(raw,
+            actions, rewards, mask, released_loss=False, skip_first=False)`` takes padded ``(batch,
+            n_trials)`` arrays (int actions, float rewards, bool mask of real trials) and returns
+            ``(nll, correct)``, two ``(batch,)`` arrays of summed negative log likelihood and count
+            of argmax-correct trials; ``released_loss`` applies the released affine probability
+            safeguard and ``skip_first`` leaves out the first trial of each session.
+            ``objective(raw, actions, rewards, mask, l2_weight)`` returns the scalar released-loss
+            objective, the summed negative log likelihood of the scored trials averaged over
+            sessions; ``l2_weight`` is ignored. ``trainer(setting)`` takes a dict with
+            ``optimizer_learning_rate``, ``batch_size`` and ``weight_decay`` (or the legacy
+            ``l2_weight``) and returns ``(optimizer, chunk)``, an AdamW optimizer and a jitted
+            ``chunk(raw, opt_state, key, actions, rewards, mask, steps)`` that runs *steps*
+            minibatch updates and returns ``((raw, opt_state, key), last_loss)``.
+
+    Raises:
+        ValueError: If *model* is unknown.
+    """
     if model not in MODEL_NAMES:
         from src.agents.neural_bandit import make_backend as neural_backend
 
@@ -324,6 +425,34 @@ def score_sequences(
     statistics: Any = None,
     evaluation_batch_size: int = 32,
 ) -> tuple[float, list[dict]]:
+    """Held-out scoring of sessions, leaving out each session's first trial.
+
+    Reports the plain cross entropy and the released affine-adjusted score per session. Sessions are
+    scored in batches of *evaluation_batch_size*.
+
+    Args:
+        raw (jax.Array | dict): Raw (untransformed) trainable parameters: a 1-D array for the RL
+            models (3, 6 or 5 entries for ``'sticky_rl'``, ``'best_rl'``, ``'released_rl'``), a dict
+            of arrays for the neural models.
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``, with keys
+            ``mouse``, ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        model (str): One of ``MODEL_NAMES`` or ``neural_bandit.NEURAL_MODELS``.
+        statistics (Callable | None): The ``statistics`` function from ``make_backend`` to reuse;
+            None builds one for *model*. Default None.
+        evaluation_batch_size (int): Sessions scored per call. Default 32.
+
+    Returns:
+        tuple[float, list[dict]]: ``(cross_entropy, rows)``. ``cross_entropy`` is the negative log
+            likelihood per trial pooled over all sessions. ``rows`` has one dict per session with
+            ``mouse``, ``problem``, ``session``, ``n_trials`` (scored trials, one fewer than
+            observed), ``n_observed_trials``, ``nll``, ``cross_entropy``, ``release_nll``,
+            ``release_score_per_trial``, ``geometric_mean_choice_probability`` and
+            ``argmax_accuracy``.
+
+    Raises:
+        ValueError: If *evaluation_batch_size* < 1, *sequences* is empty, or a session has fewer
+            than two trials.
+    """
     if evaluation_batch_size < 1:
         raise ValueError("evaluation_batch_size must be positive.")
     statistics = statistics or make_backend(model)[0]
@@ -668,7 +797,15 @@ def _serialize_raw(raw):
 
 
 def restore_raw(serialized: list | dict) -> Any:
-    """Inverse of :func:`_serialize_raw`, as JAX arrays."""
+    """Inverse of :func:`_serialize_raw`, as JAX arrays.
+
+    Args:
+        serialized (list | dict): Nested lists for the RL models, or a dict of nested lists for the
+            neural models, as stored in a run record's ``best_raw``.
+
+    Returns:
+        jax.Array | dict: A JAX array, or a dict of JAX arrays with the same keys.
+    """
     _, jnp, _ = dependencies()
     if isinstance(serialized, dict):
         return {k: jnp.asarray(v) for k, v in serialized.items()}
@@ -847,10 +984,56 @@ def run_paper_sweep(
 ) -> dict:
     """Run/resume AdamW sweep; select only on validation, score test after completion.
 
-    Checkpoints contain parameters, AdamW moments, sampling RNG and best validation
-    iterate, so restarting an interrupted run resumes exactly at its saved step.
-    Runs use matched initialization seeds/minibatch streams across candidate models.
-    Test scores are never computed during optimization or hyperparameter selection.
+    Checkpoints contain parameters, AdamW moments, sampling RNG and best validation iterate, so
+    restarting an interrupted run resumes exactly at its saved step. Runs use matched initialization
+    seeds/minibatch streams across candidate models. Test scores are never computed during
+    optimization or hyperparameter selection. Results are written under ``<output_root>/<identity
+    hash>/``: one JSON record and checkpoint per run, then, once every run has finished, each
+    model's selected parameters and ``results.json``.
+
+    Args:
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``, with keys
+            ``mouse``, ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``. Every
+            session needs at least two trials.
+        output_root (str | Path): Directory that holds one subdirectory per sweep identity (created
+            if missing).
+        grid (list[dict] | None): Optimizer settings to try; each dict has
+            ``optimizer_learning_rate`` (> 0), ``batch_size`` (>= 1, capped at the number of
+            training sessions), ``weight_decay`` (>= 0; legacy key ``l2_weight``) and optionally
+            ``hidden_units`` (neural models; default 16). None uses ``FULL_GRID``.
+        n_seeds (int): Independent random initializations per model and setting. Default 5.
+        max_steps (int): Optimizer steps per run. Default 1,000,000.
+        validation_every (int): Steps between validation scores and checkpoints. Default 500.
+        split_seed (int): Seed for the mouse split (unused for problem splits). Default 42.
+        fit_seed (int): Base seed for initialization and minibatches. Default 123.
+        max_new_runs (int | None): Budget of runs to train in this call; None means no limit.
+            Finished runs are always reloaded. Default None.
+        profile (str): Free-text label recorded in the run identity. Default ``'full'``.
+        models (tuple[str, ...]): Distinct names from ``MODEL_NAMES`` and
+            ``neural_bandit.NEURAL_MODELS``. Default ``MODEL_NAMES``.
+        test_problem (int | None): If given, split by whole problem with this problem as test; None
+            splits by mouse. Default None.
+        validation_problem (int | None): Validation problem for a problem split; requires
+            *test_problem*. Default None.
+
+    Returns:
+        dict: ``complete`` (bool, whether every expected run has finished), ``completed_runs``
+            (int), ``expected_runs`` (int, models x settings x seeds), ``output_dir`` (str),
+            ``split_mice`` (``{partition: [mouse]}``), ``split_strategy`` (``'mouse'`` or
+            ``'pooled_problem'``), ``split_problems`` (None, or ``{partition: [problem]}``),
+            ``selected`` and ``test_sessions``. ``selected`` has one dict per model (the
+            validation-selected run: ``model``, ``setting``, ``repeat``, ``selected_step``,
+            ``parameters``, ``parameters_file``, ``validation_cross_entropy``,
+            ``validation_release_score``, ``test_cross_entropy``, ``test_release_score``,
+            ``effective_batch_size``, ``geometric_mean_choice_probability``); ``test_sessions`` has
+            one per-session score row per model and held-out session, as from ``score_sequences``
+            plus ``model``. Both are empty lists while the sweep is incomplete.
+
+    Raises:
+        ValueError: If *models*, the sweep sizes, the optimizer settings or the sessions are
+            invalid, or the split is impossible.
+        FloatingPointError: If a run's validation score or training loss becomes non-finite.
+        ImportError: If jax or optax is not installed.
     """
     _, jnp, _ = dependencies()
     from src.agents import neural_bandit
@@ -933,8 +1116,34 @@ def run_problem_sweep(
 ) -> dict:
     """Run pooled leave-one-problem-out fits, with independent selection per fold.
 
-    max_new_runs is a global budget across folds, including resumable partial runs.
-    Aggregate test reports are withheld until all requested folds complete.
+    max_new_runs is a global budget across folds, including resumable partial runs. Aggregate test
+    reports are withheld until all requested folds complete. Writes ``results.json`` under
+    ``<output_root>/problem-cv-<hash>/``.
+
+    Args:
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``, with keys
+            ``mouse``, ``problem``, ``session``, ``towers``, ``actions`` and ``rewards``.
+        output_root (str | Path): Directory that holds the per-fold sweep directories and the
+            aggregate directory.
+        test_problems (list[int] | None): Problems to hold out, one fold each; None uses every
+            problem present. Default None.
+        max_new_runs (int | None): Budget of runs to train across all folds; None means no limit.
+            Default None.
+        **kwargs: Passed to ``run_paper_sweep`` for every fold (``grid``, ``n_seeds``,
+            ``max_steps``, ``validation_every``, ``split_seed``, ``fit_seed``, ``profile``,
+            ``models``, ``validation_problem``).
+
+    Returns:
+        dict: ``complete`` (bool, all folds finished), ``split_strategy`` (``'pooled_problem'``),
+            ``completed_runs`` and ``expected_runs`` (ints summed over folds), ``output_dir`` (str),
+            ``folds`` (list with one ``run_paper_sweep`` result per fold, each plus
+            ``test_problem``), ``selected`` and ``test_sessions``. When complete, ``selected`` and
+            ``test_sessions`` concatenate the folds' rows, each with a ``test_problem`` key and
+            ``parameters_file`` made absolute; otherwise both are empty lists.
+
+    Raises:
+        ValueError: If *test_problems* is empty or has duplicates, *max_new_runs* is negative, or
+            any fold's split is impossible (checked before any training).
     """
     problems = sorted({int(s["problem"]) for s in sequences})
     tests = problems if test_problems is None else list(test_problems)

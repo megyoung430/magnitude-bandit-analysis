@@ -78,6 +78,17 @@ class TrialPokes(NamedTuple):
     used (``long_pokes`` is empty, ``window_pokes`` ``None``) and the reason says why.
     ``has_print`` is False for a trial that ended without any print row (it is not one of the
     session's trials); ``chosen`` is ``None`` when there is no usable print.
+
+    Attributes:
+        chosen (str | None): Chosen tower from the trial print, or ``None`` without a usable print.
+        printed_long_pokes (tuple[str, ...] | None): The print's non-choice ``long_pokes`` list,
+            or ``None`` if absent.
+        long_pokes (tuple[str, ...]): Ports of all long pokes from initiation to the choice,
+            the choice last; empty for a dropped trial.
+        window_pokes (tuple[str, ...] | None): Ports of the ``_in`` events of the after-choice
+            window, or ``None`` if the window never closed (or the trial was dropped).
+        drop_reason (str | None): ``None`` for a trial to analyse, else why it is not.
+        has_print (bool): False for a trial that ended without any print row. Default True.
     """
 
     chosen: str | None
@@ -94,6 +105,13 @@ class LongPokeCheck(NamedTuple):
     ``mismatches`` holds ``(trial, raw, printed)`` for each disagreeing trial (1-based within the
     compared trials); ``raw`` is the raw long pokes including the choice poke and ``printed`` the
     printed non-choice list followed by the chosen tower.
+
+    Attributes:
+        n_trials (int): Trials compared (the non-dropped ones).
+        n_agree (int): Trials where raw and printed long pokes agree.
+        mismatches (list[tuple[int, tuple[str, ...], tuple[str, ...] | None]]):
+            ``(trial, raw, printed)`` per disagreeing trial; *printed* is ``None`` when the
+            print has no list.
     """
 
     n_trials: int
@@ -232,15 +250,17 @@ def parse_recording(
     """The pokes of every bandit trial printed in one raw recording.
 
     Args:
-        df: The raw four-column pyControl DataFrame (``time``, ``type``, ``subtype``,
-            ``content``), in log order.
-        initiation_tower: Port whose ``_in`` starts a trial, e.g. ``"B2"``.
-        label: Names the recording in error messages.
+        df (pd.DataFrame): The raw four-column pyControl DataFrame (``time``, ``type``,
+            ``subtype``, ``content``), in log order.
+        initiation_tower (str): Port whose ``_in`` starts a trial, e.g. ``"B2"``. Default is
+            the protocol default.
+        label (str): Names the recording in error messages. Default ``"recording"``.
 
     Returns:
-        One :class:`TrialPokes` per trial (a trial with a print row, or one that ended in an
-        ITI without any), in order; ``[]`` for a recording without bandit trials (port finding,
-        pretraining). Untrustworthy trials carry a ``drop_reason`` (see the module doc).
+        list[TrialPokes]: One :class:`TrialPokes` per trial (a trial with a print row, or one
+        that ended in an ITI without any), in order; ``[]`` for a recording without bandit
+        trials (port finding, pretraining). Untrustworthy trials carry a ``drop_reason`` (see
+        the module doc).
 
     Raises:
         PokeParseError: If the log is not in time order, a state sequence is impossible
@@ -303,10 +323,14 @@ def parse_session(
     every chosen tower are checked against it.
 
     Args:
-        session: A session record with the importer's ``"df"`` (a DataFrame or a list of them).
-        initiation_tower: Defaults to the session's ``"initiation_tower"``, or the protocol
-            default ``"B2"`` when the session has none.
-        label: Names the session in error messages.
+        session (dict): A session record with the importer's ``"df"`` (a DataFrame or a list of
+            them).
+        initiation_tower (str | None): Defaults to the session's ``"initiation_tower"``, or the
+            protocol default ``"B2"`` when the session has none.
+        label (str): Names the session in error messages. Default ``"session"``.
+
+    Returns:
+        list[TrialPokes]: The trials of all recordings, in recording order.
 
     Warns once with the number of dropped trials (see the module doc).
 
@@ -342,6 +366,15 @@ def pokes_after_initiation(long_pokes: Sequence[str], initiation_tower: str) -> 
 
     Long pokes at the initiation tower count only once the mouse has made a long poke at
     another port; the choice poke is a long poke like any other.
+
+    Args:
+        long_pokes (Sequence[str]): Ports of a trial's long pokes in order
+            (``TrialPokes.long_pokes``).
+        initiation_tower (str): The port that initiates trials, e.g. ``"B2"``.
+
+    Returns:
+        list[str]: *long_pokes* from the first poke at a port other than *initiation_tower*
+        onward; empty if there is none.
     """
     start = next((i for i, port in enumerate(long_pokes) if port != initiation_tower), None)
     return [] if start is None else list(long_pokes[start:])
@@ -352,6 +385,15 @@ def pokes_after_choice(window_pokes: Sequence[str] | None, chosen: str) -> list[
 
     The mouse may be drinking at the chosen port, so its pokes there count only after a poke
     at some other port. Repeats are kept.
+
+    Args:
+        window_pokes (Sequence[str] | None): Ports of the after-choice window
+            (``TrialPokes.window_pokes``); ``None`` if the window never closed.
+        chosen (str): The trial's chosen tower.
+
+    Returns:
+        list[str]: *window_pokes* from the first poke at a port other than *chosen* onward;
+        empty if there is none.
 
     Raises:
         ValueError: If *window_pokes* is ``None`` (the window was never closed).
@@ -367,6 +409,12 @@ def cross_check_long_pokes(trials: Sequence[TrialPokes]) -> LongPokeCheck:
 
     Agreement means the raw long pokes equal the printed non-choice long pokes followed by the
     chosen tower; trials whose print has no list disagree. Dropped trials are not compared.
+
+    Args:
+        trials (Sequence[TrialPokes]): The trials of a session, as from :func:`parse_session`.
+
+    Returns:
+        LongPokeCheck: The number of compared trials, how many agree, and the disagreeing ones.
     """
     trials = [t for t in trials if t.drop_reason is None]
     mismatches = []

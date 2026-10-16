@@ -42,6 +42,19 @@ class SessionPokeCounts(NamedTuple):
     ``n_dropped_inconsistent`` the other drops. ``long_poke_check`` compares the raw long
     pokes of the analysed trials with the printed lists. ``parse_error`` is the reason the
     session's raw events could not be read (all counts are then zero), else ``None``.
+
+    Attributes:
+        after_initiation (dict[str, int]): ``{port: count}`` over the nine ports of long pokes
+            after initiation.
+        after_choice (dict[str, int]): ``{port: count}`` over the nine ports of pokes after
+            the choice.
+        n_trials (int): Trials with a print row.
+        n_open_windows (int): Analysed trials with no closed after-choice window.
+        long_poke_check (LongPokeCheck): Raw long pokes compared with the printed lists.
+        n_valid (int): Trials analysed (not dropped).
+        n_dropped_no_print (int): Trials dropped for lacking a usable summary print.
+        n_dropped_inconsistent (int): Trials dropped for any other reason.
+        parse_error (str | None): Why the raw events could not be read, else ``None``.
     """
 
     after_initiation: dict[str, int]
@@ -56,7 +69,19 @@ class SessionPokeCounts(NamedTuple):
 
 
 def count_ports(sequences: Iterable[Iterable[str]]) -> dict[str, int]:
-    """Number of occurrences of each of the nine ports over all *sequences* (repeats count)."""
+    """Number of occurrences of each of the nine ports over all *sequences* (repeats count).
+
+    Args:
+        sequences (Iterable[Iterable[str]]): Port names (``"A1"`` ... ``"C3"``), one iterable
+            per trial or window.
+
+    Returns:
+        dict[str, int]: ``{port: count}`` with all nine ports of ``ARMS9`` as keys, in order;
+        zero for ports that never occur.
+
+    Raises:
+        ValueError: If a sequence holds a port that is not one of the nine.
+    """
     counter = Counter(port for sequence in sequences for port in sequence)
     unknown = set(counter) - set(ARMS9)
     if unknown:
@@ -84,12 +109,12 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
     """Both per-port poke counts of one session, from its raw recordings.
 
     Args:
-        session: A session record with the importer's ``"df"`` (and, optionally,
+        session (dict): A session record with the importer's ``"df"`` (and, optionally,
             ``"initiation_tower"``, default ``"B2"``, and ``"choice"`` to check alignment).
-        label: Names the session in error messages.
+        label (str): Names the session in error messages. Default ``"session"``.
 
     Returns:
-        A :class:`SessionPokeCounts`. Dropped trials are left out of both counts; trials
+        SessionPokeCounts: The counts. Dropped trials are left out of both counts; trials
         whose after-choice window never closed (a recording's last printed trial) are left out of
         ``after_choice`` only.
     """
@@ -109,7 +134,15 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
 
 
 def unparsed_session_counts(reason: str) -> SessionPokeCounts:
-    """Zero counts for a session whose raw events could not be read, carrying *reason*."""
+    """Zero counts for a session whose raw events could not be read, carrying *reason*.
+
+    Args:
+        reason (str): Why the events could not be read; stored as ``parse_error``.
+
+    Returns:
+        SessionPokeCounts: All port counts and trial counts zero, an empty long-poke check, and
+        ``parse_error`` set to *reason*.
+    """
     zeros = count_ports([])
     return SessionPokeCounts(
         after_initiation=dict(zeros),
@@ -138,6 +171,14 @@ def mouse_poke_counts(subject: str, sessions: Mapping[str, dict]) -> dict[str, S
     A session whose raw events raise :class:`PokeParseError` is skipped with a warning and
     gets :func:`unparsed_session_counts` (zero counts, the reason in ``parse_error``).
 
+    Args:
+        subject (str): Mouse id, used in warnings and error messages.
+        sessions (Mapping[str, dict]): ``{session_key: session_dict}`` of the mouse, each as
+            for :func:`session_poke_counts`.
+
+    Returns:
+        dict[str, SessionPokeCounts]: ``{session_key: counts}`` in session order.
+
     Raises:
         ValueError: If the session keys cannot be ordered (see ``ordered_session_keys``).
         PokeAlignmentError: If a session's parsed trials do not match its imported trials.
@@ -149,7 +190,18 @@ def mouse_poke_counts(subject: str, sessions: Mapping[str, dict]) -> dict[str, S
 
 
 def total_counts(per_session: Mapping[str, SessionPokeCounts], kind: str) -> dict[str, int]:
-    """Per-port sum over sessions of *kind*, ``"after_initiation"`` or ``"after_choice"``."""
+    """Per-port sum over sessions of *kind*, ``"after_initiation"`` or ``"after_choice"``.
+
+    Args:
+        per_session (Mapping[str, SessionPokeCounts]): ``{session_key: counts}``.
+        kind (str): ``"after_initiation"`` or ``"after_choice"``.
+
+    Returns:
+        dict[str, int]: ``{port: total}`` over the nine ports.
+
+    Raises:
+        ValueError: If *kind* is neither of the two.
+    """
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}, got {kind!r}")
     return {port: sum(getattr(c, kind)[port] for c in per_session.values()) for port in ARMS9}
@@ -163,6 +215,12 @@ def session_choice_ports(session: Mapping) -> frozenset[str]:
 
     The importer stores ``"choice_towers"`` either as one set of ports or as a list holding the
     ports available on each trial; both give the union of the ports.
+
+    Args:
+        session (Mapping): A session record holding ``"choice_towers"``.
+
+    Returns:
+        frozenset[str]: The union of the session's choice ports.
 
     Raises:
         ValueError: If the session has no choice towers.
@@ -180,7 +238,18 @@ def session_choice_ports(session: Mapping) -> frozenset[str]:
 
 
 def problem_choice_ports(sessions: Mapping[str, dict]) -> frozenset[str]:
-    """Union of the choice ports over the sessions of one mouse and problem."""
+    """Union of the choice ports over the sessions of one mouse and problem.
+
+    Args:
+        sessions (Mapping[str, dict]): ``{session_key: session_dict}``, each holding
+            ``"choice_towers"`` (see :func:`session_choice_ports`).
+
+    Returns:
+        frozenset[str]: The union of the sessions' choice ports.
+
+    Raises:
+        ValueError: If a session has no choice towers.
+    """
     return frozenset().union(*(session_choice_ports(s) for s in sessions.values()))
 
 
@@ -193,12 +262,15 @@ def previous_problem_choice_towers(
     type), not in dict order; a problem number the mouse did not run is skipped.
 
     Args:
-        subjects_trials_by_problem: ``{problem: {mouse: {session_key: session_dict}}}`` for all
-            problems, each session carrying ``"choice_towers"``.
+        subjects_trials_by_problem (Mapping): ``{problem: {mouse: {session_key: session_dict}}}``
+            for all problems, each session carrying ``"choice_towers"``.
 
     Returns:
-        ``{mouse: {overall problem number: ports of its previous problem, or None for its first
-        problem}}``.
+        dict[str, dict[int, frozenset[str] | None]]: ``{mouse: {overall problem number: ports of
+        its previous problem, or None for its first problem}}``.
+
+    Raises:
+        ValueError: If a problem key has no number or a session has no choice towers.
     """
     ports_by_mouse: dict[str, dict[int, frozenset[str]]] = {}
     for problem, subjects in subjects_trials_by_problem.items():
@@ -227,8 +299,14 @@ def previous_choice_towers_for_problem(
     serves a problem regrouped by task type, where mice may sit at different overall numbers.
 
     Args:
-        subjects_sessions: ``{mouse: {session_key: session_dict}}`` of one problem.
-        previous: The result of :func:`previous_problem_choice_towers` for the whole cohort.
+        subjects_sessions (Mapping[str, Mapping[str, dict]]): ``{mouse: {session_key:
+            session_dict}}`` of one problem.
+        previous (Mapping[str, Mapping[int, frozenset[str] | None]]): The result of
+            :func:`previous_problem_choice_towers` for the whole cohort.
+
+    Returns:
+        dict[str, frozenset[str] | None]: ``{mouse: ports of its previous problem}``; ``None``
+        for a mouse whose problem is its first.
 
     Raises:
         ValueError: If a mouse's sessions name more than one problem, or no problem.
