@@ -14,7 +14,10 @@ Two kinds of pokes are of interest, both attributed to the trial whose ``print``
 
 The log is read in file order, from the ``state`` rows and the ``<port>_in`` input events only.
 Timer events are ignored: pyControl can log a timer a few milliseconds before the state row that
-precedes it, so the log is not strictly time-ordered, and nothing here depends on it.
+precedes it, so the log is not strictly time-ordered, and nothing here depends on it. Input events
+can be out of order too: a poke logged a millisecond after the ``ITI`` state row, although it
+happened just before, is still read after it. Reading in file order puts such a poke in the
+after-choice window, where a leading poke at the chosen tower is dropped anyway.
 
 The parsers keep everything they saw; the counting rules are separate small functions
 (:func:`pokes_after_initiation`, :func:`pokes_after_choice`) so each can be tested alone.
@@ -32,7 +35,11 @@ recording's last printed trial may have an open after-choice window. Structurall
 logs raise :class:`PokeParseError`. Port-finding trials (prints with ``num_t_found``, no
 ``num_t``) are not task trials: they are kept in the list as trials with ``drop_reason``
 :data:`PORT_FINDING`, which :func:`is_port_finding` recognises and :func:`count_port_finding`
-counts, and they are not reported as drops. Trials that do not line up with the session's imported
+counts, and they are not reported as drops. A port-finding print has ``num_t_found``, ``found_ports``
+false and no ``num_t``; a print with ``num_t_found`` that breaks the rest of that rule raises
+:class:`PokeParseError`. A port-finding trial that times out (an ``ITI`` with no print) is only
+recognised by the port-finding print that follows it, so it counts as port finding when the next
+print is a port-finding one, and as a dropped task trial otherwise. Trials that do not line up with the session's imported
 trials raise :class:`PokeAlignmentError`, which is not a :class:`PokeParseError` because it
 points to a bug in the code rather than to an odd recording.
 """
@@ -135,9 +142,26 @@ def _first_alias(printed: dict, names: Sequence[str]):
     return next((printed[n] for n in names if n in printed), None)
 
 
-def _is_port_finding_print(printed) -> bool:
-    """Whether a parsed print row is a port-finding trial (``num_t_found``, as in the importer)."""
-    return isinstance(printed, dict) and "num_t_found" in printed
+def _is_port_finding_print(printed, label: str) -> bool:
+    """Whether a parsed print row is a port-finding trial.
+
+    A port-finding print has ``num_t_found``, ``found_ports`` false and no ``num_t``. The importer
+    discards every print with ``num_t_found``, so a print with ``num_t_found`` that breaks the
+    rest of the rule would be a task trial here and a discarded one there; it raises instead.
+
+    Raises:
+        PokeParseError: If the print has ``num_t_found`` but not ``found_ports`` false, or has
+            ``num_t`` as well.
+    """
+    if not isinstance(printed, dict) or "num_t_found" not in printed:
+        return False
+    if printed.get("found_ports") is not False or "num_t" in printed:
+        raise PokeParseError(
+            f"{label}: a print has num_t_found but is not a port-finding print "
+            f"(found_ports={printed.get('found_ports')!r}, num_t present: {'num_t' in printed}); "
+            "port finding needs num_t_found, found_ports false and no num_t"
+        )
+    return True
 
 
 def is_port_finding(trial: TrialPokes) -> bool:
@@ -187,6 +211,7 @@ class _RecordingState:
         self.long_pokes: list[str] = []
         self.trials: list[_Trial] = []
         self.n_port_finding = 0
+        self.unprinted = 0  # timed-out trials since the last print, which may be port finding
         self.awaiting_window = False  # the last trial's after-choice window is not yet closed
         self.window: list[str] | None = None  # the open window's pokes, once its ITI began
 
@@ -213,6 +238,7 @@ class _RecordingState:
             self.window = []
         elif self.initiated:  # initiated, then the ITI with no print: a timeout or abort
             self.trials.append(_Trial(None, None, (), None, NO_PRINT, has_print=False))
+            self.unprinted += 1
             self.reset_trial()
 
     def reset_trial(self) -> None:
@@ -246,11 +272,18 @@ class _RecordingState:
             self.window.append(port)
 
     def port_finding_printed(self) -> None:
-        """A port-finding trial ended: it is not a task trial and leaves no pokes behind."""
-        self.n_port_finding += 1
+        """A port-finding trial ended: it is not a task trial and leaves no pokes behind.
+
+        Trials that timed out since the previous print were port-finding trials too.
+        """
+        if self.unprinted:
+            del self.trials[-self.unprinted :]
+        self.n_port_finding += 1 + self.unprinted
+        self.unprinted = 0
         self.reset_trial()
 
     def trial_printed(self, printed: dict) -> None:
+        self.unprinted = 0
         if self.awaiting_window:  # a print with no initiation after the previous trial
             self.trials[-1].dropped("next trial printed without an initiation")
             self.window, self.awaiting_window = None, False
@@ -306,7 +339,7 @@ def parse_recording(
             a port other than *initiation_tower*.
     """
     if not bandit_trial_info(df, label, label):
-        return _port_finding_only(df)
+        return _port_finding_only(df, label)
     _check_state_times(df, label)
     position = _RecordingState(initiation_tower, label)
     rows = zip(df["type"], df["subtype"], df["content"], strict=True)
@@ -319,7 +352,7 @@ def parse_recording(
                 position.poke_in(match[1])
         elif row_type == "variable" and subtype == "print":
             printed = parse_content_json(content)
-            if _is_port_finding_print(printed):
+            if _is_port_finding_print(printed, label):
                 position.port_finding_printed()
             elif isinstance(printed, dict):
                 position.trial_printed(printed)
@@ -330,14 +363,14 @@ def parse_recording(
     return trials + [_port_finding_trial()] * position.n_port_finding
 
 
-def _port_finding_only(df: pd.DataFrame) -> list[TrialPokes]:
+def _port_finding_only(df: pd.DataFrame, label: str) -> list[TrialPokes]:
     """The port-finding trials of a recording that has no task trials."""
     prints = (
         parse_content_json(content)
         for row_type, subtype, content in zip(df["type"], df["subtype"], df["content"], strict=True)
         if row_type == "variable" and subtype == "print"
     )
-    return [_port_finding_trial() for printed in prints if _is_port_finding_print(printed)]
+    return [_port_finding_trial() for printed in prints if _is_port_finding_print(printed, label)]
 
 
 def _recordings(session: dict) -> list[pd.DataFrame]:

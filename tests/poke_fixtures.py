@@ -117,6 +117,14 @@ class Recording:
         self._add("variable", "print", json.dumps(printed))
         return self.state("choice").iti().state("wait_init")
 
+    def port_finding_timeout(self):
+        """A port-finding trial that times out: initiate, then the ITI with no print."""
+        return self.initiate().iti().state("wait_init")
+
+    def raw_print(self, printed: dict):
+        """A trial print row with exactly the given fields."""
+        return self._add("variable", "print", json.dumps(printed))
+
     def text_print(self, text="trial done"):
         """A plain-text print row, which parses to an empty trial dict."""
         self.num_t += 1

@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import (
+    NO_PRINT,
     PokeAlignmentError,
     PokeParseError,
     count_port_finding,
@@ -244,7 +245,7 @@ def test_a_recording_of_only_port_finding_counts_its_trials():
 
 def test_recording_without_bandit_trials_is_skipped():
     pretraining = pd.DataFrame(
-        [(0.0, "state", None, "wait_init"), (1.0, "variable", "print", '{"num_t_found": 1}')],
+        [(0.0, "state", None, "wait_init"), (1.0, "variable", "print", '{"num_t_found": 1, "found_ports": false}')],
         columns=["time", "type", "subtype", "content"],
     )
     rec = Recording()
@@ -253,6 +254,47 @@ def test_recording_without_bandit_trials_is_skipped():
     assert is_port_finding(only)
     trials = parse_session(session_record([pretraining, rec.to_frame()]))
     assert [t.chosen for t in trials if not is_port_finding(t)] == ["A1"]
+
+
+def test_port_finding_timeout_is_port_finding_not_a_dropped_task_trial():
+    rec = Recording()
+    rec.port_finding_timeout()
+    rec.port_finding_trial("A1")
+    full_trial(rec, choice="C1")
+    session = session_record([rec.to_frame()], choice=["C1"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        trials = parse_session(session)
+    assert count_port_finding(trials) == 2
+    assert [t.chosen for t in trials if not is_port_finding(t)] == ["C1"]
+
+
+def test_timeout_after_the_last_port_finding_print_is_a_task_drop():
+    rec = Recording()
+    rec.port_finding_trial("A1")
+    rec.port_finding_timeout()  # ports are found by now: the next print is a task trial
+    full_trial(rec, choice="C1")
+    trials = parse_recording(rec.to_frame())
+    assert count_port_finding(trials) == 1
+    assert [t.drop_reason for t in trials if not is_port_finding(t)] == [NO_PRINT, None]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        {"num_t_found": 1, "found_ports": True},
+        {"num_t_found": 1},
+        {"num_t_found": 1, "found_ports": False, "num_t": 3, "chosen_tow": "A1"},
+    ],
+    ids=["ports-found", "no-found-ports-field", "also-has-num_t"],
+)
+def test_print_that_only_partly_matches_the_port_finding_rule_raises(printed):
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    rec.initiate()
+    rec.raw_print(printed)
+    with pytest.raises(PokeParseError, match="port-finding"):
+        parse_recording(rec.to_frame())
 
 
 def test_initiation_event_at_another_port_raises():
