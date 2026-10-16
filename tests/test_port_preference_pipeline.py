@@ -256,3 +256,59 @@ def test_a_scope_where_every_mouse_is_excluded_still_draws(tmp_path):
     result = run_port_preference_analysis({1: {"m1": plus_only_mouse()}}, tmp_path, scope_label="x")
     assert result["single_category_mice"] == ["m1"]
     assert (tmp_path / "Port Preference X vs Plus.png").stat().st_size > 0
+
+
+def test_one_problem_heatmaps_outline_current_ports_green_and_previous_red(tmp_path, monkeypatch):
+    captured = {}
+    import src.pipelines.port_preference as pipeline
+
+    def record(port_ratios, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(pipeline, "plot_port_ratio_heatmaps", record)
+    monkeypatch.setattr(pipeline, "plot_category_ratios", lambda *a, **k: None)
+    problems = _one_problem_for_outlines()
+    (mouse,) = problems[1]
+    run_port_preference_analysis(
+        problems, tmp_path, scope_label="problem-01", previous_choice_towers={mouse: {"A1"}}
+    )
+    assert captured["current_ports"][mouse] == frozenset(
+        problems[1][mouse][next(iter(problems[1][mouse]))]["choice_towers"]
+    )
+    assert captured["previous_ports"] == {mouse: {"A1"}}
+
+
+def test_pooled_heatmaps_have_no_green_or_red_outlines(tmp_path, monkeypatch):
+    captured = {}
+    import src.pipelines.port_preference as pipeline
+
+    monkeypatch.setattr(pipeline, "plot_port_ratio_heatmaps", lambda r, **k: captured.update(k))
+    monkeypatch.setattr(pipeline, "plot_category_ratios", lambda *a, **k: None)
+    one = _one_problem_for_outlines()
+    run_port_preference_analysis(
+        {1: one[1], 2: one[1]}, tmp_path, scope_label="pool", previous_choice_towers={}
+    )
+    assert "current_ports" not in captured and "previous_ports" not in captured
+
+
+def test_panel_draws_red_and_green_rings(tmp_path):
+    import pandas as pd
+
+    from src.behavior_analysis.poke_events import ARMS9
+    from src.behavior_visualization.plot_port_preference import plot_port_ratio_panel
+
+    ports = pd.DataFrame({"ratio": [1.0] * 9, "n_trials": [5] * 9}, index=list(ARMS9))
+    ax = plot_port_ratio_panel(
+        ports, limit=1.0, initiation_ports={"B2"}, current_ports={"B1", "C2"},
+        previous_ports={"B1", "A3"},
+    )  # fmt: skip
+    gids = sorted(p.get_gid() for p in ax.patches if p.get_gid())
+    assert gids == sorted(
+        ["ring:B1:current", "ring:C2:current", "ring:B1:previous", "ring:A3:previous",
+         "ring:B2:initiation"]
+    )  # fmt: skip
+
+
+def _one_problem_for_outlines():
+    sessions = {"ses-1": {**session(TRIALS), "choice_towers": ["B1", "B3", "C2"]}}
+    return {1: {"m1": sessions}}

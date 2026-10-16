@@ -15,7 +15,7 @@ best.
 """
 
 import math
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 
 import matplotlib as mpl
@@ -190,7 +190,9 @@ def _cell_labels(ratio: float, n_trials: float) -> tuple[str, str]:
     return f"{ratio:.2f}", f"n={int(n_trials)}"
 
 
-def _draw_ratio_cell(ax: Axes, port: str, ratio: float, n_trials: float, face, outline: bool):
+def _draw_ratio_cell(
+    ax: Axes, port: str, ratio: float, n_trials: float, face, rings: Sequence[tuple]
+):
     center = port_center(port)
     ax.add_patch(
         RegularPolygon(
@@ -198,9 +200,8 @@ def _draw_ratio_cell(ax: Axes, port: str, ratio: float, n_trials: float, face, o
             facecolor=face, edgecolor="black", linewidth=2.0, zorder=2,
         )
     )  # fmt: skip
-    if outline:
-        for spec, role in port_rings(port, (), (), port):
-            ax.add_patch(ring_patch(center, spec, f"ring:{port}:{role}"))
+    for spec, role in rings:
+        ax.add_patch(ring_patch(center, spec, f"ring:{port}:{role}"))
     color = text_color(face)
     value_text, n_text = _cell_labels(ratio, n_trials)
     small = 8 if np.isnan(ratio) else 9
@@ -218,6 +219,8 @@ def plot_port_ratio_panel(
     *,
     limit: float,
     initiation_ports: set[str] = frozenset(),
+    current_ports: Collection[str] = (),
+    previous_ports: Collection[str] = (),
     ax: Axes | None = None,
     title: str | None = None,
 ) -> Axes:
@@ -225,13 +228,17 @@ def plot_port_ratio_panel(
 
     Each cell prints the port, its ratio and the number of trials it was offered (n). Grey cells
     have no ratio: "n/a" (never offered as a choice tower) or "no best" (offered but never
-    best). Ports in *initiation_ports* get a blue outline.
+    best). Ports in *initiation_ports* get a blue outline, *current_ports* (the problem's
+    choice ports) a green one and *previous_ports* (the choice ports of the mouse's previous
+    problem) a red one, as in the poke heatmaps.
 
     Args:
         ports (pd.DataFrame): Indexed by port, with ``ratio`` and ``n_trials``; all nine ports.
         limit (float): Colours span ``2**-limit`` .. ``2**limit``, centred on 1 (see
             :func:`log2_limit`).
         initiation_ports (set[str]): Ports to outline in blue. Default none.
+        current_ports (Collection[str]): Ports to outline in green. Default none.
+        previous_ports (Collection[str]): Ports to outline in red. Default none.
         ax (Axes | None): Axes to draw into; a new figure if None. Default None.
         title (str | None): Axes title. Default None.
 
@@ -250,7 +257,9 @@ def plot_port_ratio_panel(
         for port in ARMS9:
             ratio, n_trials = float(ports.loc[port, "ratio"]), float(ports.loc[port, "n_trials"])
             face = _face_color(ratio, norm, cmap)
-            _draw_ratio_cell(ax, port, ratio, n_trials, face, port in initiation_ports)
+            initiation = port if port in initiation_ports else None
+            rings = port_rings(port, current_ports, previous_ports, initiation)
+            _draw_ratio_cell(ax, port, ratio, n_trials, face, rings)
         if title is not None:
             ax.set_title(title, fontsize=14, pad=6)
         ax.set_xlim(-0.35, 1.65)
@@ -269,12 +278,25 @@ def _add_log2_colorbar(fig: plt.Figure, axes, limit: float) -> None:
     colorbar.set_label(f"{Y_LABEL} (log2 scale; 1 = chosen as often as best)", fontsize=9)
 
 
+def _outline_note(current_ports, previous_ports) -> str:
+    """The outline key for the heatmap title: blue always, green and red when drawn."""
+    parts = []
+    if current_ports:
+        parts.append("green = choice ports")
+    if previous_ports and any(previous_ports.values()):
+        parts.append("red = previous problem's choice ports")
+    parts.append("blue = initiation port")
+    return ", ".join(parts)
+
+
 def plot_port_ratio_heatmaps(
     port_ratios: pd.DataFrame,
     *,
     scope_label: str,
     save_path: str | Path | None = None,
     initiation_ports: Mapping[str, set[str]] | None = None,
+    current_ports: Mapping[str, Collection[str]] | None = None,
+    previous_ports: Mapping[str, Collection[str] | None] | None = None,
 ) -> None:
     """One maze heatmap per mouse on a shared log2 scale; saves PNG and PDF or shows.
 
@@ -285,6 +307,10 @@ def plot_port_ratio_heatmaps(
         save_path (str | Path | None): Base path without extension; None shows the figure.
         initiation_ports (Mapping[str, set[str]] | None): ``{mouse: initiation ports}`` to
             outline in blue. Default None: no outlines.
+        current_ports (Mapping[str, Collection[str]] | None): ``{mouse: the problem's choice
+            ports}`` to outline in green. Default None: none.
+        previous_ports (Mapping[str, Collection[str] | None] | None): ``{mouse: choice ports of
+            the mouse's previous problem, or None}`` to outline in red. Default None: none.
 
     Raises:
         ValueError: If *port_ratios* has no mice.
@@ -305,6 +331,8 @@ def plot_port_ratio_heatmaps(
                 port_ratios[port_ratios["mouse"] == mouse].set_index("port"),
                 limit=limit,
                 initiation_ports=(initiation_ports or {}).get(mouse, set()),
+                current_ports=(current_ports or {}).get(mouse) or (),
+                previous_ports=(previous_ports or {}).get(mouse) or (),
                 ax=axes[i // ncols, i % ncols],
                 title=mouse,
             )
@@ -314,7 +342,7 @@ def plot_port_ratio_heatmaps(
         fig.suptitle(
             f"Port Preference Per Mouse [{scope_label}]\n"
             f"({Y_LABEL} | grey: n/a = never offered, no best = never best | "
-            f"blue outline = initiation port | n={_mice_phrase(len(mice))})",
+            f"{_outline_note(current_ports, previous_ports)} | n={_mice_phrase(len(mice))})",
             fontsize=11,
         )
     except BaseException:

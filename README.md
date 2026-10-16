@@ -219,6 +219,9 @@ report all failures at the end.
   ports share its row or column and X ports lie on its diagonals (from B2 these are the eight
   neighbours). A mouse offered ports from one category only has that category's ratio of 1 by
   construction; it is left out of the X vs plus figure, which says how many mice were excluded.
+  In a problem's folder the per-mouse mazes use the same outlines as the poke heatmaps (green:
+  the problem's choice ports; red: the previous problem's; blue: initiation). The pooled mazes
+  outline only the initiation port, since the choice ports differ between problems.
 - **Long pokes and maze heatmaps** (`run_poke_analysis`, every problem, `long-pokes/`): mean
   non-choice long pokes per trial per relative session, and per-mouse maze maps of the port visits
   after the choice and the long pokes after initiation. After the choice (from the ITI to the next
