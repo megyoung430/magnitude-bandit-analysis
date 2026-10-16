@@ -69,32 +69,69 @@ def test_missing_magnitude_at_an_increment_is_uncheckable_not_suspect():
     assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
 
 
-def test_between_run_event_is_uncheckable_and_not_checked():
+def test_a_between_run_event_is_checked_like_any_other():
     # The counter jumps at trial 3 because a reversal happened while nothing was recording;
-    # the best tower there is unchanged, but there is nothing to compare, so it is not suspect.
+    # the recordings form one session, so trials 2 and 3 are compared and the unchanged best
+    # tower makes it suspect.
     events = [dict(kind="good", index=3, count=1, source="between_runs")]
     sess = session([0, 0, 0, 1], "AAAA", reversal_boundary_events=events)
-    assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
+    assert count_suspect_good_reversals(sess) == {"suspect": 1, "uncheckable": 0}
 
 
-def test_between_run_event_and_a_reversal_on_the_same_trial_are_separated():
+def test_a_between_run_event_that_changes_the_best_tower_is_fine():
+    events = [dict(kind="good", index=2, count=1, source="between_runs")]
+    sess = session([0, 0, 1, 1], "AABB", reversal_boundary_events=events)
+    assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 0}
+
+
+def test_between_run_event_and_a_reversal_on_the_same_trial_are_both_checked():
     events = [dict(kind="good", index=2, count=1, source="between_runs")]
     sess = session([0, 0, 2, 2], "AAAA", reversal_boundary_events=events)
-    assert count_suspect_good_reversals(sess) == {"suspect": 1, "uncheckable": 1}
+    assert count_suspect_good_reversals(sess) == {"suspect": 2, "uncheckable": 0}
 
 
-def test_terminal_event_of_an_earlier_run_is_counted_once_as_uncheckable():
+def test_terminal_event_of_an_earlier_run_is_checked_like_any_other():
     # Run 1 ends after trial 2 with one reversal after its last trial; the counter of run 2
-    # steps at trial 2 and the best tower is unchanged there, but it is the same event.
+    # steps at trial 2, the first trial after it: one reversal, checked once.
     events = [dict(kind="good", index=2, count=1, source="run_end")]
     sess = session([0, 0, 1, 1], "AAAA", reversal_boundary_events=events)
-    assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
+    assert count_suspect_good_reversals(sess) == {"suspect": 1, "uncheckable": 0}
 
 
-def test_terminal_event_is_uncheckable():
+def test_an_event_after_the_last_trial_with_no_check_has_no_trial_to_compare_with():
     events = [dict(kind="good", index=4, count=2, source="run_end")]
     sess = session([0, 0, 1, 1], "AABB", reversal_boundary_events=events)
     assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 2}
+
+
+def test_an_event_after_the_last_trial_that_the_next_session_shows_needs_no_check():
+    events = [dict(kind="good", index=4, count=1, source="run_end", session_check="consistent")]
+    sess = session([0, 0, 1, 1], "AABB", reversal_boundary_events=events)
+    assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 0}
+
+
+def test_an_event_after_the_last_trial_that_the_next_session_does_not_show_is_uncheckable():
+    events = [dict(kind="good", index=4, count=1, source="run_end", session_check="inconsistent")]
+    sess = session([0, 0, 1, 1], "AABB", reversal_boundary_events=events)
+    assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
+
+
+@pytest.mark.parametrize(
+    "check, expected",
+    [
+        ("consistent", {"suspect": 0, "uncheckable": 0}),
+        ("inconsistent", {"suspect": 1, "uncheckable": 0}),
+        (None, {"suspect": 0, "uncheckable": 1}),
+    ],
+)
+def test_an_event_in_the_first_run_start_is_judged_by_its_check_against_the_previous_session(
+    check, expected
+):
+    event = dict(kind="good", index=0, count=1, source="between_runs")
+    if check:
+        event["session_check"] = check
+    sess = session([1, 1, 1, 1], "AAAA", reversal_boundary_events=[event])
+    assert count_suspect_good_reversals(sess) == expected
 
 
 def test_bad_events_are_not_counted():

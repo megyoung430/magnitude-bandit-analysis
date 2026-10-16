@@ -619,10 +619,14 @@ def get_good_reversal_info(
     The warning counts reversals: a jump of two in the counter on one trial is two.
     :mod:`src.behavior_analysis.suspect_reversals` counts with the same rule:
     every dropped reversal is either *suspect* (a checked tie or unchanged best
-    tower) or *uncheckable* (a missing magnitude, or logged while nothing was
-    recording: between runs, after a run's last trial). Events logged while
-    nothing was recording are uncheckable, not suspect, but they are dropped
-    like the rest when their best tower looks unchanged. One exclusion: a
+    tower) or *uncheckable* (a missing magnitude, or no trial to check against).
+    A reversal logged while nothing was recording (between runs, or in the
+    ``run_start`` of the next session) is checked like any other, on the last
+    trial before it and the first trial after it. A reversal logged after a
+    session's last trial starts the new block at the next session's first trial
+    when the best tower changes there; otherwise (``session_check``
+    ``"inconsistent"``) it is not carried into that session and is only counted,
+    as uncheckable. One exclusion: a
     reversal skipped before the check (more than ``max_zero_count`` zero
     rewards, or missing towers) is neither dropped nor in the warning, but the
     counts still classify it.

@@ -3,14 +3,32 @@
 Per-session arrays contain incoming boundary events. ``reversal_totals`` also
 includes events after the last trial, which must be carried into the next
 session by the merger. Unclassified state changes are retained as diagnostics.
+
+A recording restarts the per-recording counters (``num_blocks``, ``num_good_rev``,
+``num_bad_rev``), but the session totals (``tot_num_*``) keep counting. A change that the task
+logs while nothing is recording (in a ``run_end`` after the last trial, or in the next
+``run_start``) is therefore read from the totals: a block change in the drifting task, a good or
+bad reversal in the blocked task. Files without totals fall back to the reward magnitudes (see
+:mod:`src.behavior_import.run_boundaries`).
 """
 
 import json
 from typing import NamedTuple
 
+from src.behavior_import.problem_numbering import BLOCKED, classify_task_name
+from src.behavior_import.run_boundaries import (
+    describe_boundary,
+    event_matches,
+    magnitude_change,
+)
 from src.behavior_import.session_order import ordered_session_keys
 
 KINDS = ("good", "bad")
+BLOCK = "block"
+# Trial-variable name of each counter. "block" is the only counter of a session that logs no
+# good or bad reversals (the drifting task); elsewhere it is derived from the other two.
+_SERIES = {"good": "good_reversals", "bad": "bad_reversals", BLOCK: "blocks"}
+_ALL_KINDS = (BLOCK, *KINDS)
 
 
 class _SnapshotError(ValueError):
@@ -23,6 +41,8 @@ def _state(raw):
         "bad": ("num_bad_reversals", "num_bad_rev"),
         "total_good": ("tot_num_good_reversals", "tot_num_good_rev"),
         "total_bad": ("tot_num_bad_reversals", "tot_num_bad_rev"),
+        "block": ("num_blocks",),
+        "total_block": ("tot_num_blocks",),
         "magnitudes": ("current_reward_magnitudes", "curr_rew_mag"),
         "problem": ("num_problem",),
     }
@@ -75,6 +95,9 @@ class _Run(NamedTuple):
     events: list
     diagnostics: list
     end_state: dict  # snapshot handed to the next run as ``previous``
+    first_side: dict | None = None  # the run's first trial, as a side of a boundary
+    last_side: dict | None = None  # the run's last trial, as a side of a boundary
+    boundary: dict | None = None  # description of the gap before this run, if there is one
 
 
 def _session_frames(sess):
@@ -94,17 +117,27 @@ def _run_variables(sess, run_index):
     return {}
 
 
-def _between_runs(previous, start, trial_offset, run_index):
+def _totals_logged(previous, start, kinds):
+    """True if the session totals of some counter in *kinds* are logged on both sides."""
+    return any(
+        previous.get("total_" + kind) is not None and start.get("total_" + kind) is not None
+        for kind in kinds
+    )
+
+
+def _between_runs(previous, start, trial_offset, run_index, kinds=KINDS, mode=None):
     """Events and diagnostics for counter changes between the previous run and this one.
 
     Returns ``(incoming, events, diagnostics)`` where ``incoming`` is the number of
-    events per kind that happened while nothing was recording.
+    events per kind in *kinds* that happened while nothing was recording. Without any logged
+    total, a change of the magnitudes that *mode* counts as a block change is one event
+    (``"block"``, source ``"magnitudes"``).
     """
-    incoming = {k: 0 for k in KINDS}
+    incoming = {k: 0 for k in kinds}
     events, diagnostics = [], []
     if not (previous and _same_problem(previous, start)):
         return incoming, events, diagnostics
-    for kind in KINDS:
+    for kind in kinds:
         before, after = previous.get("total_" + kind), start.get("total_" + kind)
         if before is None or after is None:
             continue
@@ -116,7 +149,13 @@ def _between_runs(previous, start, trial_offset, run_index):
             diagnostics.append(
                 dict(kind=kind, source="counter_rollback", delta=delta, run=run_index)
             )
-    if previous.get("magnitudes") != start.get("magnitudes") and not any(incoming.values()):
+    magnitudes_changed = previous.get("magnitudes") != start.get("magnitudes")
+    shows_block = magnitude_change(previous.get("magnitudes"), start.get("magnitudes"), mode)
+    if not _totals_logged(previous, start, kinds) and shows_block:
+        events.append(dict(kind=BLOCK, index=trial_offset, count=1, source="magnitudes"))
+        if BLOCK in incoming:
+            incoming[BLOCK] = 1
+    elif magnitudes_changed and not any(incoming.values()):
         diagnostics.append(
             dict(
                 source="unclassified_magnitude_change",
@@ -168,13 +207,17 @@ def _last_magnitudes(variables, n_trials):
 
 
 def _terminal_magnitude_diagnostics(
-    last_magnitudes, end, n_trials, trial_offset, events, run_index
+    last_magnitudes, end, n_trials, trial_offset, events, run_index, mode=None
 ):
-    """Flag a magnitude change after the last trial that no terminal reversal explains."""
-    explained = any(
-        e["source"] == "run_end" and e["index"] == trial_offset + n_trials for e in events
-    )
+    """Flag a magnitude change after the last trial that no terminal reversal explains.
+
+    With a known *mode*, drift of the magnitudes that is not a block change (the drifting task's
+    other arms move on every trial) is not flagged.
+    """
+    explained = any(e["index"] == trial_offset + n_trials for e in events)
     if end.get("magnitudes") is None or last_magnitudes == end["magnitudes"] or explained:
+        return []
+    if magnitude_change(last_magnitudes, end["magnitudes"], mode) is False:
         return []
     return [
         dict(
@@ -186,13 +229,27 @@ def _terminal_magnitude_diagnostics(
     ]
 
 
+def _terminal_from_magnitudes(last_magnitudes, start, end, kinds, mode, events, index):
+    """A block change after the last trial, from the magnitudes of a ``run_end`` without counters.
+
+    Only when the snapshot logs no counter of *kinds* and nothing else explains the change.
+    """
+    logged = any(end.get(k) is not None or end.get("total_" + k) is not None for k in kinds)
+    explained = any(e["index"] == index for e in events)
+    if logged or explained:
+        return []
+    if magnitude_change(last_magnitudes, end.get("magnitudes"), mode) is not True:
+        return []
+    return [dict(kind=BLOCK, index=index, count=1, source="magnitudes")]
+
+
 def _end_state(start, end, last_magnitudes, run_totals):
     """The run's end snapshot with missing totals, magnitudes and problem filled in.
 
     ``last_magnitudes`` is ``None`` for a run without trials.
     """
     state = dict(end)
-    for kind in KINDS:
+    for kind in run_totals:
         start_total = start.get("total_" + kind)
         if state.get("total_" + kind) is None and start_total is not None:
             state["total_" + kind] = start_total + run_totals[kind]
@@ -219,7 +276,63 @@ def _reconcile_counter(values, start, end, kind, n_trials, offset):
     return [offset + c for c in counts], total, total - last_count
 
 
-def _reconcile_run(df, variables, previous, carried, trial_offset, run_index):
+def _first_value(values):
+    return next((v for v in values if v is not None), None)
+
+
+def _edge_counters(kind, start, variables, n_trials):
+    """``(first counter, last counter, first total, last total)`` of one kind in a run.
+
+    The totals are the ``run_start`` total plus the counter's progress up to that trial, so
+    they are the totals as the trial prints show them; ``None`` where the run logs no total.
+    """
+    values = variables.get(_SERIES[kind], [])[:n_trials]
+    first, last = _first_value(values), _first_value(reversed(values))
+    baseline, start_total = start.get(kind), start.get("total_" + kind)
+
+    def total_at(value):
+        if start_total is None:
+            return None
+        if value is None:
+            return start_total
+        return start_total + max(0, value - (baseline or 0))
+
+    # A run without a printed value shows the counter it started from.
+    shown_first = baseline if first is None else first
+    shown_last = baseline if last is None else last
+    return shown_first, shown_last, total_at(first), total_at(last)
+
+
+def _edge_sides(start, end, variables, n_trials):
+    """``(first_side, last_side)`` of a run in the layout of :func:`describe_boundary`."""
+    magnitudes = variables.get("reward_magnitudes") or []
+    if n_trials:
+        first_mags = magnitudes[0] if magnitudes else None
+        last_mags = magnitudes[n_trials - 1] if len(magnitudes) >= n_trials else None
+    else:
+        # No trial: the run shows the state it started from, before anything logged in run_end.
+        first_mags = last_mags = start.get("magnitudes")
+    first = {"magnitudes": first_mags, "totals": {}, "counters": {}}
+    last = {"magnitudes": last_mags, "totals": {}, "counters": {}}
+    for kind in _ALL_KINDS:
+        first_c, last_c, first_t, last_t = _edge_counters(kind, start, variables, n_trials)
+        first["counters"][kind], last["counters"][kind] = first_c, last_c
+        first["totals"][kind], last["totals"][kind] = first_t, last_t
+    return first, last
+
+
+def _reconcile_run(
+    df,
+    variables,
+    previous,
+    carried,
+    trial_offset,
+    run_index,
+    *,
+    snapshots=None,
+    kinds=KINDS,
+    mode=None,
+):
     """Reconcile one run given the previous run's end state and totals so far.
 
     Args:
@@ -229,16 +342,22 @@ def _reconcile_run(df, variables, previous, carried, trial_offset, run_index):
         carried: ``{kind: events counted in earlier runs of this session}``.
         trial_offset: Number of trials in earlier runs of this session.
         run_index: Position of this run in the session (for diagnostics only).
+        snapshots: ``(start, end)`` already parsed from *df*; parsed here when ``None``.
+        kinds: The counters that count in this session: ``("good", "bad")`` for a session that
+            logs reversal counters, ``("block",)`` for one that logs only blocks.
+        mode: ``"drifting"``, ``"blocked"`` or ``None`` (task unknown), to read the magnitudes.
     """
     try:
-        start, end = _snapshots(df)
+        start, end = snapshots if snapshots is not None else _snapshots(df)
     except _SnapshotError as err:
         raise _SnapshotError(f"run {run_index}: {err}") from err
     n_trials = len(variables.get("trial", []))
-    incoming, events, diagnostics = _between_runs(previous, start, trial_offset, run_index)
+    incoming, events, diagnostics = _between_runs(
+        previous, start, trial_offset, run_index, kinds=kinds, mode=mode
+    )
     corrected, run_totals, observed = {}, {}, {}
-    for kind in KINDS:
-        values = variables.get(kind + "_reversals", [])
+    for kind in kinds:
+        values = variables.get(_SERIES[kind], [])
         observed[kind] = _counter_observed(values, start, kind)
         corrected[kind], run_totals[kind], terminal = _reconcile_counter(
             values, start, end, kind, n_trials, carried[kind] + incoming[kind]
@@ -248,47 +367,124 @@ def _reconcile_run(df, variables, previous, carried, trial_offset, run_index):
                 dict(kind=kind, index=trial_offset + n_trials, count=terminal, source="run_end")
             )
     last_magnitudes = _last_magnitudes(variables, n_trials) if n_trials else None
+    added = {kind: incoming[kind] + run_totals[kind] for kind in kinds}
     if n_trials:
-        diagnostics += _terminal_magnitude_diagnostics(
-            last_magnitudes, end, n_trials, trial_offset, events, run_index
+        found = _terminal_from_magnitudes(
+            last_magnitudes, start, end, kinds, mode, events, trial_offset + n_trials
         )
+        events += found
+        if BLOCK in added:
+            added[BLOCK] += sum(e["count"] for e in found)
+        diagnostics += _terminal_magnitude_diagnostics(
+            last_magnitudes, end, n_trials, trial_offset, events, run_index, mode
+        )
+    first_side, last_side = _edge_sides(start, end, variables, n_trials)
+    boundary = None
+    if previous and previous.get("last_side") and _same_problem(previous, start):
+        boundary = describe_boundary(previous["last_side"], first_side, mode)
     return _Run(
         n_trials=n_trials,
         corrected=corrected,
-        added={kind: incoming[kind] + run_totals[kind] for kind in KINDS},
+        added=added,
         observed=observed,
         events=events,
         diagnostics=diagnostics,
         end_state=_end_state(start, end, last_magnitudes, run_totals),
+        first_side=first_side,
+        last_side=last_side,
+        boundary=boundary,
     )
 
 
-def _reconcile_runs(sess, previous):
-    """Reconcile every run of a session in order; return ``(runs, last end state)``."""
+def _unmatched_reason(kind, mode):
+    if kind == "good":
+        return "the best tower is the same at the start of the next session"
+    if kind == BLOCK and mode == "drifting":
+        return "the zero arm has not moved at the start of the next session"
+    return "the magnitudes are the same at the start of the next session"
+
+
+def _check_session_boundary(previous, start, first_run, mode):
+    """Mark the changes entering the next session with whether its first trial shows them.
+
+    The events logged after the previous session's last trial (``previous["terminal_events"]``)
+    and the ones logged in this session's first ``run_start`` (``between_runs`` at trial 0) get
+    ``session_check`` ``"consistent"`` or ``"inconsistent"``: whether the magnitudes of the
+    previous session's last trial and this session's first trial show that kind of event. Nothing
+    is marked when the sessions are not the same problem or the magnitudes cannot tell. An
+    inconsistent change after the previous session's last trial is also recorded in that
+    session's diagnostics.
+    """
+    last_side = previous.get("last_side")
+    if not (last_side and _same_problem(previous, start)):
+        return
+    before, after = last_side["magnitudes"], first_run.first_side["magnitudes"]
+    incoming = [e for e in first_run.events if e["source"] == "between_runs" and e["index"] == 0]
+    for event in [*previous.get("terminal_events", []), *incoming]:
+        matches = event_matches(event["kind"], before, after, mode)
+        if matches is None:
+            continue
+        event["session_check"] = "consistent" if matches else "inconsistent"
+        if not matches and event not in incoming:
+            previous["diagnostics"].append(
+                dict(
+                    source="session_end_change_unmatched",
+                    kind=event["kind"],
+                    count=event["count"],
+                    reason=_unmatched_reason(event["kind"], mode),
+                )
+            )
+
+
+def _reconcile_runs(frames, snapshots, variables, previous, kinds, mode):
+    """Reconcile every run of a session in order; return ``(runs, last end state)``.
+
+    The last end state also carries ``terminal_events`` (the events logged after the session's
+    last trial), so the next session can check them.
+    """
     runs = []
-    carried = {kind: 0 for kind in KINDS}
+    carried = {kind: 0 for kind in kinds}
+    if BLOCK in carried and snapshots:
+        # The session's first block number is the one the first recording starts from.
+        carried[BLOCK] = snapshots[0][0].get(BLOCK) or 0
     trial_offset = 0
-    for run_index, df in enumerate(_session_frames(sess)):
+    for run_index, df in enumerate(frames):
         run = _reconcile_run(
-            df, _run_variables(sess, run_index), previous, carried, trial_offset, run_index
+            df,
+            variables[run_index],
+            previous,
+            carried,
+            trial_offset,
+            run_index,
+            snapshots=snapshots[run_index],
+            kinds=kinds,
+            mode=mode,
         )
-        for kind in KINDS:
+        if run_index == 0 and previous:
+            _check_session_boundary(previous, snapshots[0][0], run, mode)
+        for kind in kinds:
             carried[kind] += run.added[kind]
-        previous = run.end_state
+        previous = {**run.end_state, "last_side": run.last_side}
         trial_offset += run.n_trials
         runs.append(run)
+    if runs:
+        previous["terminal_events"] = [
+            e
+            for e in runs[-1].events
+            if e["index"] == trial_offset and e["source"] in ("run_end", "magnitudes")
+        ]
     return runs, previous
 
 
-def _combine_runs(runs):
+def _combine_runs(runs, kinds=KINDS):
     """Merge per-run results into session-level values.
 
     Returns ``(arrays, totals, observed, events, diagnostics)``, each dict keyed by
-    kind except the two lists, which keep run order.
+    kind (of *kinds*) except the two lists, which keep run order.
     """
-    arrays = {kind: [c for run in runs for c in run.corrected[kind]] for kind in KINDS}
-    totals = {kind: sum(run.added[kind] for run in runs) for kind in KINDS}
-    observed = {kind: any(run.observed[kind] for run in runs) for kind in KINDS}
+    arrays = {kind: [c for run in runs for c in run.corrected[kind]] for kind in kinds}
+    totals = {kind: sum(run.added[kind] for run in runs) for kind in kinds}
+    observed = {kind: any(run.observed[kind] for run in runs) for kind in kinds}
     events = [e for run in runs for e in run.events]
     diagnostics = [d for run in runs for d in run.diagnostics]
     return arrays, totals, observed, events, diagnostics
@@ -310,21 +506,91 @@ def _write_session(sess, arrays, totals, observed, events, diagnostics):
     original_blocks = sess.setdefault(
         "blocks_before_boundary_reconciliation", list(sess.get("blocks", []))
     )
-    sess["blocks"] = _correct_blocks(original_blocks, events)
-    sess["reversal_totals"] = {k: totals[k] for k in KINDS if observed[k]}
+    if observed.get(BLOCK):
+        # Block numbers from the counters and totals, not from the per-recording values, which
+        # restart at 1 whether or not a block change happened in between.
+        sess["blocks"] = arrays[BLOCK]
+    else:
+        sess["blocks"] = _correct_blocks(original_blocks, events)
+    sess["reversal_totals"] = {k: totals[k] for k in KINDS if observed.get(k)}
     sess["reversal_boundary_events"] = events
     sess["reversal_diagnostics"] = diagnostics
     for kind in KINDS:
-        if observed[kind]:
+        if observed.get(kind):
             sess[kind + "_reversals"] = arrays[kind]
             sess["has_" + kind] = True
 
 
+def _session_snapshots(frames):
+    """``[(start, end)]`` of each recording; a bad ``run_start`` names its run."""
+    parsed = []
+    for run_index, df in enumerate(frames):
+        try:
+            parsed.append(_snapshots(df))
+        except _SnapshotError as err:
+            raise _SnapshotError(f"run {run_index}: {err}") from err
+    return parsed
+
+
+def _session_kinds(snapshots, variables):
+    """``("good", "bad")`` if any recording logs a reversal counter, else ``("block",)``."""
+    logs_reversals = any(
+        _counter_observed(run_variables.get(_SERIES[kind], []), start, kind)
+        for (start, _), run_variables in zip(snapshots, variables, strict=True)
+        for kind in KINDS
+    )
+    return KINDS if logs_reversals else (BLOCK,)
+
+
+def _session_mode(sess, kinds):
+    """``"blocked"`` for a session with reversal counters, else the task type of its name.
+
+    ``None`` when the task name is missing or unrecognised (a pretraining task): the magnitudes
+    are then not read as block changes, so only the counters count.
+    """
+    if kinds == KINDS:
+        return BLOCKED
+    try:
+        return classify_task_name(sess.get("task_name"))
+    except ValueError:
+        return None
+
+
 def _reconcile_session(sess, previous):
     """Reconcile one session in place; return the last run's end state."""
-    runs, last_end_state = _reconcile_runs(sess, previous)
-    _write_session(sess, *_combine_runs(runs))
+    frames = _session_frames(sess)
+    snapshots = _session_snapshots(frames)
+    variables = [_run_variables(sess, i) for i in range(len(frames))]
+    kinds = _session_kinds(snapshots, variables)
+    mode = _session_mode(sess, kinds)
+    runs, last_end_state = _reconcile_runs(frames, snapshots, variables, previous, kinds, mode)
+    _write_session(sess, *_combine_runs(runs, kinds))
+    sess["run_boundaries"] = [run.boundary for run in runs]
+    if runs:
+        last_end_state["diagnostics"] = sess["reversal_diagnostics"]
     return last_end_state
+
+
+def uncarried_counts(sess):
+    """``{kind: events}`` logged after the session's last trial that the next session's start
+    does not show.
+
+    The logged totals keep these events, but the next session does not start a new block (or
+    reversal) because of them, so a merger must not carry them into its first trial.
+
+    Args:
+        sess (dict): A session dict, optionally with ``reversal_boundary_events``.
+
+    Returns:
+        dict[str, int]: Events per kind whose ``session_check`` is ``"inconsistent"`` and that sit
+        after the last trial; empty if there are none.
+    """
+    counts = {}
+    n_trials = len(sess.get("trial", []))
+    for event in sess.get("reversal_boundary_events", []):
+        if event.get("session_check") == "inconsistent" and event["index"] == n_trials:
+            counts[event["kind"]] = counts.get(event["kind"], 0) + event["count"]
+    return counts
 
 
 def reconcile_reversals(data):
@@ -338,14 +604,34 @@ def reconcile_reversals(data):
     Sessions run in date-then-number order (:mod:`src.behavior_import.session_order`), so
     each session's counters start from the right previous session.
 
+    A session that logs good/bad counters counts good and bad events. A session that logs only
+    blocks (the drifting task) counts ``"block"`` events from ``tot_num_blocks`` and
+    ``num_blocks``, and its ``blocks`` come from them. A change logged while nothing was
+    recording is an event at the first trial of the next recording, whether it is in the
+    ``run_end`` after the last trial or in the next ``run_start``. Where the session totals are
+    absent, a change of the magnitudes is an event of kind ``"block"`` and source
+    ``"magnitudes"``: the zero arm moved (drifting), or the magnitudes permuted (blocked).
+
     Each session dict gains ``"reversal_totals"`` (``{"good": int, "bad": int}`` for the kinds
     that were recorded, including events after the last trial),
     ``"reversal_boundary_events"`` (list of ``{"kind", "index", "count", "source"}`` dicts, with
-    ``source`` ``"between_runs"`` or ``"run_end"``), ``"reversal_diagnostics"`` (list of dicts,
-    each with a ``"source"`` such as ``"counter_rollback"``), and
+    ``kind`` ``"good"``, ``"bad"`` or ``"block"`` and ``source`` ``"between_runs"``,
+    ``"run_end"`` or ``"magnitudes"``), ``"reversal_diagnostics"`` (list of dicts,
+    each with a ``"source"`` such as ``"counter_rollback"``), ``"run_boundaries"`` (one
+    :func:`~src.behavior_import.run_boundaries.describe_boundary` description per recording: the
+    gap between the previous recording's last trial and this one's first, ``None`` for the very
+    first recording or when the previous recording is another problem) and
     ``"blocks_before_boundary_reconciliation"``. It overwrites ``"blocks"``, and
     ``"good_reversals"`` / ``"bad_reversals"`` (with ``"has_good"`` / ``"has_bad"`` set) for
     recorded kinds, with the corrected per-trial cumulative counts.
+
+    An event after a session's last trial, and an event in the next session's first
+    ``run_start``, also get ``"session_check"``: ``"consistent"`` if the magnitudes at the end of
+    the one session and the start of the next show it, ``"inconsistent"`` if they do not (the
+    best tower for a good reversal, a permutation for a bad one, the zero arm for a drifting
+    block change). An inconsistent event after the last trial is also recorded in
+    ``"reversal_diagnostics"`` as ``"session_end_change_unmatched"``; see
+    :func:`uncarried_counts`.
 
     Args:
         data (dict): ``{subject: {session_key: session_dict}}`` after trial extraction, so each
