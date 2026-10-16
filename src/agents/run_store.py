@@ -197,7 +197,7 @@ def library_versions(*names: str) -> dict[str, str]:
     """Installed version of each named distribution, for a run's identity.
 
     Args:
-        *names (str): Distribution names, e.g. ``"numpy"``.
+        *names: Distribution names (str), e.g. ``"numpy"``.
 
     Returns:
         dict[str, str]: ``{name: installed version}``.

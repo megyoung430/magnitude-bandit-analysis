@@ -51,15 +51,18 @@ __all__ = [
 class ChainSpec:
     """Parameters of the two-arm Markov chain.
 
+    Immutable. The stay probability is derived as ``1 - 2 * pud``.
+
     Attributes:
-        n_states: Number of discrete reward states.
-        pud: Probability of moving down (and, separately, up) by one step.
-        min_hold: Steps an arm must stay in a state before it may change.
-        enforce_distinct: Keep the two arms in different states.
+        n_states (int): Number of discrete reward states.
+        pud (float): Probability of moving down (and, separately, up) by one step.
+        min_hold (int): Steps an arm must stay in a state before it may change.
+        enforce_distinct (bool): Keep the two arms in different states.
+        pstay (float): Property: probability of staying in the current state, ``1 - 2 * pud``.
 
     Raises:
-        ValueError: If distinctness cannot be satisfied with *n_states*, or if
-            *pud* exceeds 0.5 (the stay probability would be negative).
+        ValueError: If distinctness cannot be satisfied with *n_states*, or if *pud* exceeds 0.5
+            (the stay probability would be negative).
     """
 
     n_states: int
@@ -82,14 +85,32 @@ class ChainSpec:
 def draw_initial_states(
     rng: np.random.Generator, n_states: int, enforce_distinct: bool
 ) -> np.ndarray:
-    """Draw the two arms' starting state indices, distinct if requested."""
+    """Draw the two arms' starting state indices, distinct if requested.
+
+    Args:
+        rng (np.random.Generator): Random generator.
+        n_states (int): Number of discrete reward states.
+        enforce_distinct (bool): If True the two indices differ.
+
+    Returns:
+        np.ndarray: ``(2,)`` int state index of each arm.
+    """
     if enforce_distinct:
         return rng.choice(n_states, size=2, replace=False)
     return rng.integers(0, n_states, size=2)
 
 
 def sample_direction(rng: np.random.Generator, *, pud: float, pstay: float) -> int:
-    """Sample -1 (down), 0 (stay), or +1 (up) using the Markov transition probabilities."""
+    """Sample -1 (down), 0 (stay), or +1 (up) using the Markov transition probabilities.
+
+    Args:
+        rng (np.random.Generator): Random generator; one uniform draw is consumed.
+        pud (float): Probability of moving down, and separately of moving up (keyword-only).
+        pstay (float): Probability of staying (keyword-only).
+
+    Returns:
+        int: -1, 0 or 1.
+    """
     r = rng.random()
     if r < pud:
         return -1
@@ -116,8 +137,17 @@ def _first_free_state(
 def step_in_direction(*, cur: int, direction: int, other_state: int, chain: ChainSpec) -> int:
     """Move *cur* in *direction*, skipping *other_state* if needed.
 
-    If the move runs off the end of the state range, the opposite direction is
-    tried.
+    If the move runs off the end of the state range, the opposite direction is tried.
+
+    Args:
+        cur (int): Current state index (keyword-only).
+        direction (int): -1, 0 or +1; 0 returns *cur* unchanged (keyword-only).
+        other_state (int): State index of the other arm, skipped when ``chain.enforce_distinct``
+            (keyword-only).
+        chain (ChainSpec): Chain parameters (keyword-only).
+
+    Returns:
+        int: The new state index.
 
     Raises:
         RuntimeError: If neither direction reaches a free state.
@@ -136,8 +166,22 @@ def advance_arms(
 ) -> np.ndarray:
     """Next state of both arms, visiting them in random order.
 
-    An arm whose dwell count is below ``chain.min_hold`` stays put and consumes
-    no random draw. The second arm sees the first arm's new state.
+    An arm whose dwell count is below ``chain.min_hold`` stays put and consumes no random draw. The
+    second arm sees the first arm's new state.
+
+    Args:
+        rng (np.random.Generator): Random generator.
+        cur (np.ndarray): ``(2,)`` int current state index of each arm (keyword-only).
+        hold (np.ndarray): ``(2,)`` int steps each arm has spent in its current state
+            (keyword-only).
+        chain (ChainSpec): Chain parameters (keyword-only).
+
+    Returns:
+        np.ndarray: ``(2,)`` int next state index of each arm. The arms may coincide; see
+            ``resolve_collision``.
+
+    Raises:
+        RuntimeError: If an arm cannot be moved to a free state.
     """
     nxt = cur.copy()
     for arm in rng.permutation(2):
@@ -154,6 +198,13 @@ def advance_arms(
 def resolve_collision(nxt: np.ndarray, n_states: int) -> np.ndarray:
     """Return a copy of two equal states with arm 0 nudged up (or down at the top).
 
+    Args:
+        nxt (np.ndarray): ``(2,)`` int state indices that are equal.
+        n_states (int): Number of discrete reward states.
+
+    Returns:
+        np.ndarray: ``(2,)`` int copy with arm 0 moved to a neighbouring state.
+
     Raises:
         RuntimeError: If neither neighbouring state exists.
     """
@@ -168,7 +219,16 @@ def resolve_collision(nxt: np.ndarray, n_states: int) -> np.ndarray:
 
 
 def update_hold(*, hold: np.ndarray, prev: np.ndarray, new: np.ndarray) -> np.ndarray:
-    """Dwell counts after a step: reset to 1 for arms that changed, else +1."""
+    """Dwell counts after a step: reset to 1 for arms that changed, else +1.
+
+    Args:
+        hold (np.ndarray): ``(2,)`` int dwell count of each arm before the step (keyword-only).
+        prev (np.ndarray): ``(2,)`` int state index of each arm before the step (keyword-only).
+        new (np.ndarray): ``(2,)`` int state index of each arm after the step (keyword-only).
+
+    Returns:
+        np.ndarray: ``(2,)`` int updated dwell counts.
+    """
     return np.where(new != prev, 1, hold + 1)
 
 
@@ -182,27 +242,28 @@ def sample_two_markov_bandits(
 ) -> np.ndarray:
     """Sample two Markov-chain reward streams of length *T*.
 
-    Each arm independently transitions between discrete states in *val_list*
-    with probability *pud* of moving up or down at each step.  When
-    *enforce_distinct* is ``True``, the two arms are prevented from sharing the
-    same state.
+    Each arm independently transitions between discrete states in *val_list* with probability *pud*
+    of moving up or down at each step.  When *enforce_distinct* is ``True``, the two arms are
+    prevented from sharing the same state.
 
     Args:
-        T: Number of time steps.
-        pud: Probability of moving up or down by one state per step.
-            Must satisfy ``2 * pud <= 1``.
-        val_list: Ordered list of reward values (states).
-        rng: Optional random generator.
-        min_hold: Minimum number of steps an arm must stay in a state before
-            it can change (default: 5).
-        enforce_distinct: If ``True``, prevent the two arms from having the
-            same reward value at any time step (default: True).
+        T (int): Number of time steps.
+        pud (float): Probability of moving up or down by one state per step. Must satisfy ``2 * pud
+            <= 1``.
+        val_list (tuple | list): Ordered reward values (states).
+        rng (np.random.Generator | None): Random generator; None creates a fresh unseeded one.
+            Default None.
+        min_hold (int): Minimum number of steps an arm must stay in a state before it can change.
+            Default 5.
+        enforce_distinct (bool): If True, prevent the two arms from having the same reward value at
+            any time step. Default True.
 
     Returns:
-        Array of shape ``(T, 2)`` with reward values from *val_list*.
+        np.ndarray: Array of shape ``(T, 2)`` with reward values from *val_list*.
 
     Raises:
         ValueError: If *pud* is too large or *val_list* is too short.
+        RuntimeError: If an arm cannot be moved to a free state because *val_list* is too small.
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -234,10 +295,20 @@ def sample_two_markov_bandits(
 def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
     """Count strict best-arm reversals within each observed block.
 
-    Ignore tied trials, comparing successive unique winners across ties.
-    Reset at each boundary; include zero-switch and final partial blocks.
-    *vals3* should hold ``-inf`` for each trial's inactive arm (see
-    :func:`active_arm_values`) so it never wins, whatever the active values.
+    Ignore tied trials, comparing successive unique winners across ties. Reset at each boundary;
+    include zero-switch and final partial blocks. *vals3* should hold ``-inf`` for each trial's
+    inactive arm (see :func:`active_arm_values`) so it never wins, whatever the active values.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial, with ``-inf`` at the inactive
+            arm.
+        boundaries (np.ndarray): 1-D int array of trial indices, as from ``draw_block_boundaries``:
+            ``b`` means the block ends before trial ``b`` (0-based), so a swap follows trial ``b -
+            1``.
+
+    Returns:
+        np.ndarray: ``(n_blocks,)`` int count of best-arm reversals in each block, in order,
+            including the final partial block.
     """
     edges = np.r_[0, boundaries, len(vals3)]
     counts = []
@@ -251,7 +322,15 @@ def count_best_second_switches(vals3: np.ndarray, boundaries: np.ndarray) -> np.
 
 
 def check_min_block_len(min_block_len: int, max_block_len: int) -> None:
-    """Raise ``ValueError`` unless ``1 <= min_block_len <= max_block_len``."""
+    """Raise ``ValueError`` unless ``1 <= min_block_len <= max_block_len``.
+
+    Args:
+        min_block_len (int): Shortest block length, in trials.
+        max_block_len (int): Longest block length, in trials.
+
+    Raises:
+        ValueError: If *min_block_len* is below 1 or above *max_block_len*.
+    """
     if min_block_len < 1:
         raise ValueError(
             f"min_block_len must be >= 1, got {min_block_len} "
@@ -266,6 +345,12 @@ def check_finite(**values) -> None:
     """Raise ``ValueError`` if any named number (or sequence of numbers) is not finite.
 
     Non-finite rewards make the gap metrics ``nan`` without any other symptom.
+
+    Args:
+        **values: Named numbers or sequences to check; the keyword is used in the error message.
+
+    Raises:
+        ValueError: If any value contains NaN or infinity.
     """
     for name, value in values.items():
         if not np.all(np.isfinite(np.asarray(value, dtype=float))):
@@ -275,8 +360,14 @@ def check_finite(**values) -> None:
 def check_sweep_max_block_lens(max_block_lens: np.ndarray) -> None:
     """Raise ``ValueError`` if a sweep row would get a minimum block length below 1.
 
-    A sweep derives ``min_block_len = max_block_len - 10`` for every row, so each
-    entry of *max_block_lens* must exceed 10.
+    A sweep derives ``min_block_len = max_block_len - 10`` for every row, so each entry of
+    *max_block_lens* must exceed 10.
+
+    Args:
+        max_block_lens (np.ndarray): Maximum block lengths to be swept.
+
+    Raises:
+        ValueError: If any entry is 10 or less.
     """
     too_short = [int(m) for m in max_block_lens if int(m) <= 10]
     if too_short:
@@ -296,8 +387,19 @@ def draw_block_boundaries(
 ) -> np.ndarray:
     """Trial indices at which blocks end, drawn from random block lengths.
 
-    Block lengths are uniform on ``[min_block_len, max_block_len]``; boundaries at
-    or beyond *T* are dropped.
+    Block lengths are uniform on ``[min_block_len, max_block_len]``; boundaries at or beyond *T* are
+    dropped.
+
+    Args:
+        rng (np.random.Generator): Random generator.
+        T (int): Session length in trials (keyword-only).
+        min_block_len (int): Shortest block, in trials (keyword-only).
+        max_block_len (int): Longest block, in trials (keyword-only).
+        n_blocks_draw (int): Number of block lengths to draw (keyword-only).
+
+    Returns:
+        np.ndarray: 1-D int array of cumulative block ends below *T*; entry ``b`` means a swap
+            follows trial ``b - 1`` (0-based).
     """
     block_lengths = rng.integers(min_block_len, max_block_len + 1, size=n_blocks_draw)
     boundaries = np.cumsum(block_lengths)
@@ -305,7 +407,15 @@ def draw_block_boundaries(
 
 
 def remaining_active_arm(best_arm: int, *, active_arms: list[int]) -> int:
-    """First active arm that is not *best_arm*; it stays active across the swap."""
+    """First active arm that is not *best_arm*; it stays active across the swap.
+
+    Args:
+        best_arm (int): Index of the arm that becomes inactive.
+        active_arms (list[int]): Indices of the two currently active arms (keyword-only).
+
+    Returns:
+        int: The active arm other than *best_arm*.
+    """
     return next(a for a in active_arms if a != best_arm)
 
 
@@ -317,16 +427,23 @@ def swap_arm_roles(
 ) -> tuple[int, list[int], dict[int, int]]:
     """Arm roles after a block boundary.
 
-    The active arm that is best in *row* becomes inactive. The previously
-    inactive arm takes over the best arm's stream, and the first remaining active
-    arm keeps its own stream.
+    The active arm that is best in *row* becomes inactive. The previously inactive arm takes over
+    the best arm's stream, and the first remaining active arm keeps its own stream.
 
-    Only active arms compete: the inactive arm pays 0, which would beat negative
-    active values and leave two arms sharing a stream. Ties go to the lowest arm
-    index, whatever the order of *active_arms*.
+    Only active arms compete: the inactive arm pays 0, which would beat negative active values and
+    leave two arms sharing a stream. Ties go to the lowest arm index, whatever the order of
+    *active_arms*.
+
+    Args:
+        row (np.ndarray): ``(3,)`` reward of each arm on the last trial of the block.
+        inactive_arm (int): Index of the currently inactive arm.
+        active_arms (list[int]): Indices of the two currently active arms.
+        arm_to_stream (dict[int, int]): For each active arm, the column of the reward streams it
+            reads.
 
     Returns:
-        ``(inactive_arm, active_arms, arm_to_stream)`` for the next block.
+        tuple[int, list[int], dict[int, int]]: ``(inactive_arm, active_arms, arm_to_stream)`` for
+            the next block.
     """
     best_arm = max(sorted(active_arms), key=row.__getitem__)
     other_active = remaining_active_arm(best_arm, active_arms=active_arms)
@@ -340,16 +457,23 @@ def swap_arm_roles(
 def build_arm_roles(streams: np.ndarray, boundaries: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Per-trial reward of the three arms and the inactive arm of each trial.
 
-    Two arms are active and read the two *streams*; the third is inactive and
-    pays zero. At each boundary the best active arm turns inactive (see
-    :func:`swap_arm_roles`), so only the roles change, not the streams.
+    Two arms are active and read the two *streams*; the third is inactive and pays zero. At each
+    boundary the best active arm turns inactive (see :func:`swap_arm_roles`), so only the roles
+    change, not the streams.
 
-    *boundaries* come from :func:`draw_block_boundaries`: strictly increasing and
-    inside ``[1, len(streams))``. Repeated boundaries, boundaries below 1 and
-    boundaries at or beyond ``len(streams)`` are ignored for direct callers.
+    *boundaries* come from :func:`draw_block_boundaries`: strictly increasing and inside ``[1,
+    len(streams))``. Repeated boundaries, boundaries below 1 and boundaries at or beyond
+    ``len(streams)`` are ignored for direct callers.
+
+    Args:
+        streams (np.ndarray): ``(T, 2)`` rewards of the two reward streams.
+        boundaries (np.ndarray): 1-D int array of trial indices, as from ``draw_block_boundaries``:
+            ``b`` means the block ends before trial ``b`` (0-based), so a swap follows trial ``b -
+            1``.
 
     Returns:
-        ``(vals3, inactive_arms)`` of shapes ``(T, 3)`` and ``(T,)``.
+        tuple[np.ndarray, np.ndarray]: ``(vals3, inactive_arms)`` of shapes ``(T, 3)`` (float
+            rewards) and ``(T,)`` (int index of the inactive arm).
     """
     T = len(streams)
     vals3 = np.zeros((T, 3), dtype=float)
@@ -371,15 +495,32 @@ def build_arm_roles(streams: np.ndarray, boundaries: np.ndarray) -> tuple[np.nda
 
 
 def build_arm_values(streams: np.ndarray, boundaries: np.ndarray) -> np.ndarray:
-    """Per-trial reward of the three arms, shape ``(T, 3)``; see :func:`build_arm_roles`."""
+    """Per-trial reward of the three arms, shape ``(T, 3)``; see :func:`build_arm_roles`.
+
+    Args:
+        streams (np.ndarray): ``(T, 2)`` rewards of the two reward streams.
+        boundaries (np.ndarray): 1-D int array of trial indices, as from ``draw_block_boundaries``:
+            ``b`` means the block ends before trial ``b`` (0-based), so a swap follows trial ``b -
+            1``.
+
+    Returns:
+        np.ndarray: ``(T, 3)`` float reward of each arm per trial.
+    """
     return build_arm_roles(streams, boundaries)[0]
 
 
 def active_arm_values(vals3: np.ndarray, inactive_arms: np.ndarray) -> np.ndarray:
     """Copy of *vals3* with each trial's inactive arm set to ``-inf``.
 
-    The inactive arm pays 0 whatever the active values are, so it must not compete
-    for best or second-best when active values are zero or negative.
+    The inactive arm pays 0 whatever the active values are, so it must not compete for best or
+    second-best when active values are zero or negative.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial.
+        inactive_arms (np.ndarray): ``(T,)`` int index of the inactive arm on each trial.
+
+    Returns:
+        np.ndarray: ``(T, 3)`` float copy of *vals3* with ``-inf`` at each trial's inactive arm.
     """
     masked = vals3.copy()
     masked[np.arange(len(vals3)), inactive_arms] = -np.inf
@@ -387,13 +528,28 @@ def active_arm_values(vals3: np.ndarray, inactive_arms: np.ndarray) -> np.ndarra
 
 
 def gap_best_minus_second(vals3: np.ndarray) -> np.ndarray:
-    """Per-trial value of the best arm minus the second-best arm."""
+    """Per-trial value of the best arm minus the second-best arm.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial; use ``active_arm_values``
+            output so the inactive arm is excluded.
+
+    Returns:
+        np.ndarray: ``(T,)`` gap on each trial.
+    """
     sorted_vals = np.sort(vals3, axis=1)
     return sorted_vals[:, -1] - sorted_vals[:, -2]
 
 
 def best_run_lengths(best_arm_series: np.ndarray) -> np.ndarray:
-    """Lengths of consecutive stretches in which the same arm is best."""
+    """Lengths of consecutive stretches in which the same arm is best.
+
+    Args:
+        best_arm_series (np.ndarray): ``(T,)`` int index of the best arm on each trial.
+
+    Returns:
+        np.ndarray: ``(n_runs,)`` float run lengths in trials; they sum to ``T``.
+    """
     changes = np.where(best_arm_series[1:] != best_arm_series[:-1])[0] + 1
     return np.diff(np.r_[0, changes, len(best_arm_series)]).astype(float)
 
@@ -403,9 +559,15 @@ def session_metrics(
 ) -> tuple[float, float, float, float]:
     """Summary of a session.
 
+    Args:
+        best_minus_second (np.ndarray): ``(T,)`` per-trial gap between the best and second-best arm
+            (keyword-only).
+        best_arm_series (np.ndarray): ``(T,)`` int index of the best arm on each trial
+            (keyword-only).
+
     Returns:
-        ``(mean gap, fraction of trials with gap >= 2, mean best-run length,
-        std of best-run length)``.
+        tuple[float, float, float, float]: ``(mean gap, fraction of trials with gap >= 2, mean
+            best-run length, std of best-run length)``.
     """
     run_lengths = best_run_lengths(best_arm_series)
     return (
@@ -424,7 +586,25 @@ def build_session(
     best_arm_series: np.ndarray,
     best_minus_second: np.ndarray,
 ) -> dict:
-    """Session dict returned by :func:`simulate_3armed_blockswaps_markov`."""
+    """Session dict returned by :func:`simulate_3armed_blockswaps_markov`.
+
+    Args:
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial.
+        active_vals (np.ndarray): ``(T, 3)`` rewards with ``-inf`` at each trial's inactive arm, as
+            from ``active_arm_values`` (keyword-only).
+        boundaries (np.ndarray): 1-D int array of trial indices, as from ``draw_block_boundaries``:
+            ``b`` means the block ends before trial ``b`` (0-based), so a swap follows trial ``b -
+            1``.
+        best_arm_series (np.ndarray): ``(T,)`` int index of the best active arm on each trial
+            (keyword-only).
+        best_minus_second (np.ndarray): ``(T,)`` gap between the best and second-best active arm
+            (keyword-only).
+
+    Returns:
+        dict: Keys ``vals3``, ``boundaries``, ``best_arm_series``, ``best_minus_second`` and
+            ``best_second_switches_per_block`` (``(n_blocks,)`` int array from
+            ``count_best_second_switches``).
+    """
     return {
         "vals3": vals3,
         "boundaries": boundaries,
@@ -448,23 +628,36 @@ def simulate_3armed_blockswaps_markov(
 ):
     """Simulate a 3-armed Markov bandit session with block-swap dynamics.
 
+    Two arms are active at any time; at each block boundary the current best arm becomes inactive
+    and a previously inactive arm re-enters.
+
     Args:
-        T: Session length in trials.
-        pud: State-transition probability.
-        max_block_len: Maximum block length.
-        min_block_len: Minimum block length (defaults to
-            ``max_block_len - 10``). A value below 1 (including a default derived
-            from ``max_block_len <= 10``) raises ``ValueError``.
-        n_blocks_draw: Pre-sampled block count (default: 1000).
-        val_list: Discrete reward state values (default: ``(1, 2, 3, 4)``).
-        rng: Optional random generator.
-        min_hold: Minimum dwell time per state (default: 5).
-        enforce_distinct: Keep arm values distinct (default: True).
-        return_session: Also return a session dict (default: False).
+        T (int): Session length in trials.
+        pud (float): State-transition probability (of moving up, and separately down).
+        max_block_len (int): Maximum block length.
+        min_block_len (int | None): Minimum block length (defaults to ``max_block_len - 10``). A
+            value below 1 (including a default derived from ``max_block_len <= 10``) raises
+            ``ValueError``.
+        n_blocks_draw (int): Pre-sampled block count. Default 1000.
+        val_list (tuple | list): Discrete reward state values. Default ``(1, 2, 3, 4)``.
+        rng (np.random.Generator | None): Random generator; None creates a fresh unseeded one.
+            Default None.
+        min_hold (int): Minimum dwell time per state. Default 5.
+        enforce_distinct (bool): Keep arm values distinct. Default True.
+        return_session (bool): Also return a session dict. Default False.
 
     Returns:
-        ``(mean_best_minus_second, frac_gap_ge2, mean_best_run_length,
-        std_best_run_length)`` and optionally a *session* dict.
+        tuple[float, float, float, float] | tuple[float, float, float, float, dict]:
+            ``(mean_best_minus_second, frac_gap_ge2, mean_best_run_length, std_best_run_length)``,
+            followed by a *session* dict when *return_session* is True. The dict has keys ``vals3``
+            (``(T, 3)`` arm rewards), ``boundaries``, ``best_arm_series`` (``(T,)``),
+            ``best_minus_second`` (``(T,)``) and ``best_second_switches_per_block``. The metrics
+            compare the two active arms only.
+
+    Raises:
+        ValueError: If the minimum block length is below 1 or above *max_block_len*, *val_list* is
+            not finite, or *pud* or *val_list* is invalid for the chain.
+        RuntimeError: If an arm cannot be moved to a free state because *val_list* is too small.
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -517,14 +710,21 @@ def simulate_3armed_blockswaps_markov(
 def mean_left_to_right(values: Iterable[float], *, count: int | None = None) -> float:
     """Mean of *values*, added one at a time in order.
 
-    Python's built-in ``sum`` compensates rounding error from version 3.12 on,
-    which would change the last bit of a heatmap cell between interpreters.
-    Plain left-to-right addition gives the same result everywhere.
+    Python's built-in ``sum`` compensates rounding error from version 3.12 on, which would change
+    the last bit of a heatmap cell between interpreters. Plain left-to-right addition gives the same
+    result everywhere.
 
     Args:
-        values: Numbers to average.
-        count: Divisor; defaults to the number of *values*. The sweep passes its
-            ``n_sims``, so 0 raises ZeroDivisionError and a negative value gives -0.0.
+        values (Iterable[float]): Numbers to average.
+        count (int | None): Divisor; defaults to the number of *values*. When given, it is the
+            divisor whatever the number of *values*: 0 raises ``ZeroDivisionError`` and a negative
+            value gives -0.0 for an empty input. Keyword-only. Default None.
+
+    Returns:
+        float: The sum of *values* divided by the divisor.
+
+    Raises:
+        ZeroDivisionError: If the divisor is 0.
     """
     values = list(values)
     return reduce(operator.add, values, 0.0) / (len(values) if count is None else count)
@@ -536,15 +736,20 @@ def summarize_sweep_cell(
     """Average the simulations of one (max_block_len, pud) cell.
 
     Args:
-        results: One :func:`simulate_3armed_blockswaps_markov` return per
-            simulation; with a session dict last when *include_switches*.
-        n_sims: Number of simulations requested for the cell; the divisor of the
-            four means. 0 raises ZeroDivisionError and a negative value gives -0.0.
-        include_switches: Also pool the best/second switches per observed block.
+        results (list[tuple]): One :func:`simulate_3armed_blockswaps_markov` return per simulation;
+            with a session dict last when *include_switches*.
+        n_sims (int): Number of simulations requested for the cell; the divisor of the four means. 0
+            raises ZeroDivisionError and a negative value gives -0.0 (keyword-only).
+        include_switches (bool): Also pool the best/second switches per observed block
+            (keyword-only).
 
     Returns:
-        ``(gap_mean, gap_ge2, run_mean, run_std)``, followed by ``switch_mean``
-        when *include_switches* is True.
+        tuple[float, ...]: ``(gap_mean, gap_ge2, run_mean, run_std)``, followed by ``switch_mean``
+            (mean switches per observed block, pooled over all simulations) when *include_switches*
+            is True.
+
+    Raises:
+        ZeroDivisionError: If *n_sims* is 0.
     """
     means = tuple(mean_left_to_right((r[k] for r in results), count=n_sims) for k in range(4))
     if not include_switches:
@@ -570,23 +775,31 @@ def sweep_markov_metrics(
 ) -> tuple[np.ndarray, ...]:
     """Sweep over Markov parameter combinations and compute summary metrics.
 
+    Every cell uses ``min_block_len = max_block_len - 10`` and shares one random generator, drawn in
+    row-major cell order, so cells are not independent. Progress is printed for each cell.
+
     Args:
-        pud_values: Array of transition probabilities to sweep.
-        max_block_lens: Array of maximum block lengths to sweep.
-        T: Session length (default: 150).
-        n_sims: Simulations per parameter combination (default: 1000).
-        seed: Random seed (default: 0).
-        val_list: Discrete reward values (default: ``(1, 2, 3, 4)``).
-        min_hold: Minimum dwell time (default: 5).
-        enforce_distinct: Enforce distinctness (default: True).
-        include_switches: Append mean best/second switches per observed block.
-            Ties are ignored; block-boundary changes are excluded.
+        pud_values (np.ndarray): Transition probabilities to sweep (columns). Default
+            ``DEFAULT_PUD_VALUES``.
+        max_block_lens (np.ndarray): Maximum block lengths to sweep (rows); each must exceed 10.
+            Default ``DEFAULT_MAX_BLOCK_LENS``.
+        T (int): Session length. Default 150.
+        n_sims (int): Simulations per parameter combination. Default 1000.
+        seed (int): Random seed. Default 0.
+        val_list (tuple | list): Discrete reward values. Default ``(1, 2, 3, 4)``.
+        min_hold (int): Minimum dwell time. Default 5.
+        enforce_distinct (bool): Enforce distinctness. Default True.
+        include_switches (bool): Append mean best/second switches per observed block. Ties are
+            ignored; block-boundary changes are excluded. Default False.
 
     Returns:
-        Four 2-D arrays ``(H_gap_mean, H_gap_ge2, H_run_mean, H_run_std)``
-        of shape ``(len(max_block_lens), len(pud_values))``. When
-        ``include_switches=True``, append ``H_switch_mean``, pooling all observed
-        blocks (including final partial blocks) across simulations.
+        tuple[np.ndarray, ...]: Four 2-D arrays ``(H_gap_mean, H_gap_ge2, H_run_mean, H_run_std)``
+            of shape ``(len(max_block_lens), len(pud_values))``. When ``include_switches=True``, a
+            fifth ``H_switch_mean`` is appended, pooling all observed blocks (including final
+            partial blocks) across simulations.
+
+    Raises:
+        ValueError: If any entry of *max_block_lens* is 10 or less.
     """
     check_sweep_max_block_lens(max_block_lens)
     rng = np.random.default_rng(seed)
@@ -630,11 +843,14 @@ def plot_heatmaps_pair_1(
 ) -> None:
     """Plot gap-metric heatmaps for the Markov bandit sweep.
 
+    Draws a new two-panel figure and shows it.
+
     Args:
-        H_gap_mean: Mean (best − second-best) heatmap.
-        H_gap_ge2: Fraction of trials with gap ≥ 2 heatmap.
-        pud_values: Transition probability values.
-        max_block_lens: Maximum block-length values.
+        H_gap_mean (np.ndarray): Mean (best - second-best) heatmap, shape ``(len(max_block_lens),
+            len(pud_values))``.
+        H_gap_ge2 (np.ndarray): Fraction of trials with gap >= 2 heatmap, same shape.
+        pud_values (np.ndarray): Transition probability values (x axis).
+        max_block_lens (np.ndarray): Maximum block-length values (y axis).
     """
     extent = [pud_values[0], pud_values[-1], max_block_lens[0], max_block_lens[-1]]
     fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
@@ -662,11 +878,14 @@ def plot_heatmaps_pair_2(
 ) -> None:
     """Plot run-length-metric heatmaps for the Markov bandit sweep.
 
+    Draws a new two-panel figure and shows it.
+
     Args:
-        H_run_mean: Mean best-run length heatmap.
-        H_run_std: Std dev of best-run length heatmap.
-        pud_values: Transition probability values.
-        max_block_lens: Maximum block-length values.
+        H_run_mean (np.ndarray): Mean best-run length heatmap, shape ``(len(max_block_lens),
+            len(pud_values))``.
+        H_run_std (np.ndarray): Std dev of best-run length heatmap, same shape.
+        pud_values (np.ndarray): Transition probability values (x axis).
+        max_block_lens (np.ndarray): Maximum block-length values (y axis).
     """
     extent = [pud_values[0], pud_values[-1], max_block_lens[0], max_block_lens[-1]]
     fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)
@@ -691,7 +910,16 @@ def plot_switch_heatmap(
     pud_values: np.ndarray,
     max_block_lens: np.ndarray,
 ) -> None:
-    """Plot the mean count of best/second reversals per observed block."""
+    """Plot the mean count of best/second reversals per observed block.
+
+    Draws a new figure and shows it.
+
+    Args:
+        H_switch_mean (np.ndarray): Mean switches per observed block, shape ``(len(max_block_lens),
+            len(pud_values))``; the last array from ``sweep_markov_metrics(include_switches=True)``.
+        pud_values (np.ndarray): Transition probability values (x axis).
+        max_block_lens (np.ndarray): Maximum block-length values (y axis).
+    """
     extent = [pud_values[0], pud_values[-1], max_block_lens[0], max_block_lens[-1]]
     fig, ax = plt.subplots(figsize=(7, 5), constrained_layout=True)
     im = ax.imshow(H_switch_mean, origin="lower", aspect="auto", extent=extent, vmin=0)
@@ -712,9 +940,19 @@ def simulate_example_session(
 ) -> tuple[tuple[float, ...], dict]:
     """Simulate one seeded session.
 
+    All arguments are keyword-only. The block lengths are ``max_block_len - 10`` to
+    ``max_block_len``, with ``min_hold=5`` and distinct arms.
+
+    Args:
+        pud (float): State-transition probability.
+        max_block_len (int): Maximum block length in trials.
+        val_list (tuple | list): Discrete reward state values.
+        T (int): Session length in trials.
+        seed (int): Seed of the random generator.
+
     Returns:
-        ``((gap_mean, gap_ge2, run_mean, run_std), session)`` as returned by
-        :func:`simulate_3armed_blockswaps_markov` with ``return_session=True``.
+        tuple[tuple[float, ...], dict]: ``((gap_mean, gap_ge2, run_mean, run_std), session)`` as
+            returned by :func:`simulate_3armed_blockswaps_markov` with ``return_session=True``.
     """
     *metrics, session = simulate_3armed_blockswaps_markov(
         T=T,
@@ -732,7 +970,17 @@ def simulate_example_session(
 def format_session_title(
     metrics: tuple[float, ...], *, pud: float, max_block_len: int, title: str | None = None
 ) -> str:
-    """*title* if given, otherwise a summary of the parameters and session metrics."""
+    """*title* if given, otherwise a summary of the parameters and session metrics.
+
+    Args:
+        metrics (tuple[float, ...]): ``(gap_mean, gap_ge2, run_mean, run_std)`` of the session.
+        pud (float): State-transition probability (keyword-only).
+        max_block_len (int): Maximum block length (keyword-only).
+        title (str | None): Custom title that replaces the summary (keyword-only). Default None.
+
+    Returns:
+        str: The title text.
+    """
     gap_mean, gap_ge2, run_mean, run_std = metrics
     return title or (
         f"Example session | pud={pud:.3f}, max_block_len={max_block_len} "
@@ -752,19 +1000,21 @@ def plot_session_panel(
 ) -> plt.Axes:
     """Draw the three arms' rewards over trials, with block boundaries and choices.
 
-    The caller sets the title, so the panel can sit in a larger figure. A caller
-    that must set the title first passes ``legend=False`` and adds the legend itself.
+    The caller sets the title, so the panel can sit in a larger figure. A caller that must set the
+    title first passes ``legend=False`` and adds the legend itself.
 
     Args:
-        vals3: ``(T, 3)`` reward of each arm per trial.
-        boundaries: Trial indices where blocks end.
-        y_max: Largest reward value; sets the y-limit.
-        choices: Optional ``(T,)`` int array of chosen arm indices (0–2).
-        ax: Axes to draw into; a new figure is created if ``None``.
-        legend: Add the legend (default: True).
+        vals3 (np.ndarray): ``(T, 3)`` reward of each arm per trial.
+        boundaries (np.ndarray): 1-D array of trial indices where blocks end (a dashed line is drawn
+            before each).
+        y_max (float): Largest reward value; sets the y-limit (keyword-only).
+        choices (np.ndarray | None): ``(T,)`` int array of chosen arm indices (0-2), drawn as black
+            dots; None draws none. Default None.
+        ax (plt.Axes | None): Axes to draw into; a new figure is created if None. Default None.
+        legend (bool): Add the legend. Default True.
 
     Returns:
-        The axes drawn into.
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(12, 6), constrained_layout=True)
@@ -805,17 +1055,23 @@ def plot_example_session_markov(
 ) -> dict:
     """Plot a single example Markov bandit session.
 
+    Simulates the session, draws it in a new figure and shows it.
+
     Args:
-        pud: State-transition probability.
-        max_block_len: Maximum block length.
-        val_list: Discrete reward values (default: ``(1, 2, 3, 4)``).
-        T: Session length (default: 150).
-        seed: Random seed (default: 0).
-        choices: Optional ``(T,)`` int array of chosen arm indices (0–2).
-        title: Custom figure title.
+        pud (float): State-transition probability.
+        max_block_len (int): Maximum block length.
+        val_list (tuple | list): Discrete reward values. Default ``(1, 2, 3, 4)``.
+        T (int): Session length. Default 150.
+        seed (int): Random seed. Default 0.
+        choices (np.ndarray | None): ``(T,)`` int array of chosen arm indices (0-2) to overlay.
+            Default None.
+        title (str | None): Custom figure title; None builds one from the parameters and metrics.
+            Default None.
 
     Returns:
-        The session dict from :func:`simulate_3armed_blockswaps_markov`.
+        dict: The session dict from :func:`simulate_3armed_blockswaps_markov`: ``vals3``,
+            ``boundaries``, ``best_arm_series``, ``best_minus_second`` and
+            ``best_second_switches_per_block``.
     """
     metrics, session = simulate_example_session(
         pud=pud, max_block_len=max_block_len, val_list=val_list, T=T, seed=seed
@@ -844,15 +1100,21 @@ def collect_markov_run_stats(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Collect mean and std dev of best-arm run lengths for each pud value.
 
+    Sessions use ``max_block_len=80`` and ``min_block_len=70``, and one shared random generator
+    across all *pud_values*. Progress is printed for each value.
+
     Args:
-        pud_values: Array of transition probabilities.
-        T: Session length (default: 150).
-        n_sims: Simulations per pud value (default: 1000).
-        seed: Random seed (default: 0).
-        val_list: Discrete reward values (default: ``(1, 2, 3, 4, 5)``).
+        pud_values (np.ndarray): Transition probabilities.
+        T (int): Session length. Default 150.
+        n_sims (int): Simulations per pud value. Default 1000.
+        seed (int): Random seed. Default 0.
+        val_list (tuple | list): Discrete reward values. Default ``(1, 2, 3, 4, 5)`` (the sweep
+            functions default to ``(1, 2, 3, 4)``).
 
     Returns:
-        ``(mean_runs, std_runs)`` arrays of shape ``(len(pud_values),)``.
+        tuple[np.ndarray, np.ndarray]: ``(mean_runs, std_runs)``, each of shape
+            ``(len(pud_values),)``: the per-pud average over simulations of each session's mean and
+            std of best-run length.
     """
     rng = np.random.default_rng(seed)
     mean_runs, std_runs = [], []
