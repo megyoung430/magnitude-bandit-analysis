@@ -383,11 +383,49 @@ def read_tsv_file(tsv_path, sep="\t"):
         tsv_path (str | Path): Path to the ``.tsv`` file.
         sep (str): Column separator. Default ``"\\t"``.
 
+    Rows whose ``time`` is not a number (a task error's traceback) are dropped with a warning,
+    see :func:`drop_non_numeric_times`.
+
     Returns:
-        pd.DataFrame: One row per line of the file.
+        pd.DataFrame: One row per logged event, with ``time`` as floats.
     """
     df = pd.read_csv(tsv_path, sep=sep)
-    return df
+    return drop_non_numeric_times(df, str(tsv_path))
+
+
+def drop_non_numeric_times(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    """Drop rows whose ``time`` is not a number, with a warning, and return ``time`` as floats.
+
+    pyControl writes an uncaught task error as a warning row followed by the traceback, whose
+    lines land in the ``time`` column as text (e.g. ``"AttributeError: "``). Left in, they make
+    the whole column text, and sorting by time then orders the trials lexically (trial 11
+    before trial 2). The rest of the recording is valid, so only those rows are removed.
+
+    Args:
+        df (pd.DataFrame): A recording as read from its ``.tsv``, with a ``time`` column.
+        label (str): Names the recording in the warning.
+
+    Returns:
+        pd.DataFrame: *df* without the non-numeric rows (index reset), ``time`` as floats; *df*
+        itself (with ``time`` cast to float) when every row is numeric.
+    """
+    times = pd.to_numeric(df["time"], errors="coerce")
+    bad = times.isna()
+    if not bad.any():
+        out = df.copy()
+        out["time"] = times.astype(float)
+        return out
+    positions = [i for i, is_bad in enumerate(bad.to_numpy()) if is_bad]
+    sample = df.loc[bad, "time"].astype(str).str.strip().unique()[:2]
+    warnings.warn(
+        f"{label}: ignored {int(bad.sum())} non-numeric row(s) at positions "
+        f"{positions[0]}-{positions[-1]} of {len(df)} (e.g. {list(sample)}); "
+        "the task logged an error traceback.",
+        stacklevel=3,
+    )
+    out = df.loc[~bad].reset_index(drop=True)
+    out["time"] = times.loc[~bad].to_numpy(dtype=float)
+    return out
 
 
 def extract_session_towers(df):
