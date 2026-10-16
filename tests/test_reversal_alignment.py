@@ -10,6 +10,7 @@ from src.behavior_analysis.reversal_alignment import (
     nan_moving_average,
     smooth_pre_post,
     true_trial_offsets,
+    window_bounds,
     window_indices,
 )
 
@@ -77,14 +78,24 @@ def test_offsets_reject_a_skip_that_empties_the_post_window():
 # ---------------------------------------------------------------- windows
 
 
-def test_window_indices_stop_at_the_previous_boundary():
-    # Boundaries 3 and 6: the pre window of the second cannot reach back past trial 3.
-    assert window_indices([3, 6], 1, 10, pre=5, post=None) == ([3, 4, 5], [6, 7, 8, 9])
+def test_window_indices_default_reaches_back_past_earlier_blocks():
+    assert window_indices([3, 6], 1, 10, pre=5, post=None) == ([1, 2, 3, 4, 5], [6, 7, 8, 9])
+    assert window_bounds([3, 6], 1, 10) == (0, 10)
 
 
-def test_window_indices_stop_at_extra_block_changes():
-    pre_idx, _ = window_indices([3, 12], 1, 20, pre=8, post=2, block_changes=[9])
-    assert pre_idx == [9, 10, 11]
+def test_window_indices_with_block_changes_stop_at_the_previous_boundary():
+    assert window_indices([3, 6], 1, 10, pre=5, post=None, block_changes=[]) == (
+        [3, 4, 5],
+        [6, 7, 8, 9],
+    )
+
+
+def test_window_indices_stop_at_extra_block_changes_on_both_sides():
+    pre_idx, post_idx = window_indices([3, 12], 0, 20, pre=2, post=None, block_changes=[5])
+    assert (pre_idx, post_idx) == ([1, 2], [3, 4])
+    pre_idx, post_idx = window_indices([3, 12], 1, 20, pre=8, post=9, block_changes=[9, 15])
+    assert (pre_idx, post_idx) == ([9, 10, 11], [12, 13, 14])
+    assert window_bounds([3, 12], 1, 20, block_changes=[9, 15]) == (9, 15)
 
 
 def test_window_indices_pre_is_clipped_at_the_data_start():
@@ -95,6 +106,7 @@ def test_window_indices_clip_post_to_the_trial_count():
     assert window_indices([3, 6], 1, 10, pre=5, post=None)[1] == [6, 7, 8, 9]
     assert window_indices([3, 6], 0, 10, pre=0, post=2) == ([], [3, 4])
     assert window_indices([3, 6], 1, 8, pre=1, post=100) == ([5], [6, 7])
+    assert window_indices([3, 6], 1, 8, pre=1, post=100, block_changes=[]) == ([5], [6, 7])
 
 
 def test_window_indices_post_stops_at_the_next_boundary():

@@ -595,14 +595,80 @@ def test_subject_with_no_reversal_counters_still_uses_block_changes():
     assert rev["boundary_source"] == "blocks" and rev["reversal_idx"] == 5
 
 
-def test_pre_window_stops_at_the_previous_block_change():
-    # Reversals at 4 and 7 make a 3-trial block; pre=6 must not reach back into the block before it.
-    a = [4] * 4 + [0] * 3 + [4] * 7
-    b = [0] * 4 + [4] * 3 + [0] * 7
-    rewards = {"A": a, "B": b, "C": [1] * 14}
-    sess = make_session(14, good=[0] * 4 + [1] * 3 + [2] * 7, rewards=rewards)
-    first, last = mod.get_good_reversal_info({"m": {"ses-1": sess}}, pre=6, post=4)["m"]
-    assert first["trial_window_idx"]["pre"] == [0, 1, 2, 3]
-    assert last["trial_window_idx"]["pre"] == [4, 5, 6]
-    assert last["choices_by_tower"]["A"]["pre"] == [104, 105, 106]
-    assert last["trial_window_idx"]["post"] == [7, 8, 9, 10]
+def block_session(n, good_at, bad_at, best_swaps):
+    """Session with good and bad reversals; best tower alternates A/B at *best_swaps*.
+
+    Block ids change at every good or bad reversal; the good counter only at good ones.
+    """
+    changes = sorted([*good_at, *bad_at])
+    blocks = [1 + sum(i >= c for c in changes) for i in range(n)]
+    good = [sum(i >= c for c in good_at) for i in range(n)]
+    a_best = [sum(i >= c for c in best_swaps) % 2 == 0 for i in range(n)]
+    rewards = {
+        "A": [4 if a else 0 for a in a_best],
+        "B": [0 if a else 4 for a in a_best],
+        "C": [1] * n,
+    }
+    return make_session(n, good=good, blocks=blocks, rewards=rewards)
+
+
+def windows_of(sess, **kwargs):
+    return mod.get_good_reversal_info({"m": {"ses-1": sess}}, **kwargs)["m"]
+
+
+def test_default_windows_ignore_block_changes_and_record_their_bounds():
+    # Good reversals at 4 and 14, a bad one at 9; the default reaches across the bad one.
+    sess = block_session(20, good_at=[4, 14], bad_at=[9], best_swaps=[4, 14])
+    first, last = windows_of(sess, pre=10, post=None)
+    assert first["trial_window_idx"]["post"] == list(range(4, 14))
+    assert last["trial_window_idx"]["pre"] == list(range(4, 14))
+    assert (first["pre_start"], first["post_end"]) == (0, 14)
+    assert (last["pre_start"], last["post_end"]) == (0, 20)
+
+
+def test_stop_at_block_changes_bounds_pre_and_post_at_a_bad_reversal():
+    sess = block_session(20, good_at=[4, 14], bad_at=[9], best_swaps=[4, 14])
+    first, last = windows_of(sess, pre=10, post=None, stop_at_block_changes=True)
+    assert first["trial_window_idx"] == {"pre": [0, 1, 2, 3], "post": [4, 5, 6, 7, 8]}
+    assert (first["pre_start"], first["post_end"]) == (0, 9)
+    assert last["trial_window_idx"]["pre"] == [9, 10, 11, 12, 13]
+    assert (last["pre_start"], last["post_end"]) == (9, 20)
+    assert last["choices_by_tower"]["A"]["pre"] == [109, 110, 111, 112, 113]
+
+
+def test_stop_at_block_changes_with_a_one_trial_block():
+    # The bad reversal at 5 is idx - 1 of the good reversal at 6: a one-trial block.
+    sess = block_session(12, good_at=[3, 6], bad_at=[5], best_swaps=[3, 6])
+    _, last = windows_of(sess, pre=4, post=3, stop_at_block_changes=True)
+    assert last["reversal_idx"] == 6
+    assert last["trial_window_idx"]["pre"] == [5]
+    assert last["pre_start"] == 5
+
+
+def test_stop_at_block_changes_does_not_bound_at_session_starts():
+    # Blocks continue across sessions: the second session starts mid-block.
+    first, second = make_session(8), make_session(8)
+    for sess, off in ((first, 0), (second, 8)):
+        sess["blocks"] = [1] * 8 if off == 0 else [1] * 3 + [2] * 5
+        sess["good_reversals"] = [0] * 8 if off == 0 else [0] * 3 + [1] * 5
+        sess["reward_magnitudes_by_tower"] = rewards_swapping_best_at(3 if off else 99, 8)
+    data = {"m": {"ses-1_date-20260101": first, "ses-2_date-20260102": second}}
+    (rev,) = mod.get_good_reversal_info(data, pre=6, post=2, stop_at_block_changes=True)["m"]
+    assert rev["reversal_idx"] == 11
+    assert rev["trial_window_idx"]["pre"] == [5, 6, 7, 8, 9, 10]
+
+
+def test_stop_at_block_changes_raises_when_a_boundary_is_not_a_block_change():
+    sess = make_session(
+        10, good=[0] * 5 + [1] * 5, blocks=[1] * 10, rewards=rewards_swapping_best_at(5, 10)
+    )
+    with pytest.raises(ValueError, match="not block changes"):
+        windows_of(sess, pre=3, stop_at_block_changes=True)
+    assert windows_of(sess, pre=3)  # fine when the option is off
+
+
+def test_stop_at_block_changes_raises_without_blocks():
+    sess = make_session(10, good=[0] * 5 + [1] * 5, rewards=rewards_swapping_best_at(5, 10))
+    sess["blocks"] = []
+    with pytest.raises(ValueError, match="'blocks' series"):
+        windows_of(sess, pre=3, stop_at_block_changes=True)

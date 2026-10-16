@@ -18,7 +18,7 @@ status: in review
 ## Decisions
 
 - Only `_reversal_choice_rows` changes. `_pad_to_length` is replaced by `_right_aligned` (pre) and `_left_aligned` (post); the row is the concatenation of two fixed-length segments, so one segment can never leak into the other.
-- The pre window is clipped only at the start of the data (`_window_indices` does not stop at the previous boundary), so a short pre window happens only for a reversal within `pre` trials of the data start. A short post window (cut by the next boundary or the data end) was already positioned correctly and keeps its NaN tail.
+- The pre window is clipped only at the start of the data (by default the window does not stop at the previous boundary), so a short pre window happens only for a reversal within `pre` trials of the data start. A short post window (cut by the next boundary or the data end) was already positioned correctly and keeps its NaN tail.
 
 ## Audit of other row builders
 
@@ -61,11 +61,13 @@ Decisions:
 - Offset convention: `true_trial_offsets` is the documented "trials from the reversal" axis. `get_choice_probs_around_good_reversals` keeps returning the unshifted `bin_offsets` as `x` (the plot adds `skip` back), so its figures are unchanged.
 - `align_window_values` raises on a window longer than the axis; `truncate=True` cuts instead (the choice-probability function keeps its truncating behaviour).
 - The private copies in `get_choice_probs_around_good_reversals.py` are deleted; `_window_indices` in `get_good_reversal_info.py` is replaced by `window_indices`.
-- Pre windows stop at the previous boundary or block change. The limit is built in `get_good_reversal_info` (which both the prev-ranked and the arm analyses read), so the `pre` lists, `choices_by_*` and `trial_window_idx` are all shortened, and the right-aligned rows leave the earlier bins NaN. "Block change" is every `num_blocks` increment (else every `blocks` change), so bad reversals count as well as the good-reversal boundaries.
-- Post windows already stop at the next boundary, so they cannot cross the next good reversal. They can still cross a bad reversal that is not a good-reversal boundary; `remove_trials_after_bad_rev` handles that and is opt-in in the pipeline, so it is left alone.
+- Block bounds are opt-in: `get_good_reversal_info(..., stop_at_block_changes=False)`. Off (default, all existing callers), windows are identical to the previous commit (checked on the sample session for four `pre`/`post`/`include_first_block` settings). On, the pre window starts at the previous block change and the post window ends at the next one, bad reversals included, so values come from one block. Block changes are the changes of the merged `blocks` series (the importer renames `num_blocks` to `blocks`). Sessions are not bounded at their starts: blocks continue across a problem's sessions.
+- Each record carries `pre_start` and `post_end`, the bounds used (merged trial indices): the pre window uses trials `pre_start .. idx-1`, the post window `idx .. post_end-1`. Off, `pre_start` is 0 and `post_end` the next boundary or the trial count.
+- Guard: with the option on, `ValueError` if `blocks` is missing or a reversal boundary (other than the prepended first block) is not a block change.
+- `window_indices(..., block_changes=None)` and `window_bounds(...)` hold the rule; `block_changes=None` is the unbounded pre window, a sequence bounds both sides.
 - `get_bad_reversal_info` keeps its own `_window_indices` (not used by any aligned analysis).
 
-Results change (baseline: the commit before this follow-up):
+Results change with `stop_at_block_changes=True` (baseline: the commit before this follow-up; with the option off nothing changes):
 
 | Case | Pre windows shortened | Effect |
 |---|---|---|

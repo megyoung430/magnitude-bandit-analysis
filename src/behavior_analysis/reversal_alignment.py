@@ -10,6 +10,13 @@ so rows of different reversals can be stacked and averaged:
 - **post** values are left-aligned: the reversal trial is at offset 0;
 - bins without a value are NaN.
 
+Window bounds.  :func:`window_indices` cuts the windows.  By default the pre window reaches
+back ``pre`` trials whatever block they belong to and the post window ends at the next
+reversal boundary.  With ``block_changes`` given (``stop_at_block_changes`` in
+``get_good_reversal_info``, used for the drifting-value analyses) both windows stay inside
+the block of the reversal.  ``get_bad_reversal_info`` keeps its own unbounded windows; it is
+only used by exploratory notebooks.
+
 Offset conventions.  A row has ``pre + (post - skip)`` bins.  With a skip ``k > 0`` the
 post trials ``1 .. k`` are dropped, so the bins after the reversal trial hold trials
 ``k + 1, k + 2, ...``.
@@ -136,6 +143,38 @@ def align_window_values(
     return row
 
 
+def window_bounds(
+    boundaries: Sequence[int],
+    k: int,
+    n_trials: int,
+    *,
+    block_changes: Sequence[int] | None = None,
+) -> tuple[int, int]:
+    """Earliest pre trial and one-past-last post trial allowed around boundary number *k*.
+
+    Args:
+        boundaries: Sorted reversal indices.
+        k: Which boundary to window.
+        n_trials: Number of trials in the data.
+        block_changes: ``None`` keeps the boundary-only rule: the pre window may reach back
+            to the start of the data and the post window ends at the next boundary (or the
+            last trial).  A sequence of block-change indices bounds both sides to the block
+            of the reversal: the pre window starts at the previous boundary or block change
+            and the post window ends at the next one.
+
+    Returns:
+        ``(pre_start, post_end)``: the pre window may use trials ``pre_start .. idx - 1``
+        and the post window trials ``idx .. post_end - 1``.
+    """
+    idx = boundaries[k]
+    if block_changes is None:
+        return 0, boundaries[k + 1] if k + 1 < len(boundaries) else n_trials
+    stops = {*boundaries, *block_changes}
+    earlier = [b for b in stops if b < idx]
+    later = [b for b in stops if b > idx]
+    return max(earlier, default=0), min(later, default=n_trials)
+
+
 def window_indices(
     boundaries: Sequence[int],
     k: int,
@@ -143,32 +182,26 @@ def window_indices(
     *,
     pre: int,
     post: int | None,
-    block_changes: Sequence[int] = (),
+    block_changes: Sequence[int] | None = None,
 ) -> tuple[list[int], list[int]]:
     """Absolute ``(pre_idx, post_idx)`` trial indices around boundary number *k*.
-
-    Neither window leaves the block of the reversal: the pre window starts no earlier
-    than the previous boundary or block change, the post window ends at the next boundary
-    (or the last trial).
 
     Args:
         boundaries: Sorted reversal indices.
         k: Which boundary to window.
         n_trials: Number of trials in the data.
         pre: Maximum number of pre trials.
-        post: Maximum number of post trials; ``None`` runs to the next boundary.
-        block_changes: Further block-change indices (e.g. bad reversals) that also end
-            the pre window.
+        post: Maximum number of post trials; ``None`` runs to the end of the allowed range.
+        block_changes: As in :func:`window_bounds`; ``None`` leaves the pre window
+            unbounded by earlier blocks, a sequence confines both windows to one block.
 
     Returns:
         ``(pre_idx, post_idx)`` lists of trial indices; the pre list may be shorter than *pre*.
     """
     idx = boundaries[k]
-    earlier = [b for b in (*boundaries, *block_changes) if b < idx]
-    next_boundary = boundaries[k + 1] if k + 1 < len(boundaries) else n_trials
-    post_end = next_boundary if post is None else min(n_trials, idx + post, next_boundary)
-    pre_start = max([0, idx - pre, *earlier])
-    return list(range(pre_start, idx)), list(range(idx, post_end))
+    pre_start, post_end = window_bounds(boundaries, k, n_trials, block_changes=block_changes)
+    post_stop = post_end if post is None else min(n_trials, idx + post, post_end)
+    return list(range(max(pre_start, idx - pre), idx)), list(range(idx, post_stop))
 
 
 def _centered_window_sum(values: np.ndarray, kernel: np.ndarray) -> np.ndarray:
