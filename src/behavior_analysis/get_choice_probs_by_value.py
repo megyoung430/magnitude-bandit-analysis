@@ -33,6 +33,15 @@ REASON_OUT_OF_GRID = "out_of_grid"
 
 
 def init_matrix(fill=np.nan):
+    """Empty best-value by second-value grid, every cell set to *fill*.
+
+    Args:
+        fill (float): Value for every cell. Default ``np.nan``.
+
+    Returns:
+        pd.DataFrame: 3x3 frame with rows indexed by ``best_value`` (2, 3, 4) and columns
+        by ``second_value`` (1, 2, 3).
+    """
     return pd.DataFrame(
         fill,
         index=pd.Index(BEST_VALS, name="best_value"),
@@ -72,6 +81,14 @@ class MouseCounts:
     those values; ``dropped`` counts every other uncounted trial by reason (including
     ``tie_excluded`` in ``"exclude"`` mode). ``ties`` counts the trials with tied values by
     category (``best_second``, ``second_third``, ``all_three``), whatever happens to them next.
+
+    Attributes:
+        denom (pd.DataFrame): Trials per cell, in the grid of :func:`init_matrix`.
+        num_best (pd.DataFrame): Best-choice weight per cell, same grid.
+        num_second (pd.DataFrame): Second-choice weight per cell, same grid.
+        dropped (Counter): ``{reason: number of uncounted trials}``.
+        out_of_grid (Counter): ``{(best_value, second_value): number of trials}``.
+        ties (Counter): ``{tie category: number of trials}``.
     """
 
     denom: pd.DataFrame
@@ -372,8 +389,9 @@ def choice_probs_from_counts(counts_by_mouse: dict[str, MouseCounts]) -> tuple:
 def accumulate_choice_probs(
     subject_trials_by_value_problem, use_believed=False, tie_mode=TIE_SPLIT
 ):
-    """
-    subject_trials_by_value_problem[problem][subject_id][session_id] = session_data
+    """Per-mouse and mean P(best) and P(second) grids over (best value, second value) cells.
+
+    Takes ``subject_trials_by_value_problem[problem][subject_id][session_id] = session_data``.
 
     session_data["trial_variables"] is a list with one dict per recording file; the
     recordings are concatenated in order. Each dict holds parallel lists, one value per
@@ -382,36 +400,33 @@ def accumulate_choice_probs(
       - "chosen_rank"       : list[str]   — "best"/"second"/"third" per trial
       - "choice"            : list[str]   — chosen arm label per trial
 
-    Parameters
-    ----------
-    use_believed : bool
-        False (default) — bin by true reward magnitudes and true chosen rank.
-        True            — bin by believed magnitudes (last observed value per arm,
-                          carried across the sessions of a problem and reset at each
-                          problem), with arms re-ranked by believed value to determine
-                          best/second and the chosen rank. Trials are skipped until all
-                          three arms have been visited, or where the chosen arm has no
-                          believed value.
-    tie_mode : str
-        "split" (default) — tied magnitudes (true or believed) split the tied rank positions
-                            evenly among the tied arms.
-        "exclude"         — trials with any tie among the top three values are left out.
     Trials outside the value grid are not counted; use :func:`count_choice_probs` to get their
     counts and the tie counts (a warning is logged per mouse).
 
-    Raises
-    ------
-    ValueError
-        For an unknown ``tie_mode``, a length mismatch of a recording's trial lists, a session
-        key without ``ses-<n>`` (or numbers and dates that disagree), or a split trial with
-        tied true magnitudes and an unknown choice.
+    Args:
+        subject_trials_by_value_problem (dict): ``{problem: {subject_id: {session_id:
+            session_data}}}`` as described above.
+        use_believed (bool): If False (default), bin by true reward magnitudes and true
+            chosen rank. If True, bin by believed magnitudes (last observed value per arm,
+            carried across the sessions of a problem and reset at each problem), with arms
+            re-ranked by believed value to determine best/second and the chosen rank. Trials
+            are skipped until all three arms have been visited, or where the chosen arm has
+            no believed value.
+        tie_mode (str): ``"split"`` (default) splits the tied rank positions of tied
+            magnitudes (true or believed) evenly among the tied arms; ``"exclude"`` leaves out
+            trials with any tie among the top three values.
 
-    Returns
-    -------
-    overall_best_prob_df   : 3x3 DataFrame  (mean across mice, ignoring empty cells)
-    overall_second_prob_df : 3x3 DataFrame
-    per_mouse_best_prob    : dict[subject_id -> 3x3 DataFrame]
-    per_mouse_second_prob  : dict[subject_id -> 3x3 DataFrame]
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame, dict, dict]: ``(overall_best_prob_df,
+        overall_second_prob_df, per_mouse_best_prob, per_mouse_second_prob)``. The overall
+        frames are 3x3 (rows ``best_value`` 2-4, columns ``second_value`` 1-3) means across
+        mice, ignoring empty cells; the per-mouse values are ``{subject_id: 3x3 DataFrame}``.
+        A cell with no trials is NaN.
+
+    Raises:
+        ValueError: For an unknown ``tie_mode``, a length mismatch of a recording's trial
+            lists, a session key without ``ses-<n>`` (or numbers and dates that disagree),
+            or a split trial with tied true magnitudes and an unknown choice.
     """
     counts_by_mouse = count_choice_probs(subject_trials_by_value_problem, use_believed, tie_mode)
     return choice_probs_from_counts(counts_by_mouse)

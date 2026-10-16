@@ -180,21 +180,21 @@ def get_bad_reversal_info(
     *required_reward_pattern* are kept.
 
     Args:
-        data: Nested dict ``{subject: {session_key: session_dict}}``.
-        pre: Number of trials before the reversal index to include in the
-            pre-window (default: 5).
-        post: Maximum number of trials after the reversal index to include in
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        pre (int): Number of trials before the reversal index to include in the
+            pre-window. Default 5.
+        post (int | None): Maximum number of trials after the reversal index to include in
             the post-window.  The window never extends past the next bad
-            reversal; if ``None``, it extends exactly to it (default: ``None``).
-        include_first_block: If ``True``, prepend index ``0`` to the boundary
-            list (default: ``False``).
-        required_reward_pattern: Multiset of reward values that must be
+            reversal; if ``None``, it extends exactly to it. Default None.
+        include_first_block (bool): If ``True``, prepend index ``0`` to the boundary
+            list. Default False.
+        required_reward_pattern (tuple): Multiset of reward values that must be
             present (in any order) across towers on the trial immediately
-            before the reversal.  Reversals that do not match are skipped
-            (default: ``(4, 1, 0)``).
+            before the reversal.  Reversals that do not match are skipped.
+            Default ``(4, 1, 0)``.
 
     Returns:
-        Dict ``{subject: list[reversal_dict]}`` where each *reversal_dict*
+        dict: ``{subject: list[reversal_dict]}`` where each *reversal_dict*
         contains:
 
         - ``"reversal_idx"`` (int): Trial index of the reversal.
