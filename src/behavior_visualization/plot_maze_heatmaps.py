@@ -55,7 +55,13 @@ _EDGE_COLOR = "#c9d2d7"
 
 
 class RingSpec(NamedTuple):
-    """One outline ring: its colour and its inner and outer radius around the port centre."""
+    """One outline ring: its colour and its inner and outer radius around the port centre.
+
+    Attributes:
+        color (str): Matplotlib colour of the ring.
+        inner (float): Inner radius, in axes data units, measured from the port centre.
+        outer (float): Outer radius, in axes data units, measured from the port centre.
+    """
 
     color: str
     inner: float
@@ -63,13 +69,32 @@ class RingSpec(NamedTuple):
 
 
 def count_norm(counts: Mapping[str, float]) -> Normalize:
-    """Colour scale from 0 to the largest count (1 if nothing was poked)."""
+    """Colour scale from 0 to the largest count (1 if nothing was poked).
+
+    Args:
+        counts (Mapping[str, float]): Count for each of the nine ports (``A1`` .. ``C3``).
+
+    Returns:
+        Normalize: A matplotlib ``Normalize`` with ``vmin=0`` and ``vmax=max(largest count, 1)``.
+
+    Raises:
+        KeyError: If *counts* lacks a port.
+    """
     top = max(float(counts[port]) for port in ARMS9)
     return Normalize(vmin=0.0, vmax=max(top, 1.0))
 
 
 def ring_specs(colors: list[str], *, base_radius: float, width: float) -> list[RingSpec]:
-    """Concentric rings of equal radial *width* around radius *base_radius*, first colour inside."""
+    """Concentric rings of equal radial *width* around radius *base_radius*, first colour inside.
+
+    Args:
+        colors (list[str]): Ring colours, innermost first.
+        base_radius (float): Radius at which the first ring starts.
+        width (float): Radial width of every ring.
+
+    Returns:
+        list[RingSpec]: One ``RingSpec`` per colour, each starting where the previous one ends.
+    """
     return [
         RingSpec(color, base_radius + i * width, base_radius + (i + 1) * width)
         for i, color in enumerate(colors)
@@ -176,18 +201,20 @@ def draw_maze_heatmap(
     """Draw one maze heatmap with its own 0-to-max colorbar.
 
     Args:
-        counts: Count for each of the nine ports (``A1`` .. ``C3``).
-        colorbar_label: Says what the colour shows, e.g. "Pokes after choice (count)".
-        ax: Axes to draw into; a new figure is created if ``None``.
-        title: Axes title.
-        current_ports: Ports to outline in green (the current problem's choice ports).
-        previous_ports: Ports to outline in red (the previous problem's choice ports);
-            ``None`` for a mouse without a previous problem.
-        initiation_port: Port to outline in blue, or ``None``.
-        cmap: Name of a matplotlib colormap.
+        counts (Mapping[str, float]): Count for each of the nine ports (``A1`` .. ``C3``).
+        colorbar_label (str): Says what the colour shows, e.g. "Pokes after choice (count)".
+        ax (Axes | None): Axes to draw into; a new 3.6 x 3.4 inch figure is created if None.
+            Default None.
+        title (str | None): Axes title; none if None. Default None.
+        current_ports (Collection[str]): Ports to outline in green (the current problem's
+            choice ports). Default ``()``.
+        previous_ports (Collection[str] | None): Ports to outline in red (the previous
+            problem's choice ports); None for a mouse without a previous problem. Default None.
+        initiation_port (str | None): Port to outline in blue, or None. Default None.
+        cmap (str): Name of a matplotlib colormap. Default ``"Blues"``.
 
     Returns:
-        The axes the map was drawn on.
+        Axes: The axes the map was drawn on.
 
     Raises:
         KeyError: If *counts* lacks a port.
@@ -238,7 +265,17 @@ def _per_mouse(value: Mapping | None, mice: list[str], name: str) -> Mapping:
 def outline_legend_handles(
     uses_current: bool, uses_previous: bool, uses_initiation: bool
 ) -> list[Line2D]:
-    """Legend handles for the outlines in use (green current, red previous, blue initiation)."""
+    """Legend handles for the outlines in use (green current, red previous, blue initiation).
+
+    Args:
+        uses_current (bool): Include the green "current problem choice ports" entry.
+        uses_previous (bool): Include the red "previous problem choice ports" entry.
+        uses_initiation (bool): Include the blue "initiation port" entry.
+
+    Returns:
+        list[Line2D]: One square-marker handle per included entry, in the order current,
+        previous, initiation.
+    """
     entries = [
         (uses_current, CURRENT_COLOR, "Current problem choice ports"),
         (uses_previous, PREVIOUS_COLOR, "Previous problem choice ports"),
@@ -275,19 +312,22 @@ def plot_maze_heatmaps_across_mice(
     """One maze heatmap per mouse, two rows, each scaled from 0 to that mouse's own maximum.
 
     Args:
-        per_mouse_counts: ``{mouse: {port: count}}``.
-        colorbar_label: What the colour shows, written on every colorbar.
-        current_ports: ``{mouse: ports}`` to outline in green; every mouse needs an entry.
-            ``None`` draws no green outlines.
-        previous_ports: ``{mouse: ports or None}`` to outline in red; every mouse needs an
-            entry (``None`` for a mouse without a previous problem). ``None`` draws no red.
-        initiation_port: Port to outline in blue: one port for every map, or
-            ``{mouse: port or None}`` with an entry for every mouse; ``None`` draws none.
-        titles: ``{mouse: panel title}``; default is the mouse id.
-        suptitle: Figure title.
-        cmap: Name of a matplotlib colormap.
-        save_path: Base path (without extension) for ``.png`` and ``.pdf``; ``None`` shows the
-            figure.
+        per_mouse_counts (Mapping[str, Mapping[str, float]]): ``{mouse: {port: count}}``.
+        colorbar_label (str): What the colour shows, written on every colorbar.
+        current_ports (Mapping[str, Collection[str]] | None): ``{mouse: ports}`` to outline in
+            green; every mouse needs an entry. None draws no green outlines. Default None.
+        previous_ports (Mapping[str, Collection[str] | None] | None): ``{mouse: ports or None}``
+            to outline in red; every mouse needs an entry (None for a mouse without a previous
+            problem). None draws no red. Default None.
+        initiation_port (str | Mapping[str, str | None] | None): Port to outline in blue: one
+            port for every map, or ``{mouse: port or None}`` with an entry for every mouse;
+            None draws none. Default None.
+        titles (Mapping[str, str] | None): ``{mouse: panel title}``; the default title is the
+            mouse id. Default None.
+        suptitle (str | None): Figure title. Default None.
+        cmap (str): Name of a matplotlib colormap. Default ``"Blues"``.
+        save_path (str | Path | None): Base path (without extension) for ``.png`` and ``.pdf``;
+            None shows the figure. Default None.
 
     Raises:
         ValueError: If there are no mice or an outline mapping misses a mouse.
