@@ -350,7 +350,15 @@ def _skip_assignment(session):
 
 
 def evidence_reasons(session):
-    """Why the first session of a new problem needs review (empty if it passes)."""
+    """Why the first session of a new problem needs review (empty if it passes).
+
+    Args:
+        session (object): The session's numbering facts, with the attributes
+            ``starts_found_ports_false`` (bool) and ``has_port_finding_trials`` (bool).
+
+    Returns:
+        tuple[str, ...]: Plain-words reasons; empty when the session shows port finding.
+    """
     if not session.starts_found_ports_false:
         return ("does not start with found_ports false",)
     if not session.has_port_finding_trials:

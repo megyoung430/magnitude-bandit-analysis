@@ -301,7 +301,12 @@ _MAP_BOTTOM_MARGIN_INCHES = 0.5
 
 
 class MapAxes(NamedTuple):
-    """The axes of one maze map and of its colorbar."""
+    """The axes of one maze map and of its colorbar.
+
+    Attributes:
+        map (Axes): The axes the maze heatmap is drawn into.
+        colorbar (Axes): The axes of its colorbar, beside the map.
+    """
 
     map: Axes
     colorbar: Axes

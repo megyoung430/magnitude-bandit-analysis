@@ -165,12 +165,26 @@ def _is_port_finding_print(printed, label: str) -> bool:
 
 
 def is_port_finding(trial: TrialPokes) -> bool:
-    """Whether *trial* is a port-finding trial rather than a task trial."""
+    """Whether *trial* is a port-finding trial rather than a task trial.
+
+    Args:
+        trial (TrialPokes): One trial as returned by :func:`parse_session`.
+
+    Returns:
+        bool: ``True`` if the trial was skipped as port finding.
+    """
     return trial.drop_reason == PORT_FINDING
 
 
 def count_port_finding(trials: Sequence[TrialPokes]) -> int:
-    """Number of port-finding trials in *trials* (as from :func:`parse_session`)."""
+    """Number of port-finding trials in *trials* (as from :func:`parse_session`).
+
+    Args:
+        trials (Sequence[TrialPokes]): The parsed trials of one session.
+
+    Returns:
+        int: How many of them are port-finding trials.
+    """
     return sum(is_port_finding(t) for t in trials)
 
 
