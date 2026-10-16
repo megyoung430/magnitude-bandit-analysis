@@ -181,6 +181,20 @@ def test_problem_map_names_the_towers_and_compresses_the_session_numbers():
     assert row["session_range"] == "3-8, 20"
 
 
+def test_a_session_split_into_parts_counts_once_and_agrees_with_the_range():
+    keys = [
+        "ses-1_date-20260101",
+        "ses-2_date-20260102_part-01",
+        "ses-2_date-20260102_part-02",
+        "ses-2_date-20260102_part-03",
+        "ses-4_date-20260104",
+    ]
+    sessions = {key: session(DRIFTING_NAME) for key in keys}
+    (row,) = problem_map_table({1: {"A": sessions}}).to_dict("records")
+    assert row["session_range"] == "1-2, 4"
+    assert row["n_sessions"] == 3
+
+
 def test_problem_map_lists_sessions_in_order():
     sessions = {
         "ses-2_date-20260102": session(DRIFTING_NAME),

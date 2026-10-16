@@ -138,9 +138,10 @@ def problem_map_table(
     Columns are :data:`MAP_COLUMNS`; ``sessions`` lists the session keys in session order,
     separated by ``;``. ``initiation_tower`` and ``choice_towers`` (sorted, separated by ``;``)
     are the layout of the problem's first session; the sessions of a problem share one layout.
-    ``n_sessions`` counts the sessions and ``session_range`` gives their numbers as ranges, for
-    example ``"1-10"``, or ``"3-8, 20"`` when the mouse was run on other settings in between
-    and the problem resumed later. *numbering* is as for :func:`regroup_by_task_type`.
+    ``n_sessions`` counts the sessions (the ``_part-NN`` segments of a split session count once)
+    and ``session_range`` gives their numbers as ranges, for example ``"1-10"``, or ``"3-8, 20"``
+    when the mouse was run on other settings in between and the problem resumed later.
+    *numbering* is as for :func:`regroup_by_task_type`.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``.
@@ -189,6 +190,6 @@ def _map_row(subject: str, kind: str, k: int, problem: int, sessions: dict) -> d
         "sessions": ";".join(keys),
         "initiation_tower": first.get("initiation_tower") or DEFAULT_INITIATION_TOWER,
         "choice_towers": ";".join(sorted(_choice_ports(sessions.values()))),
-        "n_sessions": len(keys),
+        "n_sessions": len({session_number(key) for key in keys}),
         "session_range": compress_numbers(session_number(key) for key in keys),
     }

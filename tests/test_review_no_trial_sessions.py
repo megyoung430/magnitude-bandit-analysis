@@ -39,7 +39,7 @@ def test_a_skipped_session_sits_in_the_problem_the_mouse_was_running():
     (row,) = table.to_dict("records")
     assert row["mouse"] == "M1"
     assert row["session"] == S3
-    assert row["file"] == "M1-x.tsv"
+    assert row["files"] == "M1-x.tsv"
     assert row["skipped"] == "session"
     assert row["kind"] == import_log.NO_TRIAL_PRINTS
     assert row["reason"] == "it prints no trials"
@@ -71,7 +71,7 @@ def test_files_without_a_mouse_or_session_still_get_a_row_with_blanks():
     lost = SkipRecord(None, None, "/raw/odd/x.tsv", "file", import_log.NO_SUBJECT, "no subject")
     (row,) = no_trial_sessions_table([lost], index).to_dict("records")
     assert pd.isna(row["mouse"]) and pd.isna(row["session"])
-    assert row["file"] == "x.tsv"
+    assert row["files"] == "x.tsv"
     assert row["skipped"] == "file"
 
 
@@ -92,3 +92,59 @@ def test_no_skips_give_an_empty_table_with_the_columns():
     table = no_trial_sessions_table([], index)
     assert table.empty
     assert list(table.columns) == list(COLUMNS)
+
+
+def test_a_session_with_several_recordings_is_one_row_that_lists_its_files():
+    skips = [
+        skip(S3, file="/raw/M1/s3/behav/M1-c.tsv"),
+        skip(S3, file="/raw/M1/s3/behav/M1-a.tsv"),
+        skip(S3, file="/raw/M1/s3/behav/M1-b.tsv"),
+    ]
+    _, index, _, _ = two_problem_cohort()
+    (row,) = no_trial_sessions_table(skips, index).to_dict("records")
+    assert row["files"] == "M1-a.tsv;M1-b.tsv;M1-c.tsv"
+    assert (row["session"], row["skipped"], row["kind"]) == (S3, "session", "no_trial_prints")
+
+
+def test_a_session_whose_recordings_have_different_causes_names_each_once():
+    skips = [
+        skip(S3, file="/raw/a.tsv", kind=import_log.NO_TRIAL_PRINTS, reason="no prints"),
+        skip(S3, file="/raw/b.tsv", kind=import_log.ONLY_PORT_FINDING, reason="only port finding"),
+        skip(S3, file="/raw/c.tsv", kind=import_log.NO_TRIAL_PRINTS, reason="no prints"),
+    ]
+    _, index, _, _ = two_problem_cohort()
+    (row,) = no_trial_sessions_table(skips, index).to_dict("records")
+    assert row["kind"] == "no_trial_prints;only_port_finding"
+    assert row["reason"] == "no prints; only port finding"
+
+
+def test_two_sessions_are_two_rows_and_recording_skips_stay_one_row_each():
+    skips = [
+        skip(S3, file="/raw/a.tsv"),
+        skip(S3, file="/raw/b.tsv"),
+        skip(S2, file="/raw/c.tsv", level=import_log.RECORDING),
+        skip(S2, file="/raw/d.tsv", level=import_log.RECORDING),
+    ]
+    _, index, _, _ = two_problem_cohort()
+    table = no_trial_sessions_table(skips, index)
+    assert list(zip(table["session"], table["skipped"], table["files"], strict=True)) == [
+        (S2, "recording", "c.tsv"),
+        (S2, "recording", "d.tsv"),
+        (S3, "session", "a.tsv;b.tsv"),
+    ]
+
+
+def test_rows_of_one_session_are_ordered_by_file_name():
+    skips = [
+        skip(S2, file="/raw/z.tsv", level=import_log.RECORDING),
+        skip(S2, file="/raw/m.tsv", level=import_log.FILE, kind=import_log.UNREADABLE_FILE),
+    ]
+    _, index, _, _ = two_problem_cohort()
+    table = no_trial_sessions_table(skips, index)
+    assert table["files"].tolist() == ["m.tsv", "z.tsv"]
+
+
+def test_the_same_session_of_two_mice_is_two_rows():
+    skips = [skip(S3), skip(S3, mouse="M2")]
+    _, index, _, _ = two_problem_cohort()
+    assert no_trial_sessions_table(skips, index)["mouse"].tolist() == ["M1", "M2"]
