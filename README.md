@@ -228,7 +228,7 @@ report all failures at the end.
   | --- | --- |
   | `blocked/problem-KK/reversal-stats/` | choice probabilities around good reversals, first leave, reversal counts |
   | `blocked/problem-KK/choice-stats/` | true-value rank proportions |
-  | `blocked/problem-KK/long-pokes/` | long pokes per relative session, maze heatmaps (no CSVs) |
+  | `blocked/problem-KK/long-pokes/` | long pokes per relative session, maze heatmaps |
   | `blocked/problem-KK/single-sessions/<mouse>/<session>/` | one overview figure per session |
   | `drifting/problem-KK/reversal-stats/` | reversal counts |
   | `drifting/problem-KK/choice-stats/` | true- and believed-value rank proportions |
@@ -242,18 +242,20 @@ report all failures at the end.
 
   Tables go to `tables/open-field/cohort-0N/`, for looking at by hand. Each row names the mouse,
   the session (and the file where it has one), the task type and the problem (number within the
-  type, and overall). No CSVs are written into the figure folders.
+  type, and overall). The long-pokes, reversal-aligned-arms and value-change CSVs are in this
+  folder, no longer in the figure folders; `trial-block-summaries/all-problems/` keeps its six
+  summary CSVs.
 
   | Table | One row per |
   | --- | --- |
   | `problem_map.csv` | mouse and problem: initiation tower, choice towers, `sessions`, `n_sessions`, `session_range` (e.g. "1-10" or "3-8, 20") |
   | `suspect_reversals.csv` | good reversal or block change the analyses drop |
-  | `suspect_sessions.csv` | problem-numbering flag (`suspected_settings_error`, `review_settings`, `provisional`, `port_finding`, `pretraining`, `no_choice_towers`) with a `reason`; or configuration setting that changed within a session (`run_start vs run_end`) or between recordings (`run_end vs next run_start`); keys are `suspect_sessions.SETTINGS_KEYS`; `found_ports` False to True in a problem's first session is not listed |
-  | `suspect_starting_reward_mags.csv` | session (within a problem) whose starting magnitudes differ from the previous session's end, with `likely_cause`, most to least likely (`starting_magnitudes.CAUSES`) |
-  | `no_trial_sessions.csv` | file, recording or session the importer skipped, with `kind` and `reason` |
+  | `suspect_sessions.csv` | problem-numbering flag (`suspected_settings_error`, `review_settings`, `provisional`, `port_finding`, `pretraining`, `no_choice_towers`) with a `reason`; or configuration setting that changed within a session (`run_start vs run_end`) or between recordings (`run_end vs next run_start`); keys are `suspect_sessions.SETTINGS_KEYS`; `found_ports` False to True in a problem's first session is not listed; a recording without `run_start` or `run_end` gets one "not checked: no run_end" row instead |
+  | `suspect_starting_reward_mags.csv` | session (within a problem) whose starting magnitudes differ from the previous session's end, compared with the problem's previous session that has trials (last trial against first trial), with `likely_cause`, most to least likely (`starting_magnitudes.CAUSES`); a total that goes down is a task restart (`RESET`); a missing tower on either side is "cannot compare" |
+  | `no_trial_sessions.csv` | file or recording the importer skipped, or session with no trials (one row per session, `files` lists its files), with `kind` and `reason` |
   | `no_second_best.csv` | block with more than one arm at 0, with the only rewarded arm |
   | `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv` | diagnostics of the analyses, stacked over problems with `task_type`, `problem_in_type` (and `overall_problem` where a mouse is named) |
-  | `warnings_log.csv` | distinct Python warning of the run that the console shows (`n_times`), with the mouse, session and problem its text names |
+  | `warnings_log.csv` | distinct Python warning of the run that the console shows (`n_times`), with the mouse, session, task type and problem its text names; written even when the run fails, and always with every table (header only when empty) |
 
   In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
   session; to find a row in the raw file, search `file` for `"num_t": <num_t>` (the run-local,

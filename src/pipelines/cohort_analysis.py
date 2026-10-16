@@ -37,14 +37,16 @@ it has one), the task type and the problem (number within the type, and overall)
   "A A B A" is treated as a settings error), and configuration settings that changed within a
   session;
 - ``suspect_starting_reward_mags.csv``: sessions that start on other reward magnitudes than the
-  problem's previous session ended on, with the most likely cause;
-- ``no_trial_sessions.csv``: files, recordings and sessions the importer skipped, with the reason;
+  problem's previous session (the last one with trials) ended on, with the most likely cause;
+- ``no_trial_sessions.csv``: files and recordings the importer skipped, and sessions without
+  trials (one row per session, listing its files), with the reason;
 - ``no_second_best.csv``: blocks in which more than one arm is at 0;
 - ``poke_trial_summary.csv``, ``reversal_aligned_arms_counts.csv``, ``value_change_events.csv``
   and ``value_change_bin_counts.csv``: the diagnostics the analyses return, over all problems
   (the pooled drifting analyses repeat the per-problem ones and add none);
-- ``warnings_log.csv``: every distinct Python warning of the run, with the mouse and session its
-  text names.
+- ``warnings_log.csv``: every distinct Python warning of the run, with the mouse, session, task
+  type and problem its text names. It is written even when the run fails, and every table is
+  always written (header only when empty).
 
 The maze heatmaps outline the choice ports of the problem the mouse ran immediately before, in
 the overall problem order and whatever its task type, so drifting problem 1 is outlined with

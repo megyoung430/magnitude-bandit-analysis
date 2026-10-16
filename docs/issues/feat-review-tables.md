@@ -33,13 +33,15 @@ problem (number within the type and overall).
   unchanged (tested). Skip records survive the on-disk cache (tested).
 - Settings comparisons ignore dynamic state; the compared keys are the documented constant
   `suspect_sessions.SETTINGS_KEYS`.
-- `warnings_log.csv` records the warnings the console shows; console behaviour is unchanged.
+- `warnings_log.csv` records the warnings the console shows; the console shows the same text (the importer's printed `[WARN]` lines are now warnings
+  without the prefix; see fix-r3-tables-review).
 
 ## Decisions
 
 - **Import log.** `ImportLog` (skips, flags, warnings) is threaded as an optional `log=None`
   argument; what the importer loads is unchanged. The load_trials cache stores the log
-  (`CACHE_FORMAT_VERSION=2`), so skip records survive a cached load.
+  so skip records survive a cached load; a change to the cached layout changes `load_trials.py`,
+  which is inside the hashed import code, so there is no separate cache version.
 - **Warnings.** `record_warnings()` wraps `warnings.showwarning`, records and forwards, instead of
   `catch_warnings(record=True)`: console output and timing stay as they were. The log holds what
   Python's filters let through (what the console shows), identical warnings aggregated in
@@ -65,13 +67,13 @@ problem (number within the type and overall).
 - `poke_trial_summary`, `reversal_aligned_arms_counts`, `value_change_events` (was the
   contamination table) and `value_change_bin_counts` are no longer written into the figure
   folders; they are in the tables folder with `task_type` and `problem_in_type` columns.
-- No figure and no analysis number changes; the console output is unchanged.
+- No figure and no analysis number changes.
 - Staged data: MY_71_R (cohort 1) `no_second_best` is empty (every trial has exactly one zero arm);
   ses-231 starts with B1=2 against 3 at the end of ses-230, labelled normal drift. MY_175_L
   (cohort 3) ses-33 `found_ports` False to True is exempt; ses-36 has no `run_end` and is skipped
   from the settings comparisons; its starting magnitudes differ from ses-33's end by a logged
   reversal (consistent).
 - Pre-existing, not from this change: cohort 3 stops in `run_choice_probability_analysis`
-  (`np.vstack` on no arrays, MY_175_L has no good reversals) on the base branch too. The tables
+  (`np.vstack` on no arrays: MY_175_L's Late and First-Half splits are empty) on the base branch too. The tables
   that do not need the analyses are written before it stops; the diagnostics and `warnings_log`
   are not.
