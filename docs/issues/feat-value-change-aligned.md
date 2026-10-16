@@ -13,6 +13,8 @@ Ports the notebook's value-change analysis (`get_value_change_windows`, `_aggreg
 `diagnose_mid_window_value_changes`, `run_all_value_change_plots`, `flatten_subjects_trials`)
 into the codebase for the drifting task, with the bugs fixed.
 
+Drifting problems only: the drifting task has block changes, no good or bad reversals. The entry point raises a `ValueError` naming the mouse and session if it is given a counter-format session (good/bad reversal counters).
+
 New files:
 - `src/behavior_analysis/value_change_windows.py`: event detection, windows, truncation,
   aggregation, contamination summary (pure).

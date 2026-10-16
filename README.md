@@ -202,7 +202,9 @@ report all failures at the end.
   drifting-only analyses below, and single sessions, plus the rank proportions and the three
   drifting-only analyses pooled over all of a mouse's drifting problems. Ranks, beliefs and
   reversal windows are computed within each problem first, so nothing crosses a problem boundary.
-- **Drifting-only analyses** (never run on blocked problems; switches on the drifting
+- **Drifting-only analyses** (they use block changes, not good or bad reversals, so they run only on
+  drifting problems and raise a `ValueError` naming the mouse and session if given a session with
+  good/bad reversal counters; never run on blocked problems; switches on the drifting
   `AnalysisSelection`, all on in `DRIFTING_SELECTION`): `run_value_psychometric_analysis`
   (`value-psychometrics/`: heatmaps and psychometric curves of P(best) and P(second) by true and
   believed value), `run_reversal_aligned_arm_analysis` (`reversal-aligned-arms/`: arm choice
