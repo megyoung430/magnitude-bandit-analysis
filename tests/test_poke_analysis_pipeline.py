@@ -132,7 +132,7 @@ def test_without_previous_ports_no_red_ring_is_drawn(tmp_path, captured):
     assert not any(g.endswith(":previous") for g in gids)
 
 
-def test_initiation_plot_marks_b2_in_blue_and_the_choice_plot_does_not(tmp_path, captured):
+def test_both_poke_plots_mark_the_initiation_port_b2_in_blue(tmp_path, captured):
     run_poke_analysis(problem_data(), tmp_path)
     after_choice_fig, after_initiation_fig = captured
 
@@ -140,7 +140,7 @@ def test_initiation_plot_marks_b2_in_blue_and_the_choice_plot_does_not(tmp_path,
         return {p.get_gid() for ax in fig.axes for p in ax.patches if p.get_gid()}
 
     assert "ring:B2:initiation" in gids(after_initiation_fig)
-    assert not any(g.endswith(":initiation") for g in gids(after_choice_fig))
+    assert "ring:B2:initiation" in gids(after_choice_fig)
 
 
 def test_previous_ports_must_cover_every_mouse(tmp_path):

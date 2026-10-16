@@ -220,8 +220,10 @@ report all failures at the end.
   neighbours). A mouse offered ports from one category only has that category's ratio of 1 by
   construction; it is left out of the X vs plus figure, which says how many mice were excluded.
 - **Long pokes and maze heatmaps** (`run_poke_analysis`, every problem, `long-pokes/`): mean
-  non-choice long pokes per trial per relative session, and per-mouse maze maps of the pokes after
-  the choice and the long pokes after initiation. Green outlines are the problem's choice ports and
+  non-choice long pokes per trial per relative session, and per-mouse maze maps of the port visits
+  after the choice and the long pokes after initiation. After the choice (from the ITI to the next
+  initiation, the initiating B2 poke included), consecutive beam breaks at one port count as one
+  visit, and visits to the chosen tower count only after a visit somewhere else. Green outlines are the problem's choice ports and
   red outlines the choice ports of the problem the mouse ran immediately before, whatever its task
   type (so drifting problem 1 is outlined with the last blocked problem's ports); blue is the
   initiation port. The single-session figures carry the same maps for their session, with the red

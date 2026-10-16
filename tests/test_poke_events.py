@@ -54,19 +54,12 @@ def test_other_b2_pokes_in_the_window_are_counted():
     assert first.window_pokes == ("B2", "C3", "B2", "B2")
 
 
-def test_pokes_are_not_collapsed_when_repeated():
+def test_repeated_pokes_at_one_port_count_as_one_visit():
     rec = Recording()
     full_trial(rec, choice="A1", after_choice=["C3", "C3", "C3", "A2", "A2"])
     full_trial(rec, choice="A1")
     first = parse_recording(rec.to_frame())[0]
-    assert pokes_after_choice(first.window_pokes, first.chosen) == [
-        "C3",
-        "C3",
-        "C3",
-        "A2",
-        "A2",
-        "B2",
-    ]
+    assert pokes_after_choice(first.window_pokes, first.chosen) == ["C3", "A2", "B2"]
 
 
 def test_pokes_during_the_reward_state_precede_the_window():
@@ -82,13 +75,24 @@ def test_pokes_during_the_reward_state_precede_the_window():
 
 
 def test_leading_choice_tower_pokes_are_dropped_until_another_port_is_poked():
-    # The example from the analysis spec: after choosing A1, A1 A1 C3 C2 A1 A1 -> C3 C2 A1 A1.
+    # The example from the analysis spec: after choosing A1, A1 A1 C3 C2 A1 A1 gives the
+    # visits A1 C3 C2 A1; the first A1 visit is dropped.
     window = ("A1", "A1", "C3", "C2", "A1", "A1")
-    assert pokes_after_choice(window, "A1") == ["C3", "C2", "A1", "A1"]
+    assert pokes_after_choice(window, "A1") == ["C3", "C2", "A1"]
+
+
+def test_beam_flicker_after_one_poke_elsewhere_counts_once():
+    # MY_71_R ses-229 trial 36: B1 x4, A1, then B1 x59 while drinking -> A1 and one B1 visit.
+    window = ("B1",) * 4 + ("A1",) + ("B1",) * 59 + ("B2",)
+    assert pokes_after_choice(window, "B1") == ["A1", "B1", "B2"]
+
+
+def test_a_port_visited_twice_with_another_port_between_counts_twice():
+    assert pokes_after_choice(("C3", "A2", "C3", "C3"), "A1") == ["C3", "A2", "C3"]
 
 
 def test_choice_tower_pokes_count_when_another_port_came_first():
-    assert pokes_after_choice(("B3", "A1", "A1"), "A1") == ["B3", "A1", "A1"]
+    assert pokes_after_choice(("B3", "A1", "A1"), "A1") == ["B3", "A1"]
 
 
 def test_window_of_only_choice_tower_pokes_counts_nothing():
@@ -395,7 +399,7 @@ def test_cross_check_reports_a_mismatch_with_its_trial():
 
 
 def test_a_non_initiating_b2_poke_counts_as_elsewhere_for_the_chosen_tower_rule():
-    assert pokes_after_choice(("A1", "B2", "A1", "A1"), "A1") == ["B2", "A1", "A1"]
+    assert pokes_after_choice(("A1", "B2", "A1", "A1"), "A1") == ["B2", "A1"]
 
 
 def test_b2_poke_in_the_iti_lets_later_chosen_tower_pokes_count_in_a_parsed_trial():

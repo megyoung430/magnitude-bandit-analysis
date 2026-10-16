@@ -156,14 +156,14 @@ def test_maze_counts_are_this_sessions_own(figures):
     }
     # After choice: trial 1 -> C3, C3 (leading A1 dropped) and the B2 that initiates trial 2;
     # trial 2 -> A2 and the B2 that initiates trial 3; trial 3's window is open.
-    assert {p: n for p, n in shown(choice_ax).items() if n} == {"C3": 2, "A2": 1, "B2": 2}
+    assert {p: n for p, n in shown(choice_ax).items() if n} == {"C3": 1, "A2": 1, "B2": 2}
 
 
 def test_current_choice_ports_are_outlined_green_and_initiation_port_blue(figures):
     plot_single_session(session_with_pokes())
     (fig,) = figures
     assert ring_ids(fig) == sorted(
-        [f"ring:{p}:current" for p in TOWERS] * 2 + ["ring:B2:initiation"]
+        [f"ring:{p}:current" for p in TOWERS] * 2 + ["ring:B2:initiation"] * 2
     )
 
 
@@ -252,7 +252,8 @@ def test_initiation_outline_follows_the_sessions_own_initiation_tower(figures):
     full_trial(rec, choice="C1")
     session = {**base_session(), **session_record([rec.to_frame()], initiation_tower="B3")}
     plot_single_session(session)
-    assert [g for g in ring_ids(figures[0]) if g.endswith(":initiation")] == ["ring:B3:initiation"]
+    rings = [g for g in ring_ids(figures[0]) if g.endswith(":initiation")]
+    assert rings == ["ring:B3:initiation"] * 2
 
 
 def test_only_parser_errors_are_caught(figures):
