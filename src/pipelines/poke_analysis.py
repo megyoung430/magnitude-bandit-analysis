@@ -103,6 +103,15 @@ def _previous_ports(
     return {m: previous[m] for m in mice}
 
 
+def _check_parsed(parsed: Mapping, subjects_trials: Mapping) -> dict:
+    """*parsed* restricted to the problem's mice, after checking it covers every session."""
+    for mouse, sessions in subjects_trials.items():
+        missing = [key for key in sessions if key not in parsed.get(mouse, {})]
+        if missing:
+            raise ValueError(f"poke_counts has no entry for {mouse} sessions {missing}")
+    return {mouse: dict(parsed[mouse]) for mouse in sorted(subjects_trials)}
+
+
 def _initiation_ports(subjects_trials: Mapping) -> dict[str, str]:
     """Each mouse's initiation tower (default ``"B2"`` when unlogged).
 
@@ -158,6 +167,7 @@ def run_poke_analysis(
     out_dir: Path,
     *,
     previous_choice_towers: dict | None = None,
+    poke_counts: dict | None = None,
 ) -> dict:
     """Long pokes per relative session and the two maze heatmaps for one problem.
 
@@ -171,6 +181,10 @@ def run_poke_analysis(
         previous_choice_towers: ``{mouse: ports of the mouse's previous problem, or None}`` for
             the red outlines, as returned by :func:`previous_choice_towers_for_problem`. ``None``
             draws no red outlines; a dict must have an entry for every mouse.
+        poke_counts: ``{mouse: {session_key: SessionPokeCounts}}`` already parsed (for example
+            ``per_session`` of an earlier call, or ``mouse_poke_counts`` per mouse), so the raw
+            events are parsed once. It must cover every mouse and session; ``None`` parses the
+            sessions' ``"df"`` here.
 
     Returns:
         A dict with ``"long_pokes"`` (``"by_session"`` = ``{mouse: {session: mean}}``,
@@ -183,10 +197,14 @@ def run_poke_analysis(
 
     Raises:
         ValueError: If the input is not one problem's ``{mouse: {session: session}}`` with raw
-            recordings, if *previous_choice_towers* misses a mouse, or from any parsing check in
-            :mod:`src.behavior_analysis.poke_events`.
+            recordings, or if *previous_choice_towers* or *poke_counts* miss a mouse or session.
+        PokeAlignmentError: If a session's parsed trials do not match its imported trials; this
+            is likely a code bug and stops the run.
 
     Notes:
+        A session whose raw events raise ``PokeParseError`` is skipped with a warning: it has
+        zero counts and a row in ``Poke Trial Summary.csv`` whose ``parse_error`` column holds
+        the reason (the long-poke means, which come from the imported trials, still include it).
         Disagreements between the raw long pokes and the printed ``long_pokes`` lists raise a
         ``UserWarning`` and are listed in the cross-check table. The last trial of each recording
         has no following initiation, so it is left out of the after-choice map.
@@ -197,9 +215,11 @@ def run_poke_analysis(
     previous = _previous_ports(mice, previous_choice_towers)
     initiation_ports = _initiation_ports(subjects_trials_by_problem)
 
-    per_session = {
-        mouse: mouse_poke_counts(mouse, subjects_trials_by_problem[mouse]) for mouse in mice
-    }
+    per_session = (
+        _check_parsed(poke_counts, subjects_trials_by_problem)
+        if poke_counts is not None
+        else {mouse: mouse_poke_counts(mouse, subjects_trials_by_problem[mouse]) for mouse in mice}
+    )
     _warn_on_disagreement(per_session)
     counts = {
         kind: {mouse: total_counts(per_session[mouse], kind) for mouse in mice}

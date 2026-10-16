@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import (
+    PokeAlignmentError,
     PokeParseError,
     cross_check_long_pokes,
     parse_recording,
@@ -167,10 +168,10 @@ def test_alignment_with_the_sessions_merged_choice_list_is_checked():
     )
     assert len(parse_session(session)) == 5
     session["choice"] = ["A1", "B1", "C1", "B1", "A1"]
-    with pytest.raises(ValueError, match="trial 4"):
+    with pytest.raises(PokeAlignmentError, match="trial 4"):
         parse_session(session)
     session["choice"] = ["A1", "B1"]
-    with pytest.raises(ValueError, match="5 trials"):
+    with pytest.raises(PokeAlignmentError, match="5 trials"):
         parse_session(session)
 
 
@@ -360,3 +361,22 @@ def test_cross_check_ignores_dropped_trials():
     full_trial(rec, choice="B1")
     check = cross_check_long_pokes(parse_recording(rec.to_frame()))
     assert (check.n_trials, check.n_agree) == (1, 1)
+
+
+def test_alignment_error_is_not_a_parse_error():
+    assert issubclass(PokeAlignmentError, ValueError)
+    assert not issubclass(PokeAlignmentError, PokeParseError)
+    assert not issubclass(PokeParseError, PokeAlignmentError)
+
+
+def test_print_with_no_initiation_since_the_previous_trial_drops_both_trials():
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["C3"])  # ends in wait_init, no initiation follows
+    rec.choose("B1")  # a print without an initiation
+    rec.iti().state("wait_init")
+    full_trial(rec, choice="C1")
+    first, second, third = parse_recording(rec.to_frame())
+    assert first.drop_reason is not None and "without an initiation" in first.drop_reason
+    assert second.drop_reason is not None and "without an initiation" in second.drop_reason
+    assert third.drop_reason is None
+    assert first.long_pokes == second.long_pokes == () and first.window_pokes is None

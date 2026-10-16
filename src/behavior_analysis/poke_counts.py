@@ -6,6 +6,7 @@ applies its counting rules to every trial and sums the result. Nothing here read
 
 from __future__ import annotations
 
+import warnings
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import NamedTuple
@@ -14,6 +15,7 @@ from src.behavior_analysis.poke_events import (
     ARMS9,
     NO_PRINT,
     LongPokeCheck,
+    PokeParseError,
     TrialPokes,
     cross_check_long_pokes,
     parse_session,
@@ -38,7 +40,8 @@ class SessionPokeCounts(NamedTuple):
     ``n_dropped_no_print`` counts trials dropped for having no usable summary print (including
     aborted trials that have no print row, which are not in ``n_trials``) and
     ``n_dropped_inconsistent`` the other drops. ``long_poke_check`` compares the raw long
-    pokes of the analysed trials with the printed lists.
+    pokes of the analysed trials with the printed lists. ``parse_error`` is the reason the
+    session's raw events could not be read (all counts are then zero), else ``None``.
     """
 
     after_initiation: dict[str, int]
@@ -49,6 +52,7 @@ class SessionPokeCounts(NamedTuple):
     n_valid: int
     n_dropped_no_print: int
     n_dropped_inconsistent: int
+    parse_error: str | None = None
 
 
 def count_ports(sequences: Iterable[Iterable[str]]) -> dict[str, int]:
@@ -86,7 +90,7 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
 
     Returns:
         A :class:`SessionPokeCounts`. Dropped trials are left out of both counts; trials
-        whose after-choice window never closed (the last trial of a recording) are left out of
+        whose after-choice window never closed (a recording's last printed trial) are left out of
         ``after_choice`` only.
     """
     initiation = session.get("initiation_tower") or DEFAULT_INITIATION_TOWER
@@ -104,14 +108,42 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
     )
 
 
+def unparsed_session_counts(reason: str) -> SessionPokeCounts:
+    """Zero counts for a session whose raw events could not be read, carrying *reason*."""
+    zeros = count_ports([])
+    return SessionPokeCounts(
+        after_initiation=dict(zeros),
+        after_choice=dict(zeros),
+        n_trials=0,
+        n_open_windows=0,
+        long_poke_check=LongPokeCheck(0, 0, []),
+        n_valid=0,
+        n_dropped_no_print=0,
+        n_dropped_inconsistent=0,
+        parse_error=reason,
+    )
+
+
+def _counts_or_skip(session: dict, label: str) -> SessionPokeCounts:
+    try:
+        return session_poke_counts(session, label=label)
+    except PokeParseError as error:
+        warnings.warn(f"{label}: skipped in the poke analysis: {error}", UserWarning, stacklevel=3)
+        return unparsed_session_counts(str(error))
+
+
 def mouse_poke_counts(subject: str, sessions: Mapping[str, dict]) -> dict[str, SessionPokeCounts]:
     """:func:`session_poke_counts` for each session of a mouse, in session order.
 
+    A session whose raw events raise :class:`PokeParseError` is skipped with a warning and
+    gets :func:`unparsed_session_counts` (zero counts, the reason in ``parse_error``).
+
     Raises:
         ValueError: If the session keys cannot be ordered (see ``ordered_session_keys``).
+        PokeAlignmentError: If a session's parsed trials do not match its imported trials.
     """
     return {
-        key: session_poke_counts(sessions[key], label=f"{subject} {key}")
+        key: _counts_or_skip(sessions[key], f"{subject} {key}")
         for key in ordered_session_keys(subject, sessions)
     }
 

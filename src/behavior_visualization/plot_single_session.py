@@ -306,23 +306,32 @@ def poke_maps_for_session(
     previous_choice_towers: Collection[str] | None,
     *,
     label: str = "session",
+    poke_counts: SessionPokeCounts | None = None,
 ) -> PokeMaps | None:
     """The data of the two maze panels, or ``None`` when there is nothing to draw.
 
     ``None`` when the session has no raw recordings, and when its raw events cannot be read
     (a :class:`~src.behavior_analysis.poke_events.PokeParseError`): that warns with *label* and
-    the reason, so the standard panels are still drawn.
+    the reason, so the standard panels are still drawn. With *poke_counts* (already parsed, e.g.
+    by ``session_poke_counts`` or ``mouse_poke_counts``) the raw events are not read again; a
+    result with a ``parse_error`` draws no maps and does not warn a second time.
 
     Raises:
         ValueError: From :func:`src.behavior_analysis.poke_counts.session_choice_ports` if the
             session has no choice towers.
+        PokeAlignmentError: If the parsed trials do not match the session's imported trials.
     """
-    if "df" not in session_data:
+    if "df" not in session_data and poke_counts is None:
         return None
-    try:
-        counts = session_poke_counts(dict(session_data), label=label)
-    except PokeParseError as error:
-        warnings.warn(f"{label}: maze maps not drawn: {error}", UserWarning, stacklevel=2)
+    if poke_counts is not None:
+        counts = poke_counts
+    else:
+        try:
+            counts = session_poke_counts(dict(session_data), label=label)
+        except PokeParseError as error:
+            warnings.warn(f"{label}: maze maps not drawn: {error}", UserWarning, stacklevel=2)
+            return None
+    if counts.parse_error is not None:
         return None
     return PokeMaps(
         counts=counts,
@@ -431,6 +440,7 @@ def plot_single_session(
     save_path: str | Path | None = None,
     choice_probabilities_by_tower: Mapping[str, Sequence[float]] | None = None,
     previous_choice_towers: Collection[str] | None = None,
+    poke_counts: SessionPokeCounts | None = None,
 ) -> None:
     """Plot a four-panel summary of a single experimental session.
 
@@ -461,6 +471,10 @@ def plot_single_session(
             on the maze maps (the session's own choice ports are outlined in green and the
             initiation port in blue); ``None`` for a mouse without a previous problem. Ignored
             when the session has no raw recordings.
+        poke_counts: The session's already parsed poke counts (a
+            :class:`~src.behavior_analysis.poke_counts.SessionPokeCounts`, e.g. from
+            ``session_poke_counts``), so the raw events are parsed once per session when
+            several analyses use them. ``None`` parses ``session_data["df"]`` here.
 
     Raises:
         KeyError: if *mag_key* or *choice_key* is missing from *session_data*.
@@ -477,16 +491,16 @@ def plot_single_session(
         the cumulative ``good_reversals`` / ``bad_reversals`` counters did not
         mark; any kind other than ``"good"`` is drawn as a bad reversal.
 
-        Raw events that cannot be read as trials (``PokeParseError``, e.g. misaligned
-        with the session's choices) warn with the title and the reason, and the figure
-        is drawn without the maze maps.
+        Raw events that cannot be read as trials (``PokeParseError``) warn with the title
+        and the reason, and the figure is drawn without the maze maps. A
+        ``PokeAlignmentError`` (parsed trials differ from the imported ones) is not caught.
 
         The figure is closed on success and when saving it raises, but left open
         in pyplot when an error is raised while drawing it.
     """
     # Parsed before the figure exists; unreadable raw events warn and skip the maps.
     poke_maps = poke_maps_for_session(
-        session_data, previous_choice_towers, label=title or "session"
+        session_data, previous_choice_towers, label=title or "session", poke_counts=poke_counts
     )
     fig = _draw_session(
         session_data,

@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.behavior_analysis.poke_events import PokeAlignmentError
 from src.behavior_import.extract_trials import extract_session_trials
 from src.behavior_visualization import plot_maze_heatmaps
 from src.pipelines.poke_analysis import run_poke_analysis
@@ -261,6 +262,7 @@ def test_trial_summary_reports_dropped_trials(tmp_path):
         "n_open_after_choice_windows",
         "n_long_poke_checked",
         "n_long_poke_agree",
+        "parse_error",
     ]
     row = summary.iloc[0]
     assert (row.n_trials, row.n_trials_counted) == (3, 2)
@@ -348,3 +350,68 @@ def test_single_session_of_problem_two_draws_red_outlines_from_the_same_helper(m
     with_red, without_red = figures
     assert count_pixels(with_red, PREVIOUS_RGB) > 0
     assert count_pixels(without_red, PREVIOUS_RGB) == 0
+
+
+def unreadable_session():
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    rec.initiate()
+    rec.poke_in("A1").state("poked_in")  # poked_in without hold_poke
+    return imported_session([rec.to_frame()], 3, 3)
+
+
+def test_session_with_unreadable_events_is_skipped_with_a_warning_and_reported(tmp_path):
+    data = problem_data()
+    data["m1"]["ses-3_date-20260103"] = unreadable_session()
+    with pytest.warns(UserWarning, match="m1 ses-3_date-20260103: skipped.*poked_in"):
+        result = run_poke_analysis(data, tmp_path)
+    summary = pd.read_csv(tmp_path / "Poke Trial Summary.csv", keep_default_na=False)
+    bad = summary[(summary.mouse == "m1") & (summary.session == "ses-3_date-20260103")].iloc[0]
+    assert "poked_in" in bad.parse_error
+    assert (bad.n_trials, bad.n_trials_counted) == (0, 0)
+    assert (summary.parse_error == "").sum() == len(summary) - 1
+    # The other sessions' counts are untouched.
+    assert result["counts"]["after_initiation"]["m1"]["B1"] == 4
+    assert sum(result["per_session"]["m1"]["ses-3_date-20260103"].after_choice.values()) == 0
+
+
+def test_misaligned_session_stops_run_poke_analysis(tmp_path):
+    data = problem_data()
+    data["m1"]["ses-1_date-20260101"]["choice"] = ["A1", "C1", "B1"]
+    with pytest.raises(PokeAlignmentError, match="trial 2"):
+        run_poke_analysis(data, tmp_path)
+
+
+def test_panel_titles_count_the_trials_each_map_uses(tmp_path, captured):
+    run_poke_analysis(problem_data(), tmp_path)
+    after_choice_fig, after_initiation_fig = captured
+
+    def titles(fig):
+        return sorted(ax.get_title() for ax in fig.axes if ax.get_title())
+
+    # m1: 2 sessions x 3 trials, one open after-choice window per session; m2: 2 recordings.
+    assert titles(after_initiation_fig) == ["m1 (n=6 trials)", "m2 (n=6 trials)"]
+    assert titles(after_choice_fig) == ["m1 (n=4 trials)", "m2 (n=4 trials)"]
+
+
+def test_pre_parsed_counts_are_reused_instead_of_parsing_again(tmp_path, monkeypatch):
+    from src.pipelines import poke_analysis as module
+
+    data = problem_data()
+    first = run_poke_analysis(data, tmp_path / "first")
+
+    def must_not_parse(*args, **kwargs):
+        raise AssertionError("parsed again")
+
+    monkeypatch.setattr(module, "mouse_poke_counts", must_not_parse)
+    second = run_poke_analysis(data, tmp_path / "second", poke_counts=first["per_session"])
+    assert second["counts"] == first["counts"]
+
+
+def test_pre_parsed_counts_must_cover_every_session(tmp_path):
+    data = problem_data()
+    first = run_poke_analysis(data, tmp_path / "first")
+    partial = {m: dict(s) for m, s in first["per_session"].items()}
+    del partial["m1"]["ses-1_date-20260101"]
+    with pytest.raises(ValueError, match="m1 sessions .*ses-1_date-20260101"):
+        run_poke_analysis(data, tmp_path / "second", poke_counts=partial)

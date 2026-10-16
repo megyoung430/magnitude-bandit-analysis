@@ -21,9 +21,12 @@ printed trial here is the k-th trial of the session's merged trial variables (ch
 A trial whose pokes cannot be trusted is kept in the list with a ``drop_reason`` and no pokes, and
 :func:`parse_session` warns once with the count: a trial that ended without a summary print (a
 timeout or aborted trial, or a plain-text print), a held port that differs from the printed
-chosen tower, a trial that went back to ``wait_init`` without an ITI. Only the last trial of a
-recording may have an open after-choice window. Structurally impossible logs raise
-:class:`PokeParseError`.
+chosen tower, a trial that went back to ``wait_init`` without an ITI, a print with no
+initiation since the previous trial (that trial and the previous one are both dropped). Only a
+recording's last printed trial may have an open after-choice window. Structurally impossible
+logs raise :class:`PokeParseError`. Trials that do not line up with the session's imported
+trials raise :class:`PokeAlignmentError`, which is not a :class:`PokeParseError` because it
+points to a bug in the code rather than to an odd recording.
 """
 
 from __future__ import annotations
@@ -50,7 +53,15 @@ NO_PRINT = "no summary print row"
 
 
 class PokeParseError(ValueError):
-    """The raw event log cannot be read as trials (impossible state sequence, misaligned trials)."""
+    """The raw event log cannot be read as trials (impossible state sequence, bad time order)."""
+
+
+class PokeAlignmentError(ValueError):
+    """The parsed trials do not line up with the session's imported trials (count or choices).
+
+    Deliberately not a :class:`PokeParseError`: callers that skip unreadable recordings must not
+    skip this.
+    """
 
 
 class TrialPokes(NamedTuple):
@@ -270,13 +281,13 @@ def _recordings(session: dict) -> list[pd.DataFrame]:
 def _check_against_session_choices(trials: list[TrialPokes], choices: Sequence, label: str) -> None:
     printed = [t for t in trials if t.has_print]
     if len(printed) != len(choices):
-        raise PokeParseError(
+        raise PokeAlignmentError(
             f"{label}: parsed {len(printed)} trials from the raw events but the session lists "
             f"{len(choices)} choices"
         )
     for k, (trial, choice) in enumerate(zip(printed, choices, strict=True), start=1):
         if trial.chosen != choice:
-            raise PokeParseError(
+            raise PokeAlignmentError(
                 f"{label}: trial {k} was {trial.chosen!r} in the raw print but the session's "
                 f"merged choice is {choice!r}; trials are misaligned"
             )
@@ -300,8 +311,8 @@ def parse_session(
     Warns once with the number of dropped trials (see the module doc).
 
     Raises:
-        PokeParseError: As :func:`parse_recording`, if the session has no ``"df"``, or if the
-            parsed trials do not match the session's ``"choice"`` list.
+        PokeParseError: As :func:`parse_recording`, or if the session has no ``"df"``.
+        PokeAlignmentError: If the parsed trials do not match the session's ``"choice"`` list.
     """
     initiation = initiation_tower or session.get("initiation_tower") or DEFAULT_INITIATION_TOWER
     trials: list[TrialPokes] = []

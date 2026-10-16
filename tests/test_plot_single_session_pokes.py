@@ -1,5 +1,7 @@
 """The session-level maze heatmaps added to the single-session figure."""
 
+import warnings
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -8,6 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from src.behavior_analysis.poke_counts import session_poke_counts, unparsed_session_counts
+from src.behavior_analysis.poke_events import PokeAlignmentError
 from src.behavior_visualization import plot_single_session as module
 from src.behavior_visualization.plot_single_session import plot_single_session
 from tests.poke_fixtures import Recording, full_trial, session_record
@@ -148,14 +152,71 @@ def test_unknown_previous_port_raises():
         plot_single_session(session_with_pokes(), previous_choice_towers={"Z9"})
 
 
-def test_misaligned_raw_events_warn_and_the_figure_is_drawn_without_maps(figures):
-    session = session_with_pokes()
-    session["choice"] = ["A1", "C1", "B1"]
-    with pytest.warns(UserWarning, match="x.*maze maps not drawn.*trial 2"):
-        plot_single_session(session, title="x")
+def session_with_unreadable_events():
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    full_trial(rec, choice="B1")
+    full_trial(rec, choice="C1")
+    rec.initiate()
+    rec.poke_in("A1").state("poked_in")  # poked_in without hold_poke
+    return {**base_session(), **session_record([rec.to_frame()])}
+
+
+def test_unreadable_raw_events_warn_and_the_figure_is_drawn_without_maps(figures):
+    with pytest.warns(UserWarning, match="x.*maze maps not drawn.*poked_in"):
+        plot_single_session(session_with_unreadable_events(), title="x")
     (fig,) = figures
     assert len(fig.axes) == 4  # the standard panels only
     assert fig.get_size_inches().tolist() == [14, 11]
+
+
+def test_misaligned_raw_events_stop_the_run(figures):
+    session = session_with_pokes()
+    session["choice"] = ["A1", "C1", "B1"]
+    with pytest.raises(PokeAlignmentError, match="trial 2"):
+        plot_single_session(session)
+    assert figures == []
+
+
+def test_other_exceptions_from_the_parser_propagate(figures, monkeypatch):
+    def broken(session, *, label):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module, "session_poke_counts", broken)
+    with pytest.raises(RuntimeError, match="boom"):
+        plot_single_session(session_with_pokes())
+
+
+def test_pre_parsed_counts_are_used_without_parsing_again(figures, monkeypatch):
+    session = session_with_pokes()
+    counts = session_poke_counts(session)
+
+    def must_not_parse(*args, **kwargs):
+        raise AssertionError("parsed again")
+
+    monkeypatch.setattr(module, "session_poke_counts", must_not_parse)
+    plot_single_session(session, poke_counts=counts)
+    (fig,) = figures
+    assert len(fig.axes) > 4
+
+
+def test_pre_parsed_counts_with_a_parse_error_draw_no_maps_and_do_not_warn(figures):
+    session = session_with_pokes()
+    failed = unparsed_session_counts("unreadable")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plot_single_session(session, poke_counts=failed)
+    assert len(figures[0].axes) == 4
+
+
+def test_initiation_outline_follows_the_sessions_own_initiation_tower(figures):
+    rec = Recording(init="B3")
+    full_trial(rec, choice="A1")
+    full_trial(rec, choice="B1")
+    full_trial(rec, choice="C1")
+    session = {**base_session(), **session_record([rec.to_frame()], initiation_tower="B3")}
+    plot_single_session(session)
+    assert [g for g in ring_ids(figures[0]) if g.endswith(":initiation")] == ["ring:B3:initiation"]
 
 
 def test_only_parser_errors_are_caught(figures):

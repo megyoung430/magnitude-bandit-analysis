@@ -34,7 +34,7 @@ initiation, per mouse and problem, plus the two session-level maps in the single
   files this call wrote). Writes into `out_dir` (the runner should pass the problem's `long-pokes`
   folder). `Poke Trial Summary.csv` columns: `mouse, session, n_trials, n_trials_counted,
   n_trials_dropped_no_print, n_trials_dropped_inconsistent, n_open_after_choice_windows,
-  n_long_poke_checked, n_long_poke_agree`.
+  n_long_poke_checked, n_long_poke_agree, parse_error`.
 - `src.behavior_analysis.poke_counts.previous_problem_choice_towers(all_problems) ->
   {mouse: {overall_problem: frozenset | None}}` and
   `previous_choice_towers_for_problem(subjects_sessions, previous) -> {mouse: frozenset | None}`
@@ -63,13 +63,25 @@ problems and assert red outline patches and pixels in problem 2 only.
   innermost, then red, then blue. A split ring would hide half of each colour on a small port; the
   only asymmetry is that the outer ring is longer. Green/red is as requested but is hard for
   red-green colour-blind readers.
-- **Open windows**: only the last trial of a recording may have no following initiation; its
+- **Open windows**: only a recording's last printed trial may have no following initiation; its
   after-choice window is excluded (`n_open_after_choice_windows`), not run to the end of the log.
 - **Dropped trials** (PI decision): a trial's pokes are dropped, with one warning per session giving
   the count and reasons, when it ended without a summary print (timeout/abort: ITI with no print, or a
   plain-text print), when the held choice port differs from the printed `chosen_tow`, or when it went
   back to `wait_init` with no ITI. Aligned printed trials keep their place so the merged-choice check
-  still holds. Impossible logs raise `PokeParseError` (a `ValueError`).
+  still holds. A print with no initiation since the previous trial drops both that trial and the
+  previous one (its window never closed). Impossible logs raise `PokeParseError` (a `ValueError`).
+- **Misalignment stops the run** (PI decision): parsed trials that differ from the imported ones (count
+  or chosen tower) raise `PokeAlignmentError` (a `ValueError`, deliberately NOT a `PokeParseError`),
+  as a likely code bug. `plot_single_session` and `run_poke_analysis` do not catch it.
+- **`run_poke_analysis` skips unreadable sessions** (PI decision, as the single-session figure does):
+  a session raising `PokeParseError` warns, gets zero counts and a `parse_error` column entry in
+  `Poke Trial Summary.csv` (empty for readable sessions; last column).
+- **Parse once**: both entry points take optional already-parsed counts: `run_poke_analysis(...,
+  poke_counts={mouse: {session: SessionPokeCounts}})` (e.g. `per_session` from an earlier call or
+  `mouse_poke_counts(mouse, sessions)`; must cover every session) and `plot_single_session(...,
+  poke_counts=SessionPokeCounts)` (e.g. `session_poke_counts(session)`). A result with `parse_error`
+  draws no maps and does not warn again.
 - **Single-session figure** catches only `PokeParseError`: it warns with the title and draws the
   four standard panels without the maze row.
 - **After-choice window** starts at the `ITI` state; pokes during the rewarded `choice` state are

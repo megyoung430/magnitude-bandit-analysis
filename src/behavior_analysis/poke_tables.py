@@ -67,7 +67,10 @@ def counts_by_session_table(per_session: PerMouseSession) -> pd.DataFrame:
 
 
 def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
-    """Raw-event long pokes against the printed lists, one row per mouse and session."""
+    """Trials counted and dropped, and raw-versus-printed long pokes, per mouse and session.
+
+    ``parse_error`` is empty unless the session's raw events could not be read.
+    """
     rows = [
         {
             "mouse": mouse,
@@ -79,6 +82,7 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
             "n_open_after_choice_windows": counts.n_open_windows,
             "n_long_poke_checked": counts.long_poke_check.n_trials,
             "n_long_poke_agree": counts.long_poke_check.n_agree,
+            "parse_error": counts.parse_error or "",
         }
         for mouse, by_session in per_session.items()
         for session, counts in by_session.items()
@@ -95,5 +99,6 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
             "n_open_after_choice_windows",
             "n_long_poke_checked",
             "n_long_poke_agree",
+            "parse_error",
         ],
     )
