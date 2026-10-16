@@ -209,7 +209,8 @@ report all failures at the end.
   (`value-psychometrics/`: heatmaps and psychometric curves of P(best) and P(second) by true and
   believed value), `run_reversal_aligned_arm_analysis` (`reversal-aligned-arms/`: arm choice
   probability and reward magnitude around block changes) and `run_value_change_analysis`
-  (`value-change/`: choice probabilities around changes in the best or second value). Turn one off
+  (`value-change/`: choice probabilities around changes in the best or second value; the pre
+  window starts no earlier than the last change of the best arm). Turn one off
   by passing `drifting_selection=DRIFTING_SELECTION.model_copy(update={"run_value_change_analysis":
   False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
   in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).

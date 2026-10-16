@@ -10,7 +10,9 @@ best just before the drop. These tests pin that meaning three ways:
   sessions matches the module exactly;
 - a mouse whose preference lags the values by a few trials picks ``prev_second`` before a
   swap that comes soon after the previous rank change, which is how the real curves can show
-  ``prev_second`` above ``prev_best`` before t = 0 even though mice prefer the best overall.
+  ``prev_second`` above ``prev_best`` before t = 0 even though mice prefer the best overall;
+- the pre window stops where the best arm last changed, so trials from before the previous
+  rank change never enter the pre-event curves.
 """
 
 import numpy as np
@@ -98,7 +100,13 @@ def _oracle_swap_events(rms, choices, pre, post):
                     "prev_best" if c == old_best else "prev_second" if c == old_second else "third"
                 )
 
-            pre_labels = [label(i - k) if i - k >= 0 else None for k in range(pre, 0, -1)]
+            # the pre window stops where the best arm last changed
+            stable = 0
+            while (
+                stable < pre and i - stable - 1 >= 0 and _true_best(rms[i - stable - 1]) == old_best
+            ):
+                stable += 1
+            pre_labels = [label(i - k) if k <= stable else None for k in range(pre, 0, -1)]
             post_labels = [label(i + k) if i + k < len(rms) else None for k in range(post + 1)]
             events.append(pre_labels + post_labels)
     return events
@@ -136,3 +144,38 @@ def test_a_lagging_chooser_prefers_prev_second_before_a_swap_soon_after_a_rank_c
     # t = -3..-1 (trials 10-12): A was best but the mouse still picks B, the prev second.
     assert np.all(curves.mean["prev_second"][(t >= -3) & (t <= -1)] == 1.0)
     assert np.all(curves.mean["prev_best"][(t >= -3) & (t <= -1)] == 0.0)
+    # t = -5, -4 (trials 8-9) had B as best, so they are cut from the pre window.
+    assert curves.n_events_per_bin[(t == -5) | (t == -4)].tolist() == [0, 0]
+
+
+def test_pre_window_stops_where_the_best_arm_last_changed_for_every_config():
+    # B best at trials 0-6, A best from 7; A's value rises at 10 (a best/increase event).
+    rms = (
+        [{"A": 1, "B": 3, "C": 0}] * 7
+        + [{"A": 2, "B": 1, "C": 0}] * 3
+        + [{"A": 4, "B": 1, "C": 0}] * 5
+    )
+    choices = ["A"] * len(rms)
+    w = get_value_change_windows(
+        {"m": {"ses-1_date-20260101": _session(rms, choices)}}, "best", "increase", "all",
+        pre=5, post=3,
+    )  # fmt: skip
+    (event,) = w.events["m"]
+    assert event.trial_idx == 10
+    # t = -3..-1 are trials 7-9 (A best); t = -5, -4 are trials 5-6 (B best) and are cut.
+    assert event.pre == (None, None, "best", "best", "best")
+
+
+def test_a_tied_best_at_t_minus_one_keeps_only_tied_trials():
+    rms = (
+        [{"A": 3, "B": 1, "C": 0}] * 4
+        + [{"A": 2, "B": 2, "C": 0}] * 3
+        + [{"A": 2, "B": 4, "C": 0}] * 3
+    )
+    w = get_value_change_windows(
+        {"m": {"ses-1_date-20260101": _session(rms, ["A"] * len(rms))}}, "best", "increase",
+        "all", pre=5, post=2,
+    )  # fmt: skip
+    (event,) = w.events["m"]
+    assert event.trial_idx == 7
+    assert [label is not None for label in event.pre] == [False, False, True, True, True]
