@@ -32,6 +32,11 @@ Window definition
 - Windows can span the recordings of one session (the task continues the same drifting values
   across a restart, so a value change at a restart is a real event) but never sessions.
 - Changes at a block boundary are block changes, not events.
+- The pre window also stops where the best arm last changed: only trials whose best arm is the
+  best arm of t = -1 are kept (a tied best counts as its own state, so a run of tied trials
+  continues only a tied t = -1). Without this, an event right after a rank change mixes in
+  trials where the other arm was best, and mice still favour the arm that was best a few
+  trials earlier.
 
 Filters
 -------
@@ -425,6 +430,31 @@ def _valid_run(trials: _SessionTrials, i: int, step: int, limit: int) -> int:
     return run
 
 
+def _best_arm(magnitudes: Any, third: Any) -> Any:
+    """The best arm given the third arm; ``None`` if best and second tie (or no magnitudes)."""
+    if not _usable(magnitudes):
+        return None
+    pair = _ranked_pair(magnitudes, third)
+    return None if pair is None else pair[0]
+
+
+def _stable_best_run(trials: _SessionTrials, i: int, limit: int) -> int:
+    """Pre-window trials (up to *limit*) whose best arm is still the best arm of trial ``i - 1``.
+
+    Counts back from ``i - 1`` (which always counts) and stops at the first earlier trial with
+    a different best arm, so the pre window never reaches back across a change of the best arm.
+    """
+    third = trials.thirds[i]
+    reference = _best_arm(trials.magnitudes[i - 1], third)
+    run = 0
+    for k in range(1, limit + 1):
+        j = i - k
+        if j < 0 or _best_arm(trials.magnitudes[j], third) != reference:
+            break
+        run = k
+    return run
+
+
 def _later_changes(
     trials: _SessionTrials, i: int, post_run: int, pair: tuple[Any, Any] | None
 ) -> tuple[bool, int | None]:
@@ -462,11 +492,13 @@ def _build_event(
     """The event at trial *i*: its labelled pre/post windows and later-change flags.
 
     The windows are cut at the first trial of another block or third arm, and at the session
-    edges (see the module docstring). Swap labels name the arms by their rank at trial i - 1;
-    the truncation reference is the best/second pair at trial i.
+    edges; the pre window also at the last change of the best arm (see the module docstring).
+    Swap labels name the arms by their rank at trial i - 1; the truncation reference is the
+    best/second pair at trial i.
     """
     rms, third = trials.magnitudes, trials.thirds[i]
-    pre_run, post_run = _valid_run(trials, i, -1, pre), _valid_run(trials, i, 1, post)
+    pre_run = min(_valid_run(trials, i, -1, pre), _stable_best_run(trials, i, pre))
+    post_run = _valid_run(trials, i, 1, post)
     pair_before, pair_at_event = _ranked_pair(rms[i - 1], third), _ranked_pair(rms[i], third)
 
     def label(j: int):
