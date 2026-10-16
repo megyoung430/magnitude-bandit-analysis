@@ -27,14 +27,31 @@ def recording_frame(towers, n_trials=4):
     return rec.to_frame()
 
 
-def imported_session(problem, mouse, number):
+def imported_session(problem, mouse, number, problems=PROBLEMS):
     """One session of *mouse* in the overall *problem*, ``number`` days after the first."""
-    name, towers = PROBLEMS[problem]
+    name, towers = problems[problem]
     session = session_record(
         [recording_frame(towers)], problem=problem, task_name=name, choice_towers=set(towers)
     )
     extract_session_trials(session, mouse, f"ses-{number}_date-202601{number:02d}")
     return session
+
+
+def cohort_with_runs(problems, runs):
+    """``{overall problem: {mouse: {session_key: session}}}``; each mouse runs its own problems.
+
+    Args:
+        problems: ``{overall problem: (task name, choice ports)}``.
+        runs: ``{mouse: [overall problems it ran]}``; a mouse may skip or start late.
+    """
+    cohort = {}
+    for mouse, ran in runs.items():
+        for problem in ran:
+            cohort.setdefault(problem, {})[mouse] = {
+                f"ses-{n}_date-202601{n:02d}": imported_session(problem, mouse, n, problems)
+                for n in (2 * problem - 1, 2 * problem)
+            }
+    return cohort
 
 
 def blocked_then_two_drifting():

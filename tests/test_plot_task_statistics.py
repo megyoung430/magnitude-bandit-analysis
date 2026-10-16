@@ -127,8 +127,7 @@ def test_mouse_lines_without_jitter(capture):
 
 
 def test_jitter_is_uniform_within_the_requested_width(capture):
-    np.random.seed(0)
-    expected = np.random.RandomState(0)
+    expected = np.random.default_rng(0)
     _, ax = draw(capture, jitter=0.2)
     a, b = mouse_lines(ax)
     np.testing.assert_allclose(a.get_xdata(), [0, 1] + expected.uniform(-0.2, 0.2, 2))

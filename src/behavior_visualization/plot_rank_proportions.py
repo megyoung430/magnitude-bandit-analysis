@@ -168,10 +168,10 @@ def _label_means(ax, means, fontsize, *, finite_only=True):
     return labelled
 
 
-def _draw_line(ax, y, color, label, *, jitter, linewidth, **style):
+def _draw_line(ax, y, color, label, *, rng, jitter, linewidth, **style):
     """Plot one jittered rank line and return its legend handle."""
     ax.plot(
-        _helpers.jittered(_X, jitter),
+        _helpers.jittered(_X, jitter, rng),
         y,
         color=color,
         linewidth=linewidth,
@@ -250,12 +250,14 @@ def plot_average_across_mice(
     _draw_bars(ax, means, ses)
     labelled_x = _label_means(ax, means, 12)
     _annotate_pvalues(ax, labelled_x, pvalues)
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             [v[rank] for rank in _summary.RANKS],
             _helpers.palette_color(i, MOUSE_COLORS),
             subj,
+            rng=rng,
             **_MOUSE_LINES,
         )
         for i, (subj, v) in enumerate(per_mouse.items())
@@ -280,12 +282,14 @@ def plot_average_across_blocks(
     ses = _summary.se_by_rank(per_block, guard_single=False)
     _draw_bars(ax, means, ses)
     _label_means(ax, means, 12)
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             [b[rank] for rank in _summary.RANKS],
             BLOCK_COLORS[i % len(BLOCK_COLORS)],
             f"Block {i + 1}",
+            rng=rng,
             **_AVERAGE_BLOCK_LINES,
         )
         for i, b in enumerate(per_block)
@@ -318,12 +322,14 @@ def plot_mouse_panel(
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(4.2, 4))
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             _summary.row_props(r, strict=True),
             BLOCK_COLORS[i % len(BLOCK_COLORS)],
             f"Block {i + 1}",
+            rng=rng,
             **_MOUSE_PANEL_LINES,
         )
         for i, r in enumerate(rows)
@@ -365,12 +371,14 @@ def plot_block_panel(
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(4.2, 4))
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             _summary.row_props(rows[block_idx]),
             _helpers.palette_color(si, MOUSE_COLORS),
             _block_legend_label(subject, rows[block_idx]),
+            rng=rng,
             **_BLOCK_PANEL_LINES,
         )
         for si, (subject, rows) in enumerate(rank_counts.items())

@@ -36,6 +36,7 @@ from src.behavior_analysis.rank_proportions_summary import (
 )
 from src.behavior_visualization.plot_helpers import (
     despine,
+    jitter_rng,
     jittered,
     mouse_color_map,
     save_or_show,
@@ -173,9 +174,10 @@ def _draw_mouse_lines(
 ) -> None:
     """One jittered line per mouse across problems, with a legend entry each.
 
-    An explicit loop: the jitter draws from a shared random stream, so the
+    An explicit loop: the jitter draws from one seeded generator, so the
     mouse order fixes which noise each line gets.
     """
+    rng = jitter_rng()
     blocks, per_mouse = summary["blocks"], summary["per_mouse_blocklens"]
     handles = []
     for m in summary["mice"]:
@@ -183,7 +185,7 @@ def _draw_mouse_lines(
         if xs.size == 0:
             continue
         ax.plot(
-            jittered(xs, jitter),
+            jittered(xs, jitter, rng),
             ys,
             color=colors[m],
             linewidth=2.5,
@@ -624,15 +626,16 @@ def _draw_rank_bars(
 def _draw_rank_mouse_lines(ax: plt.Axes, per_mouse: dict, *, jitter: float) -> None:
     """One jittered line per mouse across the three ranks, with a legend entry each.
 
-    An explicit loop: the jitter draws from a shared random stream, so the
+    An explicit loop: the jitter draws from one seeded generator, so the
     mouse order fixes which noise each line gets.
     """
+    rng = jitter_rng()
     x = np.arange(len(RANK_LABELS))
     colors = mouse_color_map(list(per_mouse))
     handles = []
     for subj, v in per_mouse.items():
         ax.plot(
-            jittered(x, jitter),
+            jittered(x, jitter, rng),
             [v[rank] for rank in RANKS],
             color=colors[subj],
             linewidth=2.5,

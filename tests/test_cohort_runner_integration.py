@@ -29,8 +29,19 @@ from src.pipelines.cohort_analysis import (
     run_cohort,
     selection_for_task_type,
 )
-from src.pipelines.open_field import AnalysisSelection, run_drifting_value_analyses
-from tests.cohort_fixtures import MICE, PROBLEMS, blocked_then_two_drifting
+from src.pipelines.open_field import (
+    POOLED_DRIFTING_LABEL,
+    AnalysisSelection,
+    run_drifting_value_analyses,
+)
+from tests.cohort_fixtures import (
+    BLOCKED_NAME,
+    DRIFTING_NAME,
+    MICE,
+    PROBLEMS,
+    blocked_then_two_drifting,
+    cohort_with_runs,
+)
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse
 
@@ -242,7 +253,9 @@ def test_reversal_aligned_arms_are_pooled_without_per_problem_duplicates(tmp_pat
     selection = AnalysisSelection(run_reversal_aligned_arm_analysis=True)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # empty best_to_third selections
-        run_drifting_value_analyses(arm_data(), tmp_path, selection)
+        run_drifting_value_analyses(
+            arm_data(), tmp_path, selection, arm_scope_label=POOLED_DRIFTING_LABEL
+        )
     names = capture.saved_names()
     assert names and all("_pooled_" in name for name in names), names
     assert (tmp_path / "reversal-aligned-arms" / "reversal_aligned_arms_counts.csv").exists()
@@ -262,7 +275,9 @@ def test_pooled_arm_windows_are_the_per_problem_windows_concatenated_per_mouse(
     selection = AnalysisSelection(run_reversal_aligned_arm_analysis=True)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        run_drifting_value_analyses(arm_data(), tmp_path, selection)
+        run_drifting_value_analyses(
+            arm_data(), tmp_path, selection, arm_scope_label=POOLED_DRIFTING_LABEL
+        )
     ((pooled_name, pooled),) = [(k, v) for entry in seen for k, v in entry.items()]
     assert pooled_name == "pooled"
     one = pipeline.build_windows_with_magnitudes(arm_data()[4], pre=10, post=30)
@@ -406,15 +421,81 @@ def test_misaligned_trials_stop_the_run(tmp_path, calls, cohort_extras, monkeypa
         run(tmp_path)
 
 
-def test_arm_figure_titles_name_the_problem_or_the_pool_never_pooled(tmp_path, monkeypatch):
-    capture = capture_figures(monkeypatch)
-    selection = AnalysisSelection(run_reversal_aligned_arm_analysis=True)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        run_drifting_value_analyses({4: arm_data()[4]}, tmp_path / "one", selection)
-        one = [s.figure.axes[0].get_title() for s in capture.saved]
-        capture.saved.clear()
-        run_drifting_value_analyses(arm_data(), tmp_path / "pool", selection)
-        pool = [s.figure.axes[0].get_title() for s in capture.saved]
-    assert one and all("[problem-04]" in t and "pooled" not in t for t in one)
-    assert pool and all("[all drifting problems]" in t for t in pool)
+@pytest.fixture
+def arm_labels(monkeypatch):
+    """``{out_dir: scope_label}`` of every reversal-aligned entry-point call."""
+    seen = {}
+    monkeypatch.setattr(
+        pipeline,
+        "run_reversal_aligned_arm_analysis",
+        lambda windows, out_dir, **kwargs: seen.update({Path(out_dir): kwargs["scope_label"]}),
+    )
+    return seen
+
+
+def test_the_runner_labels_each_problem_folder_and_the_pool(
+    tmp_path, cohort_dir, calls, arm_labels, cohort_extras, single_sessions
+):
+    run(tmp_path)
+    drifting = cohort_dir / DRIFTING
+    assert arm_labels == {
+        drifting / "problem-01" / "reversal-aligned-arms": "problem-01",
+        drifting / "problem-02" / "reversal-aligned-arms": "problem-02",
+        drifting / "all-drifting-problems" / "reversal-aligned-arms": "all drifting problems",
+    }
+
+
+def test_a_pool_of_one_drifting_problem_is_still_labelled_as_the_pool(
+    tmp_path, cohort_dir, calls, arm_labels, cohort_extras, single_sessions
+):
+    problems = {1: PROBLEMS[1], 2: PROBLEMS[2]}
+    cohort = cohort_with_runs(problems, {"m1": [1, 2], "m2": [1, 2]})
+    run_cohort(1, results_root=tmp_path, trials_by_problem=cohort)
+    drifting = cohort_dir / DRIFTING
+    assert arm_labels[drifting / "problem-01" / "reversal-aligned-arms"] == "problem-01"
+    assert arm_labels[drifting / "all-drifting-problems" / "reversal-aligned-arms"] == (
+        "all drifting problems"
+    )
+
+
+# --- previous problem when task types interleave and mice differ --------------------------
+
+INTERLEAVED = {
+    1: (BLOCKED_NAME, ["A1", "B1", "C1"]),
+    2: (DRIFTING_NAME, ["A3", "B3", "C3"]),
+    3: (BLOCKED_NAME, ["A1", "B3", "C2"]),
+    4: (DRIFTING_NAME, ["C1", "C2", "C3"]),
+}
+# m1 runs everything; m2 starts at overall problem 2; m3 skips overall problem 2
+RUNS = {"m1": [1, 2, 3, 4], "m2": [2, 3, 4], "m3": [1, 3, 4]}
+
+
+def ports(problem):
+    return frozenset(INTERLEAVED[problem][1])
+
+
+def test_each_mouse_gets_the_ports_of_the_problem_it_ran_just_before(
+    tmp_path, cohort_dir, calls, cohort_extras, single_sessions
+):
+    cohort = cohort_with_runs(INTERLEAVED, RUNS)
+    run_cohort(1, results_root=tmp_path, trials_by_problem=cohort)
+    by_dir = {d.parent: kw["previous_choice_towers"] for d, kw in single_sessions}
+    blocked, drifting = cohort_dir / BLOCKED, cohort_dir / DRIFTING
+    # blocked 1 is overall 1 (m1, m3) or overall 3 (m2); blocked 2 is overall 3 (m1, m3)
+    assert by_dir[blocked / "problem-01"] == {"m1": None, "m3": None, "m2": ports(2)}
+    assert by_dir[blocked / "problem-02"] == {"m1": ports(2), "m3": ports(1)}
+    # drifting 1 is overall 2 (m1, m2) or overall 4 (m3, who skipped 2); drifting 2 is overall 4
+    assert by_dir[drifting / "problem-01"] == {"m1": ports(1), "m2": None, "m3": ports(3)}
+    assert by_dir[drifting / "problem-02"] == {"m1": ports(3), "m2": ports(3)}
+
+
+def test_the_red_outlines_of_interleaved_problems_follow_the_overall_order(
+    tmp_path, calls, cohort_extras, maze_figures
+):
+    cohort = cohort_with_runs(INTERLEAVED, {"m1": [1, 2, 3, 4], "m2": [1, 2, 3, 4]})
+    run_cohort(1, results_root=tmp_path, trials_by_problem=cohort)
+    # two figures per problem, in an order that does not matter here
+    previous = sorted(tuple(ring_ports(f, "previous")) for f in maze_figures[::2])
+    expected = [(), *(tuple(sorted(ports(p))) for p in (1, 2, 3))]
+    assert previous == sorted(expected)
+    assert len(maze_figures) == 8

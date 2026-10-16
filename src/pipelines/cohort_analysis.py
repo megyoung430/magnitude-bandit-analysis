@@ -72,6 +72,7 @@ from src.behavior_import.task_types import (
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
 from src.pipelines.open_field import (
+    POOLED_DRIFTING_LABEL,
     VALUE_BASIS_LABELS,
     AnalysisSelection,
     ChoiceProbabilitySettings,
@@ -330,7 +331,9 @@ def _previous_ports_by_problem(
     """``{(task_type, k): {mouse: previous-problem choice ports or None}}`` for the red outlines.
 
     The previous problem comes from the overall problem order, before the regrouping by task
-    type. Empty if no selection draws the maze maps, so data without choice towers still runs.
+    type. Only computed when a selection runs the poke analysis or the single-session figures
+    (the defaults do), which need ``choice_towers`` on every session; otherwise it is empty and
+    sessions without choice towers still run.
     """
     if not any(s.run_poke_analysis or s.run_single_session_analysis for s in selections):
         return {}
@@ -435,7 +438,9 @@ def run_cohort(
             )
             pooled_dir = figures / DRIFTING / POOLED_DRIFTING_FOLDER
             plot_pooled_drifting_rank(pooled, pooled_dir / "choice-stats")
-            run_drifting_value_analyses(drifting, pooled_dir, drifting_selection)
+            run_drifting_value_analyses(
+                drifting, pooled_dir, drifting_selection, arm_scope_label=POOLED_DRIFTING_LABEL
+            )
         else:
             print(f"[INFO] {cohort}: no drifting problems; skipping pooled drifting ranks.")
 

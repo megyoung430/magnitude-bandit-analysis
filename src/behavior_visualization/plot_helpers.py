@@ -45,14 +45,26 @@ def despine(ax: plt.Axes) -> None:
     ax.spines["right"].set_visible(False)
 
 
-def jittered(xs: np.ndarray, half_width: float) -> np.ndarray:
+JITTER_SEED = 0
+
+
+def jitter_rng(seed: int = JITTER_SEED) -> np.random.Generator:
+    """A generator for the jitter of one figure; one per figure keeps it reproducible."""
+    return np.random.default_rng(seed)
+
+
+def jittered(
+    xs: np.ndarray, half_width: float, rng: np.random.Generator | None = None
+) -> np.ndarray:
     """*xs* plus uniform noise of half-width *half_width* (unchanged if it is ``<= 0``).
 
-    Draws from the global ``np.random`` stream, so ``np.random.seed`` makes it
-    repeatable; nothing is drawn when the jitter is off, which leaves the stream alone.
+    Pass one *rng* for all the lines of a figure so each gets its own noise; the default is a
+    fresh generator seeded with ``JITTER_SEED``, so the same input always gives the same
+    output. Nothing is drawn when the jitter is off.
     """
     if half_width > 0:
-        return xs + np.random.uniform(-half_width, half_width, size=len(xs))
+        rng = jitter_rng() if rng is None else rng
+        return xs + rng.uniform(-half_width, half_width, size=len(xs))
     return xs
 
 

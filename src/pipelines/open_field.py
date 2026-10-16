@@ -63,6 +63,12 @@ DRIFTING_ONLY_SECTIONS = (
     "run_reversal_aligned_arm_analysis",
     "run_value_change_analysis",
 )
+POOLED_DRIFTING_LABEL = "all drifting problems"
+_SECTION_NAMES = {
+    "run_value_psychometric_analysis": "value psychometrics",
+    "run_reversal_aligned_arm_analysis": "reversal-aligned arms",
+    "run_value_change_analysis": "value-change choice probabilities",
+}
 LONG_POKES_FOLDER = "long-pokes"
 VALUE_PSYCHOMETRICS_FOLDER = "value-psychometrics"
 REVERSAL_ARMS_FOLDER = "reversal-aligned-arms"
@@ -431,15 +437,9 @@ def pooled_arm_windows(problems: dict) -> dict:
     return {"pooled": merge_windows_by_subject(per_problem)}
 
 
-def _arm_scope_label(problems: dict) -> str:
-    """Title text for the arm figures: the problem's name for one problem, else the pool's."""
-    if len(problems) == 1:
-        (problem,) = problems
-        return f"problem-{problem:02d}"
-    return "all drifting problems"
-
-
-def run_drifting_value_analyses(problems: dict, out_dir: Path, selection: AnalysisSelection):
+def run_drifting_value_analyses(
+    problems: dict, out_dir: Path, selection: AnalysisSelection, *, arm_scope_label: str
+):
     """The selected drifting-only analyses over *problems*, each in a subfolder of *out_dir*.
 
     Args:
@@ -450,6 +450,9 @@ def run_drifting_value_analyses(problems: dict, out_dir: Path, selection: Analys
         out_dir: Folder that receives ``value-psychometrics``, ``reversal-aligned-arms`` and
             ``value-change``.
         selection: Which of the three to run.
+        arm_scope_label: Scope named in the titles of the reversal-aligned figures, given by
+            the caller (``"problem-03"`` for a problem folder, ``POOLED_DRIFTING_LABEL`` for
+            the pool) because a pool of one problem is still the pool.
     """
     out_dir = Path(out_dir)
     if selection.run_value_psychometric_analysis:
@@ -460,7 +463,7 @@ def run_drifting_value_analyses(problems: dict, out_dir: Path, selection: Analys
             out_dir / REVERSAL_ARMS_FOLDER,
             pre=REVERSAL_ARMS_PRE,
             post=REVERSAL_ARMS_POST,
-            scope_label=_arm_scope_label(problems),
+            scope_label=arm_scope_label,
         )
     if selection.run_value_change_analysis:
         run_value_change_analysis(problems, out_dir / VALUE_CHANGE_FOLDER)
@@ -491,7 +494,8 @@ def run_problem(
     *previous_choice_towers* is ``{mouse: ports of the mouse's previous problem, or None}``
     (see ``previous_choice_towers_for_problem``) for the red outlines of the maze heatmaps; the
     poke analysis (``long-pokes`` folder) and the single-session figures share one parse of the
-    raw events.
+    raw events. The blocked-task guard below needs *task_type*: without it every selection
+    is accepted.
 
     Raises:
         ValueError: If a drifting-only analysis is selected for ``task_type="blocked"``.
@@ -517,8 +521,16 @@ def run_problem(
             subjects_trials, out / "choice-stats", selection
         )
     if any(getattr(selection, name) for name in DRIFTING_ONLY_SECTIONS):
-        print(f"Problem {problem_number}: value psychometrics and reversal-aligned analyses")
-        run_drifting_value_analyses({problem_number: subjects_trials}, out, selection)
+        names = [
+            _SECTION_NAMES[name] for name in DRIFTING_ONLY_SECTIONS if getattr(selection, name)
+        ]
+        print(f"Problem {problem_number}: {', '.join(names)}")
+        run_drifting_value_analyses(
+            {problem_number: subjects_trials},
+            out,
+            selection,
+            arm_scope_label=f"problem-{problem_number:02d}",
+        )
     # parse once: the same counts feed the poke analysis and the single-session maze row
     parsed = None
     if selection.run_poke_analysis and selection.run_single_session_analysis:

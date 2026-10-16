@@ -51,8 +51,9 @@ status: in review
   pooled folder holds only the pooled figures. Window settings are shared constants
   (`pre=10`, `post=30`) so the builder and the entry point cannot disagree.
 - `run_reversal_aligned_arm_analysis` gains `scope_label` (default `None`: unchanged), the title
-  text of the pooled scope. The runner passes `problem-KK` for one problem and
-  `all drifting problems` for the pool, so no per-problem figure says `[pooled]`. File names
+  text of the pooled scope. The caller passes it (`run_drifting_value_analyses(...,
+  arm_scope_label=...)`): `problem-KK` from `run_problem` and `all drifting problems` for the
+  pool, even when the pool holds one problem, so no per-problem figure says `[pooled]`. File names
   and the counts table keep the scope name `pooled`.
 - Parsing once: when both the poke analysis and the single-session figures are on, `run_problem`
   parses every mouse's sessions with `mouse_poke_counts` and passes the result to both.
@@ -60,9 +61,23 @@ status: in review
   `run_single_session_analysis(..., previous_choice_towers=None, poke_counts=None)` are new
   optional arguments; `None` draws no red outline as before.
 
+- `jittered` (`plot_helpers.py`) drew from the unseeded global `np.random`, so jittered figures
+  differed on every run. It now takes an optional `rng` and defaults to a generator seeded with
+  `JITTER_SEED = 0`; the figure functions that draw several jittered lines (rank proportions,
+  problem summaries, block lengths) make one generator per figure so each line still gets its own
+  noise. Tests that pinned the global stream now pin the seeded one.
+- The log line of `run_problem` names exactly the drifting analyses that are on. The blocked-task
+  guard needs `task_type` (documented). `_previous_ports_by_problem` needs `choice_towers` on every
+  session whenever the poke analysis or single-session figures are on, which the defaults are.
+- Regression tests cover interleaved task types (blocked, drifting, blocked, drifting) and mice
+  that start late or skip a problem: each mouse gets the ports of the problem it ran just before
+  in overall order.
+
 ## Results change
 - New folders per problem: `long-pokes/` (blocked and drifting). Per drifting problem:
   `value-psychometrics/`, `reversal-aligned-arms/`, `value-change/`. Pooled:
   `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change}/`.
 - Single-session figures gain red outlines of the previous problem's ports on the maze row.
 - Nothing else changes.
+- Jittered points in the rank-proportion, problem-summary and block-length figures move once (to
+  the seeded positions) and are the same on every run afterwards.

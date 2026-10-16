@@ -16,6 +16,7 @@ from matplotlib.lines import Line2D
 from src.behavior_visualization.plot_helpers import (
     axes_or_new,
     despine,
+    jitter_rng,
     jittered,
     mouse_color_map,
     save_or_show,
@@ -104,16 +105,16 @@ def _plot_mouse_lines(
 ) -> list[Line2D]:
     """One connected line per mouse over the blocks it has data for; returns legend handles.
 
-    Known issue: the jitter draws from NumPy's global random state, so the x
-    positions differ between runs unless the caller seeds it.
+    The jitter comes from one seeded generator, so the x positions are the same on every run.
     """
     handles = []
+    rng = jitter_rng()
     for m in mice:
         c = mouse_to_color[m]
         xs, ys = _mouse_points(per_mouse_blocklens[m], blocks)
         if len(xs) == 0:
             continue
-        xs = jittered(xs, jitter)
+        xs = jittered(xs, jitter, rng)
         ax.plot(xs, ys, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=6, zorder=3)
         handles.append(
             Line2D([0], [0], color=c, lw=2.5, marker="o", label=f"{m} (n={len(ys)} blocks)")
@@ -145,7 +146,7 @@ def plot_block_length_panel(
         block_lengths_summary: Dict as returned by
             :func:`src.behavior_analysis.get_task_statistics.get_block_lengths`.
         jitter: Maximum half-width of the uniform x-jitter on per-mouse points;
-            ``0`` disables it. The jitter comes from NumPy's global random state.
+            ``0`` disables it. The jitter is seeded, so it is the same on every run.
         annotate_y: Y of the bar-value labels; derived from the tallest bar if ``None``.
         ax: Axes to draw into; a new 10 x 4.8 inch figure is created if ``None``.
     """
