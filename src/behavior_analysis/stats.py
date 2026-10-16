@@ -11,7 +11,15 @@ import numpy as np
 
 
 def nan_mean(stack: np.ndarray, axis: int = 0) -> np.ndarray:
-    """Mean over the non-NaN entries along *axis*; NaN, without a warning, where all are NaN."""
+    """Mean over the non-NaN entries along *axis*; NaN, without a warning, where all are NaN.
+
+    Args:
+        stack (np.ndarray): Float array, e.g. ``(n_rows, n_columns)``.
+        axis (int): Axis to average over. Default 0.
+
+    Returns:
+        np.ndarray: *stack* with *axis* removed.
+    """
     n_valid = np.sum(~np.isnan(stack), axis=axis)
     total = np.nansum(stack, axis=axis)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -24,6 +32,12 @@ def nan_standard_error(stack: np.ndarray) -> np.ndarray:
     NaN in columns with fewer than two non-NaN rows (the sample SD needs two).
     A 1-D *stack* is a single column: the result is one 0-d value over all
     elements, not one value per element.
+
+    Args:
+        stack (np.ndarray): Float array of shape ``(n_rows, n_columns)`` (or 1-D, one column).
+
+    Returns:
+        np.ndarray: Standard error per column, shape ``(n_columns,)``.
     """
     n_valid = np.sum(~np.isnan(stack), axis=0)
     with warnings.catch_warnings():
@@ -40,6 +54,12 @@ def mean_se_n(values: list) -> tuple[float, float, int]:
 
     The standard error is NaN (never 0) with fewer than two values; the mean is
     NaN, with a count of 0, when there are none.
+
+    Args:
+        values (list): Numbers (or any array-like convertible to float); NaN entries are ignored.
+
+    Returns:
+        tuple[float, float, int]: ``(mean, standard error, count of non-NaN values)``.
     """
     vals = np.asarray(values, dtype=float)
     vals = vals[~np.isnan(vals)]

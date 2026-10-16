@@ -20,11 +20,11 @@ def mean_rank_proportions_by_subject(rank_counts_by_good_reversal: dict) -> dict
     counts as NaN, which the mean skips.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[reversal_dict]}`` with
+        rank_counts_by_good_reversal (dict): ``{subject: list[reversal_dict]}`` with
             ``"best_prop"``, ``"second_prop"``, ``"third_prop"`` in each dict.
 
     Returns:
-        ``{subject: {"best": float, "second": float, "third": float}}``.
+        dict: ``{subject: {"best": float, "second": float, "third": float}}``.
     """
     return {
         subj: {
@@ -44,11 +44,12 @@ def rank_mean_and_se(per_mouse: dict) -> tuple[list[float], list[float]]:
     ``RuntimeWarning``), never 0.
 
     Args:
-        per_mouse: ``{mouse: {"best", "second", "third"}}`` from
+        per_mouse (dict): ``{mouse: {"best", "second", "third"}}`` from
             :func:`mean_rank_proportions_by_subject`.
 
     Returns:
-        ``(means, ses)``, each a list of three values in :data:`RANKS` order.
+        tuple[list[float], list[float]]: ``(means, ses)``, each a list of three values in
+        :data:`RANKS` order.
     """
     columns = [[v[rank] for v in per_mouse.values()] for rank in RANKS]
     means = [np.nanmean(col) for col in columns]

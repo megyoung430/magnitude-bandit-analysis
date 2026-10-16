@@ -41,6 +41,13 @@ class SelectionCounts(NamedTuple):
     ``tied_type`` because their type depends on a tie (type-specific sets only);
     ``wrong_type`` cannot be of the requested type under any ordering of ties. In a
     type-specific set, ties are counted only for reversals that could be of that type.
+
+    Attributes:
+        candidates (int): Reversals considered, over all subjects.
+        tied_labels (int): Left out because a tie leaves the scheme's labels undefined.
+        tied_type (int): Left out because their type depends on a tie.
+        wrong_type (int): Left out because they cannot be of the requested type.
+        selected (int): Kept.
     """
 
     candidates: int
@@ -54,10 +61,11 @@ def consistent_rankings(magnitudes: Mapping[str, float]) -> list[tuple[str, str,
     """Every best-to-worst ordering of the arms that the magnitudes allow.
 
     Args:
-        magnitudes: ``{arm: reward magnitude}`` for exactly three arms.
+        magnitudes (Mapping[str, float]): ``{arm: reward magnitude}`` for exactly three arms.
 
     Returns:
-        One ordering if there is no tie; one per way of ordering the tied arms otherwise.
+        list[tuple[str, str, str]]: One ordering if there is no tie; one per way of ordering
+        the tied arms otherwise. Each ordering lists the arms best to worst.
 
     Raises:
         ValueError: If there are not three arms or a magnitude is missing (``None``/NaN).
@@ -86,6 +94,13 @@ def _type_under(prev_order: tuple, new_order: tuple) -> str:
 def possible_reversal_types(reversal: dict) -> frozenset[str]:
     """Every type the reversal has under some ordering of tied arms (one type if no tie).
 
+    Args:
+        reversal (dict): A reversal dict with ``reward_magnitudes_by_tower_before`` and
+            ``reward_magnitudes_by_tower_after`` (``{tower: magnitude}``).
+
+    Returns:
+        frozenset[str]: A subset of ``"best_to_third"``, ``"second_to_third"`` and ``"other"``.
+
     Raises:
         ValueError: As :func:`consistent_rankings`.
     """
@@ -100,10 +115,10 @@ def classify_reversal_type(reversal: dict) -> str:
     """Type of a reversal, defined by the prev ranking.
 
     Args:
-        reversal: A reversal dict with the before and after magnitudes per tower.
+        reversal (dict): A reversal dict with the before and after magnitudes per tower.
 
     Returns:
-        ``"best_to_third"`` (the arm that was best before is third after),
+        str: ``"best_to_third"`` (the arm that was best before is third after),
         ``"second_to_third"`` (the arm that was second before is third after), ``"other"``,
         or ``"ambiguous"`` when the answer changes with how ties in the before or after
         magnitudes are ordered.
@@ -119,11 +134,12 @@ def arm_labels(reversal: dict, scheme: str) -> tuple[str, str, str] | None:
     """Arms in best, second, third order of the ranking the scheme uses.
 
     Args:
-        reversal: A reversal dict with the before and after magnitudes per tower.
-        scheme: ``"prev"`` (ranking before the reversal) or ``"new"`` (ranking after it).
+        reversal (dict): A reversal dict with the before and after magnitudes per tower.
+        scheme (str): ``"prev"`` (ranking before the reversal) or ``"new"`` (ranking after it).
 
     Returns:
-        ``(best, second, third)`` arm names, or ``None`` if that ranking has a tie.
+        tuple[str, str, str] | None: ``(best, second, third)`` arm names, or ``None`` if that
+        ranking has a tie.
 
     Raises:
         ValueError: For an unknown scheme, or as :func:`consistent_rankings`.
@@ -164,12 +180,14 @@ def select_reversals(
     """Keep the reversals that have defined labels for *scheme* and are of *reversal_type*.
 
     Args:
-        reversal_windows: ``{subject: [reversal dict]}`` as from ``get_good_reversal_info``.
-        scheme: ``"prev"`` or ``"new"``.
-        reversal_type: ``"all"``, ``"best_to_third"`` or ``"second_to_third"``.
+        reversal_windows (Mapping[str, list[dict]]): ``{subject: [reversal dict]}`` as from
+            ``get_good_reversal_info``.
+        scheme (str): ``"prev"`` or ``"new"``.
+        reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``.
 
     Returns:
-        ``(selected, counts)``: ``{subject: reversals}`` without subjects left empty, and
+        tuple[dict[str, list[dict]], SelectionCounts]: ``(selected, counts)``:
+        ``{subject: reversals}`` without subjects left empty, and
         the :class:`SelectionCounts` over all subjects.
 
     Raises:

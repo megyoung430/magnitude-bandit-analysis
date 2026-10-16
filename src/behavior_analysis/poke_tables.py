@@ -18,8 +18,15 @@ def long_pokes_by_session_table(
     """One row per mouse and session: relative session number, trial count and mean long pokes.
 
     Args:
-        means: ``{mouse: {session: mean non-choice long pokes per trial}}`` in session order.
-        per_session: ``{mouse: {session: SessionPokeCounts}}`` for the trial counts.
+        means (Mapping[str, Mapping[str, float]]): ``{mouse: {session: mean non-choice long
+            pokes per trial}}`` in session order.
+        per_session (PerMouseSession): ``{mouse: {session: SessionPokeCounts}}`` for the trial
+            counts; must hold every mouse and session of *means*.
+
+    Returns:
+        pd.DataFrame: One row per mouse and session; columns ``mouse``, ``session``,
+        ``relative_session`` (``rel_ses-01``, ... in session order), ``n_trials``,
+        ``mean_long_pokes``.
     """
     rows = [
         {
@@ -38,7 +45,15 @@ def long_pokes_by_session_table(
 
 
 def counts_by_port_table(counts: Mapping[str, Mapping[str, Mapping[str, int]]]) -> pd.DataFrame:
-    """One row per mouse, poke type and port from ``{kind: {mouse: {port: count}}}``."""
+    """One row per mouse, poke type and port from ``{kind: {mouse: {port: count}}}``.
+
+    Args:
+        counts (Mapping[str, Mapping[str, Mapping[str, int]]]): ``{kind: {mouse: {port: count}}}``
+            with *kind* ``"after_initiation"`` and ``"after_choice"`` and all nine ports per mouse.
+
+    Returns:
+        pd.DataFrame: Columns ``mouse``, ``kind``, ``port``, ``count``.
+    """
     rows = [
         {"mouse": mouse, "kind": kind, "port": port, "count": by_port[port]}
         for kind in KINDS
@@ -49,7 +64,15 @@ def counts_by_port_table(counts: Mapping[str, Mapping[str, Mapping[str, int]]]) 
 
 
 def counts_by_session_table(per_session: PerMouseSession) -> pd.DataFrame:
-    """One row per mouse, session, poke type and port."""
+    """One row per mouse, session, poke type and port.
+
+    Args:
+        per_session (PerMouseSession): ``{mouse: {session: SessionPokeCounts}}``.
+
+    Returns:
+        pd.DataFrame: Columns ``mouse``, ``session``, ``kind`` (``"after_initiation"`` or
+        ``"after_choice"``), ``port``, ``count``.
+    """
     rows = [
         {
             "mouse": mouse,
@@ -70,6 +93,15 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
     """Trials counted and dropped, and raw-versus-printed long pokes, per mouse and session.
 
     ``parse_error`` is empty unless the session's raw events could not be read.
+
+    Args:
+        per_session (PerMouseSession): ``{mouse: {session: SessionPokeCounts}}``.
+
+    Returns:
+        pd.DataFrame: One row per mouse and session; columns ``mouse``, ``session``,
+        ``n_trials``, ``n_trials_counted``, ``n_trials_dropped_no_print``,
+        ``n_trials_dropped_inconsistent``, ``n_open_after_choice_windows``,
+        ``n_long_poke_checked``, ``n_long_poke_agree``, ``parse_error``.
     """
     rows = [
         {

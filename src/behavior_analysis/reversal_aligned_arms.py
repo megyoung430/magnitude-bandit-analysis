@@ -67,20 +67,32 @@ class ReversalAlignedArms:
     """Aligned curves of one label scheme and reversal type.
 
     Attributes:
-        scheme, reversal_type: What was computed (``"prev"``/``"new"``; ``"all"``,
-            ``"best_to_third"``, ``"second_to_third"``).
-        roles: Curve names, best to third, e.g. ``("prev_best", "prev_second", "prev_third")``.
-        trial_offsets: Trials from the reversal of each bin. With a skip ``k``, bins after the
+        scheme (str): ``"prev"`` or ``"new"``: whether arms are labelled by their rank before
+            or after the reversal.
+        reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``.
+        roles (tuple[str, str, str]): Curve names, best to third, e.g.
+            ``("prev_best", "prev_second", "prev_third")``.
+        trial_offsets (np.ndarray): Trials from the reversal of each bin, shape ``(n_bins,)``
+            with ``n_bins = pre + post - skip``. With a skip ``k``, bins after the
             reversal trial carry offsets ``k + 1`` upward.
-        choice_mean, choice_se: ``{role: array}`` over ``trial_offsets``; the mean choice
-            probability (after the moving average) and its standard error across subjects
-            (NaN where fewer than two subjects have data).
-        magnitude_mean, magnitude_se: Same for the reward magnitude of the arm with that
-            label (not smoothed).
-        per_subject_choice: ``{subject: {role: smoothed mean choice probability}}``.
-        num_subjects, num_reversals: What the curves average over.
-        counts: What the selection kept and why it left reversals out.
-        pre, post, skip, moving_avg_window, moving_avg_mode: Parameters used.
+        choice_mean (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; the mean
+            choice probability across subjects (after the moving average).
+        choice_se (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; its standard
+            error across subjects (NaN where fewer than two subjects have data).
+        magnitude_mean (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; mean reward
+            magnitude of the arm with that label (not smoothed).
+        magnitude_se (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; its standard
+            error across subjects.
+        per_subject_choice (dict[str, dict[str, np.ndarray]]): ``{subject: {role: smoothed mean
+            choice probability, shape (n_bins,)}}``.
+        num_subjects (int): Subjects the curves average over.
+        num_reversals (int): Reversals the curves average over.
+        counts (SelectionCounts): What the selection kept and why it left reversals out.
+        pre (int): Trials before the reversal in each window.
+        post (int): Trials from the reversal in each window.
+        skip (int): Trials dropped after the reversal trial.
+        moving_avg_window (int): Moving-average width used (1 for none).
+        moving_avg_mode (str): ``"centered"`` or ``"trailing"``.
     """
 
     scheme: str
@@ -162,11 +174,12 @@ def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict
     before it are checked against the ones stored in each reversal.
 
     Args:
-        reversal_windows: ``{subject: [reversal dict]}`` from ``get_good_reversal_info``.
-        subjects_trials: The ``{subject: {session: session dict}}`` the windows were made from.
+        reversal_windows (dict): ``{subject: [reversal dict]}`` from ``get_good_reversal_info``.
+        subjects_trials (dict): The ``{subject: {session: session dict}}`` the windows were made
+            from.
 
     Returns:
-        ``{subject: [reversal dict]}`` where each reversal dict has a new key
+        dict: ``{subject: [reversal dict]}`` where each reversal dict has a new key
         ``"magnitudes_by_tower"``: ``{tower: {"pre": [...], "post": [...]}}``, the same shape
         as ``"choices_by_tower"``. The input is not modified.
 
@@ -197,11 +210,12 @@ def build_windows_with_magnitudes(subjects_trials: dict, *, pre: int, post: int)
     good or bad), and the first block is not included.
 
     Args:
-        subjects_trials: ``{subject: {session: session dict}}`` of one problem.
-        pre, post: Maximum trials before and from each reversal in the windows.
+        subjects_trials (dict): ``{subject: {session: session dict}}`` of one problem.
+        pre (int): Maximum trials before each reversal in the windows.
+        post (int): Maximum trials from each reversal in the windows.
 
     Returns:
-        ``{subject: [reversal dict]}`` as :func:`add_magnitude_windows` returns it, each
+        dict: ``{subject: [reversal dict]}`` as :func:`add_magnitude_windows` returns it, each
         reversal also recording the ``"window_pre"`` and ``"window_post"`` it was built with
         (``"pre_start"`` and ``"post_end"``, the bounds, come from ``get_good_reversal_info``).
         :func:`check_windows_built_with` verifies all of these.
@@ -249,8 +263,10 @@ def check_windows_built_with(windows: dict, *, pre: int, post: int) -> None:
     ``min(pre, idx - pre_start)`` before the reversal and ``min(post, post_end - idx)`` from it.
 
     Args:
-        windows: ``{subject: [reversal dict]}`` from :func:`build_windows_with_magnitudes`.
-        pre, post: The values the windows must have been built with.
+        windows (dict): ``{subject: [reversal dict]}`` from
+            :func:`build_windows_with_magnitudes`.
+        pre (int): The ``pre`` the windows must have been built with.
+        post (int): The ``post`` the windows must have been built with.
 
     Raises:
         ValueError: Naming the first reversal that lacks the recorded settings or magnitude
@@ -278,7 +294,7 @@ def check_moving_avg_window(moving_avg_window) -> None:
     """Raise ``ValueError`` unless *moving_avg_window* is a positive int.
 
     Args:
-        moving_avg_window: Moving-average width; 1 means no smoothing.
+        moving_avg_window (int): Moving-average width; 1 means no smoothing.
 
     Raises:
         ValueError: If it is not an int (a bool or float is not), or is below 1.
@@ -395,25 +411,28 @@ def compute_reversal_aligned_arms(
     """Choice probability and reward magnitude of the three arms around reversals.
 
     Args:
-        reversal_windows: ``{subject: [reversal dict]}`` from
+        reversal_windows (dict): ``{subject: [reversal dict]}`` from
             :func:`build_windows_with_magnitudes` with the same *pre* and *post*. Pooling across
             problems is concatenation per subject (``merge_windows_by_subject``).
-        scheme: ``"prev"`` labels arms by their rank before the reversal, ``"new"`` by their
-            rank after it.
-        reversal_type: ``"all"``, ``"best_to_third"`` or ``"second_to_third"``; the type is
-            always defined by the prev ranking. Reversals with tied magnitudes are left out as
-            :func:`~src.behavior_analysis.reversal_arm_ranks.select_reversals` describes.
-        pre, post: Trials before and from the reversal in each window.
-        skip_n_trials_after_reversal: Post trial 0 is kept and the next *k* trials dropped.
-        moving_avg_window: Width of the moving average of the per-subject choice probabilities
-            (1 for none), applied separately before and after the reversal. Magnitudes
-            are not smoothed.
-        moving_avg_mode: ``"centered"`` or ``"trailing"``; the two give different curves, so
-            compare figures only if they use the same mode.
+        scheme (str): ``"prev"`` labels arms by their rank before the reversal, ``"new"`` by
+            their rank after it.
+        reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``; the type
+            is always defined by the prev ranking. Reversals with tied magnitudes are left out
+            as :func:`~src.behavior_analysis.reversal_arm_ranks.select_reversals` describes.
+            Default ``"all"``.
+        pre (int): Trials before the reversal in each window. Default 10.
+        post (int): Trials from the reversal in each window. Default 30.
+        skip_n_trials_after_reversal (int): Post trial 0 is kept and the next *k* trials
+            dropped. Default 0.
+        moving_avg_window (int): Width of the moving average of the per-subject choice
+            probabilities (1 for none), applied separately before and after the reversal.
+            Magnitudes are not smoothed. Default 4.
+        moving_avg_mode (str): ``"centered"`` or ``"trailing"``; the two give different curves,
+            so compare figures only if they use the same mode. Default ``"centered"``.
 
     Returns:
-        A :class:`ReversalAlignedArms`. With no reversal left, its curves are all NaN and an
-        :class:`EmptySelectionWarning` is raised.
+        ReversalAlignedArms: The aligned curves. With no reversal left, its curves are all NaN
+        and an :class:`EmptySelectionWarning` is emitted.
 
     Raises:
         ValueError: For an unknown scheme, type or mode, a *moving_avg_window* that is not a

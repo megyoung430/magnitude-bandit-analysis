@@ -19,6 +19,14 @@ class PokesBySession(NamedTuple):
     ``mean`` and ``se`` are across mice, one entry per session (NaN when no mouse
     has a finite value). ``by_mouse`` maps each mouse to its values on the same
     axis (NaN where it has none).
+
+    Attributes:
+        mice (list[str]): Mouse ids, sorted.
+        sessions (list[str]): Session keys (``ses-XX``) in chronological order; the common axis.
+        mean (np.ndarray): Float array of shape ``(len(sessions),)``; mean across mice.
+        se (np.ndarray): Float array of shape ``(len(sessions),)``; standard error across mice
+            (NaN with fewer than two finite values).
+        by_mouse (dict[str, np.ndarray]): ``{mouse: float array of shape (len(sessions),)}``.
     """
 
     mice: list[str]
@@ -79,10 +87,13 @@ def summarize_pokes_by_session(avg_num_pokes_across_subjects: dict) -> PokesBySe
     """Mean and SE across mice for every session, plus each mouse's own series.
 
     Args:
-        avg_num_pokes_across_subjects: ``{mouse: {session_key: mean_pokes}}``, as
+        avg_num_pokes_across_subjects (dict): ``{mouse: {session_key: mean_pokes}}``, as
             returned by :func:`src.behavior_analysis.get_num_long_pokes.get_num_long_pokes`.
             The ``"average_across_subjects"`` entry is ignored. ``None`` and
             non-finite values are treated as missing.
+
+    Returns:
+        PokesBySession: Mean, SE and per-mouse series on the union of all mice's sessions.
 
     Raises:
         ValueError: If there are no mice or no sessions.
@@ -117,7 +128,7 @@ def session_mean_long_pokes(subjects_sessions: dict) -> dict[str, dict[str, floa
     without ``num_long_pokes`` raises rather than being skipped.
 
     Args:
-        subjects_sessions: ``{mouse: {session_key: session_dict}}`` of one problem, each
+        subjects_sessions (dict): ``{mouse: {session_key: session_dict}}`` of one problem, each
             session holding the importer's merged per-trial ``"num_long_pokes"`` list.
 
     Returns:
@@ -145,8 +156,12 @@ def to_relative_sessions(per_mouse: dict, *, start_at: int = 1) -> dict[str, dic
     relative session. The ``"average_across_subjects"`` entry is dropped.
 
     Args:
-        per_mouse: ``{mouse: {session_key: value}}``.
-        start_at: Number of each mouse's first session.
+        per_mouse (dict): ``{mouse: {session_key: value}}``.
+        start_at (int): Number of each mouse's first session. Default 1.
+
+    Returns:
+        dict[str, dict]: ``{mouse: {"rel_ses-NN": value}}`` with the values of ``per_mouse``
+        in session order; the ``"average_across_subjects"`` mouse is omitted.
 
     Raises:
         ValueError: If a mouse's session keys cannot be ordered (see ``ordered_session_keys``).
@@ -165,8 +180,14 @@ def problem_mean_long_pokes(subjects_sessions: dict) -> dict[str, float]:
     """Each mouse's mean non-choice long pokes per trial over all trials of the problem.
 
     Trials are pooled across the mouse's sessions, so long sessions weigh more than short ones.
-    Arguments and errors as for :func:`session_mean_long_pokes`; NaN for a mouse without trial
-    values.
+    Errors as for :func:`session_mean_long_pokes`.
+
+    Args:
+        subjects_sessions (dict): ``{mouse: {session_key: session_dict}}`` of one problem, as
+            for :func:`session_mean_long_pokes`.
+
+    Returns:
+        dict[str, float]: ``{mouse: mean}``; NaN for a mouse without trial values.
     """
     return {
         mouse: _pooled_mean([_trial_values(mouse, key, s) for key, s in sessions.items()])

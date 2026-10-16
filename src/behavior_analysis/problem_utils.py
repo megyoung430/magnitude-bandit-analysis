@@ -27,10 +27,11 @@ def problem_to_int(k: Any) -> int | None:
     """Convert a problem key (int, string, etc.) to a plain Python int.
 
     Args:
-        k: A problem key such as ``3``, ``"problem-03"``, or ``"3"``.
+        k (Any): A problem key such as ``3``, ``"problem-03"``, or ``"3"``.
 
     Returns:
-        The integer problem number, or ``None`` if it cannot be determined.
+        int | None: The integer problem number (the first run of digits), or ``None`` if it
+        cannot be determined.
     """
     if isinstance(k, (int, np.integer)):
         return int(k)
@@ -48,12 +49,12 @@ def flatten_trials(subject_trials: Any, *, subject: str) -> list:
     Sessions of a dict are concatenated in date-then-number order.
 
     Args:
-        subject_trials: Either a ``list[trial_dict]`` or a
-            ``dict[session_key -> list[trial_dict]]``.
-        subject: Named in the error when the session numbers and dates disagree.
+        subject_trials (list | dict | None): Either a ``list[trial_dict]`` or a
+            ``dict[session_key -> list[trial_dict]]``; ``None`` gives an empty list.
+        subject (str): Named in the error when the session numbers and dates disagree.
 
     Returns:
-        A flat list of trial dicts.
+        list: A flat list of trial dicts (a list input is returned as is).
 
     Raises:
         TypeError: If ``subject_trials`` is neither a list nor a dict.
@@ -78,11 +79,15 @@ def get_session_map(subject_trials: Any) -> dict:
     ``"__all__"`` key.
 
     Args:
-        subject_trials: Either a list of trial dicts or a
-            ``dict[session_key -> list[trial_dict]]``.
+        subject_trials (list | dict | None): Either a list of trial dicts or a
+            ``dict[session_key -> list[trial_dict]]``; ``None`` gives an empty dict.
 
     Returns:
-        A dict mapping session keys to lists of trial dicts.
+        dict: A dict mapping session keys to lists of trial dicts (a dict input is returned as
+        is).
+
+    Raises:
+        TypeError: If *subject_trials* is none of those types.
     """
     if subject_trials is None:
         return {}
@@ -100,10 +105,10 @@ def n_trials_in_session(sess: dict) -> int:
     order.
 
     Args:
-        sess: A session data dict produced by ``extract_trials()``.
+        sess (dict): A session data dict produced by ``extract_trials()``.
 
     Returns:
-        The number of trials, or 0 if no trial information is found.
+        int: The number of trials, or 0 if no trial information is found.
     """
     if not isinstance(sess, dict):
         return 0
@@ -131,10 +136,10 @@ def total_trials_in_problem(mouse_sessions: dict) -> int:
     """Sum the total number of trials across all sessions for one mouse+problem.
 
     Args:
-        mouse_sessions: ``{session_id: session_data}`` for a single mouse.
+        mouse_sessions (dict): ``{session_id: session_data}`` for a single mouse.
 
     Returns:
-        Total trial count across all sessions.
+        int: Total trial count across all sessions (0 if *mouse_sessions* is not a dict).
     """
     if not isinstance(mouse_sessions, dict):
         return 0
@@ -148,11 +153,11 @@ def flatten_trials_by_session(trials_by_session: Any) -> list:
     falls back gracefully to a list.
 
     Args:
-        trials_by_session: ``dict[session_id -> list[trial_dict]]`` or a
+        trials_by_session (dict | list): ``dict[session_id -> list[trial_dict]]`` or a
             flat list of trial dicts.
 
     Returns:
-        A flat list of trial dicts.
+        list: A flat list of trial dicts, sessions in dict order (empty sessions skipped).
     """
     if not isinstance(trials_by_session, dict):
         return list(trials_by_session)
@@ -171,14 +176,16 @@ def mean_block_length_from_indices(idxs: list[int], T: int) -> float:
     """Compute mean block length from reversal indices.
 
     Block boundaries are defined as ``[0] + sorted(idxs)``.  Block lengths
-    are the differences between consecutive boundaries.
+    are the differences between consecutive boundaries, so the final block
+    (from the last reversal to the end of the session) is not counted.
 
     Args:
-        idxs: Reversal indices in ``[0, T)``.
-        T: Total number of trials.
+        idxs (list[int]): Reversal indices; those outside ``[0, T)`` are ignored and
+            duplicates collapse.
+        T (int): Total number of trials.
 
     Returns:
-        Mean block length in trials, or ``nan`` if there are no boundaries.
+        float: Mean block length in trials, or ``nan`` if ``T <= 0`` or no index is in range.
     """
     if T <= 0:
         return float("nan")
@@ -207,12 +214,15 @@ def reversals_from_blocks_counter(session_data: dict) -> float:
     Reversals = ``max(blocks_sequence) - 1``.
 
     Args:
-        session_data: A session dict with a ``"blocks"`` key containing a
+        session_data (dict): A session dict with a ``"blocks"`` key containing a
             per-trial count of blocks experienced.
 
     Returns:
-        Estimated reversal count, or ``nan`` if the blocks field is absent or
-        holds no values. Non-numeric entries raise ``ValueError``.
+        float: Estimated reversal count, or ``nan`` if the blocks field is absent or
+        holds no values.
+
+    Raises:
+        ValueError: If an entry of ``"blocks"`` is non-numeric.
     """
     blocks_seq = session_data.get("blocks")
     if blocks_seq is None:
@@ -242,11 +252,12 @@ def summarize_by_problem(per_mouse_metric: dict) -> dict:
     """Compute mean ± SE across mice for each problem.
 
     Args:
-        per_mouse_metric: ``{mouse: {problem_int: value}}``
+        per_mouse_metric (dict): ``{mouse: {problem_int: value}}``
 
     Returns:
-        A dict with keys ``"blocks"``, ``"means"``, ``"ses"``, ``"ns"``,
-        ``"per_mouse_blocklens"``, and ``"mice"``.
+        dict: Keys ``"blocks"`` (sorted problems), ``"means"``, ``"ses"``, ``"ns"`` (lists
+        aligned with ``"blocks"``, across mice), ``"per_mouse_blocklens"`` (*per_mouse_metric*
+        itself) and ``"mice"`` (sorted list).
     """
     mice = sorted(per_mouse_metric.keys())
     problems = sorted({p for m in mice for p in per_mouse_metric[m].keys()})
@@ -276,10 +287,11 @@ def summarize_by_problem_safe(per_mouse_metric: dict) -> dict:
     lists.
 
     Args:
-        per_mouse_metric: ``{mouse: {problem_int: value}}``
+        per_mouse_metric (dict): ``{mouse: {problem_int: value}}``
 
     Returns:
-        ``{problem: {"mean": float, "se": float, "n": int, "values": list}}``
+        dict: ``{problem: {"mean": float, "se": float, "n": int, "values": list}}``; problems
+        with no finite value are omitted.
     """
     by_p: dict[Any, list[float]] = {}
     for _mouse, pmap in per_mouse_metric.items():
@@ -304,10 +316,10 @@ def exclude_last_problem_per_mouse(per_mouse_metric: dict) -> dict:
     """Remove each mouse's last (highest-numbered) problem in place.
 
     Args:
-        per_mouse_metric: ``{mouse: {problem_int: value}}`` — modified in place.
+        per_mouse_metric (dict): ``{mouse: {problem_int: value}}`` — modified in place.
 
     Returns:
-        The same dict with last-problem entries removed.
+        dict: The same dict object with last-problem entries removed.
     """
     for _mouse, pmap in per_mouse_metric.items():
         if isinstance(pmap, dict) and pmap:
