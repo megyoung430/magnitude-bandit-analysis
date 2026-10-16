@@ -15,6 +15,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
+    """Machine-specific settings; each field is read from ``BANDIT_<FIELD>`` or ``.env``.
+
+    Attributes:
+        data_root (DirectoryPath): Directory holding the experiment folders (set with
+            ``BANDIT_DATA_ROOT``). Required, and it must exist, so an unmounted share fails
+            at load time.
+        cache_dir (Path): Disposable on-disk cache for slow steps such as importing raw
+            sessions (``BANDIT_CACHE_DIR``). Default ``<repo>/.cache``.
+    """
+
     model_config = SettingsConfigDict(
         env_prefix="BANDIT_",
         # anchored to the repo so scripts and notebooks find it from any cwd
@@ -30,5 +40,12 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Load and validate settings once per process."""
+    """Load and validate settings once per process.
+
+    Returns:
+        Settings: The cached settings object.
+
+    Raises:
+        pydantic.ValidationError: If ``BANDIT_DATA_ROOT`` is unset or not an existing directory.
+    """
     return Settings()

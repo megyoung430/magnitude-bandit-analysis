@@ -172,22 +172,23 @@ def run_poke_analysis(
     """Long pokes per relative session and the two maze heatmaps for one problem.
 
     Args:
-        subjects_trials_by_problem: The sessions of ONE problem, ``{mouse: {session_key:
+        subjects_trials_by_problem (dict): The sessions of ONE problem, ``{mouse: {session_key:
             session_dict}}``, as in a problem of ``load_trials_by_problem`` (the argument is named
             as in the other entry points). Each session needs the importer's raw ``"df"``
             recordings (one DataFrame or a list), ``"num_long_pokes"`` and ``"choice_towers"``.
-        out_dir: Folder for the figures and tables (created if missing); the runner gives the
-            problem's ``long-pokes`` folder.
-        previous_choice_towers: ``{mouse: ports of the mouse's previous problem, or None}`` for
-            the red outlines, as returned by :func:`previous_choice_towers_for_problem`. ``None``
-            draws no red outlines; a dict must have an entry for every mouse.
-        poke_counts: ``{mouse: {session_key: SessionPokeCounts}}`` already parsed (for example
-            ``per_session`` of an earlier call, or ``mouse_poke_counts`` per mouse), so the raw
-            events are parsed once. It must cover every mouse and session; ``None`` parses the
-            sessions' ``"df"`` here.
+        out_dir (Path): Folder for the figures and tables (created if missing); the runner gives
+            the problem's ``long-pokes`` folder.
+        previous_choice_towers (dict | None): ``{mouse: ports of the mouse's previous problem, or
+            None}`` for the red outlines, as returned by
+            :func:`previous_choice_towers_for_problem`. ``None`` (default) draws no red outlines;
+            a dict must have an entry for every mouse. Keyword-only.
+        poke_counts (dict | None): ``{mouse: {session_key: SessionPokeCounts}}`` already parsed
+            (for example ``per_session`` of an earlier call, or ``mouse_poke_counts`` per
+            mouse), so the raw events are parsed once. It must cover every mouse and session;
+            ``None`` (default) parses the sessions' ``"df"`` here. Keyword-only.
 
     Returns:
-        A dict with ``"long_pokes"`` (``"by_session"`` = ``{mouse: {session: mean}}``,
+        dict: A dict with ``"long_pokes"`` (``"by_session"`` = ``{mouse: {session: mean}}``,
         ``"relative"`` = the same keyed ``rel_ses-NN``, ``"problem_mean_by_mouse"`` and
         ``"across_mice"`` = ``(mean, se, n)`` of those means), ``"counts"`` (``{kind: {mouse:
         {port: count}}}`` for ``"after_initiation"`` and ``"after_choice"``), ``"per_session"``

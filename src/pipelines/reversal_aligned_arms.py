@@ -140,30 +140,37 @@ def run_reversal_aligned_arm_analysis(
     :mod:`src.behavior_analysis.reversal_arm_ranks`); the counts say how many.
 
     Args:
-        windows_or_trials_by_problem: ``{problem: {subject: {session: session dict}}}``, from
-            which windows (without the first block, with magnitudes) are computed per problem;
-            or ``{problem: {subject: [reversal dict]}}`` already built with
+        windows_or_trials_by_problem (Mapping): ``{problem: {subject: {session: session dict}}}``,
+            from which windows (without the first block, with magnitudes) are computed per
+            problem; or ``{problem: {subject: [reversal dict]}}`` already built with
             :func:`~src.behavior_analysis.reversal_aligned_arms.build_windows_with_magnitudes`
             and the same *pre* and *post*. A single problem is a one-entry dict.
-        out_dir: Folder for ``reversal_aligned_arms_<scope>_<scheme>_<type>.png/.pdf`` and
+        out_dir (str | Path | None): Folder for
+            ``reversal_aligned_arms_<scope>_<scheme>_<type>.png/.pdf`` and
             ``reversal_aligned_arms_counts.csv`` (created if missing). ``None`` or ``""`` shows
             the figures and writes nothing.
-        pre, post: Trials before and from the reversal in each window.
-        moving_avg_window: Moving-average width for the choice probabilities (positive int;
-            1 for none).
-        label_schemes: Subset of ``("prev", "new")``.
-        reversal_types: Subset of ``("all", "best_to_third", "second_to_third")``.
-        moving_avg_mode: ``"centered"`` or ``"trailing"``; the same for every figure.
-        skip_n_trials_after_reversal: Post trial 0 is kept and the next *k* trials dropped.
-        scope_label: Text in the title of the ``"pooled"`` scope's figures instead of
-            ``"pooled"`` (for example ``"problem-03"`` when the one problem given is the
+        pre (int): Trials before the reversal in each window. Default 10. Keyword-only.
+        post (int): Trials from the reversal on in each window. Default 30. Keyword-only.
+        moving_avg_window (int): Moving-average width for the choice probabilities (positive
+            int; 1 for none). Default 4. Keyword-only.
+        label_schemes (Sequence[str]): Subset of ``("prev", "new")``. Default: all of
+            ``LABEL_SCHEMES``. Keyword-only.
+        reversal_types (Sequence[str]): Subset of ``("all", "best_to_third",
+            "second_to_third")``. Default: all of ``REVERSAL_TYPES``. Keyword-only.
+        moving_avg_mode (str): ``"centered"`` or ``"trailing"``; the same for every figure.
+            Default ``"centered"``. Keyword-only.
+        skip_n_trials_after_reversal (int): Post trial 0 is kept and the next *k* trials dropped.
+            Default 0. Keyword-only.
+        scope_label (str | None): Text in the title of the ``"pooled"`` scope's figures instead
+            of ``"pooled"`` (for example ``"problem-03"`` when the one problem given is the
             subject of the folder). File names and the counts table keep the scope name.
+            Default ``None``. Keyword-only.
 
     Returns:
-        ``{"results": {scope: {scheme: {type: ReversalAlignedArms}}}, "counts": DataFrame with
-        one row per scope, scheme and type, "figure_paths": [Path, ...], "windows_by_problem":
-        {problem: windows}}``. A combination with no reversal left makes no figure and raises
-        an ``EmptySelectionWarning``.
+        dict: ``{"results": {scope: {scheme: {type: ReversalAlignedArms}}}, "counts": DataFrame
+        with one row per scope, scheme and type, "figure_paths": [Path, ...],
+        "windows_by_problem": {problem: windows}}``. A combination with no reversal left makes
+        no figure and raises an ``EmptySelectionWarning``.
 
     Raises:
         ValueError: For unknown schemes, types or modes, no problems, mixed or incomplete

@@ -79,7 +79,31 @@ REVERSAL_ARMS_POST = 30
 
 
 class ChoiceProbabilitySettings(BaseModel):
-    """Which choice-probability-around-good-reversal figures to make, and their windows."""
+    """Which choice-probability-around-good-reversal figures to make, and their windows.
+
+    Frozen; an unknown field name raises a validation error.
+
+    Attributes:
+        run_all (bool): Raw choice probabilities around all good reversals, plus the early
+            (first two) and late splits. Default ``True``.
+        skip (bool): Figures that skip the first trials after each reversal. Default ``True``.
+        moving_avg (bool): Moving-average figures. Default ``True``.
+        remove_bad (bool): Moving-average figures with the trials after a bad reversal removed.
+            Default ``True``.
+        split_by_best_change (bool): Also split by whether the previously best arm became second
+            or third best; only used together with ``moving_avg``. Default ``False``.
+        split_by_best_change_and_half (bool): Within the best-change split, also split into
+            early and late reversals. Default ``False``.
+        split_by_first_two (bool): Moving-average figures also for the first two reversals
+            versus the later ones. Default ``True``.
+        split_by_half (bool): Moving-average figures also for the first versus second half of
+            the reversals. Default ``True``.
+        pre (int): Trials before the reversal in each window. Default 10.
+        post (int): Trials after the reversal in each window. Default 30.
+        skip_n_trials_after_reversal (int): Trials skipped after a reversal when ``skip`` is
+            on. Default 15.
+        moving_avg_window (int): Window length of the moving average, in trials. Default 4.
+    """
 
     # extra="forbid": a misspelled option raises instead of being silently ignored
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -109,6 +133,30 @@ class AnalysisSelection(BaseModel):
     value analyses (``run_value_psychometric_analysis``, ``run_reversal_aligned_arm_analysis``,
     ``run_value_change_analysis``) are for drifting problems only; :func:`run_problem` raises if
     one is on for a blocked problem. All four are off unless asked for.
+
+    Frozen; an unknown field name raises a validation error.
+
+    Attributes:
+        run_choice_probability_analysis (bool): Choice probabilities around good reversals.
+            Default ``True``.
+        run_first_leave_analysis (bool): First arm left after good reversals. Default ``True``.
+        run_number_of_reversals_analysis (bool): Total, cumulative and moving-average reversal
+            counts. Default ``True``.
+        run_rank_proportion_analysis (bool): Rank proportions after good reversals.
+            Default ``True``.
+        run_single_session_analysis (bool): One overview plot per session. Default ``True``.
+        run_poke_analysis (bool): Long pokes and maze heatmaps. Default ``False``.
+        run_value_psychometric_analysis (bool): Value psychometric curves (drifting problems
+            only). Default ``False``.
+        run_reversal_aligned_arm_analysis (bool): Reversal-aligned arm choices (drifting problems
+            only). Default ``False``.
+        run_value_change_analysis (bool): Value-change choice probabilities (drifting problems
+            only). Default ``False``.
+        rank_value_bases (tuple[str, ...] | None): ``"true"`` and/or ``"believed"``; ``None``
+            gives the true-value rank proportions of ``get_rank_counts_by_good_reversal``.
+            Default ``None``.
+        rank_pooling_modes (tuple[bool, ...]): ``pool_trials_within_subject`` values to run for
+            each basis (only used when ``rank_value_bases`` is set). Default ``(True, False)``.
     """
 
     # extra="forbid": a misspelled option raises instead of being silently ignored
@@ -132,7 +180,19 @@ DEFAULT_CHOICE = ChoiceProbabilitySettings()
 
 
 def check_selection_for_task_type(selection: AnalysisSelection, task_type: str | None) -> None:
-    """Raise ``ValueError`` if a drifting-only analysis is selected for a blocked problem."""
+    """Raise ``ValueError`` if a drifting-only analysis is selected for a blocked problem.
+
+    Args:
+        selection (AnalysisSelection): The analyses asked for.
+        task_type (str | None): ``"blocked"``, ``"drifting"`` or ``None``; anything but
+            ``"blocked"`` is accepted without checking.
+
+    Returns:
+        None: Returns nothing when the selection is allowed.
+
+    Raises:
+        ValueError: If a drifting-only analysis is on and *task_type* is ``"blocked"``.
+    """
     if task_type != BLOCKED:
         return
     wrong = [name for name in DRIFTING_ONLY_SECTIONS if getattr(selection, name)]
@@ -145,7 +205,19 @@ def check_selection_for_task_type(selection: AnalysisSelection, task_type: str |
 def problem_dir(
     output_root: Path, task: str, cohort: str, problem_number: int, task_type: str | None = None
 ) -> Path:
-    """``<output_root>/<task>/<cohort>[/<task_type>]/problem-NN``."""
+    """``<output_root>/<task>/<cohort>[/<task_type>]/problem-NN``.
+
+    Args:
+        output_root (Path): Root folder for figures.
+        task (str): Task folder name, e.g. ``"open-field"``.
+        cohort (str): Cohort folder name, e.g. ``"cohort-03"``.
+        problem_number (int): Problem number, zero-padded to two digits.
+        task_type (str | None): Optional ``"blocked"`` / ``"drifting"`` folder level.
+            Default ``None``: no such level.
+
+    Returns:
+        Path: The folder for this problem's figures (not created).
+    """
     base = Path(output_root) / task / cohort
     if task_type is not None:
         base = base / task_type
@@ -267,7 +339,16 @@ def _plot_remove_bad(subjects_trials, out_dir: Path, s: ChoiceProbabilitySetting
 
 
 def run_choice_probability_analysis(subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings):
-    """All enabled choice-probability figures for one problem, saved in *out_dir*."""
+    """All enabled choice-probability figures for one problem, saved in *out_dir*.
+
+    Args:
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem.
+        out_dir (Path): Folder that receives the figures.
+        s (ChoiceProbabilitySettings): Which figure families to make and their windows.
+
+    Returns:
+        None: Returns nothing; the figures are written to *out_dir*.
+    """
     if s.run_all:
         _plot_all_reversals(subjects_trials, out_dir, s)
     if s.skip:
@@ -325,7 +406,15 @@ def _run_best_change(subjects_trials, out_dir: Path, s: ChoiceProbabilitySetting
 
 
 def run_first_leave_analysis(subjects_trials, out_dir: Path):
-    """First arm left after good reversals: all, first two, and later reversals."""
+    """First arm left after good reversals: all, first two, and later reversals.
+
+    Args:
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem.
+        out_dir (Path): Folder that receives the three figures.
+
+    Returns:
+        None: Returns nothing; the figures are written to *out_dir*.
+    """
     windows = get_good_reversal_info(subjects_trials, include_first_block=False)
     early, late = split_good_reversals_early_late(windows, first_n=2)
     for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
@@ -342,7 +431,17 @@ def run_first_leave_analysis(subjects_trials, out_dir: Path):
 
 
 def run_number_of_reversals_analysis(subjects_trials, out_dir: Path, *, reversal_trial_window=None):
-    """Total, cumulative and moving-average reversal counts."""
+    """Total, cumulative and moving-average reversal counts.
+
+    Args:
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem.
+        out_dir (Path): Folder that receives the three figures.
+        reversal_trial_window (int | None): Trials per bin of the moving-average plot.
+            Default ``None``: the plot function's own default. Keyword-only.
+
+    Returns:
+        None: Returns nothing; the figures are written to *out_dir*.
+    """
     plot_num_reversals(subjects_trials, save_path=out_dir / "Total Reversals")
     plot_num_reversals_over_time(
         subjects_trials, threshold=10, save_path=out_dir / "Cumulative Reversals Over Time"
@@ -354,7 +453,18 @@ def run_number_of_reversals_analysis(subjects_trials, out_dir: Path, *, reversal
 
 
 def run_rank_proportion_analysis(subjects_trials, out_dir: Path, selection: AnalysisSelection):
-    """Rank proportions after good reversals; returns counts and p-values when by value basis."""
+    """Rank proportions after good reversals; returns counts and p-values when by value basis.
+
+    Args:
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem.
+        out_dir (Path): Folder that receives the figures.
+        selection (AnalysisSelection): Its ``rank_value_bases`` (``None`` for the plain true-value
+            figure) and ``rank_pooling_modes`` decide which figures are made.
+
+    Returns:
+        dict: ``{}`` when ``selection.rank_value_bases`` is ``None``; otherwise
+        ``{value_basis: {pool_trials: {"counts": ..., "p_values": ...}}}``.
+    """
     windows = get_good_reversal_info(subjects_trials, include_first_block=True)
     if selection.rank_value_bases is None:
         counts = get_rank_counts_by_good_reversal(windows)
@@ -394,10 +504,17 @@ def run_single_session_analysis(
     """One overview plot per session that has trials.
 
     Args:
-        previous_choice_towers: ``{mouse: ports of the mouse's previous problem, or None}`` for
-            the red outlines of the maze row; ``None`` draws none.
-        poke_counts: ``{mouse: {session: SessionPokeCounts}}`` already parsed, so the raw events
-            are read once; ``None`` lets each figure parse its own session.
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem.
+        out_dir (Path): Folder that receives ``<subject>/<session>/Session Plot``.
+        previous_choice_towers (dict | None): ``{mouse: ports of the mouse's previous problem,
+            or None}`` for the red outlines of the maze row; ``None`` draws none. Keyword-only.
+        poke_counts (dict | None): ``{mouse: {session: SessionPokeCounts}}`` already parsed, so
+            the raw events are read once; ``None`` lets each figure parse its own session.
+            Keyword-only.
+
+    Returns:
+        None: Returns nothing; the figures are written to *out_dir*. Sessions without
+        trials are skipped with a message.
     """
     for subject, sessions in subjects_trials.items():
         for session, session_data in sessions.items():
@@ -427,6 +544,14 @@ def pooled_arm_windows(problems: dict) -> dict:
     Windows are built inside each problem, so none crosses a problem boundary. The entry point
     would add a figure set per problem next to the pooled one; handing it one merged entry
     keeps a folder to the scope it stands for.
+
+    Args:
+        problems (dict): ``{problem: {mouse: {session_key: session_dict}}}``.
+
+    Returns:
+        dict: ``{"pooled": windows}``, where *windows* is the per-mouse concatenation of the
+        reversal windows (with magnitudes) of all problems, built with ``REVERSAL_ARMS_PRE``
+        trials before and ``REVERSAL_ARMS_POST`` after each reversal.
     """
     per_problem = {
         problem: build_windows_with_magnitudes(
@@ -443,16 +568,19 @@ def run_drifting_value_analyses(
     """The selected drifting-only analyses over *problems*, each in a subfolder of *out_dir*.
 
     Args:
-        problems: ``{problem: {mouse: {session_key: session_dict}}}``: one problem for a
+        problems (dict): ``{problem: {mouse: {session_key: session_dict}}}``: one problem for a
             problem folder, several for the pool over a mouse's drifting problems. Every
             analysis computes inside each problem and then combines the mice's results, so
             beliefs reset and windows end at each problem boundary.
-        out_dir: Folder that receives ``value-psychometrics``, ``reversal-aligned-arms`` and
-            ``value-change``.
-        selection: Which of the three to run.
-        arm_scope_label: Scope named in the titles of the reversal-aligned figures, given by
-            the caller (``"problem-03"`` for a problem folder, ``POOLED_DRIFTING_LABEL`` for
-            the pool) because a pool of one problem is still the pool.
+        out_dir (Path): Folder that receives ``value-psychometrics``, ``reversal-aligned-arms``
+            and ``value-change``.
+        selection (AnalysisSelection): Which of the three to run.
+        arm_scope_label (str): Scope named in the titles of the reversal-aligned figures, given
+            by the caller (``"problem-03"`` for a problem folder, ``POOLED_DRIFTING_LABEL`` for
+            the pool) because a pool of one problem is still the pool. Keyword-only.
+
+    Returns:
+        None: Returns nothing; the figures are written under *out_dir*.
     """
     out_dir = Path(out_dir)
     if selection.run_value_psychometric_analysis:
@@ -496,6 +624,27 @@ def run_problem(
     poke analysis (``long-pokes`` folder) and the single-session figures share one parse of the
     raw events. The blocked-task guard below needs *task_type*: without it every selection
     is accepted.
+
+    Args:
+        problem_number (int): The problem's number, used in the folder name and messages.
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for this problem.
+        task (str): Task folder name under *output_root*, e.g. ``"open-field"``. Keyword-only.
+        cohort (str): Cohort folder name, e.g. ``"cohort-03"``. Keyword-only.
+        output_root (Path): Root folder for figures. Keyword-only.
+        selection (AnalysisSelection): Which analyses to run. Default ``DEFAULT_SELECTION``.
+        choice (ChoiceProbabilitySettings): Choice-probability figure toggles and windows.
+            Default ``DEFAULT_CHOICE``.
+        reversal_trial_window (int | None): Trials per bin of the moving-average reversal
+            plot. Default ``None``: the plot function's default.
+        task_type (str | None): ``"blocked"`` / ``"drifting"``, or ``None`` for no task-type
+            folder level and no blocked-task guard. Default ``None``.
+        previous_choice_towers (dict | None): ``{mouse: previous-problem choice ports or None}``
+            for the maze outlines. Default ``None``: no outlines.
+
+    Returns:
+        dict: The rank-proportion results of :func:`run_rank_proportion_analysis`: ``{}`` if
+        that analysis is off or uses the plain true-value figure, else
+        ``{value_basis: {pool_trials: {"counts": ..., "p_values": ...}}}``.
 
     Raises:
         ValueError: If a drifting-only analysis is selected for ``task_type="blocked"``.
@@ -555,7 +704,17 @@ def run_problem(
 
 
 def run_open_field_analysis(subjects_trials_by_problem: dict, **kwargs) -> dict:
-    """:func:`run_problem` for every problem; returns ``{problem: rank results}``."""
+    """:func:`run_problem` for every problem; returns ``{problem: rank results}``.
+
+    Args:
+        subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``.
+            Problems run in sorted order.
+        **kwargs: Passed to :func:`run_problem` for every problem; ``task``, ``cohort`` and
+            ``output_root`` are required.
+
+    Returns:
+        dict: ``{problem: rank_results}``, each as returned by :func:`run_problem`.
+    """
     return {
         problem: run_problem(problem, trials, **kwargs)
         for problem, trials in sorted(subjects_trials_by_problem.items())
