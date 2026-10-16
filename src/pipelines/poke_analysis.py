@@ -2,21 +2,19 @@
 
 Entry points:
 
-- :func:`run_poke_analysis` runs everything for one problem and writes it to one folder.
+- :func:`run_poke_analysis` runs everything for one problem, writes the figures to one folder and
+  returns the numbers (including a per-session summary table) without writing any table file.
 - :func:`previous_problem_choice_towers` and :func:`previous_choice_towers_for_problem`
   (re-exported from :mod:`src.behavior_analysis.poke_counts`) give each mouse's previous-problem
   choice ports from the full ordered problem dict; the runner passes the result of the second as
   ``previous_choice_towers``.
 
-Files written to ``out_dir`` (PNG and PDF for the figures):
+Figures written to ``out_dir`` (PNG and PDF):
 
 - ``Long Pokes by Relative Session``: mean non-choice long pokes per trial (``num_long_pokes``)
   for each relative session of the problem, bars = mean +/- SE across mice, lines = mice.
 - ``Maze Heatmaps - Pokes After Choice`` and ``Maze Heatmaps - Pokes After Initiation``: one map
   per mouse, all sessions of the problem together.
-- ``Long Pokes by Session.csv``, ``Poke Counts by Port.csv``, ``Poke Counts by Session.csv``,
-  ``Poke Trial Summary.csv`` (trials counted and dropped per session, and the raw-versus-
-  printed long-poke agreement).
 """
 
 from __future__ import annotations
@@ -41,12 +39,7 @@ from src.behavior_analysis.poke_counts import (  # noqa: F401  (re-exported)
     problem_choice_ports,
     total_counts,
 )
-from src.behavior_analysis.poke_tables import (
-    counts_by_port_table,
-    counts_by_session_table,
-    cross_check_table,
-    long_pokes_by_session_table,
-)
+from src.behavior_analysis.poke_tables import cross_check_table
 from src.behavior_analysis.stats import mean_se_n
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
 from src.behavior_visualization.plot_maze_heatmaps import plot_maze_heatmaps_across_mice
@@ -58,12 +51,6 @@ from src.behavior_visualization.plot_num_long_pokes import (
 LONG_POKES_STEM = "Long Pokes by Relative Session"
 AFTER_CHOICE_STEM = "Maze Heatmaps - Pokes After Choice"
 AFTER_INITIATION_STEM = "Maze Heatmaps - Pokes After Initiation"
-TABLE_FILES = (
-    "Long Pokes by Session.csv",
-    "Poke Counts by Port.csv",
-    "Poke Counts by Session.csv",
-    "Poke Trial Summary.csv",
-)
 _SCALE_NOTE = "colour scale: 0 to each mouse's own maximum count"
 _JITTER_SEED = 0
 
@@ -193,8 +180,11 @@ def run_poke_analysis(
         ``"across_mice"`` = ``(mean, se, n)`` of those means), ``"counts"`` (``{kind: {mouse:
         {port: count}}}`` for ``"after_initiation"`` and ``"after_choice"``), ``"per_session"``
         (``{mouse: {session: SessionPokeCounts}}``), ``"cross_check"`` (the raw-versus-printed
-        long-poke comparison per session) and ``"files"`` (the paths written, PNG then PDF per
-        figure).
+        long-poke comparison per session), ``"summary"`` (a DataFrame with one row per mouse and
+        session: ``mouse, session, n_trials, n_port_finding_trials, n_trials_counted,
+        n_trials_dropped_no_print, n_trials_dropped_inconsistent, n_open_after_choice_windows,
+        n_long_poke_checked, n_long_poke_agree, parse_error``) and ``"files"`` (the figure paths
+        written, PNG then PDF per figure). No table is written to disk.
 
     Raises:
         ValueError: If the input is not one problem's ``{mouse: {session: session}}`` with raw
@@ -204,7 +194,7 @@ def run_poke_analysis(
 
     Notes:
         A session whose raw events raise ``PokeParseError`` is skipped with a warning: it has
-        zero counts and a row in ``Poke Trial Summary.csv`` whose ``parse_error`` column holds
+        zero counts and a row in ``"summary"`` whose ``parse_error`` column holds
         the reason (the long-poke means, which come from the imported trials, still include it).
         Disagreements between the raw long pokes and the printed ``long_pokes`` lists raise a
         ``UserWarning`` and are listed in the cross-check table. The last trial of each recording
@@ -231,10 +221,6 @@ def run_poke_analysis(
     problem_means = problem_mean_long_pokes(subjects_trials_by_problem)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    long_pokes_by_session_table(means, per_session).to_csv(out_dir / TABLE_FILES[0], index=False)
-    counts_by_port_table(counts).to_csv(out_dir / TABLE_FILES[1], index=False)
-    counts_by_session_table(per_session).to_csv(out_dir / TABLE_FILES[2], index=False)
-    cross_check_table(per_session).to_csv(out_dir / TABLE_FILES[3], index=False)
 
     plot_num_pokes_across_mice(
         relative,
@@ -278,6 +264,6 @@ def run_poke_analysis(
             mouse: {s: c.long_poke_check for s, c in by_session.items()}
             for mouse, by_session in per_session.items()
         },
-        "files": [out_dir / name for name in TABLE_FILES]
-        + [out_dir / f"{s}.{e}" for s in stems for e in ("png", "pdf")],
+        "summary": cross_check_table(per_session),
+        "files": [out_dir / f"{s}.{e}" for s in stems for e in ("png", "pdf")],
     }
