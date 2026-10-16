@@ -35,13 +35,13 @@ recording's last printed trial may have an open after-choice window. Structurall
 logs raise :class:`PokeParseError`. Port-finding trials (prints with ``num_t_found``, no
 ``num_t``) are not task trials: they are kept in the list as trials with ``drop_reason``
 :data:`PORT_FINDING`, which :func:`is_port_finding` recognises and :func:`count_port_finding`
-counts, and they are not reported as drops. A port-finding print has ``num_t_found``, ``found_ports``
-false and no ``num_t``; a print with ``num_t_found`` that breaks the rest of that rule raises
-:class:`PokeParseError`. A port-finding trial that times out (an ``ITI`` with no print) is only
-recognised by the port-finding print that follows it, so it counts as port finding when the next
-print is a port-finding one, and as a dropped task trial otherwise. Trials that do not line up with the session's imported
-trials raise :class:`PokeAlignmentError`, which is not a :class:`PokeParseError` because it
-points to a bug in the code rather than to an odd recording.
+counts, and they are not reported as drops. A port-finding print has ``num_t_found``,
+``found_ports`` false and no ``num_t``; a print with ``num_t_found`` that breaks the rest of that
+rule raises :class:`PokeParseError`. A port-finding trial that times out (an ``ITI`` with no
+print) is only recognised by the port-finding print that follows it, so it counts as port finding
+when the next print is a port-finding one, and as a dropped task trial otherwise. Trials that do
+not line up with the session's imported trials raise :class:`PokeAlignmentError`, which is not a
+:class:`PokeParseError` because it points to a bug in the code rather than to an odd recording.
 """
 
 from __future__ import annotations
