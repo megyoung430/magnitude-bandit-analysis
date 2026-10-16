@@ -75,3 +75,66 @@ def check_formats_agree(subject, sessions):
             "would be classified two ways within one subject, so analyse the two kinds of "
             "session separately."
         )
+
+
+_DRIFTING_ONLY_FACT = (
+    "The drifting task has only block changes, no good or bad reversals, so this analysis "
+    "runs on drifting-task data only."
+)
+
+
+def check_blocks_only_sessions(subjects_trials_by_problem, analysis):
+    """Raise if any session of any problem is counter format.
+
+    The drifting-only analyses treat every block change alike; a session with good/bad
+    reversal counters comes from a task that has reversals, so it is the wrong data.
+
+    Args:
+        subjects_trials_by_problem (Mapping): ``{problem: {subject: {session_key: session}}}``.
+        analysis (str): Name of the calling analysis, for the error message.
+
+    Returns:
+        None: Nothing; the function only validates.
+
+    Raises:
+        ValueError: Naming the analysis, the problem, the mouse and the first counter-format
+            session, and saying the drifting task has only block changes.
+    """
+    for problem, subjects in subjects_trials_by_problem.items():
+        for subject, sessions in subjects.items():
+            for key, session in sessions.items():
+                if is_counter_session(session):
+                    raise ValueError(
+                        f"{analysis}: mouse {subject!r}, session {key!r} (problem {problem!r}) "
+                        f"is counter format (it logs good/bad reversal counters). "
+                        f"{_DRIFTING_ONLY_FACT}"
+                    )
+
+
+def check_block_change_windows(windows, analysis):
+    """Raise unless every window record was bounded by the ``blocks`` series.
+
+    Windows built from counter-format sessions record ``boundary_source`` ``"good_reversals"``
+    (or ``"num_blocks"``); only ``"blocks"`` means plain block changes.
+
+    Args:
+        windows (Mapping): ``{subject: [window record]}`` as ``get_good_reversal_info`` returns.
+        analysis (str): Name of the calling analysis, for the error message.
+
+    Returns:
+        None: Nothing; the function only validates.
+
+    Raises:
+        ValueError: Naming the analysis, the mouse and the reversal index of the first record
+            whose ``boundary_source`` is missing or is not ``"blocks"``.
+    """
+    for subject, records in windows.items():
+        for record in records:
+            source = record.get("boundary_source")
+            if source != "blocks":
+                found = "no boundary_source" if source is None else f"boundary_source {source!r}"
+                raise ValueError(
+                    f"{analysis}: mouse {subject!r}, window at trial "
+                    f"{record.get('reversal_idx')} has {found}, not 'blocks'. "
+                    f"{_DRIFTING_ONLY_FACT}"
+                )

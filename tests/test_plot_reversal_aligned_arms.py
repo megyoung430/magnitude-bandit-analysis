@@ -76,12 +76,12 @@ def test_se_bands_are_drawn_only_where_the_se_exists():
 
 
 def test_the_title_says_how_arms_are_labelled_and_how_types_are_defined():
-    for scheme, words in (("prev", "before the reversal"), ("new", "after the reversal")):
+    for scheme, words in (("prev", "before the block change"), ("new", "after the block change")):
         ax, _ = plot_reversal_aligned_arms(result_for(scheme, moving_avg_window=4))
         title = ax.get_title()
         assert words in title
         assert "type defined by the prev ranking" in title
-        assert "n=2 subjects" in title and "n=2 reversals" in title
+        assert "n=2 subjects" in title and "n=2 block changes" in title
         assert "moving average over 4 trials (centered)" in title
 
 
@@ -104,7 +104,7 @@ def test_draws_into_the_axes_it_is_given():
 def test_an_empty_result_cannot_be_drawn():
     with pytest.warns(UserWarning):
         empty = result_for("prev", reversal_type="best_to_third", subjects=0)
-    with pytest.raises(ValueError, match="no reversals"):
+    with pytest.raises(ValueError, match="no block changes"):
         plot_reversal_aligned_arms(empty)
 
 

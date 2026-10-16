@@ -1,17 +1,17 @@
-"""Rank the three arms around a reversal, label them, and type each reversal.
+"""Rank the three arms around a block change, label them, and type each block change.
 
-Arms are ranked by reward magnitude on the trial before the reversal (the *prev* ranking) and
-on the reversal trial (the *new* ranking). A tie leaves the order of the tied arms undefined,
+Arms are ranked by reward magnitude on the trial before the block change (the *prev* ranking) and
+on the block change trial (the *new* ranking). A tie leaves the order of the tied arms undefined,
 and nothing here breaks it (not by arm name, not by listing order):
 
 - the labels of a scheme (:func:`arm_labels`) exist only when the ranking the scheme uses has
   no tie;
-- the type of a reversal (:func:`classify_reversal_type`) is the type under *every* ranking
+- the type of a block change (:func:`classify_reversal_type`) is the type under *every* ranking
   that the ties allow, and ``"ambiguous"`` when those disagree.
 
 :func:`select_reversals` applies both rules and counts what it leaves out.
 
-Reversal types are defined by the prev ranking: ``best_to_third`` means the arm that was best
+Block change types are defined by the prev ranking: ``best_to_third`` means the arm that was best
 before is third after, ``second_to_third`` that the arm that was second is third after. The
 type is the same whichever labelling scheme is plotted.
 """
@@ -33,17 +33,17 @@ _AFTER = "reward_magnitudes_by_tower_after"
 
 
 class SelectionCounts(NamedTuple):
-    """What :func:`select_reversals` did with the reversals of all subjects.
+    """What :func:`select_reversals` did with the block changes of all subjects.
 
     ``candidates = tied_labels + tied_type + wrong_type + selected``.
 
     ``tied_labels`` were left out because a tie leaves the scheme's labels undefined;
     ``tied_type`` because their type depends on a tie (type-specific sets only);
     ``wrong_type`` cannot be of the requested type under any ordering of ties. In a
-    type-specific set, ties are counted only for reversals that could be of that type.
+    type-specific set, ties are counted only for block changes that could be of that type.
 
     Attributes:
-        candidates (int): Reversals considered, over all subjects.
+        candidates (int): Block changes considered, over all subjects.
         tied_labels (int): Left out because a tie leaves the scheme's labels undefined.
         tied_type (int): Left out because their type depends on a tie.
         wrong_type (int): Left out because they cannot be of the requested type.
@@ -82,7 +82,7 @@ def consistent_rankings(magnitudes: Mapping[str, float]) -> list[tuple[str, str,
 
 
 def _type_under(prev_order: tuple, new_order: tuple) -> str:
-    """Type of a reversal for one prev ranking and one new ranking."""
+    """Type of a block change for one prev ranking and one new ranking."""
     new_third = new_order[2]
     if new_third == prev_order[0]:
         return "best_to_third"
@@ -92,10 +92,10 @@ def _type_under(prev_order: tuple, new_order: tuple) -> str:
 
 
 def possible_reversal_types(reversal: dict) -> frozenset[str]:
-    """Every type the reversal has under some ordering of tied arms (one type if no tie).
+    """Every type the block change has under some ordering of tied arms (one type if no tie).
 
     Args:
-        reversal (dict): A reversal dict with ``reward_magnitudes_by_tower_before`` and
+        reversal (dict): A block change dict with ``reward_magnitudes_by_tower_before`` and
             ``reward_magnitudes_by_tower_after`` (``{tower: magnitude}``).
 
     Returns:
@@ -112,10 +112,10 @@ def possible_reversal_types(reversal: dict) -> frozenset[str]:
 
 
 def classify_reversal_type(reversal: dict) -> str:
-    """Type of a reversal, defined by the prev ranking.
+    """Type of a block change, defined by the prev ranking.
 
     Args:
-        reversal (dict): A reversal dict with the before and after magnitudes per tower.
+        reversal (dict): A block change dict with the before and after magnitudes per tower.
 
     Returns:
         str: ``"best_to_third"`` (the arm that was best before is third after),
@@ -134,8 +134,8 @@ def arm_labels(reversal: dict, scheme: str) -> tuple[str, str, str] | None:
     """Arms in best, second, third order of the ranking the scheme uses.
 
     Args:
-        reversal (dict): A reversal dict with the before and after magnitudes per tower.
-        scheme (str): ``"prev"`` (ranking before the reversal) or ``"new"`` (ranking after it).
+        reversal (dict): A block change dict with the before and after magnitudes per tower.
+        scheme (str): ``"prev"`` (ranking before the block change) or ``"new"`` (ranking after it).
 
     Returns:
         tuple[str, str, str] | None: ``(best, second, third)`` arm names, or ``None`` if that
@@ -154,13 +154,13 @@ def _check_selectable(reversal_type: str, reversals: list[dict]) -> None:
     if reversal_type not in REVERSAL_TYPES:
         raise ValueError(f"reversal_type must be one of {REVERSAL_TYPES}, got {reversal_type!r}")
     if any(r.get("first_block", False) for r in reversals):
-        raise ValueError("a first block record is not a reversal; build windows without it")
+        raise ValueError("a first block record is not a block change; build windows without it")
 
 
 def _verdict(reversal: dict, scheme: str, reversal_type: str) -> str:
-    """``"selected"`` or the field of :class:`SelectionCounts` that counts the reversal.
+    """``"selected"`` or the field of :class:`SelectionCounts` that counts the block change.
 
-    Ties are only reported for reversals that could be of the requested type: one that cannot
+    Ties are only reported for block changes that could be of the requested type: one that cannot
     be (under any ordering of its ties) is simply of another type.
     """
     labels_tied = arm_labels(reversal, scheme) is None
@@ -177,17 +177,17 @@ def _verdict(reversal: dict, scheme: str, reversal_type: str) -> str:
 def select_reversals(
     reversal_windows: Mapping[str, list[dict]], scheme: str, reversal_type: str
 ) -> tuple[dict[str, list[dict]], SelectionCounts]:
-    """Keep the reversals that have defined labels for *scheme* and are of *reversal_type*.
+    """Keep the block changes that have defined labels for *scheme* and are of *reversal_type*.
 
     Args:
-        reversal_windows (Mapping[str, list[dict]]): ``{subject: [reversal dict]}`` as from
+        reversal_windows (Mapping[str, list[dict]]): ``{subject: [block change dict]}`` as from
             ``get_good_reversal_info``.
         scheme (str): ``"prev"`` or ``"new"``.
         reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``.
 
     Returns:
         tuple[dict[str, list[dict]], SelectionCounts]: ``(selected, counts)``:
-        ``{subject: reversals}`` without subjects left empty, and
+        ``{subject: block changes}`` without subjects left empty, and
         the :class:`SelectionCounts` over all subjects.
 
     Raises:

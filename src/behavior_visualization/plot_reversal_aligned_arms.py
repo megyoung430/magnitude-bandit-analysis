@@ -1,12 +1,12 @@
-"""Figure of choice probability and reward magnitude of the three arms around a reversal.
+"""Figure of choice probability and reward magnitude of the three arms around a block change.
 
 Choice probabilities (mean ± SE across subjects) are solid lines on the left axis; the mean
 reward magnitude of the same three arms is a dashed step line of the same colour on a
 secondary axis on the right. Two labelling schemes:
 
-- ``prev``: arms labelled by their rank before the reversal (best blue, second green, third
+- ``prev``: arms labelled by their rank before the block change (best blue, second green, third
   grey);
-- ``new``: arms labelled by their rank after the reversal (best blue, second green, third
+- ``new``: arms labelled by their rank after the block change (best blue, second green, third
   black).
 
 The analysis is in :mod:`src.behavior_analysis.reversal_aligned_arms`.
@@ -31,20 +31,20 @@ ROLE_COLORS = {
 }
 ROLE_LABELS = {role: role.replace("_", " ").title() for role in ROLE_COLORS}
 SCHEME_DESCRIPTIONS = {
-    "prev": "arms labelled by their rank before the reversal",
-    "new": "arms labelled by their rank after the reversal",
+    "prev": "arms labelled by their rank before the block change",
+    "new": "arms labelled by their rank after the block change",
 }
 TYPE_LABELS = {
-    "all": "All Reversals",
-    "best_to_third": "Best to Third Reversals",
-    "second_to_third": "Second to Third Reversals",
+    "all": "All Block Changes",
+    "best_to_third": "Best to Third Block Changes",
+    "second_to_third": "Second to Third Block Changes",
 }
 MIN_MAGNITUDE_YMAX = 4.0
 
 
 def _title(result: ReversalAlignedArms, scope: str) -> str:
     left_out = result.counts.tied_labels + result.counts.tied_type
-    detail = f"n={result.num_subjects} subjects, n={result.num_reversals} reversals"
+    detail = f"n={result.num_subjects} subjects, n={result.num_reversals} block changes"
     if left_out:
         detail += f", {left_out} left out for tied magnitudes"
     smoothing = (
@@ -115,7 +115,7 @@ def _draw_magnitude_curves(ax2: plt.Axes, result: ReversalAlignedArms) -> None:
 def plot_reversal_aligned_arms(
     result: ReversalAlignedArms, ax: plt.Axes | None = None, *, scope: str = ""
 ) -> tuple[plt.Axes, plt.Axes]:
-    """Choice probabilities and reward magnitudes of the three arms around the reversal.
+    """Choice probabilities and reward magnitudes of the three arms around the block change.
 
     The SE band of a curve is left out where its SE is NaN (fewer than two subjects).
 
@@ -133,17 +133,17 @@ def plot_reversal_aligned_arms(
         magnitude (right-hand) axes.
 
     Raises:
-        ValueError: If the result holds no reversals.
+        ValueError: If the result holds no block changes.
     """
     if result.num_reversals == 0:
-        raise ValueError(f"no reversals to plot for {result.scheme!r}/{result.reversal_type!r}")
+        raise ValueError(f"no block changes to plot for {result.scheme!r}/{result.reversal_type!r}")
     with axes_or_new(ax, figsize=(10, 5.5)) as ax:
         _draw_choice_curves(ax, result)
         ax.axvline(0, color="black", ls="--", lw=1, zorder=4)
         ax.axhline(1 / 3, color="gray", ls=":", lw=1, zorder=1)
         ax.set_xlim(result.trial_offsets[0], result.trial_offsets[-1] + 1)
         ax.set_ylim(0, 1)
-        ax.set_xlabel("Trials from Reversal")
+        ax.set_xlabel("Trials from Block Change")
         ax.set_ylabel("Choice Probability")
         despine(ax)
 
@@ -180,7 +180,7 @@ def save_reversal_aligned_arms(
         scope (str): See :func:`plot_reversal_aligned_arms`. Default ``""``.
 
     Raises:
-        ValueError: If the result holds no reversals.
+        ValueError: If the result holds no block changes.
     """
     ax, _ = plot_reversal_aligned_arms(result, scope=scope)
     ax.figure.tight_layout()

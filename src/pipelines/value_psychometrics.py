@@ -1,10 +1,14 @@
-"""Entry point for the drifting-task value heatmaps and psychometric curves."""
+"""Entry point for the drifting-task value heatmaps and psychometric curves.
+
+Drifting problems only: the drifting task has block changes, not good or bad reversals.
+"""
 
 from pathlib import Path
 
 import numpy as np
 
 from src.behavior_analysis.get_choice_probs_by_value import TIE_MODES, count_choice_probs
+from src.behavior_analysis.reversal_format import check_blocks_only_sessions
 from src.behavior_analysis.value_psychometrics import heatmap_tables, psychometric_curves
 from src.behavior_visualization.plot_value_psychometrics import (
     plot_overall_heatmaps,
@@ -91,9 +95,11 @@ def run_value_psychometric_analysis(
         the uncounted and the tied trials.
 
     Raises:
-        ValueError: If *value_bases*, *pooling_modes* or *tie_modes* has an unknown entry, or
-            no mouse has any session.
+        ValueError: If *value_bases*, *pooling_modes* or *tie_modes* has an unknown entry, if
+            a session is counter format (the drifting task has only block changes), or no
+            mouse has any session.
     """
+    check_blocks_only_sessions(subjects_trials_by_problem, "run_value_psychometric_analysis")
     _check_choices("value_bases", value_bases, _VALUE_BASES)
     _check_bools("pooling_modes", pooling_modes)
     _check_choices("tie_modes", tie_modes, TIE_MODES)

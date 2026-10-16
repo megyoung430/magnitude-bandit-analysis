@@ -1,5 +1,6 @@
-"""Entry point: reversal-aligned choice probability and reward magnitude of the three arms.
+"""Entry point: choice probability and reward magnitude of the three arms around block changes.
 
+For drifting problems only: the drifting task has block changes, not good or bad reversals.
 Windows are computed per problem, then concatenated per subject for the pooled figures.
 See :func:`run_reversal_aligned_arm_analysis`.
 """
@@ -20,10 +21,15 @@ from src.behavior_analysis.reversal_aligned_arms import (
     compute_reversal_aligned_arms,
 )
 from src.behavior_analysis.reversal_arm_ranks import LABEL_SCHEMES, REVERSAL_TYPES
+from src.behavior_analysis.reversal_format import (
+    check_block_change_windows,
+    check_blocks_only_sessions,
+)
 from src.behavior_visualization.plot_reversal_aligned_arms import save_reversal_aligned_arms
 
 COUNTS_FILENAME = "reversal_aligned_arms_counts.csv"
 POOLED = "pooled"
+_ANALYSIS = "run_reversal_aligned_arm_analysis"
 
 
 def _problem_name(problem) -> str:
@@ -47,10 +53,10 @@ def _check_choices(label_schemes, reversal_types, moving_avg_mode, moving_avg_wi
 
 
 def _holds_windows(per_problem) -> bool | None:
-    """True if the values are reversal lists, False if session dicts, None if there are none."""
+    """True if the values are block change lists, False if session dicts, None if there are none."""
     kinds = {isinstance(value, list) for value in per_problem.values()}
     if len(kinds) > 1:
-        raise ValueError("a problem mixes reversal lists and session dicts")
+        raise ValueError("a problem mixes block change lists and session dicts")
     return kinds.pop() if kinds else None
 
 
@@ -59,7 +65,8 @@ def _windows_by_problem(by_problem: Mapping, *, pre: int, post: int) -> dict:
 
     Raises:
         ValueError: If there are no problems, trials and windows are mixed, or given windows
-            were not built by ``build_windows_with_magnitudes`` with this *pre* and *post*.
+            were not built by ``build_windows_with_magnitudes`` with this *pre* and *post*, or
+            trials or windows come from counter-format sessions.
     """
     if not by_problem:
         raise ValueError("no problems given")
@@ -69,7 +76,9 @@ def _windows_by_problem(by_problem: Mapping, *, pre: int, post: int) -> dict:
     if kinds == {True}:
         for windows in by_problem.values():
             check_windows_built_with(windows, pre=pre, post=post)
+            check_block_change_windows(windows, _ANALYSIS)
         return dict(by_problem)
+    check_blocks_only_sessions(by_problem, _ANALYSIS)
     return {
         problem: build_windows_with_magnitudes(trials, pre=pre, post=post)
         for problem, trials in by_problem.items()
@@ -105,7 +114,7 @@ def _draw(
 ) -> list[Path]:
     """Save (or show, without *out_dir*) the figure of a result; its PNG and PDF paths.
 
-    A result with no reversals has no figure.
+    A result with no block changes has no figure.
     """
     if not result.num_reversals:
         return []
@@ -132,25 +141,25 @@ def run_reversal_aligned_arm_analysis(
 ) -> dict:
     """Figures of arm choice probability and reward magnitude around block changes.
 
-    One figure per scope, label scheme and reversal type. Scopes: ``"pooled"`` (all problems,
-    reversals concatenated per subject) and, if more than one problem is given, each problem
-    (``"problem-04"``). Schemes: ``"prev"`` labels arms by their rank before the reversal,
-    ``"new"`` by their rank after it; the reversal type is defined by the prev ranking in both.
-    Reversals with tied magnitudes are left out (see
+    One figure per scope, label scheme and block change type. Scopes: ``"pooled"`` (all problems,
+    block changes concatenated per subject) and, if more than one problem is given, each problem
+    (``"problem-04"``). Schemes: ``"prev"`` labels arms by their rank before the block change,
+    ``"new"`` by their rank after it; the block change type is defined by the prev ranking in both.
+    Block changes with tied magnitudes are left out (see
     :mod:`src.behavior_analysis.reversal_arm_ranks`); the counts say how many.
 
     Args:
         windows_or_trials_by_problem (Mapping): ``{problem: {subject: {session: session dict}}}``,
             from which windows (without the first block, with magnitudes) are computed per
-            problem; or ``{problem: {subject: [reversal dict]}}`` already built with
+            problem; or ``{problem: {subject: [block change dict]}}`` already built with
             :func:`~src.behavior_analysis.reversal_aligned_arms.build_windows_with_magnitudes`
             and the same *pre* and *post*. A single problem is a one-entry dict.
         out_dir (str | Path | None): Folder for
             ``reversal_aligned_arms_<scope>_<scheme>_<type>.png/.pdf`` and
             ``reversal_aligned_arms_counts.csv`` (created if missing). ``None`` or ``""`` shows
             the figures and writes nothing.
-        pre (int): Trials before the reversal in each window. Default 10. Keyword-only.
-        post (int): Trials from the reversal on in each window. Default 30. Keyword-only.
+        pre (int): Trials before the block change in each window. Default 10. Keyword-only.
+        post (int): Trials from the block change on in each window. Default 30. Keyword-only.
         moving_avg_window (int): Moving-average width for the choice probabilities (positive
             int; 1 for none). Default 4. Keyword-only.
         label_schemes (Sequence[str]): Subset of ``("prev", "new")``. Default: all of
@@ -169,7 +178,7 @@ def run_reversal_aligned_arm_analysis(
     Returns:
         dict: ``{"results": {scope: {scheme: {type: ReversalAlignedArms}}}, "counts": DataFrame
         with one row per scope, scheme and type, "figure_paths": [Path, ...],
-        "windows_by_problem": {problem: windows}}``. A combination with no reversal left makes
+        "windows_by_problem": {problem: windows}}``. A combination with no block change left makes
         no figure and raises an ``EmptySelectionWarning``.
 
     Raises:
