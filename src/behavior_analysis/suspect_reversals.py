@@ -21,7 +21,7 @@ such pair:
 - one at the very start of a problem's first session, or after the last trial of its last
   session: there is no trial on the other side;
 - one logged after a session's last trial (``source`` ``"run_end"``, index = the trial count)
-  whose next session's first trial does not show it: the import marks it
+  whose next session with trials does not show it at its first trial: the import marks it
   ``session_check = "inconsistent"``, it is not carried into the next session, and it counts as
   uncheckable. When the next session does show it (``"consistent"``) it starts the new block
   there and needs no further check.
