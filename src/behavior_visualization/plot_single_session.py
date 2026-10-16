@@ -5,9 +5,10 @@ don't), so it can be one panel of a larger figure. :func:`plot_single_session`
 composes the panels into the standard four-panel figure and saves or shows it.
 
 When the session carries its raw recordings (``"df"``), two maze heatmaps of that session's
-pokes are added in a row below the standard panels: long pokes after initiation and pokes after
-the choice (see :mod:`src.behavior_analysis.poke_events`). The standard panels keep their size
-and their distance from the top of the figure.
+pokes are added in a row below the standard panels, each centred under the bar chart above it:
+long pokes after initiation (under the counts by tower) and pokes after the choice (under the
+counts by rank; see :mod:`src.behavior_analysis.poke_events`). The standard panels keep their
+size and their distance from the top of the figure.
 """
 
 import warnings
@@ -288,6 +289,22 @@ def plot_choices_by_rank(rank_counts: Mapping[str, float] | None, ax: Axes | Non
 
 # Inches added below the standard panels for the two maze maps.
 _MAP_ROW_INCHES = 4.4
+# Side of each (square) maze map, and the colorbar's gap, width and height relative to the side.
+_MAP_SIDE_INCHES = 3.3
+_COLORBAR_GAP_INCHES = 0.12
+_COLORBAR_WIDTH_INCHES = 0.16
+_COLORBAR_HEIGHT_FRACTION = 0.8
+# Distance from the top of the added row to the top of the maps (room for their two-line titles),
+# and from the bottom of the figure to the bottom of the added row (room for the legend).
+_MAP_TOP_MARGIN_INCHES = 0.45
+_MAP_BOTTOM_MARGIN_INCHES = 0.5
+
+
+class MapAxes(NamedTuple):
+    """The axes of one maze map and of its colorbar."""
+
+    map: Axes
+    colorbar: Axes
 
 
 class PokeMaps(NamedTuple):
@@ -323,28 +340,39 @@ def _panel_grid_margins(base_height: float, extra: float) -> dict[str, float]:
     }
 
 
-def _add_map_axes(fig: Figure, base_height: float, extra: float) -> tuple[Axes, Axes]:
-    """The two maze axes, side by side in the *extra* inches below the standard panels."""
-    total = base_height + extra
-    grid = GridSpec(
-        1,
-        2,
-        figure=fig,
-        left=0.07,
-        right=0.97,
-        bottom=0.5 / total,
-        top=(extra - 0.45) / total,
-        wspace=0.12,
+def _add_map_axes(fig: Figure, under: Axes, base_height: float, extra: float) -> MapAxes:
+    """A square map axes centred horizontally under *under*, and its colorbar axes beside it.
+
+    The map is centred on the plot area of the panel above it, so the colorbar (placed outside
+    the map's box) does not push the map off-centre; the map sits in the *extra* inches below
+    the standard panels.
+    """
+    width, total = fig.get_size_inches()[0], base_height + extra
+    box = under.get_position()
+    centre = (box.x0 + box.x1) / 2
+    side_x, side_y = _MAP_SIDE_INCHES / width, _MAP_SIDE_INCHES / total
+    top = (extra - _MAP_TOP_MARGIN_INCHES) / total
+    bottom = top - side_y
+    map_ax = fig.add_axes((centre - side_x / 2, bottom, side_x, side_y))
+    bar_height = _COLORBAR_HEIGHT_FRACTION * side_y
+    colorbar_ax = fig.add_axes(
+        (
+            centre + side_x / 2 + _COLORBAR_GAP_INCHES / width,
+            bottom + (side_y - bar_height) / 2,
+            _COLORBAR_WIDTH_INCHES / width,
+            bar_height,
+        )
     )
-    return fig.add_subplot(grid[0, 0]), fig.add_subplot(grid[0, 1])
+    return MapAxes(map_ax, colorbar_ax)
 
 
 def _make_axes(
     has_ema: bool, with_maps: bool
-) -> tuple[Figure, tuple[Axes, Axes | None, Axes, Axes], tuple[Axes, Axes] | None]:
+) -> tuple[Figure, tuple[Axes, Axes | None, Axes, Axes], tuple[MapAxes, MapAxes] | None]:
     """Figure, ``(ax_magnitudes, ax_ema | None, ax_towers, ax_ranks)`` and the two map axes.
 
-    The map axes are ``None`` unless *with_maps*; then the figure is taller by the map row.
+    The map axes are ``None`` unless *with_maps*; then the figure is taller by the map row. The
+    first map sits under the counts-by-tower chart and the second under the counts-by-rank chart.
     """
     extra = _MAP_ROW_INCHES if with_maps else 0
     base_height = 11 if has_ema else 8
@@ -359,7 +387,12 @@ def _make_axes(
         gs = GridSpec(2, 2, height_ratios=[2.5, 1.5], hspace=0.25, wspace=0.25, **margins)
         ax1 = fig.add_subplot(gs[0, :])
         axes = (ax1, None, fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]))
-    maps = _add_map_axes(fig, base_height, extra) if with_maps else None
+    maps = None
+    if with_maps:
+        maps = (
+            _add_map_axes(fig, axes[2], base_height, extra),
+            _add_map_axes(fig, axes[3], base_height, extra),
+        )
     return fig, axes, maps
 
 
@@ -417,7 +450,11 @@ def poke_maps_for_session(
     )
 
 
-def plot_poke_maps(maps: PokeMaps, axes: tuple[Axes, Axes]) -> None:
+def plot_poke_maps(
+    maps: PokeMaps,
+    axes: tuple[Axes, Axes],
+    colorbar_axes: tuple[Axes, Axes] | None = None,
+) -> None:
     """Draw long pokes after initiation (left) and pokes after the choice (right) of one session.
 
     Each map is coloured from 0 to its own largest count; the colorbar says so. Green outlines
@@ -427,15 +464,19 @@ def plot_poke_maps(maps: PokeMaps, axes: tuple[Axes, Axes]) -> None:
         maps (PokeMaps): The data of the two maps.
         axes (tuple[Axes, Axes]): ``(initiation_ax, choice_ax)``, the axes for the long pokes
             after initiation and for the pokes after the choice.
+        colorbar_axes (tuple[Axes, Axes] | None): Axes for the two colorbars, in the same order;
+            None lets each colorbar take its room from its map. Default None.
     """
     scale = "colour scale 0 to this session's maximum"
     counts = maps.counts
     initiation_ax, choice_ax = axes
+    initiation_cax, choice_cax = colorbar_axes or (None, None)
     common = {"current_ports": maps.current_ports, "previous_ports": maps.previous_ports}
     draw_maze_heatmap(
         counts.after_initiation,
         colorbar_label="Long pokes after initiation (count per port)",
         ax=initiation_ax,
+        colorbar_ax=initiation_cax,
         title=f"Long pokes after initiation\n({scale})",
         initiation_port=maps.initiation_port,
         **common,
@@ -444,6 +485,7 @@ def plot_poke_maps(maps: PokeMaps, axes: tuple[Axes, Axes]) -> None:
         counts.after_choice,
         colorbar_label="Pokes after choice (count per port)",
         ax=choice_ax,
+        colorbar_ax=choice_cax,
         title=f"Pokes after choice\n({scale})",
         **common,
     )
@@ -494,7 +536,11 @@ def _draw_session(
     plot_choices_by_rank(latest_rank_counts(session_data), ax=ax4)
     _style_spines((ax1, ax2, ax3, ax4))
     if poke_maps is not None:
-        plot_poke_maps(poke_maps, map_axes)
+        plot_poke_maps(
+            poke_maps,
+            (map_axes[0].map, map_axes[1].map),
+            (map_axes[0].colorbar, map_axes[1].colorbar),
+        )
         handles = outline_legend_handles(True, poke_maps.previous_ports is not None, True)
         fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False)
     # The GridSpecs set hspace/wspace explicitly, which tight_layout reports as

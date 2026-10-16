@@ -197,6 +197,7 @@ def draw_maze_heatmap(
     previous_ports: Collection[str] | None = None,
     initiation_port: str | None = None,
     cmap: str = "Blues",
+    colorbar_ax: Axes | None = None,
 ) -> Axes:
     """Draw one maze heatmap with its own 0-to-max colorbar.
 
@@ -212,6 +213,10 @@ def draw_maze_heatmap(
             problem's choice ports); None for a mouse without a previous problem. Default None.
         initiation_port (str | None): Port to outline in blue, or None. Default None.
         cmap (str): Name of a matplotlib colormap. Default ``"Blues"``.
+        colorbar_ax (Axes | None): Axes to draw the colorbar into. By default the colorbar takes
+            its room from *ax*, which shifts the map left of where *ax* was placed; passing an
+            axes keeps the map exactly at *ax*, for a caller that positions the map itself.
+            Default None.
 
     Returns:
         Axes: The axes the map was drawn on.
@@ -240,13 +245,18 @@ def draw_maze_heatmap(
         ax.set_ylim(-0.35, 1.65)
         ax.set_aspect("equal")
         ax.axis("off")
-        _add_colorbar(ax, norm, colormap, colorbar_label)
+        _add_colorbar(ax, norm, colormap, colorbar_label, colorbar_ax)
     return ax
 
 
-def _add_colorbar(ax: Axes, norm: Normalize, colormap, label: str) -> None:
+def _add_colorbar(
+    ax: Axes, norm: Normalize, colormap, label: str, colorbar_ax: Axes | None = None
+) -> None:
     mappable = mpl.cm.ScalarMappable(norm=norm, cmap=colormap)
-    colorbar = ax.figure.colorbar(mappable, ax=ax, fraction=0.045, pad=0.02, shrink=0.8)
+    if colorbar_ax is None:
+        colorbar = ax.figure.colorbar(mappable, ax=ax, fraction=0.045, pad=0.02, shrink=0.8)
+    else:
+        colorbar = ax.figure.colorbar(mappable, cax=colorbar_ax)
     colorbar.set_label(label, rotation=90, fontsize=9)
     colorbar.set_ticks([norm.vmin, norm.vmax])
     colorbar.set_ticklabels([f"{norm.vmin:g}", f"{norm.vmax:g}"])

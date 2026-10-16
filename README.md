@@ -220,7 +220,7 @@ report all failures at the end.
   type (so drifting problem 1 is outlined with the last blocked problem's ports); blue is the
   initiation port. The single-session figures carry the same maps for their session, with the red
   outlines. Every session's raw events are parsed once for both. A session whose raw events cannot
-  be read as trials warns and is drawn without maps (and noted in `Poke Trial Summary.csv`); parsed
+  be read as trials warns and is drawn without maps (and noted in the `parse_error` column of the returned `summary`); parsed
   trials that disagree with the imported trials stop the run with a `PokeAlignmentError`.
 - **Outputs** (under `results/`, which is git-ignored), for cohort `cohort-0N`:
 
@@ -228,7 +228,7 @@ report all failures at the end.
   | --- | --- |
   | `blocked/problem-KK/reversal-stats/` | choice probabilities around good reversals, first leave, reversal counts |
   | `blocked/problem-KK/choice-stats/` | true-value rank proportions |
-  | `blocked/problem-KK/long-pokes/` | long pokes per relative session, maze heatmaps, four CSVs |
+  | `blocked/problem-KK/long-pokes/` | long pokes per relative session, maze heatmaps (no CSVs) |
   | `blocked/problem-KK/single-sessions/<mouse>/<session>/` | one overview figure per session |
   | `drifting/problem-KK/reversal-stats/` | reversal counts |
   | `drifting/problem-KK/choice-stats/` | true- and believed-value rank proportions |
