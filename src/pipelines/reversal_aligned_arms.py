@@ -20,14 +20,20 @@ from src.behavior_analysis.reversal_aligned_arms import (
     check_windows_built_with,
     compute_reversal_aligned_arms,
 )
-from src.behavior_analysis.reversal_arm_ranks import LABEL_SCHEMES, REVERSAL_TYPES
+from src.behavior_analysis.reversal_arm_ranks import (
+    LABEL_SCHEMES,
+    REVERSAL_TYPES,
+    SCHEME_TYPES,
+)
 from src.behavior_analysis.reversal_format import (
     check_block_change_windows,
     check_blocks_only_sessions,
 )
-from src.behavior_visualization.plot_reversal_aligned_arms import save_reversal_aligned_arms
+from src.behavior_visualization.plot_reversal_aligned_arms import (
+    figure_stem,
+    save_reversal_aligned_arms,
+)
 
-COUNTS_FILENAME = "reversal_aligned_arms_counts.csv"
 POOLED = "pooled"
 _ANALYSIS = "run_reversal_aligned_arm_analysis"
 
@@ -41,11 +47,18 @@ def _check_choices(label_schemes, reversal_types, moving_avg_mode, moving_avg_wi
     check_moving_avg_window(moving_avg_window)
     for name, chosen, allowed in (
         ("label scheme", label_schemes, LABEL_SCHEMES),
-        ("reversal_type", reversal_types, REVERSAL_TYPES),
+        ("reversal_type", reversal_types or (), REVERSAL_TYPES),
     ):
         unknown = [c for c in chosen if c not in allowed]
         if unknown:
             raise ValueError(f"unknown {name} {unknown}; choose from {allowed}")
+    unused = [
+        t for t in reversal_types or () if not any(t in SCHEME_TYPES[s] for s in label_schemes)
+    ]
+    if unused:
+        raise ValueError(
+            f"reversal_type {unused} belongs to none of the label schemes {list(label_schemes)}"
+        )
     if moving_avg_mode not in MOVING_AVG_MODES:
         raise ValueError(
             f"moving_avg_mode must be one of {MOVING_AVG_MODES}, got {moving_avg_mode!r}"
@@ -93,6 +106,13 @@ def _scopes(windows_by_problem: dict) -> dict[str, dict]:
     return scopes
 
 
+def _types_for(scheme: str, reversal_types: Sequence[str] | None) -> list[str]:
+    """The block change types to make for *scheme*: all of its own, or those asked for that fit."""
+    if reversal_types is None:
+        return list(SCHEME_TYPES[scheme])
+    return [t for t in reversal_types if t in SCHEME_TYPES[scheme]]
+
+
 def _counts_row(scope: str, result: ReversalAlignedArms, figure: str) -> dict:
     c = result.counts
     return {
@@ -121,7 +141,7 @@ def _draw(
     if out_dir is None:
         save_reversal_aligned_arms(result, None, scope=title_scope)
         return []
-    base = out_dir / f"reversal_aligned_arms_{scope}_{result.scheme}_{result.reversal_type}"
+    base = out_dir / figure_stem(result, scope)
     save_reversal_aligned_arms(result, base, scope=title_scope)
     return [Path(f"{base}.png"), Path(f"{base}.pdf")]
 
@@ -134,7 +154,7 @@ def run_reversal_aligned_arm_analysis(
     post: int = 30,
     moving_avg_window: int = 4,
     label_schemes: Sequence[str] = LABEL_SCHEMES,
-    reversal_types: Sequence[str] = REVERSAL_TYPES,
+    reversal_types: Sequence[str] | None = None,
     moving_avg_mode: str = "centered",
     skip_n_trials_after_reversal: int = 0,
     scope_label: str | None = None,
@@ -143,10 +163,12 @@ def run_reversal_aligned_arm_analysis(
 
     One figure per scope, label scheme and block change type. Scopes: ``"pooled"`` (all problems,
     block changes concatenated per subject) and, if more than one problem is given, each problem
-    (``"problem-04"``). Schemes: ``"prev"`` labels arms by their rank before the block change,
-    ``"new"`` by their rank after it; the block change type is defined by the prev ranking in both.
-    Block changes with tied magnitudes are left out (see
-    :mod:`src.behavior_analysis.reversal_arm_ranks`); the counts say how many.
+    (``"problem-04"``). At a drifting block change the previous best or the previous second arm
+    drops to 0 and the previous third arm is rewarded again; each scheme splits by that:
+    ``"prev"`` labels arms by their rank before the block change (types "Prev Best \u2192 Third" and
+    "Prev Second \u2192 Third"), ``"new"`` by their rank after it (types "New Best from Third" and
+    "New Second from Third"); "All" averages over both types. Block changes with tied magnitudes
+    are left out (see :mod:`src.behavior_analysis.reversal_arm_ranks`); the counts say how many.
 
     Args:
         windows_or_trials_by_problem (Mapping): ``{problem: {subject: {session: session dict}}}``,
@@ -154,18 +176,20 @@ def run_reversal_aligned_arm_analysis(
             problem; or ``{problem: {subject: [block change dict]}}`` already built with
             :func:`~src.behavior_analysis.reversal_aligned_arms.build_windows_with_magnitudes`
             and the same *pre* and *post*. A single problem is a one-entry dict.
-        out_dir (str | Path | None): Folder for
-            ``reversal_aligned_arms_<scope>_<scheme>_<type>.png/.pdf`` and
-            ``reversal_aligned_arms_counts.csv`` (created if missing). ``None`` or ``""`` shows
-            the figures and writes nothing.
+        out_dir (str | Path | None): Folder for the figures (created if missing), named like
+            their titles, e.g. ``Choice Probabilities Around Block Changes (Prev Best to Third)
+            (Arms Labelled by Rank Before) (pooled).png/.pdf``. ``None`` or ``""`` shows the
+            figures and writes nothing.
         pre (int): Trials before the block change in each window. Default 10. Keyword-only.
         post (int): Trials from the block change on in each window. Default 30. Keyword-only.
         moving_avg_window (int): Moving-average width for the choice probabilities (positive
             int; 1 for none). Default 4. Keyword-only.
         label_schemes (Sequence[str]): Subset of ``("prev", "new")``. Default: all of
             ``LABEL_SCHEMES``. Keyword-only.
-        reversal_types (Sequence[str]): Subset of ``("all", "best_to_third",
-            "second_to_third")``. Default: all of ``REVERSAL_TYPES``. Keyword-only.
+        reversal_types (Sequence[str] | None): Types to make: ``"all"``, and for ``prev``
+            ``"best_to_third"`` / ``"second_to_third"``, for ``new`` ``"third_to_best"`` /
+            ``"third_to_second"``; a type is made only for the schemes that have it. Default
+            ``None``: all types of every scheme. Keyword-only.
         moving_avg_mode (str): ``"centered"`` or ``"trailing"``; the same for every figure.
             Default ``"centered"``. Keyword-only.
         skip_n_trials_after_reversal (int): Post trial 0 is kept and the next *k* trials dropped.
@@ -177,9 +201,12 @@ def run_reversal_aligned_arm_analysis(
 
     Returns:
         dict: ``{"results": {scope: {scheme: {type: ReversalAlignedArms}}}, "counts": DataFrame
-        with one row per scope, scheme and type, "figure_paths": [Path, ...],
-        "windows_by_problem": {problem: windows}}``. A combination with no block change left makes
-        no figure and raises an ``EmptySelectionWarning``.
+        with one row per scope, scheme and type (``scope``, ``label_scheme``, ``reversal_type``,
+        ``n_subjects``, ``n_reversals``, ``n_candidates``, ``n_tied_labels``, ``n_tied_type``,
+        ``n_wrong_type`` and the ``figure`` file name, empty for no figure), "figure_paths":
+        [Path, ...], "windows_by_problem": {problem: windows}}``. The counts are returned, not
+        written. A combination with no block change left makes no figure and raises an
+        ``EmptySelectionWarning``.
 
     Raises:
         ValueError: For unknown schemes, types or modes, no problems, mixed or incomplete
@@ -199,7 +226,7 @@ def run_reversal_aligned_arm_analysis(
     for scope, windows in _scopes(windows_by_problem).items():
         results[scope] = {scheme: {} for scheme in label_schemes}
         for scheme in label_schemes:
-            for kind in reversal_types:
+            for kind in _types_for(scheme, reversal_types):
                 result = compute_reversal_aligned_arms(
                     windows, scheme=scheme, reversal_type=kind, **settings
                 )
@@ -208,13 +235,9 @@ def run_reversal_aligned_arm_analysis(
                 paths = _draw(result, scope, out_dir, title_scope)
                 figure_paths += paths
                 rows.append(_counts_row(scope, result, paths[0].name if paths else ""))
-    counts = pd.DataFrame(rows)
-    if out_dir is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        counts.to_csv(out_dir / COUNTS_FILENAME, index=False)
     return {
         "results": results,
-        "counts": counts,
+        "counts": pd.DataFrame(rows),
         "figure_paths": figure_paths,
         "windows_by_problem": windows_by_problem,
     }

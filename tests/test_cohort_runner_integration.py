@@ -252,13 +252,13 @@ def test_reversal_aligned_arms_are_pooled_without_per_problem_duplicates(tmp_pat
     capture = capture_figures(monkeypatch)
     selection = AnalysisSelection(run_reversal_aligned_arm_analysis=True)
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # empty best_to_third selections
+        warnings.simplefilter("ignore")  # empty selections of some block change types
         run_drifting_value_analyses(
             arm_data(), tmp_path, selection, arm_scope_label=POOLED_DRIFTING_LABEL
         )
     names = capture.saved_names()
-    assert names and all("_pooled_" in name for name in names), names
-    assert (tmp_path / "reversal-aligned-arms" / "reversal_aligned_arms_counts.csv").exists()
+    assert names and all("(pooled)" in name for name in names), names
+    assert not list((tmp_path / "reversal-aligned-arms").glob("*.csv"))
 
 
 def test_pooled_arm_windows_are_the_per_problem_windows_concatenated_per_mouse(

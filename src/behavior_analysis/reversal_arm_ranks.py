@@ -11,9 +11,17 @@ and nothing here breaks it (not by arm name, not by listing order):
 
 :func:`select_reversals` applies both rules and counts what it leaves out.
 
-Block change types are defined by the prev ranking: ``best_to_third`` means the arm that was best
-before is third after, ``second_to_third`` that the arm that was second is third after. The
-type is the same whichever labelling scheme is plotted.
+At a drifting block change the most-chosen arm drops to magnitude 0 and the arm that was at 0
+(the prev third) is rewarded again, so there are two kinds of block change, split by the
+scheme's own ranking:
+
+- ``prev`` scheme: ``best_to_third`` (the arm that was best before is third after) and
+  ``second_to_third`` (the arm that was second before is third after);
+- ``new`` scheme: ``third_to_best`` (the arm that was third before is best after) and
+  ``third_to_second`` (the arm that was third before is second after).
+
+``all`` averages over both kinds. A block change that fits neither kind (``other``) is in ``all``
+only.
 """
 
 from collections.abc import Mapping
@@ -21,7 +29,11 @@ from itertools import permutations
 from typing import NamedTuple
 
 LABEL_SCHEMES = ("prev", "new")
-REVERSAL_TYPES = ("all", "best_to_third", "second_to_third")
+SCHEME_TYPES = {
+    "prev": ("all", "best_to_third", "second_to_third"),
+    "new": ("all", "third_to_best", "third_to_second"),
+}
+REVERSAL_TYPES = tuple(dict.fromkeys(t for types in SCHEME_TYPES.values() for t in types))
 SCHEME_ROLES = {
     "prev": ("prev_best", "prev_second", "prev_third"),
     "new": ("new_best", "new_second", "new_third"),
@@ -81,52 +93,65 @@ def consistent_rankings(magnitudes: Mapping[str, float]) -> list[tuple[str, str,
     ]
 
 
-def _type_under(prev_order: tuple, new_order: tuple) -> str:
+def _check_scheme(scheme: str) -> None:
+    if scheme not in LABEL_SCHEMES:
+        raise ValueError(f"scheme must be one of {LABEL_SCHEMES}, got {scheme!r}")
+
+
+def _type_under(scheme: str, prev_order: tuple, new_order: tuple) -> str:
     """Type of a block change for one prev ranking and one new ranking."""
-    new_third = new_order[2]
-    if new_third == prev_order[0]:
-        return "best_to_third"
-    if new_third == prev_order[1]:
-        return "second_to_third"
-    return OTHER
+    if scheme == "prev":
+        new_third = new_order[2]
+        if new_third == prev_order[0]:
+            return "best_to_third"
+        if new_third == prev_order[1]:
+            return "second_to_third"
+        return OTHER
+    prev_third_now = new_order.index(prev_order[2])
+    return ("third_to_best", "third_to_second", OTHER)[prev_third_now]
 
 
-def possible_reversal_types(reversal: dict) -> frozenset[str]:
+def possible_reversal_types(reversal: dict, scheme: str = "prev") -> frozenset[str]:
     """Every type the block change has under some ordering of tied arms (one type if no tie).
 
     Args:
         reversal (dict): A block change dict with ``reward_magnitudes_by_tower_before`` and
             ``reward_magnitudes_by_tower_after`` (``{tower: magnitude}``).
+        scheme (str): ``"prev"`` (types ``best_to_third``, ``second_to_third``) or ``"new"``
+            (types ``third_to_best``, ``third_to_second``). Default ``"prev"``.
 
     Returns:
-        frozenset[str]: A subset of ``"best_to_third"``, ``"second_to_third"`` and ``"other"``.
+        frozenset[str]: A subset of the scheme's two types and ``"other"``.
 
     Raises:
-        ValueError: As :func:`consistent_rankings`.
+        ValueError: For an unknown scheme, or as :func:`consistent_rankings`.
     """
+    _check_scheme(scheme)
     return frozenset(
-        _type_under(prev, new)
+        _type_under(scheme, prev, new)
         for prev in consistent_rankings(reversal[_BEFORE])
         for new in consistent_rankings(reversal[_AFTER])
     )
 
 
-def classify_reversal_type(reversal: dict) -> str:
-    """Type of a block change, defined by the prev ranking.
+def classify_reversal_type(reversal: dict, scheme: str = "prev") -> str:
+    """Type of a block change under the types of *scheme*.
 
     Args:
         reversal (dict): A block change dict with the before and after magnitudes per tower.
+        scheme (str): ``"prev"`` or ``"new"``. Default ``"prev"``.
 
     Returns:
-        str: ``"best_to_third"`` (the arm that was best before is third after),
-        ``"second_to_third"`` (the arm that was second before is third after), ``"other"``,
-        or ``"ambiguous"`` when the answer changes with how ties in the before or after
-        magnitudes are ordered.
+        str: For ``"prev"``, ``"best_to_third"`` (the arm that was best before is third after)
+        or ``"second_to_third"`` (the arm that was second before is third after); for ``"new"``,
+        ``"third_to_best"`` (the arm that was third before is best after) or
+        ``"third_to_second"``; else ``"other"``, or ``"ambiguous"`` when the answer changes with
+        how ties in the before or after magnitudes are ordered.
 
     Raises:
-        ValueError: As :func:`consistent_rankings`.
+        ValueError: For an unknown scheme, or as :func:`consistent_rankings`.
     """
-    types = possible_reversal_types(reversal)
+    types = possible_reversal_types(reversal, scheme)
     return next(iter(types)) if len(types) == 1 else AMBIGUOUS
 
 
@@ -144,15 +169,32 @@ def arm_labels(reversal: dict, scheme: str) -> tuple[str, str, str] | None:
     Raises:
         ValueError: For an unknown scheme, or as :func:`consistent_rankings`.
     """
-    if scheme not in LABEL_SCHEMES:
-        raise ValueError(f"scheme must be one of {LABEL_SCHEMES}, got {scheme!r}")
+    _check_scheme(scheme)
     rankings = consistent_rankings(reversal[_BEFORE if scheme == "prev" else _AFTER])
     return rankings[0] if len(rankings) == 1 else None
 
 
-def _check_selectable(reversal_type: str, reversals: list[dict]) -> None:
-    if reversal_type not in REVERSAL_TYPES:
-        raise ValueError(f"reversal_type must be one of {REVERSAL_TYPES}, got {reversal_type!r}")
+def check_scheme_type(scheme: str, reversal_type: str) -> None:
+    """Raise unless *reversal_type* is one of the types of *scheme*.
+
+    Args:
+        scheme (str): ``"prev"`` or ``"new"``.
+        reversal_type (str): A type name.
+
+    Raises:
+        ValueError: For an unknown scheme, or a type that the scheme does not split by (for
+            example ``"third_to_best"`` with ``"prev"``).
+    """
+    _check_scheme(scheme)
+    if reversal_type not in SCHEME_TYPES[scheme]:
+        raise ValueError(
+            f"reversal_type for the {scheme!r} scheme must be one of {SCHEME_TYPES[scheme]}, "
+            f"got {reversal_type!r}"
+        )
+
+
+def _check_selectable(scheme: str, reversal_type: str, reversals: list[dict]) -> None:
+    check_scheme_type(scheme, reversal_type)
     if any(r.get("first_block", False) for r in reversals):
         raise ValueError("a first block record is not a block change; build windows without it")
 
@@ -166,7 +208,7 @@ def _verdict(reversal: dict, scheme: str, reversal_type: str) -> str:
     labels_tied = arm_labels(reversal, scheme) is None
     if reversal_type == "all":
         return "tied_labels" if labels_tied else "selected"
-    possible = possible_reversal_types(reversal)
+    possible = possible_reversal_types(reversal, scheme)
     if reversal_type not in possible:
         return "wrong_type"
     if labels_tied:
@@ -183,7 +225,7 @@ def select_reversals(
         reversal_windows (Mapping[str, list[dict]]): ``{subject: [block change dict]}`` as from
             ``get_good_reversal_info``.
         scheme (str): ``"prev"`` or ``"new"``.
-        reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``.
+        reversal_type (str): ``"all"`` or one of the scheme's types (``SCHEME_TYPES``).
 
     Returns:
         tuple[dict[str, list[dict]], SelectionCounts]: ``(selected, counts)``:
@@ -191,10 +233,12 @@ def select_reversals(
         the :class:`SelectionCounts` over all subjects.
 
     Raises:
-        ValueError: For an unknown scheme or type, a first-block record, or a record whose
-            magnitudes are missing or not for three arms.
+        ValueError: For an unknown scheme, a type that the scheme does not have, a first-block
+            record, or a record whose magnitudes are missing or not for three arms.
     """
-    _check_selectable(reversal_type, [r for revs in reversal_windows.values() for r in revs])
+    _check_selectable(
+        scheme, reversal_type, [r for revs in reversal_windows.values() for r in revs]
+    )
     tally = dict.fromkeys(SelectionCounts._fields, 0)
     selected: dict[str, list[dict]] = {}
     for subject, reversals in reversal_windows.items():
