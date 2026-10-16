@@ -34,13 +34,22 @@ def _check_bools(name: str, values) -> None:
         raise ValueError(f"{name} must only contain True and/or False, got {unknown}")
 
 
-def _write_condition(counts: dict, label: str, tie_mode: str, pooling_modes, out_dir: Path) -> dict:
+def _write_condition(
+    counts: dict,
+    label: str,
+    tie_mode: str,
+    pooling_modes,
+    out_dir: Path,
+    *,
+    per_mouse_heatmaps: bool,
+) -> dict:
     """Draw and save the figures of one value basis and tie mode; return its tables."""
     ties = tie_label(tie_mode)
     tables = heatmap_tables(counts)
     stem = f"({label} Value) (Ties {ties})"
     plot_overall_heatmaps(tables, label, tie_mode, out_dir / f"Heatmaps {stem} Overall")
-    plot_per_mouse_heatmaps(tables, label, tie_mode, out_dir / f"Heatmaps {stem} Per Mouse")
+    if per_mouse_heatmaps:
+        plot_per_mouse_heatmaps(tables, label, tie_mode, out_dir / f"Heatmaps {stem} Per Mouse")
     curves_by_mode = {}
     for pool_trials in pooling_modes:
         curves = psychometric_curves(counts, pool_trials=pool_trials)
@@ -57,6 +66,7 @@ def run_value_psychometric_analysis(
     value_bases: tuple[str, ...] = ("true", "believed"),
     pooling_modes: tuple[bool, ...] = (True, False),
     tie_modes: tuple[str, ...] = ("exclude", "split"),
+    per_mouse_heatmaps: bool = True,
 ) -> dict:
     """Heatmaps and psychometric curves of P(best) / P(second) by true and believed value.
 
@@ -76,7 +86,8 @@ def run_value_psychometric_analysis(
     tie mode (``<Ties>`` is ``Excluded`` or ``Split``):
 
     - ``Heatmaps (<Value> Value) (Ties <Ties>) Overall`` and ``... Per Mouse`` (cell
-      probabilities do not depend on the pooling mode, so there is one of each);
+      probabilities do not depend on the pooling mode, so there is one of each; the per-mouse
+      one only with *per_mouse_heatmaps*);
     - ``Psychometric Curves (<Value> Value) (Ties <Ties>) (Pool Trials <True|False>)`` for
       each pooling mode: ``True`` pools a mouse's trials across the cells sharing an x value,
       ``False`` averages its cell probabilities equally.
@@ -87,6 +98,9 @@ def run_value_psychometric_analysis(
         value_bases (tuple[str, ...]): ``"true"`` and/or ``"believed"``.
         pooling_modes (tuple[bool, ...]): ``pool_trials`` values for the psychometric curves.
         tie_modes (tuple[str, ...]): ``"exclude"`` and/or ``"split"``.
+        per_mouse_heatmaps (bool): Draw the ``... Per Mouse`` heatmaps. Switched off for pools
+            of many mice, whose per-mouse figures belong to the cohort folders. Default
+            ``True``. Keyword-only.
 
     Returns:
         dict: ``{value_basis: {tie_mode: {"counts": {subject: MouseCounts}, "heatmaps":
@@ -121,6 +135,11 @@ def run_value_psychometric_analysis(
             if not counts:
                 raise ValueError("no subjects in subjects_trials_by_problem")
             results[basis][tie_mode] = _write_condition(
-                counts, label, tie_mode, pooling_modes, out_dir
+                counts,
+                label,
+                tie_mode,
+                pooling_modes,
+                out_dir,
+                per_mouse_heatmaps=per_mouse_heatmaps,
             )
     return results

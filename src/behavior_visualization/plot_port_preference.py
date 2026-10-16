@@ -115,6 +115,7 @@ def plot_category_ratios(
     *,
     scope_label: str,
     n_excluded: int = 0,
+    mouse_legend: bool = True,
     save_path: str | Path | None = None,
 ) -> None:
     """One-panel figure of :func:`plot_category_ratios_panel`; saves PNG and PDF or shows.
@@ -126,6 +127,8 @@ def plot_category_ratios(
         scope_label (str): Names the data in the title, e.g. ``"all drifting problems"``.
         n_excluded (int): Mice left out because only one category was offered to them; the title
             says so and they are not counted in n. Default 0.
+        mouse_legend (bool): List the mice by name next to the plot. Switch off for many mice;
+            their lines are still drawn. Default True.
         save_path (str | Path | None): Base path without extension; None shows the figure.
 
     Raises:
@@ -147,7 +150,7 @@ def plot_category_ratios(
     if n_excluded:
         title += f"\n{_mice_phrase(n_excluded)} excluded: only one category offered"
     ax.set_title(title, pad=12)
-    if n_included:  # excluded mice have no line to label
+    if mouse_legend and n_included:  # excluded mice have no line to label
         ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False, title="Mouse")
     fig.tight_layout()
     save_or_show(fig, save_path)

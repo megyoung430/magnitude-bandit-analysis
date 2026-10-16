@@ -381,12 +381,14 @@ def pooled_drifting_rank_results(
 # ---------------------------------------------------------------------------
 
 
-def plot_pooled_drifting_rank(results: dict, save_dir: Path) -> None:
+def plot_pooled_drifting_rank(results: dict, save_dir: Path, mouse_legend: bool = True) -> None:
     """One rank-proportion figure per value basis and pooling mode of *results*.
 
     Args:
         results (dict): As returned by :func:`pooled_drifting_rank_results`.
         save_dir (Path): Folder that receives the figures (created if missing).
+        mouse_legend (bool): Name the mice in each figure's legend; their lines are drawn either
+            way. Default ``True``.
 
     Returns:
         None: Returns nothing; the figures are written to *save_dir*.
@@ -400,6 +402,7 @@ def plot_pooled_drifting_rank(results: dict, save_dir: Path) -> None:
                 result["counts"],
                 average_across_mice_pvalues=result["p_values"],
                 pool_trials_within_subject=pool_trials,
+                mouse_legend=mouse_legend,
                 # plot_rank_proportions appends suffixes to a str save_path
                 save_path=str(save_dir / f"Rank Proportions ({label}) (Pool Trials {pool_trials})"),
             )
@@ -506,7 +509,19 @@ def run_warnings_log(
     return warnings_log_table([*(log.warnings if log else ()), *run_warnings], index)
 
 
-def _load(cohort_id: int, data_root, use_cache: bool) -> ImportedTrials:
+def load_cohort(cohort_id: int, data_root, use_cache: bool) -> ImportedTrials:
+    """Import a cohort's raw files, classifying the task type of every session.
+
+    Args:
+        cohort_id (int): 1 for ``cohort-01``, and so on.
+        data_root (Path | None): Folder holding ``3x3_field_magnitude_bandit``; ``None`` for the
+            ``BANDIT_DATA_ROOT`` setting.
+        use_cache (bool): Use the on-disk import cache (keyed on the raw files).
+
+    Returns:
+        ImportedTrials: ``(trials_by_problem, import_log)`` of
+        :func:`~src.behavior_import.load_trials.load_trials_with_log`.
+    """
     root = Path(data_root) if data_root is not None else get_settings().data_root
     # task types are read at import, so a task-type change starts a new problem
     return load_trials_with_log(
@@ -568,7 +583,7 @@ def run_cohort(
     cohort = cohort_name(cohort_id)
     log = import_log
     if trials_by_problem is None:
-        trials_by_problem, log = _load(cohort_id, data_root, use_cache)
+        trials_by_problem, log = load_cohort(cohort_id, data_root, use_cache)
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort}")
 
