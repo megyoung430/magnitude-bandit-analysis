@@ -177,14 +177,18 @@ def pool_cohorts(drifting_by_cohort: dict) -> PooledCohorts:
     return PooledCohorts(problems, mice_by_cohort)
 
 
+def _mice(n: int) -> str:
+    return f"{n} mouse" if n == 1 else f"{n} mice"
+
+
 def cohorts_description(mice_by_cohort: dict, run_at: datetime) -> str:
     """The text of ``cohorts.txt``: which cohorts were pooled, how many mice, and when."""
     lines = [
         f"Drifting problems pooled over {cohorts_phrase(mice_by_cohort)}",
         f"Run at {run_at:%Y-%m-%d %H:%M:%S}",
         "Mice with drifting problems:",
-        *(f"{cohort_name(c)}: {len(mice)} mice" for c, mice in mice_by_cohort.items()),
-        f"Total: {sum(map(len, mice_by_cohort.values()))} mice",
+        *(f"{cohort_name(c)}: {_mice(len(mice))}" for c, mice in mice_by_cohort.items()),
+        f"Total: {_mice(sum(map(len, mice_by_cohort.values())))}",
     ]
     return "\n".join(lines) + "\n"
 

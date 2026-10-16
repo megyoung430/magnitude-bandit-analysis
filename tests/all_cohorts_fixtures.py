@@ -40,7 +40,7 @@ def _drift(mags, zero_arm, rng):
 
 
 def _drifting_trials(ports, rng, mags, n_trials, change_at):
-    """``(print payloads, mags after the last trial)``; the block changes before trial *change_at*."""
+    """``(print payloads, mags at the end)``; the block changes before trial *change_at*."""
     rows, blocks = [], 1
     for i in range(n_trials):
         if i == change_at:
@@ -94,7 +94,7 @@ def drifting_problem_sessions(overall_problem, seed, *, first_session=1):
 
 
 def blocked_problem_sessions(overall_problem, seed, *, first_session=1):
-    """``{session_key: raw frame}`` for a blocked problem: the best arm changes at a good reversal."""
+    """``{session_key: raw frame}`` for a blocked problem (a good reversal mid-session)."""
     ports = PORTS_BY_PROBLEM[overall_problem]
     rng = np.random.default_rng(seed)
     frames = {}
