@@ -15,6 +15,7 @@ from src.behavior_analysis.value_change_windows import (
     merge_value_change_windows,
     value_change_configs,
 )
+from src.behavior_import.extract_trials import merge_trial_variables
 
 
 def script(n, start, changes):
@@ -149,8 +150,8 @@ def test_the_third_arm_is_fixed_over_pre_trials_the_window_stops_at_the_first_di
     rms = script(40, mag(4, 0, 1), {8: mag(4, 3, 1), 12: mag(5, 3, 1)})
     (event,) = windows({key(1): session(recording(rms))}).events["m"]
     assert event.trial_idx == 12
-    # third arm is B before trial 8 and C from trial 8 on: pre trials 7..8 -> t=-5..-1 are
-    # trials 7..11, so only trial 7 (third arm B) is outside
+    # The pre window t=-5..-1 covers trials 7..11. B is the third arm before trial 8 and C from
+    # trial 8 on, so only trial 7 is outside the window.
     assert event.pre[0] is None and None not in event.pre[1:]
 
 
@@ -163,6 +164,51 @@ def test_an_event_that_changes_the_third_arm_is_excluded_and_counted():
         assert w.events == {} and w.counts["n_third_arm_changed"] == 1, rank_filter
     swap = windows(s, rank="best", direction="decrease", rank_filter="rank_swap")
     assert swap.events == {} and swap.counts["n_third_arm_changed"] == 1
+
+
+def test_a_block_change_at_the_event_with_the_same_third_arm_is_not_an_event():
+    rms = script(40, BASE, {10: mag(5, 2, 1)})  # C stays the third arm
+    blocks = [1] * 10 + [2] * 30
+    w = windows({key(1): session(recording(rms, blocks=blocks))})
+    assert w.events == {} and w.counts["n_changes"] == 0
+
+
+def test_an_event_at_trial_one_has_only_the_first_trial_before_it():
+    rms = script(30, BASE, {1: mag(5, 2, 1)})
+    (event,) = windows({key(1): session(recording(rms))}).events["m"]
+    assert event.trial_idx == 1
+    assert event.pre[:-1] == (None,) * 4 and event.pre[-1] == "best"  # trial 0: A is best
+
+
+def test_a_nan_magnitude_makes_the_trial_missing():
+    rms = script(40, BASE, {10: mag(5, 2, 1)})
+    rms[12] = mag(5, float("nan"), 1)
+    w = windows({key(1): session(recording(rms))})
+    (event,) = w.events["m"]
+    assert w.counts["n_missing_magnitude_trials"] == 1
+    assert None not in event.post[:2] and event.post[2:] == (None,) * 14
+
+
+def test_a_tied_lowest_magnitude_on_either_side_counts_as_tie_skipped():
+    for before, after in ((BASE, mag(5, 1, 1)), (mag(4, 1, 1), mag(5, 2, 1))):
+        rms = script(40, before, {10: after})
+        w = windows({key(1): session(recording(rms))})
+        c = w.counts
+        assert w.events == {}
+        assert (c["n_changes"], c["n_tie_skipped"]) == (1, 1), (before, after)
+        assert c["n_third_arm_changed"] == c["n_filtered_out"] == 0
+
+
+def test_a_recording_restart_inside_a_block_keeps_its_value_change_as_an_event():
+    # The task continues the same drifting values across a restart. The importer's merge keeps
+    # the block number (the second recording starts at the running block), so the step from
+    # the last trial of recording 1 to the first of recording 2 is an ordinary event.
+    first = recording(script(20, BASE, {}), blocks=[1] * 20)
+    second = recording(script(30, mag(5, 2, 1), {}), blocks=[1] * 30)
+    merged = merge_trial_variables([first, second])
+    assert merged["blocks"] == [1] * 50
+    (event,) = windows({key(1): session(first, second)}).events["m"]
+    assert event.trial_idx == 20 and None not in event.pre and None not in event.post
 
 
 def test_a_tied_lowest_magnitude_leaves_the_third_arm_undetermined():

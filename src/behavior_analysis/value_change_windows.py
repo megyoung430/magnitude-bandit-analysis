@@ -44,7 +44,8 @@ With the third arm fixed, the other two arms are the best and the second-best ar
 - ``"rank_swap"``: the arm that held ``rank`` itself moved in ``direction`` and the best and
   second-best arms exchanged places. Possible only for (best, decrease) and (second, increase),
   so the other two combinations are rejected.
-Preserving and swap partition the events whose best/second order is determinable.
+For (best, decrease) and (second, increase), the two swap-capable combinations, preserving and
+swap partition the events whose best/second order is determinable.
 
 Ties
 ----
@@ -276,6 +277,9 @@ def _passes_filter(before: dict, after: dict, third: Any, config: ValueChangeCon
     tracked = pair_before[rank_idx]
     if config.rank_filter == "rank_preserving":
         return pair_after[rank_idx] == tracked
+    # With the third arm fixed, an exchange in a swap-capable combination already implies the
+    # tracked arm moved in the direction; `moved` only rejects the two impossible combinations'
+    # lookalikes (e.g. best/increase, where the other arm jumped above the best arm).
     moved = _moved(before[tracked], after[tracked], config.direction)
     return moved and _exchanged(pair_before, after)
 
@@ -394,6 +398,12 @@ def _build_event(
     pre: int,
     post: int,
 ) -> ValueChangeEvent:
+    """The event at trial *i*: its labelled pre/post windows and later-change flags.
+
+    The windows are cut at the first trial of another block or third arm, and at the session
+    edges (see the module docstring). Swap labels name the arms by their rank at trial i - 1;
+    the truncation reference is the best/second pair at trial i.
+    """
     rms, third = trials.magnitudes, trials.thirds[i]
     pre_run, post_run = _valid_run(trials, i, -1, pre), _valid_run(trials, i, 1, post)
     pair_before, pair_at_event = _ranked_pair(rms[i - 1], third), _ranked_pair(rms[i], third)

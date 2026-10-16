@@ -69,7 +69,11 @@ Works for one problem (`{1: ...}`) and pooled: events are computed per problem a
   events and mice contributing at each t is reported (`n_events_per_bin`, `value_change_bin_counts.csv`)
   so thinning is visible. Windows can span the recordings of a session (the task continues the
   same drifting values across a restart, so a change at a restart is a real event) but never
-  sessions. Changes at a block boundary are reversals, not events.
+  sessions. Changes at a block boundary are reversals, not events. Caveat: the importer keeps
+  the block number across a restart, so a restart is recognised only by being an ordinary step
+  inside a block; a restart that landed exactly on a real block change with the same third arm
+  would be counted as an event. The sample never shows this (test:
+  `test_a_recording_restart_inside_a_block_keeps_its_value_change_as_an_event`).
 - Detection is on the value of the rank position (larger / middle magnitude), so it is tie-free.
 - **Ties:** arm names never break ties. Events whose verdict depends on a tie are skipped and
   counted (`n_tie_skipped`; `"all"` only needs the third arm determinable). On a window trial where
