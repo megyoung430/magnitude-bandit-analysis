@@ -34,7 +34,8 @@ from src.behavior_visualization.plot_style import BAD_COLOR, GOOD_COLOR, TOTAL_C
 
 KIND_COLORS = {"good": GOOD_COLOR, "bad": BAD_COLOR, "total": TOTAL_COLOR}
 KIND_LABELS = {"good": "Good Rev", "bad": "Bad Rev", "total": "Total Rev"}
-THRESHOLD_STYLE = dict(color="gray", linewidth=2, linestyle="--")
+# Darker than the grey total bars (TOTAL_COLOR), and above them, so the line shows over a bar too.
+THRESHOLD_STYLE = dict(color="#4d4d4d", linewidth=2, linestyle="--", zorder=3)
 LEGEND_HEADROOM = 1.4  # y-axis top as a multiple of the tallest bar or threshold
 
 

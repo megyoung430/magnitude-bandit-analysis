@@ -30,7 +30,7 @@ and `feat-port-preference`.
   Staged real data has none (61 prints with `num_t_found`, all `found_ports` false, none with `num_t`).
 - A timed-out trial is only recognisable as port finding by the print that follows: it counts as
   port finding when the next print is a port-finding one, else as a dropped task trial.
-- Threshold line: `gray` dashed, full opacity (as `plot_reversals_by_trial`); the y axis tops out
+- Threshold line: dark grey (#4d4d4d) dashed, full opacity, drawn over the bars (the grey total bars are #808080, so plain grey would vanish on them); the y axis tops out
   at 1.4 times the tallest bar or threshold, so the upper-left legend sits above the line.
   `THRESHOLD_STYLE` is shared by the three reversal plots, so all three get the new line.
 - Single-category rule applies to the pooled scope of the run (a problem folder, or all

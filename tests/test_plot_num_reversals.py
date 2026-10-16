@@ -14,6 +14,7 @@ from src.behavior_visualization.plot_num_reversals import (
     plot_reversal_curves_for_mouse,
     plot_reversal_totals,
 )
+from src.behavior_visualization.plot_style import TOTAL_COLOR
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse
 
@@ -54,6 +55,7 @@ def test_threshold_line_is_a_visible_mid_grey():
     rgb = mcolors.to_rgb(THRESHOLD_STYLE["color"])
     assert max(rgb) < 0.7 and np.ptp(rgb) == 0  # grey, and clearly darker than #DCDCDC
     assert THRESHOLD_STYLE.get("alpha", 1.0) == 1.0
+    assert max(rgb) < max(mcolors.to_rgb(TOTAL_COLOR))  # visible across the grey total bars
 
 
 @pytest.mark.parametrize("totals", [[4, 12], [3, 5], [10, 10]], ids=["above", "below", "at"])
