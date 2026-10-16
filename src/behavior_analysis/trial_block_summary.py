@@ -6,6 +6,19 @@ from src.behavior_import.session_order import ordered_session_keys
 
 
 def subject_numbers_from_paths(paths):
+    """Map each mouse id to its subject number, read from ``sub-<N>_id-<mouse>`` in file paths.
+
+    Paths without that pattern are ignored.
+
+    Args:
+        paths (Iterable[str | os.PathLike]): Data file or folder paths.
+
+    Returns:
+        dict[str, int]: ``{mouse: subject number}``.
+
+    Raises:
+        ValueError: If one mouse appears with two different subject numbers.
+    """
     numbers = {}
     for path in paths:
         match = re.search(r'sub-(\d+)_id-([^/]+)', str(path))
@@ -23,6 +36,25 @@ def build_trial_block_tables(problems, subject_numbers):
     Counts include observed portions of first/last blocks. ``edge_block`` flags
     these potentially incomplete blocks. No missing sessions/trials are invented.
     Calendar time for a block is the date of its last observed trial.
+
+    Args:
+        problems (dict): ``{problem: {mouse: {session_key: session_dict}}}``; session keys carry
+            ``date-YYYYMMDD`` and session dicts a ``"trial"`` list and the importer's blocks
+            series.
+        subject_numbers (dict): ``{mouse: subject number}``; must hold every mouse in *problems*.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame]: ``(sessions, blocks)``. *sessions* has one row per
+        session with trials and columns ``mouse``, ``subject_number``, ``group``
+        (``"sub-01–04"``, ``"sub-05–08"`` or ``"Other"``), ``problem``, ``session``, ``date``
+        (Timestamp) and ``trials``. *blocks* has one row per block and columns ``mouse``,
+        ``subject_number``, ``group``, ``problem``, ``block`` (1-based within the mouse and
+        problem), ``block_id``, ``trials``, ``start_date``, ``date`` (last observed trial) and
+        ``edge_block``.
+
+    Raises:
+        ValueError: If a mouse's blocks and trials are misaligned, or its session numbers and
+            dates disagree.
     """
     sessions, blocks = [], []
     for problem, subjects in sorted(problems.items()):

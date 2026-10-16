@@ -104,7 +104,13 @@ COUNT_KEYS = (
 
 
 class ValueChangeConfig(NamedTuple):
-    """One analysis configuration: the tracked rank, direction and event filter."""
+    """One analysis configuration: the tracked rank, direction and event filter.
+
+    Attributes:
+        rank (str): ``"best"`` or ``"second"``: the magnitude position that is tracked.
+        direction (str): ``"increase"`` or ``"decrease"``: the direction of the change.
+        rank_filter (str): ``"all"``, ``"rank_preserving"`` or ``"rank_swap"``.
+    """
 
     rank: str
     direction: str
@@ -129,6 +135,18 @@ class ValueChangeEvent(NamedTuple):
     tuple ``("best", "second")`` (half each). ``rank_swap_offset`` is the t of the first later
     best/second exchange within the
     block and window (``None`` if there is none or the reference is tied).
+
+    Attributes:
+        subject (str): Subject id.
+        session (str): Session key of the event trial.
+        trial_idx (int): Session-local index of the event trial (t = 0).
+        pre (tuple[str | tuple[str, ...] | None, ...]): Labels at t = -pre .. -1.
+        post (tuple[str | tuple[str, ...] | None, ...]): Labels at t = 0 .. post.
+        contaminated (bool): Whether the magnitudes change again within the post window.
+        rank_swap_offset (int | None): t of the first later best/second exchange, or ``None``.
+        truncation_reference_tied (bool): Whether the best and second-best arms were tied at
+            t = 0, so the window could not be truncated at a swap.
+        truncated (bool): Whether the post labels were cut at a rank swap. Default False.
     """
 
     subject: str
@@ -143,7 +161,18 @@ class ValueChangeEvent(NamedTuple):
 
 
 class ValueChangeWindows(NamedTuple):
-    """Events of one configuration, ``{subject: [ValueChangeEvent]}``, plus accounting counts."""
+    """Events of one configuration, ``{subject: [ValueChangeEvent]}``, plus accounting counts.
+
+    Attributes:
+        config (ValueChangeConfig): The configuration.
+        pre (int): Trials before the event in each window.
+        post (int): Trials after the event trial in each window.
+        truncate_at_rank_swap (bool): Whether post labels are cut at the first rank swap.
+        events (dict[str, list[ValueChangeEvent]]): ``{subject: events}``.
+        counts (dict[str, int]): Accounting counts, with the keys of ``COUNT_KEYS``
+            (``n_changes``, ``n_third_arm_changed``, ``n_tie_skipped``, ``n_filtered_out``,
+            ``n_events``, ``n_sessions_without_trials``, ``n_missing_magnitude_trials``).
+    """
 
     config: ValueChangeConfig
     pre: int
@@ -203,7 +232,15 @@ def _check_config(rank: str, direction: str, rank_filter: str) -> ValueChangeCon
 
 
 def check_window(pre: int, post: int) -> None:
-    """Raise ValueError unless *pre* and *post* are integers >= 1."""
+    """Raise ValueError unless *pre* and *post* are integers >= 1.
+
+    Args:
+        pre (int): Trials before the event.
+        post (int): Trials after the event trial.
+
+    Raises:
+        ValueError: If either is not an int (a bool is not) or is below 1.
+    """
     for name, value in (("pre", pre), ("post", post)):
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(f"{name} must be an integer >= 1, got {value!r}")
@@ -706,7 +743,27 @@ def aggregate_windows(
 
 
 class ValueChangeCurves(NamedTuple):
-    """Aggregated curves of one configuration, ready to plot."""
+    """Aggregated curves of one configuration, ready to plot.
+
+    Attributes:
+        config (ValueChangeConfig): The configuration.
+        truncate_at_rank_swap (bool): Whether post labels were cut at the first rank swap.
+        pre (int): Trials before the event.
+        post (int): Trials after the event trial.
+        x (np.ndarray): Float array ``-pre .. post``, shape ``(pre + post + 1,)``.
+        labels (tuple[str, ...]): The label set of the curves.
+        per_subject_mean (dict[str, dict[str, np.ndarray]]): ``{subject: {label: choice
+            probability per t}}``.
+        mean (dict[str, np.ndarray]): ``{label: mean across subjects per t}``.
+        se (dict[str, np.ndarray]): ``{label: standard error across subjects per t}``; NaN
+            where fewer than two subjects have data.
+        num_subjects (int): Subjects with at least one event.
+        num_events (int): Events averaged.
+        num_truncated (int): Events whose post labels were truncated.
+        n_events_per_bin (np.ndarray): Events with a trial at each t, shape ``(pre + post + 1,)``.
+        n_subjects_per_bin (np.ndarray): Subjects with a trial at each t, same shape.
+        counts (dict[str, int]): Accounting counts, as in :class:`ValueChangeWindows`.
+    """
 
     config: ValueChangeConfig
     truncate_at_rank_swap: bool

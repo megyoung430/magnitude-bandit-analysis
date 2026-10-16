@@ -259,7 +259,8 @@ def parse_recording(
     Returns:
         list[TrialPokes]: One :class:`TrialPokes` per trial (a trial with a print row, or one
         that ended in an ITI without any), in order; ``[]`` for a recording without bandit
-        trials (port finding, pretraining). Untrustworthy trials carry a ``drop_reason`` (see the module doc).
+        trials (port finding, pretraining). Untrustworthy trials carry a ``drop_reason`` (see
+        the module doc).
 
     Raises:
         PokeParseError: If the log is not in time order, a state sequence is impossible
