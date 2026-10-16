@@ -69,14 +69,71 @@ def read(tmp_path, name):
     return pd.read_csv(tables_dir(tmp_path) / f"{name}.csv")
 
 
+def run_with_log(tmp_path, **kwargs):
+    return run_cohort(
+        1,
+        results_root=tmp_path,
+        trials_by_problem=blocked_then_two_drifting(),
+        import_log=ImportLog(),
+        **kwargs,
+    )
+
+
 def test_every_table_is_written_and_returned(tmp_path, stubbed):
-    result = run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting())
+    result = run_with_log(tmp_path)
     assert {p.stem for p in tables_dir(tmp_path).glob("*.csv")} == TABLE_FILES
     assert set(result.review_tables) == TABLE_FILES - {"suspect_reversals"}
 
 
+def test_trials_passed_in_without_an_import_log_skip_the_tables_that_need_it(tmp_path, stubbed):
+    with pytest.warns(UserWarning, match="without an import_log") as caught:
+        result = run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting())
+    written = {p.stem for p in tables_dir(tmp_path).glob("*.csv")}
+    assert written == TABLE_FILES - {"no_trial_sessions"}
+    assert "no_trial_sessions" not in result.review_tables
+    text = str(caught[0].message)
+    assert "no_trial_sessions.csv" in text and "numbering" in text
+    # the warning is itself in the warnings log
+    assert any("without an import_log" in m for m in read(tmp_path, "warnings_log")["message"])
+
+
+def test_an_import_log_passed_in_is_used(tmp_path, stubbed):
+    log = ImportLog(
+        skips=[
+            SkipRecord("m1", "ses-9_date-20260109", "/raw/x.tsv", import_log.SESSION, "k", "why")
+        ]
+    )
+    run_with_log_object = run_cohort(
+        1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting(), import_log=log
+    )
+    assert run_with_log_object.review_tables["no_trial_sessions"]["session"].tolist() == [
+        "ses-9_date-20260109"
+    ]
+
+
+def test_tables_of_an_earlier_run_are_overwritten_even_when_this_run_has_nothing_for_them(
+    tmp_path, stubbed
+):
+    stale = tables_dir(tmp_path)
+    stale.mkdir(parents=True)
+    for name in ("value_change_events", "value_change_bin_counts", "reversal_aligned_arms_counts"):
+        (stale / f"{name}.csv").write_text("from,an,earlier,run\n1,2,3,4\n")
+    blocked_only = {1: blocked_then_two_drifting()[1]}
+    run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_only, import_log=ImportLog())
+    for name in ("value_change_events", "value_change_bin_counts", "reversal_aligned_arms_counts"):
+        table = read(tmp_path, name)
+        assert table.empty
+        assert list(table.columns) == ["task_type", "problem_in_type"]
+    assert list(read(tmp_path, "poke_trial_summary").columns)[:4] == [
+        "task_type",
+        "problem_in_type",
+        "overall_problem",
+        "mouse",
+    ]
+
+
 def test_the_problem_map_gains_towers_and_session_range(tmp_path, stubbed):
-    run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting())
+    run_with_log(tmp_path)
     table = read(tmp_path, "problem_map")
     first = table[(table.mouse == "m1") & (table.overall_problem == 1)].iloc[0]
     assert first["choice_towers"] == "A1;B1;C1"
@@ -90,7 +147,7 @@ def test_the_problem_map_gains_towers_and_session_range(tmp_path, stubbed):
 
 
 def test_diagnostics_are_stacked_over_problems_with_task_type_and_problem(tmp_path, stubbed):
-    run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting())
+    run_with_log(tmp_path)
     poke = read(tmp_path, "poke_trial_summary")
     assert list(poke.columns)[:4] == ["task_type", "problem_in_type", "overall_problem", "mouse"]
     got = {(r.task_type, r.problem_in_type, r.overall_problem, r.mouse) for r in poke.itertuples()}
@@ -107,7 +164,7 @@ def test_diagnostics_are_stacked_over_problems_with_task_type_and_problem(tmp_pa
 
 
 def test_tables_with_nothing_to_list_are_written_with_their_columns(tmp_path, stubbed):
-    run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting())
+    run_with_log(tmp_path)
     for name in ("suspect_sessions", "no_trial_sessions", "no_second_best"):
         table = read(tmp_path, name)
         assert table.empty and len(table.columns) > 5
@@ -193,7 +250,30 @@ def test_a_failing_run_still_leaves_the_tables_that_do_not_need_the_analyses(
 
     monkeypatch.setattr(cohort_analysis, "run_problem", fail)
     with pytest.raises(RuntimeError, match="analysis failed"):
-        run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting())
+        run_with_log(tmp_path)
     written = {p.stem for p in tables_dir(tmp_path).glob("*.csv")}
     assert {"problem_map", "suspect_sessions", "no_second_best"} <= written
-    assert "warnings_log" not in written
+    assert "poke_trial_summary" not in written  # the diagnostics need the analyses to finish
+
+
+def test_a_failing_run_still_writes_the_warnings_it_raised_before_failing(
+    tmp_path, stubbed, monkeypatch
+):
+    def warn_then_fail(*args, **kwargs):
+        warnings.warn("odd thing in problem 1", UserWarning, stacklevel=1)
+        raise RuntimeError("analysis failed")
+
+    monkeypatch.setattr(cohort_analysis, "run_problem", warn_then_fail)
+    imported = ImportLog(warnings=[WarningRecord("UserWarning", "from the import", "a.py", 1)])
+    with pytest.raises(RuntimeError, match="analysis failed"), warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        run_cohort(
+            1,
+            results_root=tmp_path,
+            trials_by_problem=blocked_then_two_drifting(),
+            import_log=imported,
+        )
+    assert read(tmp_path, "warnings_log")["message"].tolist() == [
+        "from the import",
+        "odd thing in problem 1",
+    ]

@@ -53,10 +53,14 @@ def test_a_table_with_a_mouse_column_gets_that_mouses_overall_problem():
     assert table["overall_problem"].tolist() == [2, 3]
 
 
-def test_a_kind_no_problem_returned_is_left_out_and_other_keys_are_untouched():
+def test_a_kind_no_problem_returned_has_only_its_leading_columns():
     other = pd.DataFrame({"x": [1]})
     stacked = stack_diagnostics({("blocked", 1): {"poke_trial_summary": other}}, PROBLEM_MAP)
-    assert set(stacked) == {"poke_trial_summary"}
+    assert set(stacked) == set(DIAGNOSTIC_TABLES)
+    assert stacked["poke_trial_summary"]["x"].tolist() == [1]
+    for kind in DIAGNOSTIC_TABLES[1:]:
+        assert stacked[kind].empty
+        assert list(stacked[kind].columns) == ["task_type", "problem_in_type"]
 
 
 def test_an_empty_table_keeps_its_columns():
@@ -78,5 +82,13 @@ def test_an_unknown_kind_fails_loudly():
         stack_diagnostics({("drifting", 1): {"mystery": pd.DataFrame({"a": [1]})}}, PROBLEM_MAP)
 
 
-def test_nothing_to_stack_gives_nothing():
-    assert stack_diagnostics({}, PROBLEM_MAP) == {}
+def test_nothing_to_stack_gives_every_kind_without_rows():
+    stacked = stack_diagnostics({}, PROBLEM_MAP)
+    assert list(stacked) == list(DIAGNOSTIC_TABLES)
+    assert all(table.empty for table in stacked.values())
+    assert list(stacked["poke_trial_summary"].columns) == [
+        "task_type",
+        "problem_in_type",
+        "overall_problem",
+        "mouse",
+    ]

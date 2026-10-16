@@ -114,6 +114,12 @@ EXPERIMENT_FOLDER = "3x3_field_magnitude_bandit"
 DEFAULT_RESULTS_ROOT = REPO_ROOT / "results"
 REVERSAL_TRIAL_WINDOW = 100  # trials per bin of the trial-based reversal-rate plots
 POOLED_DRIFTING_FOLDER = "all-drifting-problems"
+NO_IMPORT_LOG_WARNING = (
+    "trials were passed in without an import_log, so what the import skipped or flagged is "
+    "unknown: no_trial_sessions.csv is not written, suspect_sessions.csv has no problem "
+    "numbering rows, and suspect_starting_reward_mags.csv cannot name a session without "
+    "trials as a cause"
+)
 
 BLOCKED_SELECTION = AnalysisSelection(
     run_choice_probability_analysis=True,
@@ -450,7 +456,7 @@ def _write_tables(tables: dict[str, pd.DataFrame], directory: Path) -> None:
 
 
 def import_review_tables(
-    grouped: dict, problem_map: pd.DataFrame, index: ProblemIndex, log: ImportLog
+    grouped: dict, problem_map: pd.DataFrame, index: ProblemIndex, log: ImportLog | None
 ) -> dict[str, pd.DataFrame]:
     """The tables that come from the imported sessions and the import log alone.
 
@@ -459,41 +465,43 @@ def import_review_tables(
             :func:`~src.behavior_import.task_types.regroup_by_task_type`.
         problem_map (pd.DataFrame): The cohort's problem map.
         index (ProblemIndex): Where each session sits in its mouse's problems.
-        log (ImportLog): What the import skipped and flagged.
+        log (ImportLog | None): What the import skipped and flagged; ``None`` if the sessions
+            were not imported here. Then ``no_trial_sessions`` is left out, and
+            ``suspect_sessions`` has no numbering rows, rather than being empty like a cohort
+            where nothing was skipped or flagged.
 
     Returns:
         dict[str, pd.DataFrame]: ``problem_map``, ``suspect_sessions``,
-        ``suspect_starting_reward_mags``, ``no_trial_sessions`` and ``no_second_best``.
+        ``suspect_starting_reward_mags``, ``no_trial_sessions`` (not without a log) and
+        ``no_second_best``.
     """
-    return {
+    flags, skips = (log.flags, log.skips) if log else ([], [])
+    tables = {
         "problem_map": problem_map,
-        "suspect_sessions": suspect_sessions_table(log.flags, grouped, index),
-        "suspect_starting_reward_mags": starting_magnitudes_table(grouped, log.skips, index),
-        "no_trial_sessions": no_trial_sessions_table(log.skips, index),
+        "suspect_sessions": suspect_sessions_table(flags, grouped, index),
+        "suspect_starting_reward_mags": starting_magnitudes_table(grouped, skips, index),
         "no_second_best": no_second_best_table(grouped, index),
     }
+    if log:
+        tables["no_trial_sessions"] = no_trial_sessions_table(skips, index)
+    return tables
 
 
-def run_review_tables(
-    diagnostics: dict, problem_map: pd.DataFrame, index: ProblemIndex, log: ImportLog, run_warnings
-) -> dict[str, pd.DataFrame]:
-    """The tables that need the analyses to have run: diagnostics and the warnings log.
+def run_warnings_log(
+    log: ImportLog | None, run_warnings: list, index: ProblemIndex
+) -> pd.DataFrame:
+    """The warnings log of a run: those of the import, then those of the run.
 
     Args:
-        diagnostics (dict): ``{(task_type, k): {kind: DataFrame}}`` collected from the problems.
-        problem_map (pd.DataFrame): The cohort's problem map.
-        index (ProblemIndex): The cohort's problems.
-        log (ImportLog): Its ``warnings`` (raised during the import) come first in the log.
+        log (ImportLog | None): Its ``warnings`` (raised during the import) come first; ``None``
+            if the sessions were not imported here.
         run_warnings (list[WarningRecord]): The warnings raised during the run.
+        index (ProblemIndex): The cohort's problems, to place the warnings.
 
     Returns:
-        dict[str, pd.DataFrame]: The stacked diagnostic tables (see
-        :func:`~src.behavior_analysis.diagnostic_tables.stack_diagnostics`) and ``warnings_log``.
+        pd.DataFrame: :func:`~src.behavior_analysis.warnings_log.warnings_log_table`.
     """
-    return {
-        **stack_diagnostics(diagnostics, problem_map),
-        "warnings_log": warnings_log_table([*log.warnings, *run_warnings], index),
-    }
+    return warnings_log_table([*(log.warnings if log else ()), *run_warnings], index)
 
 
 def _load(cohort_id: int, data_root, use_cache: bool) -> ImportedTrials:
@@ -520,6 +528,7 @@ def run_cohort(
     reversal_trial_window: int = REVERSAL_TRIAL_WINDOW,
     use_cache: bool = True,
     trials_by_problem: dict | None = None,
+    import_log: ImportLog | None = None,
 ) -> CohortResult:
     """Run the whole analysis suite for one cohort; see the module docstring for the outputs.
 
@@ -541,6 +550,11 @@ def run_cohort(
             ``True``. Keyword-only.
         trials_by_problem (dict | None): Already-loaded ``{problem: {subject: sessions}}``, to
             skip the load. Default ``None``: load the cohort. Keyword-only.
+        import_log (ImportLog | None): The import log of *trials_by_problem*. Without it,
+            passed-in trials have no record of what the import skipped or flagged, so a warning
+            says that ``no_trial_sessions.csv`` is not written and ``suspect_sessions.csv`` has
+            no numbering rows. Ignored when the cohort is loaded. Default ``None``.
+            Keyword-only.
 
     Returns:
         CohortResult: The problem map, suspect-reversal table, per-problem rank results,
@@ -550,7 +564,7 @@ def run_cohort(
         ValueError: If the cohort has no problems, or a session's task name is not recognised.
     """
     cohort = cohort_name(cohort_id)
-    log = ImportLog()  # trials passed in were not imported here: nothing was skipped or flagged
+    log = import_log
     if trials_by_problem is None:
         trials_by_problem, log = _load(cohort_id, data_root, use_cache)
     if not trials_by_problem:
@@ -569,56 +583,71 @@ def run_cohort(
     previous_ports = _previous_ports_by_problem(trials_by_problem, grouped, selections)
     figures, tables = _figures_dir(results_root, cohort), _tables_dir(results_root, cohort)
 
-    with each_reversal_warning_once(), record_warnings() as run_warnings:
-        review_tables = import_review_tables(grouped, problem_map, index, log)
-        _write_tables(review_tables, tables)
-        suspects = suspect_table_with_task_types(grouped, problem_map)
-        write_suspect_reversal_table(suspects, tables / "suspect_reversals.csv")
+    run_warnings: list = []
+    diagnostic_tables: dict = {}
+    try:
+        with each_reversal_warning_once(), record_warnings() as run_warnings:
+            if log is None:
+                warnings.warn(NO_IMPORT_LOG_WARNING, stacklevel=2)
+            review_tables = import_review_tables(grouped, problem_map, index, log)
+            _write_tables(review_tables, tables)
+            suspects = suspect_table_with_task_types(grouped, problem_map)
+            write_suspect_reversal_table(suspects, tables / "suspect_reversals.csv")
 
-        rank_results, diagnostics = {}, {}
-        for (task_type, k), subjects_trials in grouped.items():
-            selection = selection_for_task_type(task_type, blocked_selection, drifting_selection)
-            print(f"[INFO] {cohort} {task_type} problem {k}: mice {sorted(subjects_trials)}")
-            rank_results[(task_type, k)] = run_problem(
-                k,
-                subjects_trials,
-                task=TASK,
-                cohort=cohort,
-                output_root=Path(results_root) / "figures",
-                selection=selection,
-                choice=choice,
-                reversal_trial_window=reversal_trial_window,
-                task_type=task_type,
-                previous_choice_towers=previous_ports.get((task_type, k)),
-                diagnostics=diagnostics.setdefault((task_type, k), {}),
-            )
+            rank_results, diagnostics = {}, {}
+            for (task_type, k), subjects_trials in grouped.items():
+                selection = selection_for_task_type(
+                    task_type, blocked_selection, drifting_selection
+                )
+                print(f"[INFO] {cohort} {task_type} problem {k}: mice {sorted(subjects_trials)}")
+                rank_results[(task_type, k)] = run_problem(
+                    k,
+                    subjects_trials,
+                    task=TASK,
+                    cohort=cohort,
+                    output_root=Path(results_root) / "figures",
+                    selection=selection,
+                    choice=choice,
+                    reversal_trial_window=reversal_trial_window,
+                    task_type=task_type,
+                    previous_choice_towers=previous_ports.get((task_type, k)),
+                    diagnostics=diagnostics.setdefault((task_type, k), {}),
+                )
 
-        drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
-        pooled = {}
-        if drifting:
-            pooled = pooled_drifting_rank_results(
-                drifting, drifting_selection.rank_value_bases, drifting_selection.rank_pooling_modes
-            )
-            pooled_dir = figures / DRIFTING / POOLED_DRIFTING_FOLDER
-            plot_pooled_drifting_rank(pooled, pooled_dir / "choice-stats")
-            run_drifting_value_analyses(
-                drifting, pooled_dir, drifting_selection, arm_scope_label=POOLED_DRIFTING_LABEL
-            )
-        else:
-            print(f"[INFO] {cohort}: no drifting problems; skipping pooled drifting ranks.")
+            drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
+            pooled = {}
+            if drifting:
+                pooled = pooled_drifting_rank_results(
+                    drifting,
+                    drifting_selection.rank_value_bases,
+                    drifting_selection.rank_pooling_modes,
+                )
+                pooled_dir = figures / DRIFTING / POOLED_DRIFTING_FOLDER
+                plot_pooled_drifting_rank(pooled, pooled_dir / "choice-stats")
+                run_drifting_value_analyses(
+                    drifting, pooled_dir, drifting_selection, arm_scope_label=POOLED_DRIFTING_LABEL
+                )
+            else:
+                print(f"[INFO] {cohort}: no drifting problems; skipping pooled drifting ranks.")
 
-        session_table, block_table = build_trial_block_tables(
-            trials_by_problem, subject_numbers_from_sessions(trials_by_problem)
-        )
-        plot_trial_block_summaries(
-            session_table,
-            block_table,
-            figures / "trial-block-summaries" / "all-problems",
-            show=False,
-        )
-    # after the block, so that the log holds every warning of the run
-    late_tables = run_review_tables(diagnostics, problem_map, index, log, run_warnings)
-    _write_tables(late_tables, tables)
+            session_table, block_table = build_trial_block_tables(
+                trials_by_problem, subject_numbers_from_sessions(trials_by_problem)
+            )
+            plot_trial_block_summaries(
+                session_table,
+                block_table,
+                figures / "trial-block-summaries" / "all-problems",
+                show=False,
+            )
+        # the diagnostics are complete only once every problem has run
+        diagnostic_tables = stack_diagnostics(diagnostics, problem_map)
+    finally:
+        # a run that fails is the one whose warnings are needed most
+        late_tables = {
+            **diagnostic_tables,
+            "warnings_log": run_warnings_log(log, run_warnings, index),
+        }
+        _write_tables(late_tables, tables)
     return CohortResult(
         problem_map, suspects, rank_results, pooled, {**review_tables, **late_tables}
     )

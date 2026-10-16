@@ -12,6 +12,10 @@ one table per kind, with the problem each row came from:
 Each row gets ``task_type`` and ``problem_in_type`` in front. A table with a ``mouse`` column
 (the poke summary) also gets that mouse's ``overall_problem``, which differs between mice; the
 others pool mice, so they carry no overall number.
+
+All four kinds are always returned. A kind that no problem returned (the value analyses of a
+cohort without drifting problems) has only its leading columns, so that writing it replaces a
+file left by an earlier run instead of leaving it to look current.
 """
 
 import pandas as pd
@@ -22,6 +26,14 @@ DIAGNOSTIC_TABLES = (
     "value_change_events",
     "value_change_bin_counts",
 )
+
+
+_LEADING_COLUMNS = {
+    "poke_trial_summary": ("task_type", "problem_in_type", "overall_problem", "mouse"),
+    "reversal_aligned_arms_counts": ("task_type", "problem_in_type"),
+    "value_change_events": ("task_type", "problem_in_type"),
+    "value_change_bin_counts": ("task_type", "problem_in_type"),
+}
 
 
 def _overall_problems(frame: pd.DataFrame, task_type: str, k: int, problem_map: pd.DataFrame):
@@ -55,8 +67,9 @@ def stack_diagnostics(by_problem: dict, problem_map: pd.DataFrame) -> dict[str, 
             ``problem_in_type``, ``overall_problem``).
 
     Returns:
-        dict[str, pd.DataFrame]: ``{kind: stacked table}`` for the kinds at least one problem
-        returned, rows in the order of *by_problem*.
+        dict[str, pd.DataFrame]: ``{kind: stacked table}`` for every kind of
+        :data:`DIAGNOSTIC_TABLES`, rows in the order of *by_problem*; a kind no problem returned
+        has no rows and only its leading columns.
 
     Raises:
         ValueError: For a kind not in :data:`DIAGNOSTIC_TABLES`, or a mouse that the problem
@@ -68,4 +81,9 @@ def stack_diagnostics(by_problem: dict, problem_map: pd.DataFrame) -> dict[str, 
             if kind not in DIAGNOSTIC_TABLES:
                 raise ValueError(f"unknown diagnostic table {kind!r}; expected {DIAGNOSTIC_TABLES}")
             parts.setdefault(kind, []).append(_with_problem(frame, task_type, k, problem_map))
-    return {kind: pd.concat(frames, ignore_index=True) for kind, frames in parts.items()}
+    return {
+        kind: pd.concat(parts[kind], ignore_index=True)
+        if kind in parts
+        else pd.DataFrame(columns=list(_LEADING_COLUMNS[kind]))
+        for kind in DIAGNOSTIC_TABLES
+    }
