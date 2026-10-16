@@ -4,6 +4,8 @@ import matplotlib
 import matplotlib.colors
 
 matplotlib.use("Agg")
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -12,6 +14,7 @@ from matplotlib.patches import RegularPolygon
 
 from src.behavior_analysis.poke_events import ARMS9
 from src.behavior_visualization.plot_port_preference import (
+    CATEGORY_LABELS,
     UNDEFINED_COLOR,
     log2_limit,
     plot_category_ratios_panel,
@@ -25,6 +28,7 @@ from src.pipelines.open_field import (
     run_problem,
 )
 from src.pipelines.port_preference import run_port_preference_analysis
+from tests.plot_capture import capture_figures
 from tests.test_port_preference import TRIALS, session
 
 
@@ -196,3 +200,61 @@ def test_a_drifting_problem_writes_into_its_port_preference_folder(tmp_path):
     folder = tmp_path / "open-field" / "cohort-01" / "drifting" / "problem-03" / "port-preference"
     assert (folder / "Port Preference Per Mouse.png").exists()
     assert (folder / "Port Preference X vs Plus.png").exists()
+
+
+# ---------------------------------------------------------------- labels and exclusions
+
+
+def saved_figures(capture):
+    return {Path(s.path).name.rsplit(".", 1)[0]: s.figure for s in capture.saved}
+
+
+def plus_only_mouse():
+    """A mouse offered only plus ports (from B2), so its plus ratio is 1 by construction."""
+    return {"ses-1": session([({"B1": 3, "B3": 1, "C2": 0}, "B1")] * 2)}
+
+
+def test_titles_say_mice_and_the_heatmap_title_is_its_file_name(tmp_path, monkeypatch):
+    capture = capture_figures(monkeypatch)
+    run_port_preference_analysis(problems(), tmp_path, scope_label="problem-01")
+    figures = saved_figures(capture)
+    category_title = figures["Port Preference X vs Plus"].axes[0].get_title()
+    assert "across mice" in category_title and "n=2 mice" in category_title
+    assert "subjects" not in category_title
+    heatmap_title = figures["Port Preference Per Mouse"]._suptitle.get_text()
+    assert heatmap_title.splitlines()[0] == "Port Preference Per Mouse [problem-01]"
+
+
+def test_plus_ports_are_labelled_orthogonal():
+    assert "orthogonal" in CATEGORY_LABELS["plus"] and "adjacent" not in CATEGORY_LABELS["plus"]
+
+
+def test_a_mouse_offered_one_category_is_excluded_noted_and_counted(tmp_path, monkeypatch, caplog):
+    capture = capture_figures(monkeypatch)
+    data = problems()
+    data[1]["m3"] = plus_only_mouse()
+    with caplog.at_level("INFO"):
+        result = run_port_preference_analysis(data, tmp_path, scope_label="problem-01")
+    assert result["single_category_mice"] == ["m3"]
+    assert result["category_ratios"].query("mouse == 'm3'").ratio.isna().all()
+    assert result["summary"].loc["plus", "n_mice"] == 2
+    assert "1 mouse excluded: only one category offered" in caplog.text
+    title = saved_figures(capture)["Port Preference X vs Plus"].axes[0].get_title()
+    assert "1 mouse excluded: only one category offered" in title
+    assert "n=2 mice" in title
+
+
+def test_no_exclusion_note_when_every_mouse_is_kept(tmp_path, monkeypatch):
+    capture = capture_figures(monkeypatch)
+    result = run_port_preference_analysis(problems(), tmp_path, scope_label="x")
+    assert result["single_category_mice"] == []
+    title = saved_figures(capture)["Port Preference X vs Plus"].axes[0].get_title()
+    assert "excluded" not in title
+
+
+def test_a_scope_where_every_mouse_is_excluded_still_draws(tmp_path):
+    result = run_port_preference_analysis(
+        {1: {"m1": plus_only_mouse()}}, tmp_path, scope_label="x"
+    )
+    assert result["single_category_mice"] == ["m1"]
+    assert (tmp_path / "Port Preference X vs Plus.png").stat().st_size > 0

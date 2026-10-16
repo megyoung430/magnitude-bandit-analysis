@@ -14,6 +14,7 @@ from src.behavior_analysis.port_preference import (
     category_summary,
     count_nan_ratios,
     count_port_preference,
+    mask_single_category_mice,
     pool_problems,
 )
 from src.behavior_analysis.reversal_format import check_blocks_only_sessions
@@ -40,10 +41,13 @@ def run_port_preference_analysis(
 
     The measure is ``P(chosen) / P(best)`` over the trials where the port (or any port of the
     category) was offered; see ``behavior_analysis.port_preference`` for the definitions of X
-    and plus (relative to each problem's initiation port) and of the counting. Counts are
-    pooled over the problems given, per mouse, before any ratio is formed; mice are the
-    replicates for the mean ± SE of the X and plus ratios. Ports or categories that were never
-    best have no ratio; how many there are is logged and returned.
+    (on the initiation port's diagonals) and plus (in its row or column), relative to each
+    problem's initiation port, and of the counting. Counts are pooled over the problems given,
+    per mouse, before any ratio is formed; mice are the replicates for the mean ± SE of the X
+    and plus ratios. Ports or categories that were never best have no ratio; how many there are
+    is logged and returned. A mouse offered ports of one category only in the pooled scope has
+    that category's ratio equal to 1 by construction, so its category ratios are set to NaN;
+    these mice are listed in the log, in the result, and in the figure title.
 
     Writes, as PNG and PDF:
 
@@ -63,8 +67,9 @@ def run_port_preference_analysis(
     Returns:
         dict: ``"counts"`` (the :class:`PortCounts` per mouse and problem), ``"port_ratios"``
         and ``"category_ratios"`` (per-mouse counts pooled over the problems, with ``ratio``),
-        ``"summary"`` (mean, se and n_mice of the X and plus ratios) and ``"nan_cases"``
-        (``{"ports": n, "categories": n}`` offered but never best).
+        ``"summary"`` (mean, se and n_mice of the X and plus ratios), ``"nan_cases"``
+        (``{"ports": n, "categories": n}`` offered but never best) and ``"single_category_mice"``
+        (sorted names of the mice left out of the category figure and summary).
 
     Raises:
         ValueError: If a session is counter format (the drifting task has only block changes),
@@ -74,8 +79,10 @@ def run_port_preference_analysis(
     counts = count_port_preference(subjects_trials_by_problem)
     port_ratios = add_ratio(pool_problems(counts.by_port, "port"))
     category_ratios = add_ratio(pool_problems(counts.by_category, "category"))
-    summary = category_summary(category_ratios)
+    # Counted before the masking, so a masked mouse is not also reported as "never best".
     nan_cases = count_nan_ratios(port_ratios, category_ratios)
+    category_ratios, single_category_mice = mask_single_category_mice(category_ratios)
+    summary = category_summary(category_ratios)
     log = logger.warning if any(nan_cases.values()) else logger.info
     log(
         "port preference [%s]: %d mouse-port and %d mouse-category ratios undefined "
@@ -84,11 +91,20 @@ def run_port_preference_analysis(
         nan_cases["ports"],
         nan_cases["categories"],
     )
+    if single_category_mice:
+        logger.warning(
+            "port preference [%s]: %d %s excluded: only one category offered (%s)",
+            scope_label,
+            len(single_category_mice),
+            "mouse" if len(single_category_mice) == 1 else "mice",
+            ", ".join(single_category_mice),
+        )
     out_dir = Path(out_dir)
     plot_category_ratios(
         category_ratios[category_ratios["category"].isin(COMPARED_CATEGORIES)],
         summary,
         scope_label=scope_label,
+        n_excluded=len(single_category_mice),
         save_path=out_dir / CATEGORY_FIGURE,
     )
     plot_port_ratio_heatmaps(
@@ -103,4 +119,5 @@ def run_port_preference_analysis(
         "category_ratios": category_ratios,
         "summary": summary,
         "nan_cases": nan_cases,
+        "single_category_mice": single_category_mice,
     }

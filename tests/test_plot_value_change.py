@@ -111,6 +111,7 @@ def test_title_says_mean_only_for_one_mouse_and_has_no_stray_bracket():
     assert "(mean across mice" in one and "±" not in one
     assert "(mean ± se across mice" in two
     assert not one.endswith("))") and not two.endswith("))")
+    assert "n=1 mouse," in one and "n=2 mice," in two
     plt.close("all")
 
 

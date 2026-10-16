@@ -49,7 +49,7 @@ from src.behavior_visualization.plot_maze_heatmaps import (
 Y_LABEL = "P(chosen) / P(best)"
 CATEGORY_LABELS = {
     "X": "X\n(diagonal)",
-    "plus": "Plus\n(adjacent)",
+    "plus": "Plus\n(orthogonal)",
 }
 BAR_COLOR = "#9db4c0"
 UNDEFINED_COLOR = "#d9d9d9"
@@ -94,7 +94,7 @@ def plot_category_ratios_panel(
         for mouse, values in wide.iterrows():
             ax.plot(
                 range(len(categories)), values, marker="o", color=colors[mouse],
-                linewidth=1.2, label=mouse, zorder=3,
+                linewidth=1.2, label=mouse if values.notna().any() else "_nolegend_", zorder=3,
             )  # fmt: skip
         for x, mean in enumerate(summary["mean"]):
             if np.isnan(mean):
@@ -114,31 +114,41 @@ def plot_category_ratios(
     summary: pd.DataFrame,
     *,
     scope_label: str,
+    n_excluded: int = 0,
     save_path: str | Path | None = None,
 ) -> None:
     """One-panel figure of :func:`plot_category_ratios_panel`; saves PNG and PDF or shows.
 
     Args:
-        per_mouse (pd.DataFrame): As for :func:`plot_category_ratios_panel`.
+        per_mouse (pd.DataFrame): As for :func:`plot_category_ratios_panel`; also holds the
+            excluded mice, whose ratios are NaN.
         summary (pd.DataFrame): As for :func:`plot_category_ratios_panel`.
         scope_label (str): Names the data in the title, e.g. ``"all drifting problems"``.
+        n_excluded (int): Mice left out because only one category was offered to them; the title
+            says so and they are not counted in n. Default 0.
         save_path (str | Path | None): Base path without extension; None shows the figure.
 
     Raises:
-        ValueError: If *per_mouse* has no mice.
+        ValueError: If *per_mouse* has no mice, or *n_excluded* exceeds their number.
     """
     n_mice = per_mouse["mouse"].nunique()
     if n_mice == 0:
         raise ValueError("no mice to plot")
+    if n_excluded > n_mice:
+        raise ValueError(f"{n_excluded} mice excluded but only {n_mice} in the data")
+    n_included = n_mice - n_excluded
     ax = plot_category_ratios_panel(per_mouse, summary)
     fig = ax.figure
-    average = "mean ± se" if n_mice >= 2 else "mean"
-    ax.set_title(
+    average = "mean ± se" if n_included >= 2 else "mean"
+    title = (
         f"Port Preference: X vs Plus [{scope_label}]\n"
-        f"({average} across subjects | n={_mice_phrase(n_mice)})",
-        pad=12,
+        f"({average} across mice | n={_mice_phrase(n_included)})"
     )
-    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False, title="Mouse")
+    if n_excluded:
+        title += f"\n{_mice_phrase(n_excluded)} excluded: only one category offered"
+    ax.set_title(title, pad=12)
+    if n_included:  # excluded mice have no line to label
+        ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False, title="Mouse")
     fig.tight_layout()
     save_or_show(fig, save_path)
 
@@ -302,7 +312,7 @@ def plot_port_ratio_heatmaps(
             axes[j // ncols, j % ncols].axis("off")
         _add_log2_colorbar(fig, axes.ravel().tolist(), limit)
         fig.suptitle(
-            f"Port Preference by Port [{scope_label}]\n"
+            f"Port Preference Per Mouse [{scope_label}]\n"
             f"({Y_LABEL} | grey: n/a = never offered, no best = never best | "
             f"blue outline = initiation port | n={_mice_phrase(len(mice))})",
             fontsize=11,

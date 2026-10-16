@@ -40,9 +40,10 @@ def _title(curves: ValueChangeCurves) -> str:
     if curves.truncate_at_rank_swap:
         events += f", {curves.num_truncated} truncated at swap"
     average = "mean ± se" if curves.num_subjects >= 2 else "mean"
+    mice = "mouse" if curves.num_subjects == 1 else "mice"
     return (
         f"Choice Probabilities Around {heading}\n"
-        f"({average} across mice | n={curves.num_subjects} mice, {events})"
+        f"({average} across mice | n={curves.num_subjects} {mice}, {events})"
     )
 
 
