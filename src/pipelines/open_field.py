@@ -682,7 +682,12 @@ def pooled_arm_windows(problems: dict) -> dict:
 
 
 def run_drifting_value_analyses(
-    problems: dict, out_dir: Path, selection: AnalysisSelection, *, arm_scope_label: str
+    problems: dict,
+    out_dir: Path,
+    selection: AnalysisSelection,
+    *,
+    arm_scope_label: str,
+    previous_choice_towers: dict | None = None,
 ) -> dict:
     """The selected drifting-only analyses over *problems*, each in a subfolder of *out_dir*.
 
@@ -698,6 +703,9 @@ def run_drifting_value_analyses(
             port-preference figures, given
             by the caller (``"problem-03"`` for a problem folder, ``POOLED_DRIFTING_LABEL`` for
             the pool) because a pool of one problem is still the pool. Keyword-only.
+        previous_choice_towers (dict | None): ``{mouse: choice ports of the mouse's previous
+            problem, or None}`` for the red outlines of the port-preference heatmaps of one
+            problem. Default None: no red outlines (as for the pool).
 
     Returns:
         dict[str, pd.DataFrame]: The figures are written under *out_dir*. The diagnostic tables
@@ -724,7 +732,10 @@ def run_drifting_value_analyses(
         tables["value_change_bin_counts"] = value_change["bin_counts_table"]
     if selection.run_port_preference_analysis:
         run_port_preference_analysis(
-            problems, out_dir / PORT_PREFERENCE_FOLDER, scope_label=arm_scope_label
+            problems,
+            out_dir / PORT_PREFERENCE_FOLDER,
+            scope_label=arm_scope_label,
+            previous_choice_towers=previous_choice_towers,
         )
     return tables
 
@@ -827,6 +838,7 @@ def run_problem(
             out,
             selection,
             arm_scope_label=f"problem-{problem_number:02d}",
+            previous_choice_towers=previous_choice_towers,
         )
         if diagnostics is not None:
             diagnostics.update(tables)

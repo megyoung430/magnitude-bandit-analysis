@@ -31,6 +31,28 @@ from src.behavior_import.session_order import ordered_session_keys
 KINDS = ("after_initiation", "after_choice")
 
 
+class PortFindingPokeCounts(NamedTuple):
+    """Poke counts of the port-finding trials of one session, under the task trials' two rules.
+
+    Attributes:
+        after_initiation (dict[str, int]): ``{port: count}`` over the nine ports of long pokes
+            after initiation.
+        after_choice (dict[str, int]): ``{port: count}`` over the nine ports of pokes after
+            the choice.
+        n_valid (int): Port-finding trials analysed (not dropped).
+        n_open_windows (int): Analysed trials with no closed after-choice window (so missing
+            from ``after_choice``).
+        n_dropped (int): Port-finding trials with no pokes to count: a timeout (no chosen tower),
+            an untrustworthy log, or an unreadable recording.
+    """
+
+    after_initiation: dict[str, int]
+    after_choice: dict[str, int]
+    n_valid: int
+    n_open_windows: int
+    n_dropped: int
+
+
 class SessionPokeCounts(NamedTuple):
     """Poke counts of one session.
 
@@ -45,7 +67,8 @@ class SessionPokeCounts(NamedTuple):
     pokes of the analysed trials with the printed lists. ``parse_error`` is the reason the
     session's raw events could not be read (all counts are then zero), else ``None``.
     ``n_port_finding_trials`` counts the session's port-finding trials; they are not task
-    trials, so they are in neither ``n_trials`` nor any drop count.
+    trials, so they are in neither ``n_trials`` nor any drop count, and their pokes are in
+    ``port_finding``, never in ``after_initiation`` or ``after_choice``.
 
     Attributes:
         after_initiation (dict[str, int]): ``{port: count}`` over the nine ports of long pokes
@@ -58,8 +81,10 @@ class SessionPokeCounts(NamedTuple):
         n_valid (int): Trials analysed (not dropped).
         n_dropped_no_print (int): Trials dropped for lacking a usable summary print.
         n_dropped_inconsistent (int): Trials dropped for any other reason.
+        port_finding (PortFindingPokeCounts): Pokes of the port-finding trials.
         parse_error (str | None): Why the raw events could not be read, else ``None``.
-        n_port_finding_trials (int): Port-finding trials (prints with ``num_t_found``). Default 0.
+        n_port_finding_trials (int): Port-finding trials (prints with ``num_t_found``, and the
+            timeouts before them). Default 0.
     """
 
     after_initiation: dict[str, int]
@@ -70,6 +95,7 @@ class SessionPokeCounts(NamedTuple):
     n_valid: int
     n_dropped_no_print: int
     n_dropped_inconsistent: int
+    port_finding: PortFindingPokeCounts
     parse_error: str | None = None
     n_port_finding_trials: int = 0
 
@@ -124,23 +150,37 @@ def session_poke_counts(session: dict, *, label: str = "session") -> SessionPoke
         whose after-choice window never closed (a recording's last printed trial) are left out of
         ``after_choice`` only. A window ends with the next trial's initiating poke, which counts
         as a poke at the initiation port. Port-finding trials are counted in
-        ``n_port_finding_trials`` and are otherwise ignored.
+        ``n_port_finding_trials`` and their pokes, under the same two rules, in ``port_finding``;
+        the other fields see task trials only.
     """
     initiation = session.get("initiation_tower") or DEFAULT_INITIATION_TOWER
     trials = parse_session(session, initiation, label=label)
-    valid = [t for t in trials if t.drop_reason is None]
+    task = [t for t in trials if not is_port_finding(t)]
+    valid = [t for t in task if t.drop_reason is None]
     return SessionPokeCounts(
-        after_initiation=count_ports(_after_initiation_sequences(trials, initiation)),
-        after_choice=count_ports(_after_choice_sequences(trials)),
-        n_trials=sum(t.has_print for t in trials),
+        after_initiation=count_ports(_after_initiation_sequences(task, initiation)),
+        after_choice=count_ports(_after_choice_sequences(task)),
+        n_trials=sum(t.has_print for t in task),
         n_open_windows=sum(t.window_pokes is None for t in valid),
-        long_poke_check=cross_check_long_pokes(trials),
+        long_poke_check=cross_check_long_pokes(task),
         n_valid=len(valid),
-        n_dropped_no_print=sum(t.drop_reason == NO_PRINT for t in trials),
-        n_dropped_inconsistent=sum(
-            t.drop_reason not in (None, NO_PRINT) and not is_port_finding(t) for t in trials
-        ),
+        n_dropped_no_print=sum(t.drop_reason == NO_PRINT for t in task),
+        n_dropped_inconsistent=sum(t.drop_reason not in (None, NO_PRINT) for t in task),
+        port_finding=_port_finding_counts(trials, initiation),
         n_port_finding_trials=count_port_finding(trials),
+    )
+
+
+def _port_finding_counts(trials: list[TrialPokes], initiation_tower: str) -> PortFindingPokeCounts:
+    """The two counts over the port-finding trials among *trials*."""
+    found = [t for t in trials if is_port_finding(t)]
+    valid = [t for t in found if t.drop_reason is None]
+    return PortFindingPokeCounts(
+        after_initiation=count_ports(_after_initiation_sequences(found, initiation_tower)),
+        after_choice=count_ports(_after_choice_sequences(found)),
+        n_valid=len(valid),
+        n_open_windows=sum(t.window_pokes is None for t in valid),
+        n_dropped=len(found) - len(valid),
     )
 
 
@@ -164,6 +204,7 @@ def unparsed_session_counts(reason: str) -> SessionPokeCounts:
         n_valid=0,
         n_dropped_no_print=0,
         n_dropped_inconsistent=0,
+        port_finding=PortFindingPokeCounts(dict(zeros), dict(zeros), 0, 0, 0),
         parse_error=reason,
     )
 
@@ -216,6 +257,30 @@ def total_counts(per_session: Mapping[str, SessionPokeCounts], kind: str) -> dic
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}, got {kind!r}")
     return {port: sum(getattr(c, kind)[port] for c in per_session.values()) for port in ARMS9}
+
+
+def total_port_finding_counts(
+    per_session: Mapping[str, SessionPokeCounts], kind: str
+) -> dict[str, int]:
+    """Per-port sum over sessions of the port-finding pokes of *kind*.
+
+    Args:
+        per_session (Mapping[str, SessionPokeCounts]): ``{session_key: counts}``.
+        kind (str): ``"after_initiation"`` or ``"after_choice"``.
+
+    Returns:
+        dict[str, int]: ``{port: total}`` over the nine ports, from every session that has
+        port-finding trials (the others add zeros).
+
+    Raises:
+        ValueError: If *kind* is neither of the two.
+    """
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {KINDS}, got {kind!r}")
+    return {
+        port: sum(getattr(c.port_finding, kind)[port] for c in per_session.values())
+        for port in ARMS9
+    }
 
 
 # ---------------------------------------------------------------- choice ports

@@ -34,8 +34,31 @@ def _initiation_ports(by_port: pd.DataFrame) -> dict[str, set[str]]:
     return {m: set(g["initiation"]) for m, g in by_port.groupby("mouse")}
 
 
+def _problem_outlines(subjects_trials_by_problem: dict, previous_choice_towers) -> dict:
+    """Green (the problem's choice ports) and red (previous problem's) outlines per mouse.
+
+    Empty when several problems are pooled: their choice ports differ, so no single set of
+    outlines describes the pooled heatmap.
+    """
+    if len(subjects_trials_by_problem) != 1:
+        return {}
+    (subjects,) = subjects_trials_by_problem.values()
+    current = {
+        mouse: frozenset(t for s in sessions.values() for t in s.get("choice_towers") or ())
+        for mouse, sessions in subjects.items()
+    }
+    outlines = {"current_ports": current}
+    if previous_choice_towers is not None:
+        outlines["previous_ports"] = {m: previous_choice_towers.get(m) for m in subjects}
+    return outlines
+
+
 def run_port_preference_analysis(
-    subjects_trials_by_problem: dict, out_dir: Path, *, scope_label: str
+    subjects_trials_by_problem: dict,
+    out_dir: Path,
+    *,
+    scope_label: str,
+    previous_choice_towers: dict | None = None,
 ) -> dict:
     """How much each port, and X versus plus ports, is chosen relative to how often it is best.
 
@@ -63,6 +86,11 @@ def run_port_preference_analysis(
         out_dir (Path): Folder for the figures; created if missing.
         scope_label (str): Names the data in the figure titles, e.g. ``"problem-03"``.
             Keyword-only.
+        previous_choice_towers (dict | None): ``{mouse: choice ports of the mouse's previous
+            problem, or None}`` (``poke_analysis.previous_choice_towers_for_problem``), outlined
+            in red on the per-mouse heatmaps. Used only for one problem: with one problem the
+            heatmaps also outline its choice ports in green; pooled over several problems,
+            whose ports differ, only the initiation port is outlined. Default None.
 
     Returns:
         dict: ``"counts"`` (the :class:`PortCounts` per mouse and problem), ``"port_ratios"``
@@ -112,6 +140,7 @@ def run_port_preference_analysis(
         scope_label=scope_label,
         save_path=out_dir / HEATMAP_FIGURE,
         initiation_ports=_initiation_ports(counts.by_port),
+        **_problem_outlines(subjects_trials_by_problem, previous_choice_towers),
     )
     return {
         "counts": counts,

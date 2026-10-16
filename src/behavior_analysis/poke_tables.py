@@ -92,8 +92,12 @@ def counts_by_session_table(per_session: PerMouseSession) -> pd.DataFrame:
 def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
     """Trials counted, dropped and port finding, and raw-versus-printed long pokes, per session.
 
-    Port-finding trials are not task trials: they are in ``n_port_finding_trials`` only, not in
-    ``n_trials`` or either drop count.
+    Port-finding trials are not task trials: they are in the ``n_port_finding_*`` columns only,
+    not in ``n_trials`` or either drop count. ``n_port_finding_trials`` is all of them,
+    ``n_port_finding_counted`` those whose pokes are in the port-finding maps,
+    ``n_port_finding_dropped`` those without usable pokes (timeouts, untrustworthy logs) and
+    ``n_port_finding_open_after_choice_windows`` the counted ones missing from the after-choice
+    map because the recording ended before the next initiation.
 
     ``parse_error`` is empty unless the session's raw events could not be read.
 
@@ -102,7 +106,9 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
 
     Returns:
         pd.DataFrame: One row per mouse and session; columns ``mouse``, ``session``,
-        ``n_trials``, ``n_port_finding_trials``, ``n_trials_counted``,
+        ``n_trials``, ``n_port_finding_trials``, ``n_port_finding_counted``,
+        ``n_port_finding_dropped``, ``n_port_finding_open_after_choice_windows``,
+        ``n_trials_counted``,
         ``n_trials_dropped_no_print``, ``n_trials_dropped_inconsistent``,
         ``n_open_after_choice_windows``,
         ``n_long_poke_checked``, ``n_long_poke_agree``, ``parse_error``.
@@ -113,6 +119,9 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
             "session": session,
             "n_trials": counts.n_trials,
             "n_port_finding_trials": counts.n_port_finding_trials,
+            "n_port_finding_counted": counts.port_finding.n_valid,
+            "n_port_finding_dropped": counts.port_finding.n_dropped,
+            "n_port_finding_open_after_choice_windows": counts.port_finding.n_open_windows,
             "n_trials_counted": counts.n_valid,
             "n_trials_dropped_no_print": counts.n_dropped_no_print,
             "n_trials_dropped_inconsistent": counts.n_dropped_inconsistent,
@@ -131,6 +140,9 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
             "session",
             "n_trials",
             "n_port_finding_trials",
+            "n_port_finding_counted",
+            "n_port_finding_dropped",
+            "n_port_finding_open_after_choice_windows",
             "n_trials_counted",
             "n_trials_dropped_no_print",
             "n_trials_dropped_inconsistent",

@@ -100,22 +100,36 @@ class Recording:
                 self.poke_in(p)
         return self
 
-    def port_finding_trial(self, port="A1"):
-        """One port-finding trial: initiate, hold at *port*, a print with ``num_t_found``, ITI.
+    def port_finding_trial(
+        self, port="A1", *, pre_init=(), long_before=(), after_choice=(), held=None, chosen=True
+    ):
+        """One port-finding trial, shaped like a task trial: initiate, long pokes, choice, ITI.
 
-        Port-finding prints carry no ``num_t``; the recording is left in ``wait_init``.
+        Port-finding prints carry ``num_t_found`` and ``found_ports`` false but no ``num_t``.
+        *pre_init* are pokes in ``wait_init`` before the initiating poke, *long_before* held
+        non-choice pokes, *after_choice* pokes after the ``ITI`` state, *held* the port actually
+        held when it differs from the printed *port*, and ``chosen=False`` leaves ``chosen_tow``
+        out of the print. The recording is left in ``wait_init``.
         """
         self.num_t_found = getattr(self, "num_t_found", 0) + 1
+        for p in pre_init:
+            self.wait_init_poke(p)
         self.initiate()
-        self._long(port)
+        for p in long_before:
+            self.long_poke(p)
+        self._long(held or port)
         printed = {
             "num_t_found": self.num_t_found,
             "found_ports": False,
-            "chosen_tow": port,
-            "long_pokes": [],
+            "long_pokes": list(long_before),
         }
+        if chosen:
+            printed["chosen_tow"] = port
         self._add("variable", "print", json.dumps(printed))
-        return self.state("choice").iti().state("wait_init")
+        self.state("choice").iti()
+        for p in after_choice:
+            self.poke_in(p).poke_out(p)
+        return self.state("wait_init")
 
     def port_finding_timeout(self):
         """A port-finding trial that times out: initiate, then the ITI with no print."""
