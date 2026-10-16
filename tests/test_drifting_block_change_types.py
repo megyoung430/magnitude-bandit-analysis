@@ -225,13 +225,13 @@ EXPECTED = {
         "Choice Probabilities Around Block Changes (All) (Arms Labelled by Rank Before) (pooled)",
     ),
     ("prev", "best_to_third"): (
-        "Choice Probabilities Around Block Changes (Prev Best → Third)",
+        "Choice Probabilities Around Block Changes (Prev Best to Third)",
         "arms labelled by rank before the block change",
         "Choice Probabilities Around Block Changes (Prev Best to Third) "
         "(Arms Labelled by Rank Before) (pooled)",
     ),
     ("prev", "second_to_third"): (
-        "Choice Probabilities Around Block Changes (Prev Second → Third)",
+        "Choice Probabilities Around Block Changes (Prev Second to Third)",
         "arms labelled by rank before the block change",
         "Choice Probabilities Around Block Changes (Prev Second to Third) "
         "(Arms Labelled by Rank Before) (pooled)",

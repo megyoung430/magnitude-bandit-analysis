@@ -90,7 +90,7 @@ def test_the_title_says_what_is_plotted_how_arms_are_labelled_and_how_many():
 def test_the_heading_names_the_block_change_kind_of_each_scheme():
     prev = result_for("prev", reversal_type="best_to_third")
     assert (
-        figure_heading(prev) == "Choice Probabilities Around Block Changes (Prev Best \u2192 Third)"
+        figure_heading(prev) == "Choice Probabilities Around Block Changes (Prev Best to Third)"
     )
     new = result_for("new", reversal_type="third_to_second")
     assert figure_heading(new).endswith("(New Second from Third)")
