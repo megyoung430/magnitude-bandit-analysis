@@ -51,7 +51,7 @@ Modules: `src/behavior_analysis/reversal_arm_ranks.py` (rankings, labels, types,
 ## Review fixes
 
 - Magnitude-window tests use magnitudes that drift within a block; shifting the pre or post slice by one trial now fails a test.
-- Prebuilt windows record the `pre`/`post` they were built with; `check_windows_built_with` raises on a mismatch or a pre window shorter than `min(pre, reversal_idx)`.
+- Prebuilt windows record the `pre`/`post` they were built with; `check_windows_built_with` raises on a mismatch, missing bounds, or a window whose length is not `min(pre, idx - pre_start)` / `min(post, post_end - idx)`. The builder uses `stop_at_block_changes=True`, so both windows stay inside the block (post windows no longer cross bad reversals).
 - A tie is counted in a type-specific figure only if the reversal could be of that type; otherwise it is `wrong_type`.
 - `moving_avg_window` must be a positive int; numpy integer problem numbers name scopes `problem-NN`.
 - Plot: legend below the axes, no doubled bracket in the title, the last magnitude step spans one trial.

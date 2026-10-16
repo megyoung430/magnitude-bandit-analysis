@@ -31,3 +31,29 @@ def make_reversal(
             for t in TOWERS
         },
     }
+
+
+def stamp_windows(windows, *, pre, post):
+    """Give hand-built reversals the window record the real builder writes.
+
+    The recorded bounds are those of the windows as they are, so only the settings can differ
+    from what the analysis is asked for.
+    """
+    return {
+        subject: [
+            {
+                **r,
+                "reversal_idx": 100,
+                "trial_window_idx": {
+                    "pre": list(range(100 - len(r["choices_by_tower"]["A"]["pre"]), 100)),
+                    "post": list(range(100, 100 + len(r["choices_by_tower"]["A"]["post"]))),
+                },
+                "window_pre": pre,
+                "window_post": post,
+                "pre_start": 100 - len(r["choices_by_tower"]["A"]["pre"]),
+                "post_end": 100 + len(r["choices_by_tower"]["A"]["post"]),
+            }
+            for r in reversals
+        ]
+        for subject, reversals in windows.items()
+    }

@@ -59,7 +59,7 @@ def _windows_by_problem(by_problem: Mapping, *, pre: int, post: int) -> dict:
 
     Raises:
         ValueError: If there are no problems, trials and windows are mixed, or given windows
-            lack the magnitude windows.
+            were not built by ``build_windows_with_magnitudes`` with this *pre* and *post*.
     """
     if not by_problem:
         raise ValueError("no problems given")
@@ -67,16 +67,6 @@ def _windows_by_problem(by_problem: Mapping, *, pre: int, post: int) -> dict:
     if len(kinds) > 1:
         raise ValueError("cannot mix trials and windows across problems")
     if kinds == {True}:
-        missing = [
-            p
-            for p, windows in by_problem.items()
-            if any("magnitudes_by_tower" not in r for revs in windows.values() for r in revs)
-        ]
-        if missing:
-            raise ValueError(
-                f"windows of problems {missing} have no magnitude windows; "
-                "run add_magnitude_windows on them first"
-            )
         for windows in by_problem.values():
             check_windows_built_with(windows, pre=pre, post=post)
         return dict(by_problem)
@@ -156,7 +146,8 @@ def run_reversal_aligned_arm_analysis(
             ``reversal_aligned_arms_counts.csv`` (created if missing). ``None`` or ``""`` shows
             the figures and writes nothing.
         pre, post: Trials before and from the reversal in each window.
-        moving_avg_window: Moving-average width for the choice probabilities (``<= 1`` for none).
+        moving_avg_window: Moving-average width for the choice probabilities (positive int;
+            1 for none).
         label_schemes: Subset of ``("prev", "new")``.
         reversal_types: Subset of ``("all", "best_to_third", "second_to_third")``.
         moving_avg_mode: ``"centered"`` or ``"trailing"``; the same for every figure.
@@ -170,7 +161,7 @@ def run_reversal_aligned_arm_analysis(
 
     Raises:
         ValueError: For unknown schemes, types or modes, no problems, mixed or incomplete
-            inputs, windows longer than *pre*/*post*, or probabilities that do not sum to 1.
+            inputs, windows not built with this *pre*/*post*, or probabilities that do not sum to 1.
     """
     _check_choices(label_schemes, reversal_types, moving_avg_mode, moving_avg_window)
     windows_by_problem = _windows_by_problem(windows_or_trials_by_problem, pre=pre, post=post)

@@ -15,7 +15,7 @@ from src.behavior_visualization.plot_reversal_aligned_arms import (
     save_reversal_aligned_arms,
 )
 from tests.plot_capture import capture_figures
-from tests.reversal_arm_fixtures import make_reversal
+from tests.reversal_arm_fixtures import make_reversal, stamp_windows
 
 
 def result_for(scheme, subjects=2, reversal_type="all", moving_avg_window=1):
@@ -24,7 +24,7 @@ def result_for(scheme, subjects=2, reversal_type="all", moving_avg_window=1):
         for i in range(subjects)
     }
     return compute_reversal_aligned_arms(
-        windows,
+        stamp_windows(windows, pre=4, post=3),
         scheme=scheme,
         reversal_type=reversal_type,
         pre=4,
@@ -88,7 +88,9 @@ def test_the_title_says_how_arms_are_labelled_and_how_types_are_defined():
 def test_the_title_reports_reversals_left_out_for_ties():
     tied = make_reversal(["A"] * 4, ["C"] * 3, before={"A": 3.0, "B": 2.0, "C": 2.0})
     windows = {"m0": [tied, make_reversal(["A"] * 4, ["C"] * 3)]}
-    result = compute_reversal_aligned_arms(windows, scheme="prev", pre=4, post=3)
+    result = compute_reversal_aligned_arms(
+        stamp_windows(windows, pre=4, post=3), scheme="prev", pre=4, post=3
+    )
     ax, _ = plot_reversal_aligned_arms(result)
     assert "1 left out for tied magnitudes" in ax.get_title()
 

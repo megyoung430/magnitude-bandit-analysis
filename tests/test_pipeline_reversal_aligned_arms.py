@@ -56,7 +56,10 @@ def run(trials, out_dir, **kwargs):
 def test_build_windows_with_magnitudes_matches_the_two_steps():
     data = {"m": make_mouse(1, pick=0)}
     built = build_windows_with_magnitudes(data, pre=10, post=6)
-    expected = add_magnitude_windows(get_good_reversal_info(data, pre=10, post=6), data)
+    plain = get_good_reversal_info(
+        data, pre=10, post=6, include_first_block=False, stop_at_block_changes=True
+    )
+    expected = add_magnitude_windows(plain, data)
     recorded = {
         s: [{**r, "window_pre": 10, "window_post": 6} for r in v] for s, v in expected.items()
     }
@@ -170,7 +173,7 @@ def test_unknown_scheme_type_or_mode_fail_before_any_work(tmp_path):
 
 def test_windows_without_magnitudes_are_rejected(tmp_path):
     bare = {1: get_good_reversal_info({"m": make_mouse(1)}, pre=10, post=6)}
-    with pytest.raises(ValueError, match="add_magnitude_windows"):
+    with pytest.raises(ValueError, match="build_windows_with_magnitudes"):
         run_reversal_aligned_arm_analysis(bare, tmp_path, **KWARGS)
 
 

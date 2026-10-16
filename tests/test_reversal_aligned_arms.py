@@ -20,12 +20,14 @@ from src.behavior_analysis.reversal_aligned_arms import (
 from src.behavior_analysis.reversal_alignment import align_window_values
 from src.behavior_analysis.stats import nan_standard_error
 from tests.plot_fixtures import make_mouse, make_session, session_key
-from tests.reversal_arm_fixtures import make_reversal
+from tests.reversal_arm_fixtures import make_reversal, stamp_windows
 
 
 def curves(windows, **kwargs):
     defaults = dict(scheme="prev", reversal_type="all", pre=4, post=3, moving_avg_window=1)
-    return compute_reversal_aligned_arms(windows, **{**defaults, **kwargs})
+    settings = {**defaults, **kwargs}
+    stamped = stamp_windows(windows, pre=settings["pre"], post=settings["post"])
+    return compute_reversal_aligned_arms(stamped, **settings)
 
 
 # ------------------------------------------------------------------ alignment
@@ -321,7 +323,7 @@ def test_end_to_end_curves_from_sessions():
     # The animal always picks the best tower; every block change moves each tower up one rank,
     # so the previous third tower becomes best and all reversals are second_to_third.
     data = {"m": make_mouse(1, pick=0)}
-    windows = add_magnitude_windows(get_good_reversal_info(data, pre=10, post=6), data)
+    windows = build_windows_with_magnitudes(data, pre=10, post=6)
     prev = compute_reversal_aligned_arms(
         windows, scheme="prev", reversal_type="all", pre=10, post=6, moving_avg_window=1
     )
@@ -367,7 +369,7 @@ def test_prebuilt_windows_must_match_pre_and_post():
 def test_prebuilt_windows_without_recorded_settings_are_rejected():
     data = {"m": make_mouse(1, pick=0)}
     bare = add_magnitude_windows(get_good_reversal_info(data, pre=10, post=6), data)
-    with pytest.raises(ValueError, match="rebuild"):
+    with pytest.raises(ValueError, match="build_windows_with_magnitudes"):
         check_windows_built_with(bare, pre=10, post=6)
 
 
@@ -380,15 +382,56 @@ def test_a_pre_window_shorter_than_the_data_allows_is_rejected():
         check_windows_built_with(windows, pre=10, post=6)
 
 
+def test_the_recorded_bounds_are_the_block_of_the_reversal():
+    data = {"m": make_mouse(1, pick=0)}
+    windows = build_windows_with_magnitudes(data, pre=10, post=6)
+    assert [(r["pre_start"], r["post_end"]) for r in windows["m"]] == [(0, 16), (8, 24)]
+
+
 def test_a_pre_window_reaching_into_the_previous_block_is_rejected():
     data = {"m": make_mouse(1, pick=0)}
     windows = build_windows_with_magnitudes(data, pre=10, post=6)
-    assert [r["pre_room"] for r in windows["m"]] == [8, 8]  # blocks of 8 trials
-    check_windows_built_with(windows, pre=10, post=6)
-    first = windows["m"][0]
-    first["trial_window_idx"]["pre"] = [
-        first["reversal_idx"] - 9,
-        *first["trial_window_idx"]["pre"],
-    ]
+    second = windows["m"][1]  # block of 8 trials: its pre window has 8 trials, not 10
+    second["trial_window_idx"]["pre"] = [7, *second["trial_window_idx"]["pre"]]
     with pytest.raises(ValueError, match="pre window"):
         check_windows_built_with(windows, pre=10, post=6)
+
+
+def test_a_post_window_that_differs_from_its_bound_is_rejected():
+    data = {"m": make_mouse(1, pick=0)}
+    windows = build_windows_with_magnitudes(data, pre=10, post=6)
+    windows["m"][0]["trial_window_idx"]["post"] = windows["m"][0]["trial_window_idx"]["post"][:-1]
+    with pytest.raises(ValueError, match="post window"):
+        check_windows_built_with(windows, pre=10, post=6)
+
+
+def test_the_computation_rejects_windows_built_with_a_smaller_pre_or_post():
+    small = build_windows_with_magnitudes({"m": make_mouse(1, pick=0)}, pre=3, post=4)
+    with pytest.raises(ValueError, match="build_windows_with_magnitudes"):
+        compute_reversal_aligned_arms(small, scheme="prev", pre=10, post=30)
+
+
+def banded_session():
+    """40 trials in 8-trial blocks; the changes at trials 16 and 32 are bad reversals."""
+    session = make_session(40, block_len=8)
+    session["good_reversals"] = [0] * 8 + [1] * 16 + [2] * 16
+    session["bad_reversals"] = [0] * 16 + [1] * 16 + [2] * 8
+    return session
+
+
+def test_post_bins_after_a_bad_reversal_are_nan():
+    # Good reversals at trials 8 and 24 only; trials 16 and 32 end the blocks of the good
+    # reversals before them, so no post trial of theirs comes from the block after.
+    data = {"m": {session_key(1, 1): banded_session()}}
+    windows = build_windows_with_magnitudes(data, pre=10, post=12)
+    assert [(r["reversal_idx"], r["post_end"]) for r in windows["m"]] == [(8, 16), (24, 32)]
+    result = compute_reversal_aligned_arms(
+        windows, scheme="prev", pre=10, post=12, moving_avg_window=1
+    )
+    assert result.num_reversals == 2
+    for role in result.roles:
+        for curve in (result.choice_mean[role], result.magnitude_mean[role]):
+            assert (
+                np.isnan(curve[:2]).all() and np.isnan(curve[-4:]).all()
+            )  # offsets -10, -9, 8..11
+            assert np.isfinite(curve[2:-4]).all()

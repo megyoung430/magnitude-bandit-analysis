@@ -2,12 +2,17 @@
 
 Pipeline (all pure; no files, no plots):
 
-1. ``get_good_reversal_info`` windows each reversal; :func:`add_magnitude_windows` adds the
-   reward magnitude of every arm over the same window.
+1. :func:`build_windows_with_magnitudes` windows each reversal with ``get_good_reversal_info``
+   (both windows stay inside the block of the reversal) and adds the reward magnitude of
+   every arm over the same window.
 2. :func:`compute_reversal_aligned_arms` labels the arms of each reversal by the ranking
    *before* the reversal (``"prev"``) or *after* it (``"new"``), keeps the reversals of one
    type, and averages one-hot choices and magnitudes per arm label: over reversals within a
    subject, then over subjects.
+
+Windows stay within one block: the pre window starts no earlier than the previous block
+change and the post window ends at the next one (good or bad), so every value of a row belongs
+to the block of its reversal or, before it, to the block it replaced.
 
 Alignment: every row has ``pre + post - skip`` bins. Pre values are right-aligned so the last
 one sits at offset -1; post values start at offset 0
@@ -137,12 +142,6 @@ def _check_matches_stored_magnitudes(subject: str, reward_by_tower: dict, revers
             )
 
 
-def _pre_room(blocks: list, idx: int) -> int:
-    """Trials from the previous block change (or the first trial) up to the reversal at *idx*."""
-    changes = [i for i in range(1, min(idx, len(blocks))) if blocks[i] != blocks[i - 1]]
-    return idx - (changes[-1] if changes else 0)
-
-
 def _magnitude_windows(reward_by_tower: dict, reversal: dict) -> dict[str, dict[str, list]]:
     window = reversal["trial_window_idx"]
     return {
@@ -169,8 +168,7 @@ def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict
     Returns:
         ``{subject: [reversal dict]}`` where each reversal dict has a new key
         ``"magnitudes_by_tower"``: ``{tower: {"pre": [...], "post": [...]}}``, the same shape
-        as ``"choices_by_tower"``, and ``"pre_room"``: trials from the previous block change.
-        The input is not modified.
+        as ``"choices_by_tower"``. The input is not modified.
 
     Raises:
         ValueError: If a subject has no sessions, a series is shorter than the window, or the
@@ -186,28 +184,40 @@ def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict
             _check_series_cover_windows(subject, reward_by_tower, reversal)
             _check_matches_stored_magnitudes(subject, reward_by_tower, reversal)
             enriched[subject].append(
-                {
-                    **reversal,
-                    "magnitudes_by_tower": _magnitude_windows(reward_by_tower, reversal),
-                    "pre_room": _pre_room(merged[subject]["blocks"], reversal["reversal_idx"]),
-                }
+                {**reversal, "magnitudes_by_tower": _magnitude_windows(reward_by_tower, reversal)}
             )
     return enriched
 
 
 def build_windows_with_magnitudes(subjects_trials: dict, *, pre: int, post: int) -> dict:
-    """Reversal windows of one problem, without the first block, with magnitude windows.
+    """Reversal windows of one problem, within one block, with magnitude windows.
+
+    Both windows stay inside the block of the reversal (``stop_at_block_changes=True``: the
+    pre window starts at the previous block change, the post window ends at the next one,
+    good or bad), and the first block is not included.
 
     Args:
         subjects_trials: ``{subject: {session: session dict}}`` of one problem.
-        pre, post: Trials before and from each reversal in the windows.
+        pre, post: Maximum trials before and from each reversal in the windows.
 
     Returns:
         ``{subject: [reversal dict]}`` as :func:`add_magnitude_windows` returns it, each
         reversal also recording the ``"window_pre"`` and ``"window_post"`` it was built with
-        (see :func:`check_windows_built_with`).
+        (``"pre_start"`` and ``"post_end"``, the bounds, come from ``get_good_reversal_info``).
+        :func:`check_windows_built_with` verifies all of these.
+
+    Raises:
+        ValueError: As ``get_good_reversal_info`` with ``stop_at_block_changes=True`` (a subject
+            without a ``blocks`` series, or boundaries that are not block changes) and as
+            :func:`add_magnitude_windows`.
     """
-    windows = get_good_reversal_info(subjects_trials, pre=pre, post=post, include_first_block=False)
+    windows = get_good_reversal_info(
+        subjects_trials,
+        pre=pre,
+        post=post,
+        include_first_block=False,
+        stop_at_block_changes=True,
+    )
     enriched = add_magnitude_windows(windows, subjects_trials)
     return {
         subject: [{**r, "window_pre": pre, "window_post": post} for r in reversals]
@@ -215,35 +225,64 @@ def build_windows_with_magnitudes(subjects_trials: dict, *, pre: int, post: int)
     }
 
 
+_WINDOW_KEYS = ("window_pre", "window_post", "pre_start", "post_end", "magnitudes_by_tower")
+
+
+def _check_window_lengths(subject: str, r: dict, pre: int, post: int) -> None:
+    idx = r["reversal_idx"]
+    for name, got, expected in (
+        ("pre", len(r["trial_window_idx"]["pre"]), min(pre, idx - r["pre_start"])),
+        ("post", len(r["trial_window_idx"]["post"]), min(post, r["post_end"] - idx)),
+    ):
+        if got != expected:
+            raise ValueError(
+                f"{subject}: reversal at {idx} has a {name} window of {got} trials, expected "
+                f"{expected} (the window stays inside its block and at most {pre}/{post} trials)"
+            )
+
+
 def check_windows_built_with(windows: dict, *, pre: int, post: int) -> None:
-    """Raise unless every reversal was built with *pre* and *post* by the builder above.
+    """Raise unless every reversal was built with *pre*, *post* by the builder.
 
     Windows built with a smaller pre or post would be NaN-padded to the requested length and
-    look like ordinary data; each pre window must also be as long as the block before the
-    reversal allows (the pre window stops at the previous block change).
+    look like ordinary data. Each window must also have the length its recorded bounds allow:
+    ``min(pre, idx - pre_start)`` before the reversal and ``min(post, post_end - idx)`` from it.
+
+    Args:
+        windows: ``{subject: [reversal dict]}`` from :func:`build_windows_with_magnitudes`.
+        pre, post: The values the windows must have been built with.
 
     Raises:
-        ValueError: Naming the first reversal whose settings or pre length do not fit.
+        ValueError: Naming the first reversal that lacks the recorded settings or magnitude
+            windows, was built with other settings, or has a window of the wrong length. The
+            message points to :func:`build_windows_with_magnitudes`.
     """
     for subject, reversals in windows.items():
         for r in reversals:
-            built = (r.get("window_pre"), r.get("window_post"))
-            if built != (pre, post):
+            missing = [k for k in _WINDOW_KEYS if k not in r]
+            if missing:
                 raise ValueError(
-                    f"{subject}: reversal at {r.get('reversal_idx')} was windowed with "
-                    f"(pre, post) = {built}, not ({pre}, {post}); rebuild it with "
-                    "build_windows_with_magnitudes"
+                    f"{subject}: reversal at {r.get('reversal_idx')} lacks {missing}; build "
+                    "the windows with build_windows_with_magnitudes"
                 )
-            expected_pre = min(pre, r["pre_room"])
-            if len(r["trial_window_idx"]["pre"]) != expected_pre:
+            if (r["window_pre"], r["window_post"]) != (pre, post):
                 raise ValueError(
-                    f"{subject}: reversal at {r['reversal_idx']} has a pre window of "
-                    f"{len(r['trial_window_idx']['pre'])} trials, expected {expected_pre}"
+                    f"{subject}: reversal at {r['reversal_idx']} was windowed with (pre, post) "
+                    f"= {(r['window_pre'], r['window_post'])}, not ({pre}, {post}); rebuild it "
+                    "with build_windows_with_magnitudes"
                 )
+            _check_window_lengths(subject, r, pre, post)
 
 
 def check_moving_avg_window(moving_avg_window) -> None:
-    """Raise ``ValueError`` unless *moving_avg_window* is a positive int (1 means no smoothing)."""
+    """Raise ``ValueError`` unless *moving_avg_window* is a positive int.
+
+    Args:
+        moving_avg_window: Moving-average width; 1 means no smoothing.
+
+    Raises:
+        ValueError: If it is not an int (a bool or float is not), or is below 1.
+    """
     if (
         isinstance(moving_avg_window, bool)
         or not isinstance(moving_avg_window, (int, np.integer))
@@ -356,10 +395,9 @@ def compute_reversal_aligned_arms(
     """Choice probability and reward magnitude of the three arms around reversals.
 
     Args:
-        reversal_windows: ``{subject: [reversal dict]}`` from ``get_good_reversal_info`` after
-            :func:`add_magnitude_windows`, built with the same *pre* and *post* and without the
-            first-block record. Pooling across problems is concatenation per subject
-            (``merge_windows_by_subject``).
+        reversal_windows: ``{subject: [reversal dict]}`` from
+            :func:`build_windows_with_magnitudes` with the same *pre* and *post*. Pooling across
+            problems is concatenation per subject (``merge_windows_by_subject``).
         scheme: ``"prev"`` labels arms by their rank before the reversal, ``"new"`` by their
             rank after it.
         reversal_type: ``"all"``, ``"best_to_third"`` or ``"second_to_third"``; the type is
@@ -379,12 +417,13 @@ def compute_reversal_aligned_arms(
 
     Raises:
         ValueError: For an unknown scheme, type or mode, a *moving_avg_window* that is not a
-            positive int, a window longer than *pre*/*post*, a first-block record, or choice
-            probabilities that do not sum to 1.
+            positive int, windows not built by the builder with this *pre*/*post*, a first-block
+            record, or choice probabilities that do not sum to 1.
     """
     if scheme not in LABEL_SCHEMES:
         raise ValueError(f"scheme must be one of {LABEL_SCHEMES}, got {scheme!r}")
     check_moving_avg_window(moving_avg_window)
+    check_windows_built_with(reversal_windows, pre=pre, post=post)
     if moving_avg_mode not in MOVING_AVG_MODES:
         raise ValueError(
             f"moving_avg_mode must be one of {MOVING_AVG_MODES}, got {moving_avg_mode!r}"
