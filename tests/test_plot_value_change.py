@@ -6,6 +6,8 @@ import pandas as pd
 import pytest
 
 from src.behavior_analysis.value_change_windows import (
+    ValueChangeConfig,
+    describe_value_change,
     get_value_change_windows,
     summarize_windows,
 )
@@ -89,30 +91,53 @@ def test_individual_mice_lines_are_optional():
     plt.close("all")
 
 
-def test_title_shows_the_truncated_event_count():
+def test_title_states_what_is_aligned_and_how_many_mice_and_events():
     title = plot_value_change_panel(curves_for(two_mice(), truncate=True)).get_title()
-    assert "n=2 subjects" in title and "n=4 events" in title
-    assert "4 truncated at rank swap" in title
+    first, second = title.split("\n")
+    assert first == (
+        "Choice Probabilities Around Best-Value Increases (All Events, Truncated at Swap)"
+    )
+    assert "n=2 mice" in second and "n=4 events" in second
+    assert "4 truncated at swap" in second
     plain = plot_value_change_panel(curves_for(two_mice(), truncate=False)).get_title()
-    assert "truncated" not in plain
+    assert plain.split("\n")[0].endswith("(All Events, Full Window)")
+    assert "truncated" not in plain.split("\n")[1]
     plt.close("all")
 
 
 def test_title_says_mean_only_for_one_mouse_and_has_no_stray_bracket():
     one = plot_value_change_panel(curves_for({"m1": mouse_sessions()}, truncate=True)).get_title()
     two = plot_value_change_panel(curves_for(two_mice(), truncate=True)).get_title()
-    assert "(mean across subjects" in one and "±" not in one
-    assert "(mean ± se across subjects" in two
+    assert "(mean across mice" in one and "±" not in one
+    assert "(mean ± se across mice" in two
     assert not one.endswith("))") and not two.endswith("))")
     plt.close("all")
 
 
-def test_filter_goes_on_its_own_title_line():
+def test_filter_and_mode_are_in_the_heading_for_a_swap_configuration():
     swap = {"m1": {key(1): session(recording(script(40, BASE, {10: mag(4, 6, 1)})))}}
-    curves = curves_for(swap, rank="second", direction="increase", rank_filter="rank_swap")
+    curves = curves_for(
+        swap, rank="second", direction="increase", rank_filter="rank_swap", truncate=True
+    )
     lines = plot_value_change_panel(curves).get_title().split("\n")
-    assert lines[1] == "[Rank-Swap Only]" and len(lines) == 3
+    assert len(lines) == 2
+    assert lines[0] == (
+        "Choice Probabilities Around Second-Best-Value Increases (Rank Swap, Truncated at Swap)"
+    )
     plt.close("all")
+
+
+def test_description_names_every_rank_direction_filter_and_mode():
+    cfg = ValueChangeConfig
+    assert describe_value_change(cfg("best", "decrease", "rank_swap"), True) == (
+        "Best-Value Decreases (Rank Swap, Truncated at Swap)"
+    )
+    assert describe_value_change(cfg("second", "decrease", "rank_preserving"), False) == (
+        "Second-Best-Value Decreases (Rank-Preserving, Full Window)"
+    )
+    assert describe_value_change(cfg("best", "increase", "all"), False) == (
+        "Best-Value Increases (All Events, Full Window)"
+    )
 
 
 def test_x_ticks_are_integers_and_the_legend_is_outside_the_axes():
@@ -134,20 +159,20 @@ def test_wrapper_saves_png_and_pdf_and_closes(tmp_path):
 # ------------------------------------------------------------------ entry point
 
 
-def expected_files(out_dir, modes=("untruncated", "truncated_at_rank_swap")):
+def expected_files(out_dir, modes=("Full Window", "Truncated at Swap")):
     return {
-        out_dir / f"value_change_{c}_{m}.{ext}"
-        for c in (
-            "best_increase_all_events",
-            "best_increase_rank_preserving",
-            "best_decrease_all_events",
-            "best_decrease_rank_preserving",
-            "best_decrease_rank_swap",
-            "second_increase_all_events",
-            "second_increase_rank_preserving",
-            "second_increase_rank_swap",
-            "second_decrease_all_events",
-            "second_decrease_rank_preserving",
+        out_dir / f"Choice Probabilities Around {c} ({f}, {m}).{ext}"
+        for c, f in (
+            ("Best-Value Increases", "All Events"),
+            ("Best-Value Increases", "Rank-Preserving"),
+            ("Best-Value Decreases", "All Events"),
+            ("Best-Value Decreases", "Rank-Preserving"),
+            ("Best-Value Decreases", "Rank Swap"),
+            ("Second-Best-Value Increases", "All Events"),
+            ("Second-Best-Value Increases", "Rank-Preserving"),
+            ("Second-Best-Value Increases", "Rank Swap"),
+            ("Second-Best-Value Decreases", "All Events"),
+            ("Second-Best-Value Decreases", "Rank-Preserving"),
         )
         for m in modes
         for ext in ("png", "pdf")
@@ -190,19 +215,23 @@ def no_figures(monkeypatch):
     )
 
 
-def test_entry_writes_every_figure_and_the_csv(full_run):
+def test_entry_writes_only_figures_to_the_folder(full_run):
     out_dir, result = full_run
-    written = set(out_dir.iterdir())
-    assert expected_files(out_dir) <= written
+    assert set(out_dir.iterdir()) == expected_files(out_dir)
     assert set(result["files"]) == expected_files(out_dir)
     assert plt.get_fignums() == []
-    table = pd.read_csv(out_dir / "value_change_contamination.csv")
+
+
+def test_entry_returns_the_contamination_table(full_run):
+    _, result = full_run
+    table = result["contamination_table"]
+    assert isinstance(table, pd.DataFrame)
     assert len(table) == 10
     assert {"config", "n_events", "n_contaminated", "frac_contaminated", "n_rank_swap"} <= set(
         table.columns
     )
     assert set(result["contamination"]) == set(table["config"])
-    assert result["contamination_csv"] == out_dir / "value_change_contamination.csv"
+    assert "contamination_csv" not in result
 
 
 def test_entry_summaries_report_counts_per_config_and_mode(full_run):
@@ -229,10 +258,10 @@ def test_entry_curves_match_a_hand_computation(full_run):
     assert np.isnan(s["se"]["best"]).all()  # one mouse: no spread across mice
 
 
-def test_entry_writes_per_bin_counts_that_show_the_thinning(full_run):
-    out_dir, result = full_run
-    table = pd.read_csv(out_dir / "value_change_bin_counts.csv")
-    assert result["bin_counts_csv"] == out_dir / "value_change_bin_counts.csv"
+def test_entry_returns_per_bin_counts_that_show_the_thinning(full_run):
+    _, result = full_run
+    table = result["bin_counts_table"]
+    assert "bin_counts_csv" not in result
     assert set(table.columns) == {"config", "mode", "t", "n_events", "n_subjects"}
     best_up = table[(table["config"] == "best/increase/all") & (table["mode"] == "untruncated")]
     assert list(best_up["t"]) == list(range(-5, 16)) and (best_up["n_events"] == 2).all()
@@ -256,7 +285,7 @@ def test_entry_refuses_a_contamination_table_that_disagrees_with_the_counts(
 def test_entry_truncate_modes_select_the_figures(tmp_path):
     run_value_change_analysis({1: {"m1": swap_rich_mouse()}}, tmp_path, truncate_modes=(True,))
     names = {p.name for p in tmp_path.glob("*.png")}
-    assert len(names) == 10 and all("truncated_at_rank_swap" in n for n in names)
+    assert len(names) == 10 and all("Truncated at Swap" in n for n in names)
 
 
 def test_entry_pools_problems_per_mouse(tmp_path, no_figures):
@@ -277,7 +306,7 @@ def test_entry_records_configs_without_events_instead_of_dropping_them(tmp_path)
     s = result["summaries"]["best/increase/all"]["untruncated"]
     assert s["n_events"] == 0 and s["plotted"] is False
     assert not list(tmp_path.glob("*.png"))
-    table = pd.read_csv(tmp_path / "value_change_contamination.csv")
+    table = result["contamination_table"]
     assert (table["n_events"] == 0).all()
     assert table["frac_contaminated"].isna().all()
 

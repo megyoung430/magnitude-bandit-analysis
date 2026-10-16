@@ -2,7 +2,7 @@
 
 :func:`run_value_change_analysis` makes, for every (rank, direction, filter) configuration of
 :func:`src.behavior_analysis.value_change_windows.value_change_configs`, one figure per
-truncation mode, plus a CSV of the contamination diagnostic and event accounting.
+truncation mode, and returns the contamination diagnostic and per-bin counts as tables.
 
 Events are found per problem and per session, then merged per mouse, so the same code serves
 one problem and a pool of problems. Believed-value events are deliberately not computed: the
@@ -21,6 +21,7 @@ from src.behavior_analysis.value_change_windows import (
     ValueChangeWindows,
     check_window,
     contamination_summary,
+    describe_value_change,
     get_value_change_windows,
     merge_value_change_windows,
     summarize_windows,
@@ -31,22 +32,13 @@ from src.behavior_visualization.plot_value_change_choice_probs import (
     plot_value_change_choice_probs,
 )
 
-CONTAMINATION_CSV = "value_change_contamination.csv"
-BIN_COUNTS_CSV = "value_change_bin_counts.csv"
-_FILTER_NAMES = {
-    "all": "all_events",
-    "rank_preserving": "rank_preserving",
-    "rank_swap": "rank_swap",
-}
-
 
 def _mode_name(truncated: bool) -> str:
     return "truncated_at_rank_swap" if truncated else "untruncated"
 
 
 def _figure_stem(config: ValueChangeConfig, truncated: bool) -> str:
-    filter_name = _FILTER_NAMES[config.rank_filter]
-    return f"value_change_{config.rank}_{config.direction}_{filter_name}_{_mode_name(truncated)}"
+    return f"Choice Probabilities Around {describe_value_change(config, truncated)}"
 
 
 def _check_arguments(
@@ -112,7 +104,7 @@ def _mode_summary(windows: ValueChangeWindows, out_dir: Path, show_individual_mi
 
 
 def _contamination_row(windows: ValueChangeWindows) -> dict:
-    """One CSV row: the configuration, its contamination summary and its event accounting."""
+    """One table row: the configuration, its contamination summary and its event accounting."""
     config = windows.config
     contamination = contamination_summary(windows.events)
     if contamination["n_events"] != windows.counts["n_events"]:
@@ -155,14 +147,12 @@ def run_value_change_analysis(
     truncate_modes: tuple[bool, ...] = (False, True),
     show_individual_mice: bool = False,
 ) -> dict:
-    """Value-change-aligned choice-probability figures, contamination CSV and per-bin counts.
+    """Value-change-aligned choice-probability figures, contamination table and per-bin counts.
 
-    Writes, under *out_dir*, ``value_change_<rank>_<direction>_<filter>_<mode>.png/.pdf`` for
-    each configuration with at least one event and each mode (``untruncated`` or
-    ``truncated_at_rank_swap``), and ``value_change_contamination.csv`` (one row per
-    configuration: contamination of the post windows and event accounting, from the
-    untruncated events) and ``value_change_bin_counts.csv`` (per configuration, mode and
-    time point t: how many events and mice have a trial there, so thinning is visible).
+    Writes, under *out_dir*, ``Choice Probabilities Around <rank>-Value <Increases|Decreases>
+    (<filter>, <mode>).png/.pdf`` for each configuration with at least one event and each mode
+    (``Full Window`` or ``Truncated at Swap``). Only figures are written; the contamination
+    and per-bin tables are returned for the caller to save.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session}}}``.
@@ -176,9 +166,13 @@ def run_value_change_analysis(
 
     Returns:
         dict: ``summaries`` (``{config label: {mode: {n_events, n_subjects, n_truncated,
-        counts, x, mean, se, n_events_per_bin, n_subjects_per_bin, plotted, files}}}``),
-        ``contamination`` (``{config label: contamination dict}``), ``contamination_csv`` and
-        ``bin_counts_csv`` (Paths) and ``files`` (every saved figure path).
+        counts, x, mean, se, n_events_per_bin, n_subjects_per_bin, plotted, files}}}``, mode
+        ``untruncated`` or ``truncated_at_rank_swap``), ``contamination`` (``{config label:
+        contamination dict}``), ``contamination_table`` (DataFrame, one row per configuration:
+        contamination of the post windows and event accounting, from the untruncated events),
+        ``bin_counts_table`` (DataFrame, per configuration, mode and time point ``t``: how many
+        events and mice have a trial there, so thinning is visible) and ``files`` (every saved
+        figure path).
 
     Raises:
         ValueError: On empty input, a counter-format session (the drifting task has only block
@@ -200,14 +194,10 @@ def run_value_change_analysis(
             summaries[config.label][_mode_name(truncated)] = summary
             files += summary["files"]
             bin_rows += _bin_count_rows(config, _mode_name(truncated), summary)
-    csv_path = out_dir / CONTAMINATION_CSV
-    pd.DataFrame(rows).to_csv(csv_path, index=False)
-    bin_path = out_dir / BIN_COUNTS_CSV
-    pd.DataFrame(bin_rows).to_csv(bin_path, index=False)
     return {
         "summaries": summaries,
         "contamination": contamination,
-        "contamination_csv": csv_path,
-        "bin_counts_csv": bin_path,
+        "contamination_table": pd.DataFrame(rows),
+        "bin_counts_table": pd.DataFrame(bin_rows),
         "files": files,
     }
