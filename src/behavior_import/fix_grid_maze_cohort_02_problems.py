@@ -32,32 +32,31 @@ def _shift_subject_down(problems, subject, shift_from):
 def fix_grid_maze_cohort_02_problems(
     subjects_trials_by_problem, fix_subjects=None, start_problem=2, in_place=False
 ):
-    """
+    """Shift the listed subjects' data one problem earlier, dropping their last problem.
+
     For specified subjects:
-      - problem start_problem gets replaced by the next problem the subject has data in
-      - that problem gets replaced by the one after it
-      - ...
-      - last problem for that subject is removed
+
+    - problem start_problem gets replaced by the next problem the subject has data in
+    - that problem gets replaced by the one after it
+    - ...
+    - last problem for that subject is removed
 
     Example (start_problem=2, subject has data in every problem):
-      P2 <- P3, P3 <- P4, ..., Plast removed
+    P2 <- P3, P3 <- P4, ..., Plast removed.
     A problem the subject has no data in is skipped over, not shifted.
 
-    Parameters
-    ----------
-    subjects_trials_by_problem : dict
-        problems[problem][subject][session] = session_data
-    fix_subjects : list[str]
-        subjects to fix (default: DEFAULT_FIX_SUBJECTS)
-    start_problem : int
-        first problem to shift (default 2)
-    in_place : bool
-        if False, returns a deep-copied new dict; if True, mutates original
+    Args:
+        subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_data}}}``.
+            Problem keys must be mutually sortable (normally ints).
+        fix_subjects (Iterable[str] | None): Subjects to fix. Default ``None``, meaning
+            ``DEFAULT_FIX_SUBJECTS``.
+        start_problem (int): First problem to shift. Default 2.
+        in_place (bool): If ``False`` (default), works on a deep copy and leaves the input
+            untouched; if ``True``, mutates the input.
 
-    Returns
-    -------
-    dict
-        fixed structure (same type as input keys/values)
+    Returns:
+        dict: The fixed ``{problem: {subject: {session_key: session_data}}}`` (the input
+        object itself when *in_place*). A problem left with no subject is removed.
     """
     # Known issue: a bare string for fix_subjects is iterated character by character, so it
     # fixes single-character subject names (normally none) instead of raising.

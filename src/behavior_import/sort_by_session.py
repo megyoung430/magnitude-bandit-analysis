@@ -14,11 +14,11 @@ def sort_sessions_chronologically(session_name):
     not found, preserving relative order with standard string comparison.
 
     Args:
-        session_name: Session key string, e.g. ``"ses-03_date-20240115"``.
+        session_name (str): Session key string, e.g. ``"ses-03_date-20240115"``.
 
     Returns:
-        ``int`` session number when the ``ses-XX`` pattern is found; the raw
-        string otherwise.
+        int | str: Session number when the ``ses-XX`` pattern is found; the raw
+        string otherwise. Mixing both kinds in one sort raises ``TypeError``.
     """
     m = re.search(r"ses-(\d+)", str(session_name))
     return int(m.group(1)) if m else str(session_name)
@@ -27,10 +27,10 @@ def get_short_session_label(session_name):
     """Extract the short ``ses-XX`` label from a full session key.
 
     Args:
-        session_name: Session key string, e.g. ``"ses-03_date-20240115"``.
+        session_name (str): Session key string, e.g. ``"ses-03_date-20240115"``.
 
     Returns:
-        The matched ``"ses-XX"`` substring (e.g. ``"ses-03"``), or the full
+        str: The matched ``"ses-XX"`` substring (e.g. ``"ses-03"``), or the full
         *session_name* string if the pattern is not found.
     """
     m = re.search(r"(ses-\d+)", str(session_name))

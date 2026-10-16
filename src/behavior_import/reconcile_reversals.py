@@ -338,6 +338,22 @@ def reconcile_reversals(data):
     Sessions run in date-then-number order (:mod:`src.behavior_import.session_order`), so
     each session's counters start from the right previous session.
 
+    Each session dict gains ``"reversal_totals"`` (``{"good": int, "bad": int}`` for the kinds
+    that were recorded, including events after the last trial),
+    ``"reversal_boundary_events"`` (list of ``{"kind", "index", "count", "source"}`` dicts, with
+    ``source`` ``"between_runs"`` or ``"run_end"``), ``"reversal_diagnostics"`` (list of dicts,
+    each with a ``"source"`` such as ``"counter_rollback"``), and
+    ``"blocks_before_boundary_reconciliation"``. It overwrites ``"blocks"``, and
+    ``"good_reversals"`` / ``"bad_reversals"`` (with ``"has_good"`` / ``"has_bad"`` set) for
+    recorded kinds, with the corrected per-trial cumulative counts.
+
+    Args:
+        data (dict): ``{subject: {session_key: session_dict}}`` after trial extraction, so each
+            session carries ``"data"`` and ``"trial_variables"``. Mutated in place.
+
+    Returns:
+        dict: The same *data* object.
+
     Raises:
         ValueError: If a run's ``run_start`` snapshot cannot be parsed (the message names
             the subject and session), or if a subject's session numbers and dates disagree.
