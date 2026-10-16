@@ -17,7 +17,8 @@ from tests.poke_fixtures import Recording, full_trial, session_record
 def small_session(**extra):
     """Two trials with known pokes, plus an open final window.
 
-    Trial 1: long pokes A3 then choice A1; after the choice: A1 (dropped), C3, C3, B2, A1.
+    Trial 1: long pokes A3 then choice A1; after the choice: A1 (dropped), C3, C3, B2, A1,
+    then the initiating B2 of trial 2.
     Trial 2: choice B1 only; its window is open (recording ends in wait_init).
     """
     rec = Recording()
@@ -36,9 +37,9 @@ def test_after_initiation_counts_long_pokes_with_the_choice_exactly_once():
     assert {p: n for p, n in counts.after_initiation.items() if n} == {"A3": 1, "A1": 1, "B1": 1}
 
 
-def test_after_choice_counts_repeats_and_drops_leading_choice_pokes():
+def test_after_choice_counts_repeats_the_initiating_poke_and_drops_leading_choice_pokes():
     counts = session_poke_counts(small_session())
-    assert {p: n for p, n in counts.after_choice.items() if n} == {"C3": 2, "B2": 1, "A1": 1}
+    assert {p: n for p, n in counts.after_choice.items() if n} == {"C3": 2, "B2": 2, "A1": 1}
 
 
 def test_trials_with_an_open_window_are_excluded_from_after_choice_and_reported():
@@ -49,6 +50,23 @@ def test_trials_with_an_open_window_are_excluded_from_after_choice_and_reported(
 def test_long_poke_check_is_attached():
     counts = session_poke_counts(small_session())
     assert counts.long_poke_check.n_agree == counts.long_poke_check.n_trials == 2
+
+
+def test_port_finding_trials_are_counted_apart_from_task_trials_and_drops():
+    rec = Recording()
+    rec.port_finding_trial("A1")
+    rec.port_finding_trial("C1")
+    rec.port_finding_trial("B3")
+    full_trial(rec, choice="A1")
+    full_trial(rec, choice="B1")
+    counts = session_poke_counts(session_record([rec.to_frame()], choice=["A1", "B1"]))
+    assert counts.n_port_finding_trials == 3
+    assert (counts.n_trials, counts.n_valid) == (2, 2)
+    assert (counts.n_dropped_no_print, counts.n_dropped_inconsistent) == (0, 0)
+
+
+def test_session_without_port_finding_reports_zero_port_finding_trials():
+    assert session_poke_counts(small_session()).n_port_finding_trials == 0
 
 
 def test_mouse_counts_sum_over_sessions_in_session_order_not_dict_order():

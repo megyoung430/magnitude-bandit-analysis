@@ -7,9 +7,14 @@ Two kinds of pokes are of interest, both attributed to the trial whose ``print``
   listed, the choice itself being the last one (a long poke at a choice tower is the choice).
 - **Pokes after the choice.** Every ``<port>_in`` event from the trial's ``ITI`` state until the
   next trial's initiation, which is the ``wait_init`` -> ``wait_choice`` transition. The
-  initiating poke is the ``_in`` event that triggered that transition and is not part of the
-  window. Pokes during the rewarded ``choice`` state (which precedes the ``ITI``) are outside
-  the window; an unrewarded trial goes straight to the ``ITI``.
+  initiating poke is the ``_in`` event that triggered that transition; it is the last poke of
+  the window, and it counts as a poke at the initiation port. Pokes during the rewarded
+  ``choice`` state (which precedes the ``ITI``) are outside the window; an unrewarded trial goes
+  straight to the ``ITI``.
+
+The log is read in file order, from the ``state`` rows and the ``<port>_in`` input events only.
+Timer events are ignored: pyControl can log a timer a few milliseconds before the state row that
+precedes it, so the log is not strictly time-ordered, and nothing here depends on it.
 
 The parsers keep everything they saw; the counting rules are separate small functions
 (:func:`pokes_after_initiation`, :func:`pokes_after_choice`) so each can be tested alone.
@@ -24,7 +29,10 @@ timeout or aborted trial, or a plain-text print), a held port that differs from 
 chosen tower, a trial that went back to ``wait_init`` without an ITI, a print with no
 initiation since the previous trial (that trial and the previous one are both dropped). Only a
 recording's last printed trial may have an open after-choice window. Structurally impossible
-logs raise :class:`PokeParseError`. Trials that do not line up with the session's imported
+logs raise :class:`PokeParseError`. Port-finding trials (prints with ``num_t_found``, no
+``num_t``) are not task trials: they are kept in the list as trials with ``drop_reason``
+:data:`PORT_FINDING`, which :func:`is_port_finding` recognises and :func:`count_port_finding`
+counts, and they are not reported as drops. Trials that do not line up with the session's imported
 trials raise :class:`PokeAlignmentError`, which is not a :class:`PokeParseError` because it
 points to a bug in the code rather than to an odd recording.
 """
@@ -50,10 +58,11 @@ ARMS9 = ("A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3")
 _POKE_IN_RE = re.compile(r"^([ABC][123])_in$")
 
 NO_PRINT = "no summary print row"
+PORT_FINDING = "port-finding trial"
 
 
 class PokeParseError(ValueError):
-    """The raw event log cannot be read as trials (impossible state sequence, bad time order)."""
+    """The raw event log cannot be read as trials (impossible state sequence)."""
 
 
 class PokeAlignmentError(ValueError):
@@ -76,8 +85,9 @@ class TrialPokes(NamedTuple):
 
     ``drop_reason`` is ``None`` for a trial to analyse; otherwise the trial's pokes are not to be
     used (``long_pokes`` is empty, ``window_pokes`` ``None``) and the reason says why.
-    ``has_print`` is False for a trial that ended without any print row (it is not one of the
-    session's trials); ``chosen`` is ``None`` when there is no usable print.
+    ``has_print`` is False for a trial that ended without any print row and for a port-finding
+    trial (neither is one of the session's trials); ``chosen`` is ``None`` when there is no
+    usable print. A port-finding trial has ``drop_reason`` :data:`PORT_FINDING`.
 
     Attributes:
         chosen (str | None): Chosen tower from the trial print, or ``None`` without a usable print.
@@ -88,7 +98,8 @@ class TrialPokes(NamedTuple):
         window_pokes (tuple[str, ...] | None): Ports of the ``_in`` events of the after-choice
             window, or ``None`` if the window never closed (or the trial was dropped).
         drop_reason (str | None): ``None`` for a trial to analyse, else why it is not.
-        has_print (bool): False for a trial that ended without any print row. Default True.
+        has_print (bool): False for a trial that ended without any print row, and for a
+            port-finding trial. Default True.
     """
 
     chosen: str | None
@@ -124,9 +135,30 @@ def _first_alias(printed: dict, names: Sequence[str]):
     return next((printed[n] for n in names if n in printed), None)
 
 
-def _check_time_order(times: np.ndarray, label: str) -> None:
-    if np.any(np.diff(times) < 0):
-        raise PokeParseError(f"{label}: event times are not in increasing order")
+def _is_port_finding_print(printed) -> bool:
+    """Whether a parsed print row is a port-finding trial (``num_t_found``, as in the importer)."""
+    return isinstance(printed, dict) and "num_t_found" in printed
+
+
+def is_port_finding(trial: TrialPokes) -> bool:
+    """Whether *trial* is a port-finding trial rather than a task trial."""
+    return trial.drop_reason == PORT_FINDING
+
+
+def count_port_finding(trials: Sequence[TrialPokes]) -> int:
+    """Number of port-finding trials in *trials* (as from :func:`parse_session`)."""
+    return sum(is_port_finding(t) for t in trials)
+
+
+def _port_finding_trial() -> TrialPokes:
+    return TrialPokes(None, None, (), None, PORT_FINDING, has_print=False)
+
+
+def _check_state_times(df: pd.DataFrame, label: str) -> None:
+    """Raise if the ``state`` rows are not in time order (other rows may be, see the module doc)."""
+    state_times = df.loc[df["type"] == "state", "time"].to_numpy(dtype=float)
+    if np.any(np.diff(state_times) < 0):
+        raise PokeParseError(f"{label}: state rows are not in increasing time order")
 
 
 @dataclass
@@ -154,6 +186,7 @@ class _RecordingState:
         self.initiated = False  # a trial was initiated and has had neither a print nor an ITI
         self.long_pokes: list[str] = []
         self.trials: list[_Trial] = []
+        self.n_port_finding = 0
         self.awaiting_window = False  # the last trial's after-choice window is not yet closed
         self.window: list[str] | None = None  # the open window's pokes, once its ITI began
 
@@ -204,14 +237,18 @@ class _RecordingState:
         elif not self.window:
             raise self.fail("initiating poke missing from the after-choice window")
         else:
-            self.window.pop()  # the initiating poke itself
-            last.window = tuple(self.window)
+            last.window = tuple(self.window)  # ends with the initiating poke
         self.window, self.awaiting_window = None, False
 
     def poke_in(self, port: str) -> None:
         self.last_in = port
         if self.window is not None:
             self.window.append(port)
+
+    def port_finding_printed(self) -> None:
+        """A port-finding trial ended: it is not a task trial and leaves no pokes behind."""
+        self.n_port_finding += 1
+        self.reset_trial()
 
     def trial_printed(self, printed: dict) -> None:
         if self.awaiting_window:  # a print with no initiation after the previous trial
@@ -258,18 +295,19 @@ def parse_recording(
 
     Returns:
         list[TrialPokes]: One :class:`TrialPokes` per trial (a trial with a print row, or one
-        that ended in an ITI without any), in order; ``[]`` for a recording without bandit
-        trials (port finding, pretraining). Untrustworthy trials carry a ``drop_reason`` (see
-        the module doc).
+        that ended in an ITI without any), in order, then one per port-finding trial (the
+        position of those among the task trials is not kept). A recording without bandit
+        trials (port finding, pretraining) gives only its port-finding trials. Untrustworthy
+        trials carry a ``drop_reason`` (see the module doc).
 
     Raises:
-        PokeParseError: If the log is not in time order, a state sequence is impossible
+        PokeParseError: If the ``state`` rows are not in time order, a state sequence is impossible
             (``poked_in`` without ``hold_poke``, two ITIs in a row), or a trial is initiated by
             a port other than *initiation_tower*.
     """
     if not bandit_trial_info(df, label, label):
-        return []
-    _check_time_order(df["time"].to_numpy(dtype=float), label)
+        return _port_finding_only(df)
+    _check_state_times(df, label)
     position = _RecordingState(initiation_tower, label)
     rows = zip(df["type"], df["subtype"], df["content"], strict=True)
     for row_type, subtype, content in rows:
@@ -281,12 +319,25 @@ def parse_recording(
                 position.poke_in(match[1])
         elif row_type == "variable" and subtype == "print":
             printed = parse_content_json(content)
-            if isinstance(printed, dict) and "num_t_found" not in printed:
+            if _is_port_finding_print(printed):
+                position.port_finding_printed()
+            elif isinstance(printed, dict):
                 position.trial_printed(printed)
-    return [
+    trials = [
         TrialPokes(t.chosen, t.printed, t.long_pokes, t.window, t.drop_reason, t.has_print)
         for t in position.trials
     ]
+    return trials + [_port_finding_trial()] * position.n_port_finding
+
+
+def _port_finding_only(df: pd.DataFrame) -> list[TrialPokes]:
+    """The port-finding trials of a recording that has no task trials."""
+    prints = (
+        parse_content_json(content)
+        for row_type, subtype, content in zip(df["type"], df["subtype"], df["content"], strict=True)
+        if row_type == "variable" and subtype == "print"
+    )
+    return [_port_finding_trial() for printed in prints if _is_port_finding_print(printed)]
 
 
 def _recordings(session: dict) -> list[pd.DataFrame]:
@@ -349,7 +400,9 @@ def parse_session(
 
 
 def _warn_about_dropped(trials: Sequence[TrialPokes], label: str) -> None:
-    reasons = Counter(t.drop_reason for t in trials if t.drop_reason is not None)
+    reasons = Counter(
+        t.drop_reason for t in trials if t.drop_reason is not None and not is_port_finding(t)
+    )
     if reasons:
         total = sum(reasons.values())
         listed = "; ".join(f"{n} x {reason}" for reason, n in reasons.items())
@@ -416,7 +469,7 @@ def cross_check_long_pokes(trials: Sequence[TrialPokes]) -> LongPokeCheck:
     Returns:
         LongPokeCheck: The number of compared trials, how many agree, and the disagreeing ones.
     """
-    trials = [t for t in trials if t.drop_reason is None]
+    trials = [t for t in trials if t.drop_reason is None]  # port finding has a reason too
     mismatches = []
     for k, trial in enumerate(trials, start=1):
         printed = (

@@ -99,6 +99,23 @@ class Recording:
                 self.poke_in(p)
         return self
 
+    def port_finding_trial(self, port="A1"):
+        """One port-finding trial: initiate, hold at *port*, a print with ``num_t_found``, ITI.
+
+        Port-finding prints carry no ``num_t``; the recording is left in ``wait_init``.
+        """
+        self.num_t_found = getattr(self, "num_t_found", 0) + 1
+        self.initiate()
+        self._long(port)
+        printed = {
+            "num_t_found": self.num_t_found,
+            "found_ports": False,
+            "chosen_tow": port,
+            "long_pokes": [],
+        }
+        self._add("variable", "print", json.dumps(printed))
+        return self.state("choice").iti().state("wait_init")
+
     def text_print(self, text="trial done"):
         """A plain-text print row, which parses to an empty trial dict."""
         self.num_t += 1
