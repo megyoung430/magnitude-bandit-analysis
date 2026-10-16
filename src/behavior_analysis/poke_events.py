@@ -192,6 +192,30 @@ def _port_finding_trial() -> TrialPokes:
     return TrialPokes(None, None, (), None, PORT_FINDING, has_print=False)
 
 
+def _drop_non_numeric_times(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    """Drop rows whose ``time`` is not a number, with a warning.
+
+    pyControl writes a task error's traceback into the log as rows whose ``time`` column holds
+    text (e.g. ``"AttributeError: "``). The rest of the recording is valid, so those rows are
+    removed and ``time`` is returned as floats.
+    """
+    times = pd.to_numeric(df["time"], errors="coerce")
+    bad = times.isna()
+    if not bad.any():
+        return df
+    rows = np.flatnonzero(bad.to_numpy())
+    sample = df.loc[bad, "time"].astype(str).str.strip().unique()[:2]
+    warnings.warn(
+        f"{label}: ignored {bad.sum()} non-numeric row(s) at positions "
+        f"{rows[0]}-{rows[-1]} of {len(df)} (e.g. {list(sample)}); "
+        "the task logged an error traceback.",
+        stacklevel=3,
+    )
+    out = df.loc[~bad].reset_index(drop=True)
+    out["time"] = times.loc[~bad].to_numpy()
+    return out
+
+
 def _check_state_times(df: pd.DataFrame, label: str) -> None:
     """Raise if the ``state`` rows are not in time order (other rows may be, see the module doc)."""
     state_times = df.loc[df["type"] == "state", "time"].to_numpy(dtype=float)
@@ -352,6 +376,7 @@ def parse_recording(
             (``poked_in`` without ``hold_poke``, two ITIs in a row), or a trial is initiated by
             a port other than *initiation_tower*.
     """
+    df = _drop_non_numeric_times(df, label)
     if not bandit_trial_info(df, label, label):
         return _port_finding_only(df, label)
     _check_state_times(df, label)
