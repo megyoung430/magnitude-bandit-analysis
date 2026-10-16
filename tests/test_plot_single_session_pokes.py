@@ -103,6 +103,41 @@ def test_two_maze_panels_and_colorbars_are_added(figures):
     assert len(labelled) == 2
 
 
+def bar_and_maze_axes(fig, with_ema):
+    """The (bar chart, maze map) pairs: counts by tower over the long-pokes-after-initiation map,
+    counts by rank over the pokes-after-choice map."""
+    n_standard = 4 if with_ema else 3
+    towers_ax, ranks_ax = fig.axes[n_standard - 2 : n_standard]
+    initiation_ax, choice_ax = [ax for ax in fig.axes[n_standard:] if ax.get_title()]
+    assert initiation_ax.get_title().startswith("Long pokes after initiation")
+    return [(towers_ax, initiation_ax), (ranks_ax, choice_ax)]
+
+
+@pytest.mark.parametrize("with_ema", [True, False])
+def test_each_maze_map_is_centred_under_the_bar_chart_above_it(figures, with_ema):
+    plot_single_session(session_with_pokes(with_ema))
+    (fig,) = figures
+    fig.canvas.draw()
+    for bar, maze in bar_and_maze_axes(fig, with_ema):
+        bar_box, maze_box = bar.get_position(), maze.get_position()
+        assert (maze_box.x0 + maze_box.x1) / 2 == pytest.approx((bar_box.x0 + bar_box.x1) / 2)
+        assert maze_box.y1 < bar_box.y0  # below the bar chart, not overlapping it
+        width, height = inches(fig, maze)[2:]
+        assert width == pytest.approx(height)  # drawn square, filling its box
+
+
+@pytest.mark.parametrize("with_ema", [True, False])
+def test_colorbars_sit_beside_their_map_within_the_bar_chart_width(figures, with_ema):
+    plot_single_session(session_with_pokes(with_ema))
+    (fig,) = figures
+    fig.canvas.draw()
+    colorbars = [ax for ax in fig.axes if "count" in ax.get_ylabel()]
+    assert len(colorbars) == 2
+    for colorbar_ax, (bar, maze) in zip(colorbars, bar_and_maze_axes(fig, with_ema), strict=True):
+        assert colorbar_ax.get_position().x0 >= maze.get_position().x1
+        assert colorbar_ax.get_position().x1 <= bar.get_position().x1 + 0.05
+
+
 def test_maze_counts_are_this_sessions_own(figures):
     plot_single_session(session_with_pokes())
     (fig,) = figures
@@ -119,8 +154,9 @@ def test_maze_counts_are_this_sessions_own(figures):
         "B1": 1,
         "C1": 1,
     }
-    # After choice: trial 1 -> C3, C3 (leading A1 dropped); trial 2 -> A2; trial 3 is open.
-    assert {p: n for p, n in shown(choice_ax).items() if n} == {"C3": 2, "A2": 1}
+    # After choice: trial 1 -> C3, C3 (leading A1 dropped) and the B2 that initiates trial 2;
+    # trial 2 -> A2 and the B2 that initiates trial 3; trial 3's window is open.
+    assert {p: n for p, n in shown(choice_ax).items() if n} == {"C3": 2, "A2": 1, "B2": 2}
 
 
 def test_current_choice_ports_are_outlined_green_and_initiation_port_blue(figures):
