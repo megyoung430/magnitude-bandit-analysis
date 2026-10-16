@@ -65,7 +65,7 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_import.extract_trials import ALIASES, bandit_trial_info
-from src.behavior_import.import_data import parse_content_json
+from src.behavior_import.import_data import drop_non_numeric_times, parse_content_json
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
 
 ARMS9 = ("A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3")
@@ -198,30 +198,6 @@ def count_port_finding(trials: Sequence[TrialPokes]) -> int:
         int: How many of them are port-finding trials.
     """
     return sum(is_port_finding(t) for t in trials)
-
-
-def _drop_non_numeric_times(df: pd.DataFrame, label: str) -> pd.DataFrame:
-    """Drop rows whose ``time`` is not a number, with a warning.
-
-    pyControl writes a task error's traceback into the log as rows whose ``time`` column holds
-    text (e.g. ``"AttributeError: "``). The rest of the recording is valid, so those rows are
-    removed and ``time`` is returned as floats.
-    """
-    times = pd.to_numeric(df["time"], errors="coerce")
-    bad = times.isna()
-    if not bad.any():
-        return df
-    rows = np.flatnonzero(bad.to_numpy())
-    sample = df.loc[bad, "time"].astype(str).str.strip().unique()[:2]
-    warnings.warn(
-        f"{label}: ignored {bad.sum()} non-numeric row(s) at positions "
-        f"{rows[0]}-{rows[-1]} of {len(df)} (e.g. {list(sample)}); "
-        "the task logged an error traceback.",
-        stacklevel=3,
-    )
-    out = df.loc[~bad].reset_index(drop=True)
-    out["time"] = times.loc[~bad].to_numpy()
-    return out
 
 
 def _check_state_times(df: pd.DataFrame, label: str) -> None:
@@ -386,7 +362,7 @@ def parse_recording(
             a port other than *initiation_tower*; for a recording without bandit trials only if
             a print breaks the port-finding rule.
     """
-    df = _drop_non_numeric_times(df, label)
+    df = drop_non_numeric_times(df, label)
     has_bandit_trials = bool(bandit_trial_info(df, label, label))
     try:
         trials = _read_trials(df, initiation_tower, label)
