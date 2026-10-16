@@ -252,14 +252,31 @@ report all failures at the end.
 
 ### Reversals at session boundaries
 
-Trial extraction reconciles good/bad counters with raw `run_start` and `run_end`
-records, including both long and abbreviated variable names. A reversal after
-its session's final trial contributes to that session's `reversal_totals`; its
-post-reversal window starts at the next available trial. Positive total-counter
-changes between runs are included in the receiving session. Recording restarts
-subtract their starting counter baseline to avoid counting persisted events twice.
-Magnitude-only changes and counter decreases are retained in
-`reversal_diagnostics`, without assigning a good/bad reversal type.
+Trial extraction reconciles good/bad counters and block numbers with raw `run_start` and
+`run_end` records, including both long and abbreviated variable names. The recordings of a
+session form one continuous session. The per-recording counters (`num_blocks`, `num_good_rev`,
+`num_bad_rev`) restart in every recording; the session totals (`tot_num_blocks`,
+`tot_num_good_rev`, `tot_num_bad_rev`) do not, so a change that the task logged while nothing was
+recording (in a `run_end` after the last trial, or in the next `run_start`) is read from them.
+The next recording's first trial is then the first trial of the new block (drifting task: a
+block change; blocked task: a good or bad reversal), and a recording that restarts at 1 while
+the totals show no change continues the block. Files without totals use the reward magnitudes
+instead: the zero arm moved (drifting) or the magnitudes permuted (blocked).
+`reversal_boundary_events` lists these events with kind `good`, `bad` or `block` (a block
+change of unknown kind in a blocked session without totals). `run_boundaries` describes every
+recording boundary (magnitudes before and after, counter and total deltas, and a verdict) with
+`src.behavior_import.run_boundaries.describe_boundary`.
+
+Such a reversal is checked like any other (the best tower changes at a good reversal), on the
+last trial before it and the first trial after it. A change logged after a session's final
+trial contributes to that session's `reversal_totals`. It starts a new block at the next
+session's first trial (same problem) only if the magnitudes there show it (`session_check`
+`consistent`); otherwise it is not carried into the next session, is recorded in
+`reversal_diagnostics` as `session_end_change_unmatched`, and counts as uncheckable. A reversal is
+uncheckable only when there is no trial to check against. Recording restarts subtract their
+starting counter baseline to avoid counting persisted events twice. Magnitude-only changes and
+counter decreases are retained in `reversal_diagnostics`, without assigning a good/bad
+reversal type.
 
 All reversal analyses use these corrected counters and totals. Re-extract raw
 sessions before rerunning analyses on previously loaded data; existing notebook
