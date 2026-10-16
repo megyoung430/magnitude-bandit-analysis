@@ -34,7 +34,8 @@ from src.behavior_visualization.plot_style import BAD_COLOR, GOOD_COLOR, TOTAL_C
 
 KIND_COLORS = {"good": GOOD_COLOR, "bad": BAD_COLOR, "total": TOTAL_COLOR}
 KIND_LABELS = {"good": "Good Rev", "bad": "Bad Rev", "total": "Total Rev"}
-THRESHOLD_STYLE = dict(color="#DCDCDC", linewidth=2, linestyle="--", alpha=0.7)
+THRESHOLD_STYLE = dict(color="gray", linewidth=2, linestyle="--")
+LEGEND_HEADROOM = 1.4  # y-axis top as a multiple of the tallest bar or threshold
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +84,11 @@ def plot_reversal_totals(
     if threshold is not None:
         ax.axhline(threshold, label="Threshold", **THRESHOLD_STYLE)
         ax.legend(loc="upper left", fontsize=10)
+    # Room above the tallest bar and the line, so the upper-left legend covers neither.
+    plotted = totals[list(kinds)] if kinds == ("good", "bad") else totals[["total"]]
+    tallest = max(float(plotted.to_numpy().max(initial=0)), threshold or 0)
+    if tallest > 0:
+        ax.set_ylim(0, LEGEND_HEADROOM * tallest)
     ax.set_xticks(x_pos)
     ax.set_xticklabels(totals.index, rotation=45, ha="right")
     despine(ax)

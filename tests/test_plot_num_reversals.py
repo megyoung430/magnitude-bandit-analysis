@@ -1,9 +1,11 @@
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.behavior_visualization.plot_num_reversals import (
     THRESHOLD_STYLE,
@@ -45,6 +47,23 @@ def test_total_bars_mark_the_threshold_in_the_shared_style():
     assert line.get_color() == THRESHOLD_STYLE["color"]
     assert line.get_linestyle() == THRESHOLD_STYLE["linestyle"]
     assert "Threshold" in [t.get_text() for t in ax.get_legend().get_texts()]
+    plt.close(fig)
+
+
+def test_threshold_line_is_a_visible_mid_grey():
+    rgb = mcolors.to_rgb(THRESHOLD_STYLE["color"])
+    assert max(rgb) < 0.7 and np.ptp(rgb) == 0  # grey, and clearly darker than #DCDCDC
+    assert THRESHOLD_STYLE.get("alpha", 1.0) == 1.0
+
+
+@pytest.mark.parametrize("totals", [[4, 12], [3, 5], [10, 10]], ids=["above", "below", "at"])
+def test_legend_leaves_the_threshold_line_uncovered(totals):
+    df = pd.DataFrame({"total": totals}, index=["a", "b"])
+    fig, ax = plt.subplots(figsize=(10, 5))
+    plot_reversal_totals(df, ("total",), ax=ax, threshold=10)
+    fig.canvas.draw()
+    legend_box = ax.get_legend().get_window_extent().transformed(ax.transData.inverted())
+    assert legend_box.y0 > 10
     plt.close(fig)
 
 
