@@ -686,6 +686,11 @@ def concat_cumulative_numeric(segments):
     each segment by the last value of the previous segment when a reset is
     detected (i.e. the current segment starts below the running maximum).
 
+    A segment that restarts at 1 is read as continuing the previous block, so a block change
+    that the task logged only between the recordings is not seen here.
+    :func:`~src.behavior_import.reconcile_reversals.reconcile_reversals` adds such changes, and
+    recomputes ``blocks`` of a session without good/bad counters from the session totals.
+
     Args:
         segments (list[list[int | None]]): Per-file cumulative counter sequences, in file
             order. ``None`` entries and empty segments are dropped.

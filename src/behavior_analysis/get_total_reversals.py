@@ -26,9 +26,10 @@ def get_total_reversals(subject_sessions):
         available, also ``"good_reversals"`` (int) and ``"bad_reversals"``
         (int), as logged by the task. Beside them, ``"suspect_good_reversals"``
         counts the logged good reversals whose best tower does not change, and
-        ``"uncheckable_good_reversals"`` those with no trial to check (between
-        runs, after the last trial, or a session without reward magnitudes);
-        see :mod:`src.behavior_analysis.suspect_reversals`.
+        ``"uncheckable_good_reversals"`` those with no trial to check (after the last
+        trial of a session whose next session does not show them, at the start of a problem,
+        or a session without reward magnitudes); reversals logged between recordings are
+        checked like any other. See :mod:`src.behavior_analysis.suspect_reversals`.
     """
 
     total_good = 0

@@ -65,6 +65,18 @@ def test_reversal_event_indices_merges_boundary_events_without_duplicates():
     assert blocks == []
 
 
+def test_reversal_event_indices_draws_block_events_as_block_starts_inside_the_trials_only():
+    session = {
+        "blocks": [1, 1, 2, 2],
+        "reversal_boundary_events": [
+            {"kind": "block", "index": 2},  # already marked by the counter
+            {"kind": "block", "index": 3},
+            {"kind": "block", "index": 4},  # after the last trial: no line
+        ],
+    }
+    assert reversal_event_indices(session, N=4) == ([], [], [2, 3])
+
+
 def test_reversal_event_indices_does_not_mutate_session():
     session = {"good_reversals": [0, 1], "reversal_boundary_events": [{"kind": "good", "index": 5}]}
     reversal_event_indices(session, N=2)

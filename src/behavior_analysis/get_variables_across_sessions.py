@@ -1,5 +1,6 @@
 """Functions for merging and aligning behavioral variables across multiple recording sessions."""
 
+from src.behavior_import.reconcile_reversals import uncarried_counts
 from src.behavior_import.session_order import ordered_session_keys
 
 
@@ -13,7 +14,9 @@ def get_vars_across_all_sessions(data):
     disagree raises ``ValueError``.
 
     End-of-session events affect totals even without a following trial. They
-    enter trial-aligned counters only when another trial is available. Sessions
+    enter trial-aligned counters only when another trial is available, and only when the next
+    session's first trial shows them (``session_check`` is not ``"inconsistent"``, see
+    :func:`~src.behavior_import.reconcile_reversals.uncarried_counts`). Sessions
     retain their incoming boundary corrections when selected as a subset.
 
     Args:
@@ -70,6 +73,7 @@ def get_vars_across_all_sessions(data):
                 parts[key].append(filled)
                 values.extend(offset + v for v in filled)
                 offset += sess.get("reversal_totals", {}).get(kind, last)
+                offset -= uncarried_counts(sess).get(kind, 0)
             result[key] = values
         # Preserve existing block numbering, adding terminal events that have
         # no trial in their own session (within-session additions are extracted).
@@ -81,7 +85,9 @@ def get_vars_across_all_sessions(data):
                 offset = block_values[-1] - 1
             n = len(sess.get("trial", []))
             offset += sum(
-                e["count"] for e in sess.get("reversal_boundary_events", []) if e["index"] == n
+                e["count"]
+                for e in sess.get("reversal_boundary_events", [])
+                if e["index"] == n and e.get("session_check") != "inconsistent"
             )
         result["blocks"] = block_values
         result["trials_in_block"] = compute_merged_num_trials_in_block(block_values)

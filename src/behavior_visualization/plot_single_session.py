@@ -567,9 +567,10 @@ def plot_single_session(
 
     Notes:
         ``session_data["reversal_boundary_events"]`` (optional) is a list of
-        ``{"kind": "good" | "bad", "index": int}`` dicts that add reversal lines
+        ``{"kind": "good" | "bad" | "block", "index": int}`` dicts that add reversal lines
         the cumulative ``good_reversals`` / ``bad_reversals`` counters did not
-        mark; any kind other than ``"good"`` is drawn as a bad reversal.
+        mark; a ``"block"`` event is a block-start line, any other kind than ``"good"``
+        is drawn as a bad reversal.
 
         Raw events that cannot be read as trials (``PokeParseError``) warn with the title
         and the reason, and the figure is drawn without the maze maps. A

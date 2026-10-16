@@ -38,7 +38,8 @@ class BoundaryTests(unittest.TestCase):
         merged, _ = get_vars_across_all_sessions(data)
         self.assertEqual(merged['mouse']['bad_reversals'], [0, 0, 1, 1])
         self.assertEqual(merged['mouse']['good_reversals'], [0, 0, 1, 1])
-        # The logged totals are unchanged; the terminal good event cannot be checked.
+        # The logged totals are unchanged; the good event in ses-2's run_start is checked against
+        # ses-1's last trial (the best tower moves from A to B), so nothing is uncheckable.
         self.assertEqual(
             get_total_reversals(data['mouse']),
             dict(
@@ -46,7 +47,7 @@ class BoundaryTests(unittest.TestCase):
                 good_reversals=1,
                 bad_reversals=1,
                 suspect_good_reversals=0,
-                uncheckable_good_reversals=1,
+                uncheckable_good_reversals=0,
             ),
         )
         self.assertEqual(get_all_reversal_indices(data)[:2], ({'mouse': [2]}, {'mouse': [2]}))
@@ -56,12 +57,14 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(get_vars_across_all_sessions(data)[0], merged)
 
     def test_terminal_event_counted_without_next_trial_and_not_double_counted(self):
-        a, b = snapshot(), snapshot(bad=1, tb=1)
+        permuted = {'A': 4, 'B': 0, 'C': 1}
+        a, b = snapshot(), snapshot(bad=1, tb=1, mags=permuted)
         data = {'mouse': {'ses-1': session(a, b)}}
         reconcile_reversals(data)
         self.assertEqual(get_total_reversals(data['mouse'])['bad_reversals'], 1)
         self.assertEqual(get_all_reversal_indices(data)[1]['mouse'], [])
-        data['mouse']['ses-2'] = session(snapshot(tb=1), snapshot(tb=1))
+        later = snapshot(tb=1, mags=permuted)
+        data['mouse']['ses-2'] = session(later, later)
         reconcile_reversals(data)
         self.assertEqual(get_total_reversals(data['mouse'])['bad_reversals'], 1)
         self.assertEqual(get_all_reversal_indices(data)[1]['mouse'], [2])
@@ -112,9 +115,11 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(get_all_reversal_indices(data)[0]['mouse'], [2])
 
     def test_empty_run_terminal_event_carries_forward(self):
-        a, b = snapshot(), snapshot(bad=1, tb=1)
+        # The next session starts from the permuted magnitudes the bad reversal produced.
+        permuted = {'A': 4, 'B': 0, 'C': 1}
+        a, b = snapshot(), snapshot(bad=1, tb=1, mags=permuted)
         data = {'mouse': {'ses-1': session(a, b, good=(), bad=()),
-                          'ses-2': session(snapshot(tb=1), snapshot(tb=1))}}
+                          'ses-2': session(snapshot(tb=1, mags=permuted), snapshot(tb=1))}}
         reconcile_reversals(data)
         merged, _ = get_vars_across_all_sessions(data)
         self.assertEqual(merged['mouse']['bad_reversals'], [1, 1])

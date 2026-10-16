@@ -4,9 +4,10 @@ Shared by the windowing of good reversals and by the counts of suspect reversals
 apply the same rule:
 
 - *suspect*: checked, and the best tower is unchanged or tied (:func:`is_suspect`);
-- *uncheckable*: a magnitude is missing (:func:`is_uncheckable`); counts also treat
-  reversals logged while nothing was recording as uncheckable (see
-  :mod:`src.behavior_analysis.suspect_reversals`).
+- *uncheckable*: a magnitude is missing (:func:`is_uncheckable`); counts also treat a reversal
+  with no trial to check against as uncheckable (see
+  :mod:`src.behavior_analysis.suspect_reversals`). A reversal logged while nothing was
+  recording is checked on the last trial before it and the first trial after it, like any other.
 """
 
 MISSING_MAGNITUDE = "missing magnitude"
