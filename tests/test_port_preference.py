@@ -4,11 +4,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.behavior_analysis.poke_events import ARMS9
 from src.behavior_analysis.port_preference import (
     add_ratio,
     category_summary,
     count_nan_ratios,
     count_port_preference,
+    mask_single_category_mice,
     pool_problems,
     port_category,
 )
@@ -69,16 +71,34 @@ def test_categories_around_the_centre_initiation_port(port, expected):
     assert port_category(port, "B2") == expected
 
 
-def test_categories_follow_the_initiation_port_not_the_centre():
-    # From A1 only A2 and B1 touch it orthogonally and only B2 touches it diagonally
-    assert {p: port_category(p, "A1") for p in ("A2", "B1", "B2", "C3", "C1", "A1")} == {
-        "A2": "plus",
-        "B1": "plus",
-        "B2": "X",
-        "C3": "other",
-        "C1": "other",
+def test_corner_initiation_port_has_plus_in_its_row_and_column_and_x_on_its_diagonal():
+    # From A1: plus = column A and row 1, X = the main diagonal, the rest are other.
+    assert {p: port_category(p, "A1") for p in ARMS9} == {
         "A1": "initiation",
+        "A2": "plus",
+        "A3": "plus",
+        "B1": "plus",
+        "C1": "plus",
+        "B2": "X",
+        "C3": "X",
+        "B3": "other",
+        "C2": "other",
     }
+
+
+def test_opposite_corner_uses_the_other_diagonal_of_the_same_rule():
+    # From A3 the anti-diagonal is B2 and C1; the row is 3 and the column is A.
+    categories = {p: port_category(p, "A3") for p in ARMS9}
+    assert {p for p, c in categories.items() if c == "X"} == {"B2", "C1"}
+    assert {p for p, c in categories.items() if c == "plus"} == {"A1", "A2", "B3", "C3"}
+    assert {p for p, c in categories.items() if c == "other"} == {"B1", "C2"}
+
+
+def test_edge_initiation_port_has_a_diagonal_that_is_shorter_than_its_row():
+    categories = {p: port_category(p, "A2") for p in ARMS9}
+    assert {p for p, c in categories.items() if c == "plus"} == {"A1", "A3", "B2", "C2"}
+    assert {p for p, c in categories.items() if c == "X"} == {"B1", "B3"}
+    assert {p for p, c in categories.items() if c == "other"} == {"C1", "C3"}
 
 
 def test_unknown_port_raises():
@@ -153,11 +173,11 @@ def test_category_ratio_is_nan_when_the_category_was_never_best():
 
 
 def test_different_initiation_port_changes_the_categories():
-    trials = [({"B2": 3, "B1": 1, "C3": 0}, "B2")] * 2
+    trials = [({"B2": 3, "B1": 1, "C2": 0}, "B2")] * 2
     cats = count_port_preference(one_mouse(trials, initiation="A1")).by_category
     assert row(cats, category="X").best == 2  # B2 is diagonal to A1
     assert row(cats, category="plus").n_trials == 2  # B1 is orthogonal to A1
-    assert row(cats, category="other").n_trials == 2  # C3 is neither
+    assert row(cats, category="other").n_trials == 2  # C2 is neither
     assert row(cats, category="X").chosen == 2
 
 
@@ -256,6 +276,60 @@ def test_summary_is_mean_and_se_over_mice_ignoring_never_best_mice():
     assert x["n_mice"] == 2
     plus = summary.loc["plus"]
     assert (plus["mean"], plus["se"], plus["n_mice"]) == (2.0, 0.0, 3)
+
+
+def test_summary_mean_is_not_the_median_with_three_mice():
+    per_mouse = pd.DataFrame(
+        {
+            "mouse": ["a", "b", "c"] * 2,
+            "category": ["X"] * 3 + ["plus"] * 3,
+            "ratio": [1.0, 1.0, 4.0, 3.0, 0.0, 0.0],
+        }
+    )
+    summary = category_summary(per_mouse)
+    assert summary.loc["X", "mean"] == pytest.approx(2.0)  # the median would be 1
+    assert summary.loc["plus", "mean"] == pytest.approx(1.0)  # the median would be 0
+    assert summary.loc["X", "se"] == pytest.approx(np.std([1, 1, 4], ddof=1) / np.sqrt(3))
+
+
+def pooled_category_ratios(problems):
+    counts = count_port_preference(problems)
+    return add_ratio(pool_problems(counts.by_category, "category"))
+
+
+def test_a_mouse_offered_one_category_only_gets_nan_ratios_and_is_listed():
+    mice = {
+        1: {
+            "both": {"ses-1": session(TRIALS)},  # X and plus ports
+            "plus_only": {"ses-1": session([({"B1": 3, "B3": 1, "C2": 0}, "B1")] * 2)},
+        }
+    }
+    ratios = pooled_category_ratios(mice)
+    plus_only = ratios[ratios.mouse == "plus_only"]
+    assert row(plus_only, category="plus").ratio == pytest.approx(1.0)  # by construction
+    masked, excluded = mask_single_category_mice(ratios)
+    assert excluded == ["plus_only"]
+    assert masked[masked.mouse == "plus_only"].ratio.isna().all()
+    both = masked[masked.mouse == "both"]
+    pd.testing.assert_series_equal(both.ratio, ratios[ratios.mouse == "both"].ratio)
+    assert category_summary(masked).loc["plus", "n_mice"] == 1
+
+
+def test_a_mouse_offered_two_categories_is_kept_even_if_one_is_never_best():
+    ratios = pooled_category_ratios(one_mouse(TRIALS))
+    masked, excluded = mask_single_category_mice(ratios)
+    assert excluded == []
+    pd.testing.assert_frame_equal(masked, ratios)
+
+
+def test_one_category_per_problem_but_two_over_the_pooled_scope_is_kept():
+    # Problem 1 (from B2) offers plus ports only; problem 2 (from A1) offers X only.
+    problems = {
+        1: {"m": {"ses-1": session([({"B1": 3, "B3": 1, "C2": 0}, "B1")] * 2)}},
+        2: {"m": {"ses-1": session([({"B2": 3, "C3": 1}, "B2")] * 2, initiation="A1")}},
+    }
+    masked, excluded = mask_single_category_mice(pooled_category_ratios(problems))
+    assert excluded == [] and masked.ratio.notna().any()
 
 
 def test_nan_cases_are_counted_for_ports_and_categories():

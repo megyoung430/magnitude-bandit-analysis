@@ -11,9 +11,13 @@ less than its value warrants.
 Geometry. Ports sit on a 3 x 3 grid, letters are columns (A, B, C) and numbers are rows (1 at the
 bottom), so A1 is bottom-left and C3 top-right. Relative to a problem's initiation port a port is
 
-- ``"plus"`` if it is orthogonally adjacent to the initiation port (from B2: B1, B3, A2, C2),
-- ``"X"`` if it is diagonally adjacent (from B2: A1, C1, A3, C3),
-- ``"initiation"`` if it is the initiation port, and ``"other"`` if it is farther away.
+- ``"plus"`` if it is in the same row or column as the initiation port (from B2: B1, B3, A2, C2),
+- ``"X"`` if it is on one of the initiation port's diagonals, ``|dcolumn| == |drow|`` (from B2:
+  A1, C1, A3, C3),
+- ``"initiation"`` if it is the initiation port, and ``"other"`` for every remaining port.
+
+From B2 these are exactly the eight neighbours. From a corner such as A1 the plus ports are A2,
+A3, B1, C1, the X ports are B2 and C3, and B3 and C2 are other.
 
 Counting. Only trials with a choice and reward magnitudes are counted. On each trial every
 offered port (a key of the trial's magnitudes) gets one offered count; the chosen port gets one
@@ -22,6 +26,10 @@ tie gives each port 0.5. A category is offered on a trial if any of its ports wa
 chosen if the chosen port belongs to it, and it gets the best shares of its ports.
 
 Counts are pooled across problems before any ratio is formed, never by averaging ratios.
+
+A mouse whose pooled scope offers ports from one category only has a category ratio of 1 by
+construction (that category is offered, chosen and best on every trial); see
+:func:`mask_single_category_mice`.
 """
 
 import logging
@@ -73,20 +81,20 @@ def port_category(port: str, initiation: str) -> str:
         initiation (str): The initiation port of the problem, e.g. ``"B2"``.
 
     Returns:
-        str: ``"initiation"`` for the initiation port itself, ``"plus"`` if orthogonally
-        adjacent to it, ``"X"`` if diagonally adjacent, else ``"other"``.
+        str: ``"initiation"`` for the initiation port itself, ``"plus"`` if in its row or
+        column, ``"X"`` if on one of its diagonals, else ``"other"``.
 
     Raises:
         ValueError: If *port* or *initiation* is not one of the nine ports.
     """
     column, row = _grid_position(port)
     init_column, init_row = _grid_position(initiation)
-    step = sorted((abs(column - init_column), abs(row - init_row)))
-    if step == [0, 0]:
+    d_column, d_row = abs(column - init_column), abs(row - init_row)
+    if d_column == d_row == 0:
         return "initiation"
-    if step == [0, 1]:
+    if d_column == 0 or d_row == 0:
         return "plus"
-    if step == [1, 1]:
+    if d_column == d_row:
         return "X"
     return "other"
 
@@ -282,6 +290,29 @@ def category_summary(
         },
         index=pd.Index(categories, name="category"),
     )
+
+
+def mask_single_category_mice(category_ratios: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Set every ratio of a mouse to NaN if only one category was offered to it.
+
+    With a single offered category that category is offered, chosen and best on every trial, so
+    its ratio is 1 whatever the mouse did; it carries no information.
+
+    Args:
+        category_ratios (pd.DataFrame): Pooled per-mouse category counts with ``ratio``
+            (``add_ratio`` of ``pool_problems(..., "category")``), over the scope to judge.
+
+    Returns:
+        tuple[pd.DataFrame, list[str]]: A copy of *category_ratios* with those mice's ratios NaN,
+        and the sorted names of those mice.
+    """
+    offered = category_ratios[category_ratios.n_trials > 0]
+    n_offered = offered.groupby("mouse")["category"].nunique()
+    single = sorted(n_offered.index[n_offered == 1])
+    masked = category_ratios.assign(
+        ratio=category_ratios.ratio.where(~category_ratios.mouse.isin(single), np.nan)
+    )
+    return masked, single
 
 
 def count_nan_ratios(port_ratios: pd.DataFrame, category_ratios: pd.DataFrame) -> dict[str, int]:
