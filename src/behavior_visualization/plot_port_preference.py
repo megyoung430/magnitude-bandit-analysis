@@ -37,13 +37,13 @@ from src.behavior_visualization.plot_helpers import (
 
 # The maze geometry is shared with the other maze heatmaps so the cells line up with them.
 from src.behavior_visualization.plot_maze_heatmaps import (
-    _NODE_RADIUS,
-    _OCTAGON_ROTATION,
-    _center,
-    _draw_grid_edges,
-    _port_rings,
-    _ring_patch,
-    _text_color,
+    NODE_RADIUS,
+    OCTAGON_ROTATION,
+    draw_grid_edges,
+    port_center,
+    port_rings,
+    ring_patch,
+    text_color,
 )
 
 Y_LABEL = "P(chosen) / P(best)"
@@ -181,17 +181,17 @@ def _cell_labels(ratio: float, n_trials: float) -> tuple[str, str]:
 
 
 def _draw_ratio_cell(ax: Axes, port: str, ratio: float, n_trials: float, face, outline: bool):
-    center = _center(port)
+    center = port_center(port)
     ax.add_patch(
         RegularPolygon(
-            center, numVertices=8, radius=_NODE_RADIUS, orientation=_OCTAGON_ROTATION,
+            center, numVertices=8, radius=NODE_RADIUS, orientation=OCTAGON_ROTATION,
             facecolor=face, edgecolor="black", linewidth=2.0, zorder=2,
         )
     )  # fmt: skip
     if outline:
-        for spec, role in _port_rings(port, (), (), port):
-            ax.add_patch(_ring_patch(center, spec, f"ring:{port}:{role}"))
-    color = _text_color(face)
+        for spec, role in port_rings(port, (), (), port):
+            ax.add_patch(ring_patch(center, spec, f"ring:{port}:{role}"))
+    color = text_color(face)
     value_text, n_text = _cell_labels(ratio, n_trials)
     small = 8 if np.isnan(ratio) else 9
     for dy, text, size, weight in (
@@ -236,7 +236,7 @@ def plot_port_ratio_panel(
         raise KeyError(f"ports has no row for {missing}")
     norm, cmap = Normalize(-limit, limit), mpl.colormaps[DIVERGING_CMAP]
     with axes_or_new(ax, figsize=(3.6, 3.4)) as ax:
-        _draw_grid_edges(ax)
+        draw_grid_edges(ax)
         for port in ARMS9:
             ratio, n_trials = float(ports.loc[port, "ratio"]), float(ports.loc[port, "n_trials"])
             face = _face_color(ratio, norm, cmap)

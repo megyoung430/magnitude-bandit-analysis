@@ -48,9 +48,9 @@ PREVIOUS_COLOR = "#D1393D"
 INITIATION_COLOR = "#5DA5DA"
 
 _GRID_SPACING = 0.65
-_NODE_RADIUS = 0.18
+NODE_RADIUS = 0.18  # radius of a port octagon, in maze-grid units
 _RING_WIDTH = 0.04
-_OCTAGON_ROTATION = np.pi / 8
+OCTAGON_ROTATION = np.pi / 8  # turns the octagon so its flat sides face up, down, left, right
 _EDGE_COLOR = "#c9d2d7"
 
 
@@ -103,14 +103,23 @@ def ring_specs(colors: list[str], *, base_radius: float, width: float) -> list[R
 
 def _octagon_vertices(center: tuple[float, float], radius: float) -> np.ndarray:
     """Corners of the port octagon (flat sides up, down, left, right), counter-clockwise."""
-    angles = np.pi / 2 + _OCTAGON_ROTATION + 2 * np.pi * np.arange(8) / 8
+    angles = np.pi / 2 + OCTAGON_ROTATION + 2 * np.pi * np.arange(8) / 8
     return np.column_stack(
         [center[0] + radius * np.cos(angles), center[1] + radius * np.sin(angles)]
     )
 
 
-def _ring_patch(center: tuple[float, float], spec: RingSpec, gid: str) -> PathPatch:
-    """A filled octagonal band between the radii of *spec* (inner octagon wound the other way)."""
+def ring_patch(center: tuple[float, float], spec: RingSpec, gid: str) -> PathPatch:
+    """A filled octagonal band between the radii of *spec* (inner octagon wound the other way).
+
+    Args:
+        center (tuple[float, float]): ``(x, y)`` centre of the port, as from :func:`port_center`.
+        spec (RingSpec): The band's colour and inner and outer radius.
+        gid (str): Matplotlib group id set on the patch, e.g. ``"ring:A1:current"``.
+
+    Returns:
+        PathPatch: The band, ready for ``ax.add_patch``.
+    """
     outer = _octagon_vertices(center, spec.outer)
     inner = _octagon_vertices(center, spec.inner)[::-1]
     vertices = np.vstack([outer, outer[:1], inner, inner[:1]])
@@ -129,51 +138,88 @@ def _check_ports(ports: Collection[str], role: str) -> None:
         raise ValueError(f"unknown {role} ports {unknown}; expected a subset of {ARMS9}")
 
 
-def _center(port: str) -> tuple[float, float]:
+def port_center(port: str) -> tuple[float, float]:
+    """Centre of a port in maze-grid coordinates.
+
+    Args:
+        port (str): A key of :data:`MAZE_POSITIONS`, e.g. ``"A1"``.
+
+    Returns:
+        tuple[float, float]: ``(x, y)`` of the port's octagon.
+
+    Raises:
+        KeyError: If *port* is not a maze port.
+    """
     column, row = MAZE_POSITIONS[port]
     return _GRID_SPACING * column, _GRID_SPACING * row
 
 
-def _draw_grid_edges(ax: Axes) -> None:
+def draw_grid_edges(ax: Axes) -> None:
+    """Draw the grey connectors between neighbouring ports behind the octagons.
+
+    Args:
+        ax (Axes): Axes to draw into.
+
+    Returns:
+        None: Returns nothing; the lines are added to *ax*.
+    """
     for port, (column, row) in MAZE_POSITIONS.items():
         for neighbour in ((column + 1, row), (column, row + 1)):
             other = next((p for p, pos in MAZE_POSITIONS.items() if pos == neighbour), None)
             if other is not None:
-                (x1, y1), (x2, y2) = _center(port), _center(other)
+                (x1, y1), (x2, y2) = port_center(port), port_center(other)
                 ax.plot(
                     [x1, x2], [y1, y2], linewidth=25, color=_EDGE_COLOR, alpha=0.9,
                     solid_capstyle="round", zorder=1,
                 )  # fmt: skip
 
 
-def _text_color(face_rgba: tuple[float, ...]) -> str:
-    """White on dark fills, black on light ones."""
+def text_color(face_rgba: tuple[float, ...]) -> str:
+    """White on dark fills, black on light ones.
+
+    Args:
+        face_rgba (tuple[float, ...]): Fill colour as ``(r, g, b[, a])`` in 0..1.
+
+    Returns:
+        str: ``"white"`` if the fill's luminance is below 0.5, else ``"black"``.
+    """
     r, g, b = face_rgba[:3]
     return "white" if 0.299 * r + 0.587 * g + 0.114 * b < 0.5 else "black"
 
 
 def _draw_port(ax: Axes, port: str, count: float, norm: Normalize, cmap, rings: list[RingSpec]):
-    center = _center(port)
+    center = port_center(port)
     face = cmap(norm(count))
     ax.add_patch(
         RegularPolygon(
-            center, numVertices=8, radius=_NODE_RADIUS, orientation=_OCTAGON_ROTATION,
+            center, numVertices=8, radius=NODE_RADIUS, orientation=OCTAGON_ROTATION,
             facecolor=face, edgecolor="black", linewidth=2.0, zorder=2,
         )
     )  # fmt: skip
     for spec, role in rings:
-        ax.add_patch(_ring_patch(center, spec, f"ring:{port}:{role}"))
-    color = _text_color(face)
+        ax.add_patch(ring_patch(center, spec, f"ring:{port}:{role}"))
+    color = text_color(face)
     ax.text(center[0], center[1] + 0.03, port, ha="center", va="center", fontsize=12,
             fontweight="bold", color=color, zorder=5)  # fmt: skip
     ax.text(center[0], center[1] - 0.075, f"{int(count)}", ha="center", va="center", fontsize=10,
             color=color, zorder=5)  # fmt: skip
 
 
-def _port_rings(
+def port_rings(
     port: str, current: Collection[str], previous: Collection[str], initiation: str | None
 ) -> list[tuple[RingSpec, str]]:
-    """The ``(ring, role)`` outlines of one port, innermost first."""
+    """The ``(ring, role)`` outlines of one port, innermost first.
+
+    Args:
+        port (str): The port, e.g. ``"A1"``.
+        current (Collection[str]): Ports outlined as current choice ports.
+        previous (Collection[str]): Ports outlined as the previous problem's choice ports.
+        initiation (str | None): The initiation port, or ``None`` for none.
+
+    Returns:
+        list[tuple[RingSpec, str]]: One ``(spec, role)`` per outline the port has, with role
+        ``"current"``, ``"previous"`` or ``"initiation"``; empty if it has none.
+    """
     roles = [
         (role, color)
         for role, color, ports in (
@@ -183,7 +229,7 @@ def _port_rings(
         )
         if port in ports
     ]
-    specs = ring_specs([color for _, color in roles], base_radius=_NODE_RADIUS, width=_RING_WIDTH)
+    specs = ring_specs([color for _, color in roles], base_radius=NODE_RADIUS, width=_RING_WIDTH)
     return [(spec, role) for spec, (role, _) in zip(specs, roles, strict=True)]
 
 
@@ -234,9 +280,9 @@ def draw_maze_heatmap(
         raise KeyError(f"counts has no entry for {missing}")
     norm, colormap = count_norm(counts), mpl.colormaps[cmap]
     with axes_or_new(ax, figsize=(3.6, 3.4)) as ax:
-        _draw_grid_edges(ax)
+        draw_grid_edges(ax)
         for port in ARMS9:
-            rings = _port_rings(port, current_ports, previous, initiation_port)
+            rings = port_rings(port, current_ports, previous, initiation_port)
             _draw_port(ax, port, counts[port], norm, colormap, rings)
         if title is not None:
             ax.set_title(title, fontsize=14, pad=6)
