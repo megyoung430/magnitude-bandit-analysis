@@ -52,3 +52,21 @@ and `feat-port-preference`.
   ratios and the X vs plus figure notes them. Titles read "across mice"; the plus label reads
   "(orthogonal)"; the heatmap title starts "Port Preference Per Mouse".
 - Value-change titles read "n=1 mouse" for a single mouse.
+
+## Follow-up: count visits, not beam breaks
+
+Meg asked why the chosen ports were so high in the after-choice maps. The map counted every `_in` event. On MY_71_R ses-229, consecutive `_in` events at the same port in the ITI are a median 40 ms apart (90% under 100 ms): the beam flickers while the mouse sits or drinks at a port. In trial 36 (chose B1), the window was B1 ×4, A1, B1 ×59, so one brief A1 poke let 59 flicker events at B1 count. Across that session, 114 of the 403 counted pokes were re-entries at the trial's own chosen tower.
+
+PI decision: count visits. `pokes_after_choice` now merges consecutive `_in` events at the same port into one visit (`port_visits`) before dropping the leading visits to the chosen tower. `window_pokes` still holds the raw events.
+
+### Results change
+
+| ses-229 after-choice | before (beam breaks) | after (visits) |
+| --- | --- | --- |
+| B1 (choice port) | 127 | 18 |
+| C2 (choice port) | 56 | 18 |
+| B3 (choice port) | 43 | 22 |
+| B2 (initiation, one per closed window) | 79 | 79 |
+| total counted | 403 | 193 |
+
+Every after-choice map and the after-choice maze row of the single-session figures change; long pokes after initiation are unchanged.

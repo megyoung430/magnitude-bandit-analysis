@@ -156,7 +156,7 @@ def test_maze_counts_are_this_sessions_own(figures):
     }
     # After choice: trial 1 -> C3, C3 (leading A1 dropped) and the B2 that initiates trial 2;
     # trial 2 -> A2 and the B2 that initiates trial 3; trial 3's window is open.
-    assert {p: n for p, n in shown(choice_ax).items() if n} == {"C3": 2, "A2": 1, "B2": 2}
+    assert {p: n for p, n in shown(choice_ax).items() if n} == {"C3": 1, "A2": 1, "B2": 2}
 
 
 def test_current_choice_ports_are_outlined_green_and_initiation_port_blue(figures):

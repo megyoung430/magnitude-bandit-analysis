@@ -481,10 +481,13 @@ def pokes_after_initiation(long_pokes: Sequence[str], initiation_tower: str) -> 
 
 
 def pokes_after_choice(window_pokes: Sequence[str] | None, chosen: str) -> list[str]:
-    """Pokes to count after the choice: leading pokes at the chosen tower are dropped.
+    """Port visits to count after the choice: leading visits to the chosen tower are dropped.
 
-    The mouse may be drinking at the chosen port, so its pokes there count only after a poke
-    at some other port. Repeats are kept.
+    The raw ``_in`` events are first merged into visits: consecutive events at the same port,
+    with no other port in between, are one visit. A mouse sitting at a port breaks and re-makes
+    the beam many times (tens of ms apart), and each of those is an ``_in`` event, not a new
+    poke. The mouse may be drinking at the chosen port, so visits there count only after a
+    visit to some other port.
 
     Args:
         window_pokes (Sequence[str] | None): Ports of the after-choice window
@@ -492,16 +495,29 @@ def pokes_after_choice(window_pokes: Sequence[str] | None, chosen: str) -> list[
         chosen (str): The trial's chosen tower.
 
     Returns:
-        list[str]: *window_pokes* from the first poke at a port other than *chosen* onward;
-        empty if there is none.
+        list[str]: The visits (one port per visit) from the first visit to a port other than
+        *chosen* onward; empty if there is none.
 
     Raises:
         ValueError: If *window_pokes* is ``None`` (the window was never closed).
     """
     if window_pokes is None:
         raise ValueError("the after-choice window was never closed; it has no pokes to count")
-    start = next((i for i, port in enumerate(window_pokes) if port != chosen), None)
-    return [] if start is None else list(window_pokes[start:])
+    visits = port_visits(window_pokes)
+    start = next((i for i, port in enumerate(visits) if port != chosen), None)
+    return [] if start is None else visits[start:]
+
+
+def port_visits(pokes: Sequence[str]) -> list[str]:
+    """Merge consecutive pokes at the same port into one visit.
+
+    Args:
+        pokes (Sequence[str]): Ports of successive ``_in`` events, in order.
+
+    Returns:
+        list[str]: One port per visit: *pokes* with runs of the same port collapsed to one.
+    """
+    return [port for i, port in enumerate(pokes) if i == 0 or port != pokes[i - 1]]
 
 
 def cross_check_long_pokes(trials: Sequence[TrialPokes]) -> LongPokeCheck:

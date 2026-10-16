@@ -39,7 +39,7 @@ def test_after_initiation_counts_long_pokes_with_the_choice_exactly_once():
 
 def test_after_choice_counts_repeats_the_initiating_poke_and_drops_leading_choice_pokes():
     counts = session_poke_counts(small_session())
-    assert {p: n for p, n in counts.after_choice.items() if n} == {"C3": 2, "B2": 2, "A1": 1}
+    assert {p: n for p, n in counts.after_choice.items() if n} == {"C3": 1, "B2": 2, "A1": 1}
 
 
 def test_trials_with_an_open_window_are_excluded_from_after_choice_and_reported():
@@ -75,7 +75,7 @@ def test_mouse_counts_sum_over_sessions_in_session_order_not_dict_order():
     per_session = mouse_poke_counts("m1", sessions)
     assert list(per_session) == ["ses-9_date-20260109", "ses-10_date-20260110"]
     assert total_counts(per_session, "after_initiation")["B1"] == 2
-    assert total_counts(per_session, "after_choice")["C3"] == 4
+    assert total_counts(per_session, "after_choice")["C3"] == 2
 
 
 # ---------------------------------------------------------------- choice ports
