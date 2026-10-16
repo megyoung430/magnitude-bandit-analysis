@@ -11,6 +11,8 @@ from matplotlib.colors import to_hex
 
 from src.behavior_analysis.reversal_aligned_arms import compute_reversal_aligned_arms
 from src.behavior_visualization.plot_reversal_aligned_arms import (
+    figure_heading,
+    figure_stem,
     plot_reversal_aligned_arms,
     save_reversal_aligned_arms,
 )
@@ -75,14 +77,27 @@ def test_se_bands_are_drawn_only_where_the_se_exists():
     assert [c for c in two.collections if isinstance(c, PolyCollection)]
 
 
-def test_the_title_says_how_arms_are_labelled_and_how_types_are_defined():
+def test_the_title_says_what_is_plotted_how_arms_are_labelled_and_how_many():
     for scheme, words in (("prev", "before the block change"), ("new", "after the block change")):
-        ax, _ = plot_reversal_aligned_arms(result_for(scheme, moving_avg_window=4))
+        ax, _ = plot_reversal_aligned_arms(result_for(scheme, moving_avg_window=4), scope="pooled")
         title = ax.get_title()
-        assert words in title
-        assert "type defined by the prev ranking" in title
-        assert "n=2 subjects" in title and "n=2 block changes" in title
+        assert title.startswith("Choice Probabilities Around Block Changes (All) [pooled]\n")
+        assert f"Arms labelled by rank {words.split()[0]} the block change" in title
+        assert "n=2 subjects, n=2 block changes" in title
         assert "moving average over 4 trials (centered)" in title
+
+
+def test_the_heading_names_the_block_change_kind_of_each_scheme():
+    prev = result_for("prev", reversal_type="best_to_third")
+    assert (
+        figure_heading(prev) == "Choice Probabilities Around Block Changes (Prev Best \u2192 Third)"
+    )
+    new = result_for("new", reversal_type="third_to_second")
+    assert figure_heading(new).endswith("(New Second from Third)")
+    assert figure_stem(new, "problem-04") == (
+        "Choice Probabilities Around Block Changes (New Second from Third) "
+        "(Arms Labelled by Rank After) (problem-04)"
+    )
 
 
 def test_the_title_reports_reversals_left_out_for_ties():

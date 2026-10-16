@@ -52,8 +52,25 @@ def two_problems():
     }
 
 
+def stem(scheme, kind, scope="pooled"):
+    """File name (without extension) of a figure, as its title words it."""
+    kinds = {
+        "all": "All",
+        "second_to_third": "Prev Second to Third",
+        "best_to_third": "Prev Best to Third",
+        "third_to_best": "New Best from Third",
+        "third_to_second": "New Second from Third",
+    }
+    side = {"prev": "Before", "new": "After"}[scheme]
+    return (
+        f"Choice Probabilities Around Block Changes ({kinds[kind]}) "
+        f"(Arms Labelled by Rank {side}) ({scope})"
+    )
+
+
 def run(trials, out_dir, **kwargs):
-    # The fixtures' reversals are all second_to_third, so best_to_third is empty.
+    # The fixtures' block changes move every arm down one rank, so the best becomes second and
+    # the previous third becomes best: prev best_to_third and new third_to_second are empty.
     with pytest.warns(EmptySelectionWarning):
         return run_reversal_aligned_arm_analysis(trials, out_dir, **KWARGS, **kwargs)
 
@@ -76,28 +93,34 @@ def test_one_problem_gives_pooled_figures_for_every_scheme_and_non_empty_type(tm
     result = run(one_problem(), tmp_path)
     names = sorted(p.name for p in tmp_path.iterdir())
     expected = [
-        f"reversal_aligned_arms_pooled_{scheme}_{kind}.{ext}"
-        for scheme in ("new", "prev")
-        for kind in ("all", "second_to_third")
+        f"{stem(scheme, kind)}.{ext}"
+        for scheme, kind in (
+            ("prev", "all"),
+            ("prev", "second_to_third"),
+            ("new", "all"),
+            ("new", "third_to_best"),
+        )
         for ext in ("pdf", "png")
     ]
-    assert names == sorted([*expected, "reversal_aligned_arms_counts.csv"])
+    assert names == sorted(expected)
     assert list(result["results"]) == ["pooled"]
     assert set(result["results"]["pooled"]) == {"prev", "new"}
     assert set(result["results"]["pooled"]["prev"]) == {"all", "best_to_third", "second_to_third"}
+    assert set(result["results"]["pooled"]["new"]) == {"all", "third_to_best", "third_to_second"}
     assert len(result["figure_paths"]) == 8
 
 
-def test_the_counts_table_is_returned_and_saved_and_says_what_was_empty(tmp_path):
+def test_the_counts_table_is_returned_not_saved_and_says_what_was_empty(tmp_path):
     result = run(one_problem(), tmp_path)
     counts = result["counts"]
-    saved = pd.read_csv(tmp_path / "reversal_aligned_arms_counts.csv")
-    assert len(counts) == len(saved) == 6
+    assert not list(tmp_path.glob("*.csv"))
+    assert len(counts) == 6
     row = counts.query("label_scheme == 'prev' and reversal_type == 'best_to_third'").iloc[0]
     assert row["n_reversals"] == 0 and row["n_candidates"] == 2 and row["n_wrong_type"] == 2
     assert pd.isna(row["figure"]) or row["figure"] == ""
     row = counts.query("label_scheme == 'new' and reversal_type == 'all'").iloc[0]
     assert row["n_reversals"] == 2 and row["n_subjects"] == 1
+    assert row["figure"] == f"{stem('new', 'all')}.png"
 
 
 def test_several_problems_add_per_problem_figures_and_pool_per_subject(tmp_path, capture):
@@ -107,7 +130,7 @@ def test_several_problems_add_per_problem_figures_and_pool_per_subject(tmp_path,
     per_problem = [result["results"][p]["prev"]["all"] for p in ("problem-04", "problem-05")]
     assert pooled.num_subjects == 2
     assert pooled.num_reversals == sum(r.num_reversals for r in per_problem) == 6
-    assert "reversal_aligned_arms_problem-05_new_all.png" in capture.saved_names()
+    assert f"{stem('new', 'all', 'problem-05')}.png" in capture.saved_names()
 
 
 def test_trials_and_prebuilt_windows_give_the_same_curves(tmp_path):
@@ -153,9 +176,19 @@ def test_a_subset_of_schemes_and_types(tmp_path, real_files):
     )
     assert list(result["results"]["pooled"]) == ["new"]
     assert list(result["results"]["pooled"]["new"]) == ["all"]
-    assert sorted(p.name for p in tmp_path.glob("*.png")) == [
-        "reversal_aligned_arms_pooled_new_all.png"
-    ]
+    assert sorted(p.name for p in tmp_path.glob("*.png")) == [f"{stem('new', 'all')}.png"]
+
+
+def test_a_type_is_made_only_for_the_schemes_that_have_it(tmp_path):
+    result = run_reversal_aligned_arm_analysis(
+        one_problem(), tmp_path, **KWARGS, reversal_types=("third_to_best", "second_to_third")
+    )
+    assert list(result["results"]["pooled"]["prev"]) == ["second_to_third"]
+    assert list(result["results"]["pooled"]["new"]) == ["third_to_best"]
+    with pytest.raises(ValueError, match="none of the label schemes"):
+        run_reversal_aligned_arm_analysis(
+            one_problem(), tmp_path, label_schemes=("prev",), reversal_types=("third_to_best",)
+        )
 
 
 @pytest.mark.parametrize("out_dir", [None, ""])
@@ -171,7 +204,7 @@ def test_unknown_scheme_type_or_mode_fail_before_any_work(tmp_path):
     with pytest.raises(ValueError, match="label scheme"):
         run_reversal_aligned_arm_analysis({}, tmp_path, label_schemes=("old",))
     with pytest.raises(ValueError, match="reversal_type"):
-        run_reversal_aligned_arm_analysis({}, tmp_path, reversal_types=("third_to_best",))
+        run_reversal_aligned_arm_analysis({}, tmp_path, reversal_types=("best_to_second",))
     with pytest.raises(ValueError, match="moving_avg_mode"):
         run_reversal_aligned_arm_analysis({}, tmp_path, moving_avg_mode="causal")
 
@@ -219,15 +252,15 @@ def test_the_title_says_pooled_by_default_and_the_scope_label_when_given(tmp_pat
     run(one_problem(), tmp_path)
     assert titles(capture) and all("[pooled]" in t for t in titles(capture))
     capture.saved.clear()
-    run(one_problem(), tmp_path, scope_label="problem-01")
+    result = run(one_problem(), tmp_path, scope_label="problem-01")
     assert all("[problem-01]" in t and "pooled" not in t for t in titles(capture))
     # file names and the counts table keep the scope name
-    assert "reversal_aligned_arms_pooled_new_all.png" in capture.saved_names()
-    assert set(pd.read_csv(tmp_path / "reversal_aligned_arms_counts.csv")["scope"]) == {"pooled"}
+    assert f"{stem('new', 'all')}.png" in capture.saved_names()
+    assert set(result["counts"]["scope"]) == {"pooled"}
 
 
 def test_the_scope_label_leaves_the_per_problem_scopes_named(tmp_path, capture):
     run(two_problems(), tmp_path, scope_label="everything")
     by_name = dict(zip(capture.saved_names(), titles(capture), strict=True))
-    assert "[everything]" in by_name["reversal_aligned_arms_pooled_new_all.png"]
-    assert "[problem-05]" in by_name["reversal_aligned_arms_problem-05_new_all.png"]
+    assert "[everything]" in by_name[f"{stem('new', 'all')}.png"]
+    assert "[problem-05]" in by_name[f"{stem('new', 'all', 'problem-05')}.png"]

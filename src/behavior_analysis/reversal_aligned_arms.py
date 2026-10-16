@@ -20,8 +20,9 @@ one sits at offset -1; post values start at offset 0
 ``post`` (the pre window stops at the previous block change or the first trial, the post window
 at the next one) leaves NaN at the far end, never shifts the other values.
 
-Types and ties follow :mod:`src.behavior_analysis.reversal_arm_ranks`; the type is defined by
-the prev ranking for both schemes.
+Types and ties follow :mod:`src.behavior_analysis.reversal_arm_ranks`. Each scheme splits the
+block changes by its own ranking (``prev``: ``best_to_third`` and ``second_to_third``; ``new``:
+``third_to_best`` and ``third_to_second``), and ``all`` averages over both.
 """
 
 import warnings
@@ -38,10 +39,10 @@ from src.behavior_analysis.reversal_alignment import (
     true_trial_offsets,
 )
 from src.behavior_analysis.reversal_arm_ranks import (
-    LABEL_SCHEMES,
     SCHEME_ROLES,
     SelectionCounts,
     arm_labels,
+    check_scheme_type,
     select_reversals,
 )
 from src.behavior_analysis.stats import nan_standard_error
@@ -69,7 +70,9 @@ class ReversalAlignedArms:
     Attributes:
         scheme (str): ``"prev"`` or ``"new"``: whether arms are labelled by their rank before
             or after the block change.
-        reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``.
+        reversal_type (str): ``"all"`` or one of the scheme's types (``"best_to_third"`` and
+            ``"second_to_third"`` for ``prev``; ``"third_to_best"`` and ``"third_to_second"`` for
+            ``new``).
         roles (tuple[str, str, str]): Curve names, best to third, e.g.
             ``("prev_best", "prev_second", "prev_third")``.
         trial_offsets (np.ndarray): Trials from the block change of each bin, shape ``(n_bins,)``
@@ -416,10 +419,12 @@ def compute_reversal_aligned_arms(
             problems is concatenation per subject (``merge_windows_by_subject``).
         scheme (str): ``"prev"`` labels arms by their rank before the block change, ``"new"`` by
             their rank after it.
-        reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``; the type
-            is always defined by the prev ranking. Block changes with tied magnitudes are left out
-            as :func:`~src.behavior_analysis.reversal_arm_ranks.select_reversals` describes.
-            Default ``"all"``.
+        reversal_type (str): ``"all"`` (both types) or one of the scheme's types:
+            ``"best_to_third"`` / ``"second_to_third"`` for ``prev`` (the arm that was best /
+            second drops to third), ``"third_to_best"`` / ``"third_to_second"`` for ``new`` (the
+            arm that was third becomes best / second). Block changes with tied magnitudes are
+            left out as :func:`~src.behavior_analysis.reversal_arm_ranks.select_reversals`
+            describes. Default ``"all"``.
         pre (int): Trials before the block change in each window. Default 10.
         post (int): Trials from the block change in each window. Default 30.
         skip_n_trials_after_reversal (int): Post trial 0 is kept and the next *k* trials
@@ -435,12 +440,12 @@ def compute_reversal_aligned_arms(
         and an :class:`EmptySelectionWarning` is emitted.
 
     Raises:
-        ValueError: For an unknown scheme, type or mode, a *moving_avg_window* that is not a
-            positive int, windows not built by the builder with this *pre*/*post*, a first-block
-            record, or choice probabilities that do not sum to 1.
+        ValueError: For an unknown scheme or mode, a type the scheme does not have, a
+            *moving_avg_window* that is not a positive int, windows not built by the builder
+            with this *pre*/*post*, a first-block record, or choice probabilities that do not
+            sum to 1.
     """
-    if scheme not in LABEL_SCHEMES:
-        raise ValueError(f"scheme must be one of {LABEL_SCHEMES}, got {scheme!r}")
+    check_scheme_type(scheme, reversal_type)
     check_moving_avg_window(moving_avg_window)
     check_windows_built_with(reversal_windows, pre=pre, post=post)
     if moving_avg_mode not in MOVING_AVG_MODES:

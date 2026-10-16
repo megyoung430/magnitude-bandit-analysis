@@ -155,7 +155,7 @@ def test_figure_title_and_axis_say_block_change():
     windows = stamp_windows(windows, pre=4, post=3)
     result = compute_reversal_aligned_arms(windows, scheme="prev", pre=4, post=3)
     ax, _ = plot_reversal_aligned_arms(result)
-    assert "All Block Changes" in ax.get_title()
+    assert "Around Block Changes (All)" in ax.get_title()
     assert "n=1 block changes" in ax.get_title()
     assert "before the block change" in ax.get_title()
     assert ax.get_xlabel() == "Trials from Block Change"
