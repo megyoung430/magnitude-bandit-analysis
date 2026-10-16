@@ -431,6 +431,14 @@ def pooled_arm_windows(problems: dict) -> dict:
     return {"pooled": merge_windows_by_subject(per_problem)}
 
 
+def _arm_scope_label(problems: dict) -> str:
+    """Title text for the arm figures: the problem's name for one problem, else the pool's."""
+    if len(problems) == 1:
+        (problem,) = problems
+        return f"problem-{problem:02d}"
+    return "all drifting problems"
+
+
 def run_drifting_value_analyses(problems: dict, out_dir: Path, selection: AnalysisSelection):
     """The selected drifting-only analyses over *problems*, each in a subfolder of *out_dir*.
 
@@ -452,6 +460,7 @@ def run_drifting_value_analyses(problems: dict, out_dir: Path, selection: Analys
             out_dir / REVERSAL_ARMS_FOLDER,
             pre=REVERSAL_ARMS_PRE,
             post=REVERSAL_ARMS_POST,
+            scope_label=_arm_scope_label(problems),
         )
     if selection.run_value_change_analysis:
         run_value_change_analysis(problems, out_dir / VALUE_CHANGE_FOLDER)

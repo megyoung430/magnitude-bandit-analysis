@@ -209,8 +209,8 @@ report all failures at the end.
   probability and reward magnitude around block changes) and `run_value_change_analysis`
   (`value-change/`: choice probabilities around changes in the best or second value). Turn one off
   by passing `drifting_selection=DRIFTING_SELECTION.model_copy(update={"run_value_change_analysis":
-  False})` to `run_cohort`. The reversal-aligned figure titles say `[pooled]`; in a problem folder
-  that means all of the problem's sessions.
+  False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
+  in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).
 - **Long pokes and maze heatmaps** (`run_poke_analysis`, every problem, `long-pokes/`): mean
   non-choice long pokes per trial per relative session, and per-mouse maze maps of the pokes after
   the choice and the long pokes after initiation. Green outlines are the problem's choice ports and

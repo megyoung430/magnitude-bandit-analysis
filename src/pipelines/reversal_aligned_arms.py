@@ -100,7 +100,9 @@ def _counts_row(scope: str, result: ReversalAlignedArms, figure: str) -> dict:
     }
 
 
-def _draw(result: ReversalAlignedArms, scope: str, out_dir: Path | None) -> list[Path]:
+def _draw(
+    result: ReversalAlignedArms, scope: str, out_dir: Path | None, title_scope: str
+) -> list[Path]:
     """Save (or show, without *out_dir*) the figure of a result; its PNG and PDF paths.
 
     A result with no reversals has no figure.
@@ -108,10 +110,10 @@ def _draw(result: ReversalAlignedArms, scope: str, out_dir: Path | None) -> list
     if not result.num_reversals:
         return []
     if out_dir is None:
-        save_reversal_aligned_arms(result, None, scope=scope)
+        save_reversal_aligned_arms(result, None, scope=title_scope)
         return []
     base = out_dir / f"reversal_aligned_arms_{scope}_{result.scheme}_{result.reversal_type}"
-    save_reversal_aligned_arms(result, base, scope=scope)
+    save_reversal_aligned_arms(result, base, scope=title_scope)
     return [Path(f"{base}.png"), Path(f"{base}.pdf")]
 
 
@@ -126,6 +128,7 @@ def run_reversal_aligned_arm_analysis(
     reversal_types: Sequence[str] = REVERSAL_TYPES,
     moving_avg_mode: str = "centered",
     skip_n_trials_after_reversal: int = 0,
+    scope_label: str | None = None,
 ) -> dict:
     """Figures of arm choice probability and reward magnitude around block changes.
 
@@ -152,6 +155,9 @@ def run_reversal_aligned_arm_analysis(
         reversal_types: Subset of ``("all", "best_to_third", "second_to_third")``.
         moving_avg_mode: ``"centered"`` or ``"trailing"``; the same for every figure.
         skip_n_trials_after_reversal: Post trial 0 is kept and the next *k* trials dropped.
+        scope_label: Text in the title of the ``"pooled"`` scope's figures instead of
+            ``"pooled"`` (for example ``"problem-03"`` when the one problem given is the
+            subject of the folder). File names and the counts table keep the scope name.
 
     Returns:
         ``{"results": {scope: {scheme: {type: ReversalAlignedArms}}}, "counts": DataFrame with
@@ -182,7 +188,8 @@ def run_reversal_aligned_arm_analysis(
                     windows, scheme=scheme, reversal_type=kind, **settings
                 )
                 results[scope][scheme][kind] = result
-                paths = _draw(result, scope, out_dir)
+                title_scope = scope_label if scope == POOLED and scope_label else scope
+                paths = _draw(result, scope, out_dir, title_scope)
                 figure_paths += paths
                 rows.append(_counts_row(scope, result, paths[0].name if paths else ""))
     counts = pd.DataFrame(rows)

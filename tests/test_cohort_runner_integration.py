@@ -404,3 +404,17 @@ def test_misaligned_trials_stop_the_run(tmp_path, calls, cohort_extras, monkeypa
     monkeypatch.setattr(poke_counts_module, "parse_session", misaligned)
     with pytest.raises(PokeAlignmentError):
         run(tmp_path)
+
+
+def test_arm_figure_titles_name_the_problem_or_the_pool_never_pooled(tmp_path, monkeypatch):
+    capture = capture_figures(monkeypatch)
+    selection = AnalysisSelection(run_reversal_aligned_arm_analysis=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        run_drifting_value_analyses({4: arm_data()[4]}, tmp_path / "one", selection)
+        one = [s.figure.axes[0].get_title() for s in capture.saved]
+        capture.saved.clear()
+        run_drifting_value_analyses(arm_data(), tmp_path / "pool", selection)
+        pool = [s.figure.axes[0].get_title() for s in capture.saved]
+    assert one and all("[problem-04]" in t and "pooled" not in t for t in one)
+    assert pool and all("[all drifting problems]" in t for t in pool)

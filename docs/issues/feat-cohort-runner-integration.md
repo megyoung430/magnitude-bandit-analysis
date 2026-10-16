@@ -50,8 +50,10 @@ status: in review
   and hands the entry point one pooled entry; windows therefore never cross a problem and the
   pooled folder holds only the pooled figures. Window settings are shared constants
   (`pre=10`, `post=30`) so the builder and the entry point cannot disagree.
-- The reversal-aligned figure titles say `[pooled]` even in a per-problem folder (one problem is a
-  pool of one). Changing the title needs a scope label argument in the entry point; left alone.
+- `run_reversal_aligned_arm_analysis` gains `scope_label` (default `None`: unchanged), the title
+  text of the pooled scope. The runner passes `problem-KK` for one problem and
+  `all drifting problems` for the pool, so no per-problem figure says `[pooled]`. File names
+  and the counts table keep the scope name `pooled`.
 - Parsing once: when both the poke analysis and the single-session figures are on, `run_problem`
   parses every mouse's sessions with `mouse_poke_counts` and passes the result to both.
 - `run_problem(..., previous_choice_towers=None)` and

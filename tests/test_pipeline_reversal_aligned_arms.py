@@ -204,3 +204,25 @@ def test_numpy_integer_problem_numbers_name_the_scopes(tmp_path):
     trials = {np.int64(4): {"m": make_mouse(1)}, np.int64(5): {"m": make_mouse(1, first_day=11)}}
     result = run(trials, tmp_path)
     assert list(result["results"]) == ["pooled", "problem-04", "problem-05"]
+
+
+def titles(capture):
+    return [saved.figure.axes[0].get_title() for saved in capture.saved]
+
+
+def test_the_title_says_pooled_by_default_and_the_scope_label_when_given(tmp_path, capture):
+    run(one_problem(), tmp_path)
+    assert titles(capture) and all("[pooled]" in t for t in titles(capture))
+    capture.saved.clear()
+    run(one_problem(), tmp_path, scope_label="problem-01")
+    assert all("[problem-01]" in t and "pooled" not in t for t in titles(capture))
+    # file names and the counts table keep the scope name
+    assert "reversal_aligned_arms_pooled_new_all.png" in capture.saved_names()
+    assert set(pd.read_csv(tmp_path / "reversal_aligned_arms_counts.csv")["scope"]) == {"pooled"}
+
+
+def test_the_scope_label_leaves_the_per_problem_scopes_named(tmp_path, capture):
+    run(two_problems(), tmp_path, scope_label="everything")
+    by_name = dict(zip(capture.saved_names(), titles(capture), strict=True))
+    assert "[everything]" in by_name["reversal_aligned_arms_pooled_new_all.png"]
+    assert "[problem-05]" in by_name["reversal_aligned_arms_problem-05_new_all.png"]
