@@ -41,8 +41,11 @@ MISSING_INDEX_MESSAGE = (
 def post_window_steps(x: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Locate the post-reversal offsets of *x* on a grid of integer trial steps.
 
+    Args:
+        x (ArrayLike): Trial offsets relative to the anchor; may contain NaN.
+
     Returns:
-        ``(post_mask, steps, step_idx)``: which entries of *x* are finite and
+        tuple[np.ndarray, np.ndarray, np.ndarray]: ``(post_mask, steps, step_idx)``: which entries of *x* are finite and
         ``>= 0``; the sorted unique rounded offsets of those entries; and, for
         each post entry, the index of its offset in ``steps``.
     """
@@ -58,13 +61,15 @@ def next_reversal_delays(
     """Trials from each anchor to the first reversal after it.
 
     Args:
-        anchors: Trial indices of the anchor reversals.
-        reversals: Trial indices of every reversal that can cut a window short.
-        exclude_anchor: If ``True`` only reversals strictly after the anchor
+        anchors (np.ndarray): Trial indices of the anchor reversals.
+        reversals (np.ndarray): Trial indices of every reversal that can cut a window short.
+        exclude_anchor (bool): If ``True`` only reversals strictly after the anchor
             count; otherwise a reversal at the anchor's own index also does.
 
     Returns:
-        ``(delays, next_reversals)`` for the anchors that have a later reversal.
+        tuple[np.ndarray, np.ndarray]: ``(delays, next_reversals)``, 1-D int arrays for
+        the anchors that have a later reversal: trials from the anchor to that reversal,
+        and that reversal's trial index.
     """
     reversals = np.unique(reversals)
     first_after = np.searchsorted(reversals, anchors, side="right" if exclude_anchor else "left")
@@ -78,6 +83,13 @@ def cumulative_counts(delays: np.ndarray, steps: np.ndarray) -> np.ndarray:
 
     A delay is counted from the first step ``>= delay`` onwards; delays beyond
     the last step never show up.
+
+    Args:
+        delays (np.ndarray): 1-D delays in trials.
+        steps (np.ndarray): 1-D sorted integer steps (from :func:`post_window_steps`).
+
+    Returns:
+        np.ndarray: Float array of shape ``(len(steps),)`` with the cumulative count at each step.
     """
     first_step = np.searchsorted(steps, delays, side="left")
     first_step = first_step[first_step < steps.size]
@@ -212,21 +224,25 @@ def removal_curves_by_kind(
     three fractions therefore sum to at most 1, and to the total curve.
 
     Args:
-        windows: ``{subject: [reversal_dict]}``; each dict's ``reversal_idx`` is an anchor.
-        x: Trial offsets relative to the anchor.
-        exclude_anchor: See :func:`next_reversal_delays`.
-        good_idx: ``{subject: [trial index]}`` of good reversals.
-        bad_idx: ``{subject: [trial index]}`` of bad reversals.
-        unclassified_idx: ``{subject: [trial index]}`` of reversals of unknown
+        windows (dict): ``{subject: [reversal_dict]}``; each dict's ``reversal_idx`` is an anchor.
+        x (ArrayLike): Trial offsets relative to the anchor.
+        exclude_anchor (bool): See :func:`next_reversal_delays`. Default True.
+        good_idx (dict): ``{subject: [trial index]}`` of good reversals.
+        bad_idx (dict): ``{subject: [trial index]}`` of bad reversals.
+        unclassified_idx (dict): ``{subject: [trial index]}`` of reversals of unknown
             kind (block changes of sessions without good/bad counters); required,
             ``{subject: []}`` when every session logs counters.
 
     Returns:
-        ``{kind: (cumulative, fraction)}``, each the length of *x*. Fractions
-        are counts divided by the number of anchors, ``nan`` if there are none.
+        dict[str, tuple[np.ndarray, np.ndarray]]: ``{kind: (cumulative, fraction)}`` for
+        ``kind`` in ``"good"``, ``"bad"``, ``"unclassified"``, each array the length of
+        *x* (``nan`` before the reversal). Fractions are counts divided by the number of
+        anchors, ``nan`` if there are none.
 
     Raises:
         KeyError: If a subject in *windows* is missing from a given index dict.
+        ValueError: If a subject's unclassified reversals coincide with its good or bad ones.
+        AssertionError: If the summed fractions exceed 1.
     """
     anchors, cumulative = _cumulative_by_kind(
         windows, x, exclude_anchor, good_idx, bad_idx, unclassified_idx
@@ -253,9 +269,22 @@ def good_bad_removal_curves(
     *unclassified_idx* has reversals; read them from
     :func:`removal_curves_by_kind`.
 
+    Args:
+        windows (dict): ``{subject: [reversal_dict]}``; each dict's ``reversal_idx`` is an anchor.
+        good_idx (dict): ``{subject: [trial index]}`` of good reversals.
+        bad_idx (dict): ``{subject: [trial index]}`` of bad reversals.
+        x (ArrayLike): Trial offsets relative to the anchor.
+        exclude_anchor (bool): See :func:`next_reversal_delays`. Default True.
+        unclassified_idx (dict): ``{subject: [trial index]}`` of reversals of unknown kind.
+
     Returns:
+        tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         ``(cumulative_good, cumulative_bad, fraction_good, fraction_bad)``,
         each the length of *x*.
+
+    Raises:
+        KeyError: If a subject in *windows* is missing from a given index dict.
+        ValueError: If a subject's unclassified reversals coincide with its good or bad ones.
     """
     curves = removal_curves_by_kind(
         windows,
@@ -285,8 +314,21 @@ def total_removal_curves(
     :func:`removal_curves_by_kind`; the index dicts are required, since without
     bad reversals the curve would silently understate removal.
 
+    Args:
+        windows (dict): ``{subject: [reversal_dict]}``; each dict's ``reversal_idx`` is an anchor.
+        x (ArrayLike): Trial offsets relative to the anchor.
+        exclude_anchor (bool): See :func:`next_reversal_delays`. Default True.
+        good_idx (dict): ``{subject: [trial index]}`` of good reversals.
+        bad_idx (dict): ``{subject: [trial index]}`` of bad reversals.
+        unclassified_idx (dict): ``{subject: [trial index]}`` of reversals of unknown kind.
+
     Returns:
-        ``(cumulative, fraction)``, each the length of *x*.
+        tuple[np.ndarray, np.ndarray]: ``(cumulative, fraction)``, each the length of *x*.
+
+    Raises:
+        KeyError: If a subject in *windows* is missing from a given index dict.
+        ValueError: If a subject's unclassified reversals coincide with its good or bad ones.
+        AssertionError: If the fraction exceeds 1.
     """
     anchors, cumulative = _cumulative_by_kind(
         windows, x, exclude_anchor, good_idx, bad_idx, unclassified_idx
@@ -316,8 +358,25 @@ def cumulative_removal_series(
     unclassified = total. *fraction* picks fractions over counts. Only
     reversals strictly after the anchor count (``exclude_anchor=True``).
 
+    Args:
+        windows (dict): ``{subject: [reversal_dict]}``; each dict's ``reversal_idx`` is an anchor.
+        good_idx (dict | None): ``{subject: [trial index]}`` of good reversals.
+        bad_idx (dict | None): ``{subject: [trial index]}`` of bad reversals.
+        x (ArrayLike): Trial offsets relative to the anchor.
+        use_total (bool | None): Truthy for the single ``"total"`` curve, falsy for the
+            per-kind curves. Keyword-only.
+        fraction (bool): ``True`` for fractions of anchors, ``False`` for counts. Keyword-only.
+        unclassified_idx (dict | None): ``{subject: [trial index]}`` of reversals of
+            unknown kind. Keyword-only.
+
+    Returns:
+        dict[str, np.ndarray]: ``{"total": values}`` or ``{"good": ..., "bad": ...[,
+        "unclassified": ...]}``; each array has the length of *x*.
+
     Raises:
-        ValueError: If *good_idx*, *bad_idx* or *unclassified_idx* is ``None``.
+        ValueError: If *good_idx*, *bad_idx* or *unclassified_idx* is ``None``, or
+            (via the curve functions) if unclassified reversals coincide with good or bad ones.
+        KeyError: If a subject in *windows* is missing from a given index dict.
     """
     if good_idx is None or bad_idx is None or unclassified_idx is None:
         raise ValueError(MISSING_INDEX_MESSAGE)

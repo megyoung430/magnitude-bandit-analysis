@@ -19,10 +19,10 @@ def get_total_reversals(subject_sessions):
     ``max(blocks) - 1`` across sessions.
 
     Args:
-        subject_sessions: ``{session_key: session_dict}`` for a single subject.
+        subject_sessions (dict): ``{session_key: session_dict}`` for a single subject.
 
     Returns:
-        Dict with key ``"total_reversals"`` (int) and, when good/bad data are
+        dict: Dict with key ``"total_reversals"`` (int) and, when good/bad data are
         available, also ``"good_reversals"`` (int) and ``"bad_reversals"``
         (int), as logged by the task. Beside them, ``"suspect_good_reversals"``
         counts the logged good reversals whose best tower does not change, and
@@ -80,10 +80,10 @@ def get_all_reversal_indices(subjects_trials):
     and ``bad_reversals`` counters increment.
 
     Args:
-        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
 
     Returns:
-        A three-tuple ``(all_good, all_bad, all_blocks)`` where:
+        tuple[dict, dict, dict]: A three-tuple ``(all_good, all_bad, all_blocks)`` where:
 
         - ``all_good[subj]`` – sorted list of good-reversal trial indices.
         - ``all_bad[subj]`` – sorted list of bad-reversal trial indices.
@@ -122,10 +122,10 @@ def get_unclassified_reversal_indices(subjects_trials):
     contribute none (their reversals are already good or bad).
 
     Args:
-        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
 
     Returns:
-        ``{subject: sorted list of trial indices}``; every subject is a key.
+        dict: ``{subject: sorted list of trial indices}``; every subject is a key.
 
     Raises:
         ValueError: If a session's ``blocks`` and ``trial`` differ in length
@@ -162,9 +162,15 @@ def get_unclassified_reversal_indices(subjects_trials):
 def get_reversal_indices_by_kind(subjects_trials):
     """Good, bad and unclassified reversal indices per subject, for the removal curves.
 
+    Args:
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+
     Returns:
-        ``{"good": ..., "bad": ..., "unclassified": ...}``, each ``{subject: [index]}``
+        dict: ``{"good": ..., "bad": ..., "unclassified": ...}``, each ``{subject: [index]}``
         (see :func:`get_all_reversal_indices` and :func:`get_unclassified_reversal_indices`).
+
+    Raises:
+        ValueError: As for :func:`get_unclassified_reversal_indices`.
     """
     good, bad, _ = get_all_reversal_indices(subjects_trials)
     return {
@@ -181,11 +187,11 @@ def find_increment_indices(cumulative_list):
     value is strictly greater than the previous non-``None`` value.
 
     Args:
-        cumulative_list: Sequence of numeric values (or ``None``) representing a
+        cumulative_list (Sequence): Sequence of numeric values (or ``None``) representing a
             cumulative counter, e.g. ``[0, 0, 1, 1, 2, None, 2, 3]``.
 
     Returns:
-        List of integer indices where an increment occurred.
+        list[int]: Indices where an increment occurred.
     """
     inc = []
     prev = None
