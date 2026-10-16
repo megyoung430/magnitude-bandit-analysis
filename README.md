@@ -227,7 +227,11 @@ report all failures at the end.
   red outlines the choice ports of the problem the mouse ran immediately before, whatever its task
   type (so drifting problem 1 is outlined with the last blocked problem's ports); blue is the
   initiation port. The single-session figures carry the same maps for their session, with the red
-  outlines. Every session's raw events are parsed once for both. A session whose raw events cannot
+  outlines. Two more figures, `Maze Heatmaps - Pokes After Choice (Port Finding)` and `... After
+  Initiation (Port Finding)`, count the same two kinds of pokes in the port-finding trials, summed
+  over every session of the problem that has some; a mouse without port-finding trials in the
+  problem has no panel, and the figure is not drawn when no mouse has any (the single-session
+  figures do not show them). Port-finding trials are never in the task-trial maps. Every session's raw events are parsed once for both. A session whose raw events cannot
   be read as trials warns and is drawn without maps (and noted in the `parse_error` column of the returned `summary`); parsed
   trials that disagree with the imported trials stop the run with a `PokeAlignmentError`.
 - **Outputs** (under `results/`, which is git-ignored), for cohort `cohort-0N`:
