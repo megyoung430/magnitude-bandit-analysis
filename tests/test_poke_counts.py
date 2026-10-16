@@ -9,6 +9,7 @@ from src.behavior_analysis.poke_counts import (
     session_choice_ports,
     session_poke_counts,
     total_counts,
+    total_port_finding_counts,
 )
 from src.behavior_analysis.poke_events import ARMS9
 from tests.poke_fixtures import Recording, full_trial, session_record
@@ -66,7 +67,70 @@ def test_port_finding_trials_are_counted_apart_from_task_trials_and_drops():
 
 
 def test_session_without_port_finding_reports_zero_port_finding_trials():
-    assert session_poke_counts(small_session()).n_port_finding_trials == 0
+    counts = session_poke_counts(small_session())
+    assert counts.n_port_finding_trials == 0
+    assert counts.port_finding.n_valid == 0
+    assert sum(counts.port_finding.after_choice.values()) == 0
+
+
+def port_finding_session():
+    """Port finding (with a timeout among it) followed by the two task trials of small_session."""
+    rec = Recording()
+    rec.port_finding_trial("A1", long_before=["C3"], after_choice=["A1", "C2", "C2"])
+    rec.port_finding_trial("C1", long_before=["B2"], after_choice=["C1", "A2"])
+    rec.port_finding_timeout()
+    rec.port_finding_trial("B3")
+    full_trial(rec, long_before=["A3"], choice="A1", after_choice=["A1", "C3", "C3", "B2", "A1"])
+    full_trial(rec, choice="B1")
+    return session_record([rec.to_frame()], choice=["A1", "B1"])
+
+
+def nonzero(counts):
+    return {port: n for port, n in counts.items() if n}
+
+
+def test_port_finding_pokes_are_counted_under_the_two_task_rules():
+    found = session_poke_counts(port_finding_session()).port_finding
+    # long pokes: a leading B2 is dropped and the choice poke counts
+    assert nonzero(found.after_initiation) == {"C3": 1, "A1": 1, "C1": 1, "B3": 1}
+    # visits after the choice, leading visits to the chosen tower dropped, initiating B2 last
+    assert nonzero(found.after_choice) == {"C2": 1, "A2": 1, "B2": 3}
+    assert (found.n_valid, found.n_open_windows, found.n_dropped) == (3, 0, 1)
+
+
+def test_port_finding_leaves_every_task_count_as_without_it():
+    with_port_finding = session_poke_counts(port_finding_session())
+    task_only = session_poke_counts(small_session())
+    task_fields = (
+        "after_initiation",
+        "after_choice",
+        "n_trials",
+        "n_open_windows",
+        "n_valid",
+        "n_dropped_no_print",
+        "n_dropped_inconsistent",
+    )
+    for field in task_fields:
+        assert getattr(with_port_finding, field) == getattr(task_only, field), field
+    assert with_port_finding.long_poke_check == task_only.long_poke_check
+    assert with_port_finding.n_port_finding_trials == 4
+
+
+def test_port_finding_totals_sum_over_the_sessions_of_a_mouse():
+    sessions = {
+        "ses-1_date-20260101": port_finding_session(),
+        "ses-2_date-20260102": small_session(),  # no port finding: adds nothing
+        "ses-3_date-20260103": port_finding_session(),
+    }
+    per_session = mouse_poke_counts("m1", sessions)
+    assert nonzero(total_port_finding_counts(per_session, "after_choice")) == {
+        "C2": 2,
+        "A2": 2,
+        "B2": 6,
+    }
+    assert nonzero(total_port_finding_counts(per_session, "after_initiation"))["B3"] == 2
+    with pytest.raises(ValueError, match="kind"):
+        total_port_finding_counts(per_session, "long_pokes")
 
 
 def test_mouse_counts_sum_over_sessions_in_session_order_not_dict_order():

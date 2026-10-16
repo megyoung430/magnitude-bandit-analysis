@@ -530,3 +530,140 @@ def test_print_with_no_initiation_since_the_previous_trial_drops_both_trials():
     assert second.drop_reason is not None and "without an initiation" in second.drop_reason
     assert third.drop_reason is None
     assert first.long_pokes == second.long_pokes == () and first.window_pokes is None
+
+
+# ------------------------------------------------- pokes of port-finding trials
+
+
+def port_finding_around_task_trials():
+    """Port finding (with pokes), a task trial, more port finding, a task trial, in file order."""
+    rec = Recording()
+    rec.port_finding_trial("A1", long_before=["C3"], after_choice=["A1", "C2", "C2"])
+    full_trial(rec, choice="B1", after_choice=["C3"])
+    rec.port_finding_trial("C1")
+    full_trial(rec, choice="A1")
+    return rec
+
+
+def test_port_finding_trials_keep_their_pokes_and_stay_in_file_order():
+    trials = parse_recording(port_finding_around_task_trials().to_frame())
+    assert [(is_port_finding(t), t.chosen) for t in trials] == [
+        (True, "A1"),
+        (False, "B1"),
+        (True, "C1"),
+        (False, "A1"),
+    ]
+    first, task, second, _ = trials
+    assert not first.has_print and first.drop_reason is None
+    assert first.long_pokes == ("C3", "A1")
+    assert first.window_pokes == ("A1", "C2", "C2", "B2")  # closed by the task trial's initiation
+    assert task.window_pokes == ("C3", "B2")  # closed by the port-finding trial's initiation
+    assert second.window_pokes == ("B2",)
+
+
+def test_port_finding_pokes_follow_the_same_two_counting_rules():
+    first = parse_recording(port_finding_around_task_trials().to_frame())[0]
+    assert pokes_after_choice(first.window_pokes, first.chosen) == ["C2", "B2"]
+    assert pokes_after_initiation(first.long_pokes, "B2") == ["C3", "A1"]
+    rec = Recording()
+    rec.port_finding_trial("A1", long_before=["B2", "A3"])
+    (only,) = parse_recording(rec.to_frame())
+    assert pokes_after_initiation(only.long_pokes, "B2") == ["A3", "A1"]
+
+
+def test_port_finding_does_not_change_the_task_trials():
+    plain = Recording()
+    full_trial(plain, choice="B1", after_choice=["C3"])
+    full_trial(plain, choice="A1")
+    with_port_finding = port_finding_around_task_trials()
+    task = [t for t in parse_recording(with_port_finding.to_frame()) if not is_port_finding(t)]
+    assert task == parse_recording(plain.to_frame())
+
+
+def test_port_finding_trials_stay_in_file_order_across_recordings():
+    first = Recording()
+    first.port_finding_trial("A1")
+    full_trial(first, choice="B1")
+    second = Recording()
+    second.port_finding_trial("C1")
+    full_trial(second, choice="A1")
+    session = session_record([first.to_frame(), second.to_frame()], choice=["B1", "A1"])
+    trials = parse_session(session)
+    assert [(is_port_finding(t), t.chosen) for t in trials] == [
+        (True, "A1"),
+        (False, "B1"),
+        (True, "C1"),
+        (False, "A1"),
+    ]
+
+
+def test_a_port_finding_trial_ended_by_recording_end_has_an_open_window():
+    rec = Recording()
+    rec.port_finding_trial("A1")
+    (only,) = parse_recording(rec.to_frame())
+    assert only.window_pokes is None and only.long_pokes == ("A1",)
+
+
+def test_pretraining_recording_ignores_plain_task_prints():
+    rec = Recording()
+    rec.initiate()
+    rec.raw_print({"num_t": 1, "init_dur": 3})
+    rec.iti().state("wait_init")
+    assert parse_recording(rec.to_frame()) == []
+
+
+def test_port_finding_trial_with_the_wrong_held_port_is_dropped_and_warned_about():
+    rec = Recording()
+    rec.port_finding_trial("A1", held="C1")
+    full_trial(rec, choice="B1")
+    with pytest.warns(UserWarning, match=r"dropped 1 trial.*port finding.*choice poke was held"):
+        trials = parse_session(session_record([rec.to_frame()], choice=["B1"]))
+    first = trials[0]
+    assert is_port_finding(first) and first.drop_reason
+    assert first.long_pokes == () and first.window_pokes is None
+
+
+def test_port_finding_print_without_a_chosen_tower_is_dropped_not_guessed():
+    rec = Recording()
+    rec.port_finding_trial("A1", chosen=False)
+    full_trial(rec, choice="B1")
+    with pytest.warns(UserWarning, match="port finding"):
+        first = parse_session(session_record([rec.to_frame()], choice=["B1"]))[0]
+    assert is_port_finding(first) and first.chosen is None
+    assert first.drop_reason and first.long_pokes == ()
+
+
+def test_a_timed_out_port_finding_trial_has_no_pokes_to_count():
+    rec = Recording()
+    rec.port_finding_timeout()
+    rec.port_finding_trial("A1")
+    full_trial(rec, choice="C1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # a port-finding timeout is expected, not a drop
+        timed_out, found, task = parse_session(session_record([rec.to_frame()], choice=["C1"]))
+    assert is_port_finding(timed_out) and timed_out.drop_reason == NO_PRINT
+    assert timed_out.long_pokes == () and timed_out.window_pokes is None
+    assert is_port_finding(found) and found.drop_reason is None
+    assert not is_port_finding(task)
+
+
+def test_an_unreadable_port_finding_only_recording_does_not_stop_the_session():
+    pretraining = Recording(init="B3")  # initiates from B3 where the session's tower is B2
+    pretraining.port_finding_trial("A1")
+    pretraining.port_finding_trial("C1")
+    rec = Recording()
+    full_trial(rec, choice="B1")
+    session = session_record([pretraining.to_frame(), rec.to_frame()], choice=["B1"])
+    with pytest.warns(UserWarning, match=r"dropped 2 trials.*port finding.*initiation"):
+        trials = parse_session(session)
+    unreadable, task = trials[:2], trials[2:]
+    assert all(is_port_finding(t) and t.drop_reason and t.long_pokes == () for t in unreadable)
+    assert [t.chosen for t in task] == ["B1"]
+
+
+def test_an_unreadable_recording_that_holds_task_trials_still_raises():
+    rec = Recording(init="B3")
+    rec.port_finding_trial("A1")
+    full_trial(rec, choice="B1")
+    with pytest.raises(PokeParseError, match="initiat"):
+        parse_recording(rec.to_frame())
