@@ -43,7 +43,10 @@ THRESHOLD_STYLE = dict(color="#DCDCDC", linewidth=2, linestyle="--", alpha=0.7)
 
 
 def plot_reversal_totals(
-    totals: pd.DataFrame, kinds: tuple[str, ...], ax: plt.Axes | None = None
+    totals: pd.DataFrame,
+    kinds: tuple[str, ...],
+    ax: plt.Axes | None = None,
+    threshold: float | None = None,
 ) -> plt.Axes:
     """Bar chart of total reversals per subject (rows of *totals*).
 
@@ -53,6 +56,8 @@ def plot_reversal_totals(
         kinds (tuple[str, ...]): ``("good", "bad")`` draws paired bars; anything else (normally
             ``("total",)``) draws one bar per subject from the ``total`` column.
         ax (plt.Axes | None): Axes to draw into; a new 10 x 5 inch figure if None. Default None.
+        threshold (float | None): Draw a dashed reference line at this y-value, in the style
+            of the cumulative-reversal plots, if given. Default None.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -75,6 +80,9 @@ def plot_reversal_totals(
         ax.legend(loc="upper left", fontsize=10)
     else:
         ax.bar(x_pos, totals["total"].astype(int), color=TOTAL_COLOR, edgecolor="black")
+    if threshold is not None:
+        ax.axhline(threshold, label="Threshold", **THRESHOLD_STYLE)
+        ax.legend(loc="upper left", fontsize=10)
     ax.set_xticks(x_pos)
     ax.set_xticklabels(totals.index, rotation=45, ha="right")
     despine(ax)
@@ -242,13 +250,16 @@ def _print_subject_totals(subjects_trials: dict) -> None:
         print(f"{subject}: {get_total_reversals(subjects_trials[subject])}")
 
 
-def plot_num_reversals(subjects_trials, save_path=None):
+def plot_num_reversals(subjects_trials, save_path=None, *, threshold=10):
     """Bar chart of total good and bad (or total) reversals per subject.
 
     Args:
         subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
         save_path (str | Path | None): Base path (without extension) for ``.pdf`` and ``.png``
             output. If None or empty, the figure is shown. Default None.
+        threshold (float | None): Dashed reference line (the criterion reversal count) on the
+            single-bar total plot of block-change-only data; the good/bad bars never get one.
+            None for none. Default 10. Keyword-only.
 
     Returns:
         None
@@ -258,8 +269,11 @@ def plot_num_reversals(subjects_trials, save_path=None):
     """
     _print_subject_totals(subjects_trials)
     totals = reversal_totals_by_subject(subjects_trials)
+    kinds = reversal_kinds(totals)
     fig, ax = plt.subplots(figsize=(10, 5))
-    plot_reversal_totals(totals, reversal_kinds(totals), ax=ax)
+    plot_reversal_totals(
+        totals, kinds, ax=ax, threshold=None if kinds == ("good", "bad") else threshold
+    )
     fig.tight_layout()
     save_or_show(fig, save_path or None)
 
