@@ -37,8 +37,9 @@ def index_entry(session_key: str, diagnostics: list[EventDiagnostic]) -> str:
     if not diagnostics:
         return f"{session_key}: {NO_EVENTS_TEXT}"
     trials = ", ".join(str(d.trial_idx) for d in diagnostics)
-    noun = "event" if len(diagnostics) == 1 else "events"
-    return f"{session_key}: {len(diagnostics)} {noun}, t=0 at trial{'' if len(diagnostics) == 1 else 's'} {trials}"
+    if len(diagnostics) == 1:
+        return f"{session_key}: 1 event, t=0 at trial {trials}"
+    return f"{session_key}: {len(diagnostics)} events, t=0 at trials {trials}"
 
 
 def format_index(cohort: str, entries: Mapping[tuple[int, str], list[str]]) -> str:
@@ -59,9 +60,7 @@ def format_index(cohort: str, entries: Mapping[tuple[int, str], list[str]]) -> s
     return "\n".join(lines) + "\n"
 
 
-def _write_session(
-    mouse: str, key: str, session: Mapping, path: Path
-) -> list[EventDiagnostic]:
+def _write_session(mouse: str, key: str, session: Mapping, path: Path) -> list[EventDiagnostic]:
     """Diagnose one session and save its figure at *path*."""
     diagnostics = diagnose_session(mouse, key, session)
     fig = plot_value_change_diagnostic(session, diagnostics, title=f"{mouse} | {key}")

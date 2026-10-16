@@ -51,9 +51,7 @@ _LEGEND_MARGIN = 0.82  # right edge of the axes, leaving room for the legend
 
 def event_text(diagnostic: EventDiagnostic) -> str:
     """One line naming the event, the arm behind each label and the window lengths used."""
-    arms = ", ".join(
-        f"{LABEL_NAMES[label]} = {diagnostic.arms[label]}" for label in SWAP_LABELS
-    )
+    arms = ", ".join(f"{LABEL_NAMES[label]} = {diagnostic.arms[label]}" for label in SWAP_LABELS)
     if diagnostic.truncated:
         truncation = f"truncated at swap (t=+{diagnostic.swap_offset})"
     else:
@@ -83,12 +81,18 @@ def _figure_layout(n_events: int, n_trials: int) -> tuple[Figure, tuple[Axes, Ax
 
 
 def _recolour_window_choices(
-    ax: Axes, mags_by: Mapping, choices_by: Mapping, towers: Sequence[str], labels: Mapping[int, str]
+    ax: Axes,
+    mags_by: Mapping,
+    choices_by: Mapping,
+    towers: Sequence[str],
+    labels: Mapping[int, str],
 ) -> None:
     """Redraw the choices in event windows as larger dots coloured by their label."""
     chosen = chosen_magnitudes(mags_by, choices_by, towers=towers, N=len(mags_by[towers[0]]))
     for label in SWAP_LABELS:
-        trials = [t for t, name in sorted(labels.items()) if name == label and np.isfinite(chosen[t])]
+        trials = [
+            t for t, name in sorted(labels.items()) if name == label and np.isfinite(chosen[t])
+        ]
         ax.scatter(
             trials, chosen[trials], s=70, color=LABEL_COLORS[label], edgecolor="black",
             linewidth=0.6, zorder=6, label=LABEL_NAMES[label],
@@ -193,5 +197,7 @@ def plot_value_change_diagnostic(
     _draw_bands(strip, diagnostics)
     main.set_xlim(-0.5, n_trials - 0.5)
     _write_text(text, diagnostics, pre, post)
-    strip.legend(handles=_legend_handles(), loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8)
+    strip.legend(
+        handles=_legend_handles(), loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8
+    )
     return fig

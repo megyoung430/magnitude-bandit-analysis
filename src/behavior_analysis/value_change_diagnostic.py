@@ -107,7 +107,7 @@ def diagnose_event(
 
 
 def check_series_length(session: Mapping[str, Any], n_trials: int, where: str) -> None:
-    """Raise ValueError unless the per-tower series the session plot draws have *n_trials* trials."""
+    """Raise ValueError unless the per-tower series the plot draws have *n_trials* trials."""
     for key in ("reward_magnitudes_by_tower", "choices_by_tower"):
         for tower, series in session[key].items():
             if len(series) != n_trials:
@@ -141,7 +141,9 @@ def diagnose_session(
         {subject: {session_key: session}}, RANK, DIRECTION, RANK_FILTER,
         pre=pre, post=post, truncate_at_rank_swap=True,
     )  # fmt: skip
-    return diagnose_events(windows.events.get(subject, []), session, pre, post, where=f"{subject} {session_key}")
+    return diagnose_events(
+        windows.events.get(subject, []), session, pre, post, where=f"{subject} {session_key}"
+    )
 
 
 def diagnose_events(
