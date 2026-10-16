@@ -5,22 +5,32 @@ mouse's problems into blocked and drifting from the pyControl task name
 (:mod:`src.behavior_import.task_types`), numbers them within their type, and runs
 
 - blocked problems: choice probabilities, first leave, number of reversals, true-value rank
-  proportions and single sessions;
-- drifting problems: number of reversals, true- and believed-value rank proportions and single
-  sessions, plus rank proportions pooled over all of a mouse's drifting problems;
+  proportions, long pokes with maze heatmaps, and single sessions;
+- drifting problems: number of reversals, true- and believed-value rank proportions, long pokes
+  with maze heatmaps, value heatmaps and psychometric curves, reversal-aligned arm choices,
+  value-change choice probabilities and single sessions, plus the rank proportions and the
+  three value analyses pooled over all of a mouse's drifting problems;
 - trial and block-length summaries over all problems;
 - a problem map and a review table of suspect reversals, as CSV.
 
 Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
 
-    figures/open-field/<cohort>/{blocked,drifting}/problem-KK/...
-    figures/open-field/<cohort>/drifting/all-drifting-problems/choice-stats/
+    figures/open-field/<cohort>/{blocked,drifting}/problem-KK/{reversal-stats,choice-stats,
+        single-sessions,long-pokes}/
+    figures/open-field/<cohort>/drifting/problem-KK/{value-psychometrics,reversal-aligned-arms,
+        value-change}/
+    figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
+        reversal-aligned-arms,value-change}/
     figures/open-field/<cohort>/trial-block-summaries/all-problems/
     tables/open-field/<cohort>/problem_map.csv
     tables/open-field/<cohort>/suspect_reversals.csv
 
 ``KK`` counts a mouse's problems within the type, so drifting problem 1 is the first drifting
 problem of every mouse; ``problem_map.csv`` gives the overall problem number it stands for.
+
+The maze heatmaps outline the choice ports of the problem the mouse ran immediately before, in
+the overall problem order and whatever its task type, so drifting problem 1 is outlined with
+the ports of the last blocked problem.
 """
 
 import warnings
@@ -35,6 +45,10 @@ from src.behavior_analysis.get_diagnostic_p_value import pvalue_paired_t_best_vs
 from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
 from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_value
 from src.behavior_analysis.merge_across_problems import merge_windows_by_subject
+from src.behavior_analysis.poke_counts import (
+    previous_choice_towers_for_problem,
+    previous_problem_choice_towers,
+)
 from src.behavior_analysis.suspect_reversal_table import (
     COLUMNS as SUSPECT_COLUMNS,
 )
@@ -61,6 +75,8 @@ from src.pipelines.open_field import (
     VALUE_BASIS_LABELS,
     AnalysisSelection,
     ChoiceProbabilitySettings,
+    check_selection_for_task_type,
+    run_drifting_value_analyses,
     run_problem,
 )
 from src.settings import REPO_ROOT, get_settings
@@ -77,17 +93,23 @@ BLOCKED_SELECTION = AnalysisSelection(
     run_number_of_reversals_analysis=True,
     run_rank_proportion_analysis=True,
     run_single_session_analysis=True,
+    run_poke_analysis=True,
     rank_pooling_modes=(True, False),
     rank_value_bases=("true",),
 )
 # Choice probabilities and first leave look at the reversals of a blocked task; a drifting
-# task has none to look at, so only the reversal counts and the rank proportions apply.
+# task has none to look at, so only the reversal counts and the rank proportions apply. The
+# value analyses are the drifting task's own.
 DRIFTING_SELECTION = AnalysisSelection(
     run_choice_probability_analysis=False,
     run_first_leave_analysis=False,
     run_number_of_reversals_analysis=True,
     run_rank_proportion_analysis=True,
     run_single_session_analysis=True,
+    run_poke_analysis=True,
+    run_value_psychometric_analysis=True,
+    run_reversal_aligned_arm_analysis=True,
+    run_value_change_analysis=True,
     rank_pooling_modes=(True, False),
     rank_value_bases=("true", "believed"),
 )
@@ -134,8 +156,14 @@ def selection_for_task_type(
     blocked: AnalysisSelection = BLOCKED_SELECTION,
     drifting: AnalysisSelection = DRIFTING_SELECTION,
 ) -> AnalysisSelection:
-    """The analysis selection that applies to *task_type*."""
+    """The analysis selection that applies to *task_type*.
+
+    Raises:
+        ValueError: For an unknown task type, or a blocked selection that asks for a
+            drifting-only analysis.
+    """
     if task_type == BLOCKED:
+        check_selection_for_task_type(blocked, BLOCKED)
         return blocked
     if task_type == DRIFTING:
         return drifting
@@ -296,6 +324,23 @@ def each_reversal_warning_once() -> Iterator[None]:
         yield
 
 
+def _previous_ports_by_problem(
+    trials_by_problem: dict, grouped: dict, selections: list[AnalysisSelection]
+) -> dict:
+    """``{(task_type, k): {mouse: previous-problem choice ports or None}}`` for the red outlines.
+
+    The previous problem comes from the overall problem order, before the regrouping by task
+    type. Empty if no selection draws the maze maps, so data without choice towers still runs.
+    """
+    if not any(s.run_poke_analysis or s.run_single_session_analysis for s in selections):
+        return {}
+    previous = previous_problem_choice_towers(trials_by_problem)
+    return {
+        key: previous_choice_towers_for_problem(subjects_trials, previous)
+        for key, subjects_trials in grouped.items()
+    }
+
+
 def _write_problem_map(problem_map: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     problem_map.to_csv(path, index=False)
@@ -348,10 +393,16 @@ def run_cohort(
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort}")
 
-    # Classify first: a bad task name stops the run before anything is written.
+    # Classify and check the selections first: a bad task name or selection stops the run
+    # before anything is written.
+    selections = [
+        selection_for_task_type(kind, blocked_selection, drifting_selection)
+        for kind in (BLOCKED, DRIFTING)
+    ]
     numbering = number_within_task_type(trials_by_problem)
     grouped = regroup_by_task_type(trials_by_problem, numbering)
     problem_map = problem_map_table(trials_by_problem, numbering)
+    previous_ports = _previous_ports_by_problem(trials_by_problem, grouped, selections)
     figures, tables = _figures_dir(results_root, cohort), _tables_dir(results_root, cohort)
 
     with each_reversal_warning_once():
@@ -373,6 +424,7 @@ def run_cohort(
                 choice=choice,
                 reversal_trial_window=reversal_trial_window,
                 task_type=task_type,
+                previous_choice_towers=previous_ports.get((task_type, k)),
             )
 
         drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
@@ -381,9 +433,9 @@ def run_cohort(
             pooled = pooled_drifting_rank_results(
                 drifting, drifting_selection.rank_value_bases, drifting_selection.rank_pooling_modes
             )
-            plot_pooled_drifting_rank(
-                pooled, figures / DRIFTING / POOLED_DRIFTING_FOLDER / "choice-stats"
-            )
+            pooled_dir = figures / DRIFTING / POOLED_DRIFTING_FOLDER
+            plot_pooled_drifting_rank(pooled, pooled_dir / "choice-stats")
+            run_drifting_value_analyses(drifting, pooled_dir, drifting_selection)
         else:
             print(f"[INFO] {cohort}: no drifting problems; skipping pooled drifting ranks.")
 

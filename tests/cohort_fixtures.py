@@ -38,7 +38,7 @@ def imported_session(problem, mouse, number):
 
 
 def blocked_then_two_drifting():
-    """``{overall problem: {mouse: {session_key: session}}}``, two sessions per mouse and problem."""
+    """``{overall problem: {mouse: {session_key: session}}}``, two sessions per mouse, problem."""
     cohort = {}
     for problem in PROBLEMS:
         cohort[problem] = {

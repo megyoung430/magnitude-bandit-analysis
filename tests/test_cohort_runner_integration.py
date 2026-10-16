@@ -56,7 +56,7 @@ def close_figures():
 
 @pytest.fixture
 def calls(monkeypatch):
-    """Replace the drifting-only entry points by recorders; ``calls`` lists ``(name, out_dir, data)``."""
+    """Replace the drifting-only entry points by recorders of ``(name, out_dir, data)``."""
     seen = []
 
     def recorder(name):
@@ -69,9 +69,14 @@ def calls(monkeypatch):
 
     for name in ENTRY_POINTS:
         monkeypatch.setattr(pipeline, name, recorder(name))
-    # the windows of the real builder need real block structure; the arm recorder only sees them
+    # The real builder needs real block structure. This one gives each mouse a single "window",
+    # the overall problem number of its sessions, to show which problems a pool was built from.
     monkeypatch.setattr(
-        pipeline, "build_windows_with_magnitudes", lambda trials, *, pre, post: {s: [] for s in trials}
+        pipeline,
+        "build_windows_with_magnitudes",
+        lambda trials, *, pre, post: {
+            m: [next(iter(sessions.values()))["problem"]] for m, sessions in trials.items()
+        },
     )
     return seen
 
@@ -86,6 +91,7 @@ def cohort_extras(monkeypatch):
     )
     monkeypatch.setattr(cohort_analysis, "write_suspect_reversal_table", lambda *a, **k: None)
     monkeypatch.setattr(cohort_analysis, "plot_trial_block_summaries", lambda *a, **k: [])
+    monkeypatch.setattr(cohort_analysis, "subject_numbers_from_sessions", lambda *a, **k: {})
     monkeypatch.setattr(cohort_analysis, "build_trial_block_tables", lambda *a, **k: (None, None))
     for name in (
         "run_choice_probability_analysis",
@@ -184,11 +190,25 @@ def test_the_value_analyses_run_once_per_drifting_problem_and_once_pooled(
     run(tmp_path)
     drifting = cohort_dir / DRIFTING
     keys_by_dir = {out_dir: sorted(data) for _, out_dir, data in calls}
-    for folder in FOLDERS:
+    for folder in (FOLDERS[0], FOLDERS[2]):
         assert keys_by_dir[drifting / "problem-01" / folder] == [1]
         assert keys_by_dir[drifting / "problem-02" / folder] == [2]
         assert keys_by_dir[drifting / "all-drifting-problems" / folder] == [1, 2]
     assert len(calls) == 3 * 3  # three analyses x (two problems + the pool)
+
+
+def test_the_arm_windows_of_each_folder_come_from_its_own_problems(
+    tmp_path, cohort_dir, calls, cohort_extras, single_sessions
+):
+    run(tmp_path)
+    windows = {
+        out_dir: data["pooled"]["m1"] for name, out_dir, data in calls if name == ENTRY_POINTS[1]
+    }
+    drifting = cohort_dir / DRIFTING
+    # windows hold the overall problem number of the sessions they were built from
+    assert windows[drifting / "problem-01" / "reversal-aligned-arms"] == [2]
+    assert windows[drifting / "problem-02" / "reversal-aligned-arms"] == [3]
+    assert windows[drifting / "all-drifting-problems" / "reversal-aligned-arms"] == [2, 3]
 
 
 def test_problems_are_numbered_within_the_task_type_and_stay_separate_in_the_pool(
@@ -232,19 +252,19 @@ def test_pooled_arm_windows_are_the_per_problem_windows_concatenated_per_mouse(
     tmp_path, monkeypatch
 ):
     capture_figures(monkeypatch)
-    seen = {}
+    seen = []
     real = pipeline.run_reversal_aligned_arm_analysis
     monkeypatch.setattr(
         pipeline,
         "run_reversal_aligned_arm_analysis",
-        lambda windows, out_dir, **kw: seen.update(windows=windows) or real(windows, out_dir, **kw),
+        lambda windows, out_dir, **kw: seen.append(windows) or real(windows, out_dir, **kw),
     )
     selection = AnalysisSelection(run_reversal_aligned_arm_analysis=True)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         run_drifting_value_analyses(arm_data(), tmp_path, selection)
-        run_drifting_value_analyses({4: arm_data()[4]}, tmp_path / "one", selection)
-    (pooled,) = seen["windows"].values()
+    ((pooled_name, pooled),) = [(k, v) for entry in seen for k, v in entry.items()]
+    assert pooled_name == "pooled"
     one = pipeline.build_windows_with_magnitudes(arm_data()[4], pre=10, post=30)
     two = pipeline.build_windows_with_magnitudes(arm_data()[5], pre=10, post=30)
     assert len(pooled["m"]) == len(one["m"]) + len(two["m"])
@@ -287,9 +307,7 @@ def test_single_sessions_get_the_previous_problems_ports_per_mouse(
 ):
     run(tmp_path)
     by_dir = {out_dir: kwargs["previous_choice_towers"] for out_dir, kwargs in single_sessions}
-    assert by_dir[cohort_dir / BLOCKED / "problem-01" / "single-sessions"] == dict.fromkeys(
-        MICE
-    )
+    assert by_dir[cohort_dir / BLOCKED / "problem-01" / "single-sessions"] == dict.fromkeys(MICE)
     expected = dict.fromkeys(MICE, frozenset(PROBLEMS[1][1]))
     assert by_dir[cohort_dir / DRIFTING / "problem-01" / "single-sessions"] == expected
     expected = dict.fromkeys(MICE, frozenset(PROBLEMS[2][1]))
@@ -372,7 +390,9 @@ def test_a_session_with_unreadable_events_warns_and_the_run_goes_on(
     monkeypatch.setattr(poke_counts_module, "parse_session", failing)
     with pytest.warns(UserWarning, match="impossible log"):
         run(tmp_path)
-    table = pd.read_csv(cohort_dir / DRIFTING / "problem-01" / "long-pokes" / "Poke Trial Summary.csv")
+    table = pd.read_csv(
+        cohort_dir / DRIFTING / "problem-01" / "long-pokes" / "Poke Trial Summary.csv"
+    )
     assert table.loc[table["session"] == "ses-3_date-20260103", "parse_error"].notna().any()
     assert (cohort_dir / DRIFTING / "problem-02" / "long-pokes" / "Poke Trial Summary.csv").exists()
 

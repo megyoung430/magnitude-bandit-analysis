@@ -29,10 +29,14 @@ from src.behavior_analysis.get_rank_counts_by_good_reversal import (
     get_rank_counts_by_value,
 )
 from src.behavior_analysis.get_total_reversals import get_reversal_indices_by_kind
+from src.behavior_analysis.merge_across_problems import merge_windows_by_subject
+from src.behavior_analysis.poke_counts import mouse_poke_counts
+from src.behavior_analysis.reversal_aligned_arms import build_windows_with_magnitudes
 from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
 from src.behavior_analysis.split_good_reversals_by_best_change import (
     split_good_reversals_by_best_change,
 )
+from src.behavior_import.task_types import BLOCKED
 from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
     plot_choice_probs_around_good_reversals,
 )
@@ -46,9 +50,26 @@ from src.behavior_visualization.plot_num_reversals import (
 )
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_single_session import plot_single_session
+from src.pipelines.poke_analysis import run_poke_analysis
+from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
+from src.pipelines.value_change_analysis import run_value_change_analysis
+from src.pipelines.value_psychometrics import run_value_psychometric_analysis
 
 VALUE_BASIS_LABELS = {"true": "True Value", "believed": "Believed Value"}
 _CHOICE_PROBS_NAME = "Choice Probabilities Around Good Reversals"
+# Analyses of the drifting-value task; a blocked task has no drifting values to look at.
+DRIFTING_ONLY_SECTIONS = (
+    "run_value_psychometric_analysis",
+    "run_reversal_aligned_arm_analysis",
+    "run_value_change_analysis",
+)
+LONG_POKES_FOLDER = "long-pokes"
+VALUE_PSYCHOMETRICS_FOLDER = "value-psychometrics"
+REVERSAL_ARMS_FOLDER = "reversal-aligned-arms"
+VALUE_CHANGE_FOLDER = "value-change"
+# One window size for building the reversal windows and for the entry point that checks it.
+REVERSAL_ARMS_PRE = 10
+REVERSAL_ARMS_POST = 30
 
 
 class ChoiceProbabilitySettings(BaseModel):
@@ -77,6 +98,11 @@ class AnalysisSelection(BaseModel):
     ``rank_value_bases=None`` gives the true-value rank proportions from
     ``get_rank_counts_by_good_reversal``; a tuple such as ``("true", "believed")``
     uses ``get_rank_counts_by_value`` for each basis and each pooling mode.
+
+    ``run_poke_analysis`` (long pokes and maze heatmaps) applies to any problem. The three
+    value analyses (``run_value_psychometric_analysis``, ``run_reversal_aligned_arm_analysis``,
+    ``run_value_change_analysis``) are for drifting problems only; :func:`run_problem` raises if
+    one is on for a blocked problem. All four are off unless asked for.
     """
 
     # extra="forbid": a misspelled option raises instead of being silently ignored
@@ -87,12 +113,27 @@ class AnalysisSelection(BaseModel):
     run_number_of_reversals_analysis: bool = True
     run_rank_proportion_analysis: bool = True
     run_single_session_analysis: bool = True
+    run_poke_analysis: bool = False
+    run_value_psychometric_analysis: bool = False
+    run_reversal_aligned_arm_analysis: bool = False
+    run_value_change_analysis: bool = False
     rank_value_bases: tuple[str, ...] | None = None
     rank_pooling_modes: tuple[bool, ...] = (True, False)
 
 
 DEFAULT_SELECTION = AnalysisSelection()
 DEFAULT_CHOICE = ChoiceProbabilitySettings()
+
+
+def check_selection_for_task_type(selection: AnalysisSelection, task_type: str | None) -> None:
+    """Raise ``ValueError`` if a drifting-only analysis is selected for a blocked problem."""
+    if task_type != BLOCKED:
+        return
+    wrong = [name for name in DRIFTING_ONLY_SECTIONS if getattr(selection, name)]
+    if wrong:
+        raise ValueError(
+            f"{wrong} are analyses of the drifting task and cannot run on a blocked problem"
+        )
 
 
 def problem_dir(
@@ -341,8 +382,17 @@ def run_rank_proportion_analysis(subjects_trials, out_dir: Path, selection: Anal
     return results
 
 
-def run_single_session_analysis(subjects_trials, out_dir: Path):
-    """One overview plot per session that has trials."""
+def run_single_session_analysis(
+    subjects_trials, out_dir: Path, *, previous_choice_towers=None, poke_counts=None
+):
+    """One overview plot per session that has trials.
+
+    Args:
+        previous_choice_towers: ``{mouse: ports of the mouse's previous problem, or None}`` for
+            the red outlines of the maze row; ``None`` draws none.
+        poke_counts: ``{mouse: {session: SessionPokeCounts}}`` already parsed, so the raw events
+            are read once; ``None`` lets each figure parse its own session.
+    """
     for subject, sessions in subjects_trials.items():
         for session, session_data in sessions.items():
             if not session_data["trial_info"]:
@@ -353,7 +403,58 @@ def run_single_session_analysis(subjects_trials, out_dir: Path):
                 session_data,
                 title=f"{subject} | {session}",
                 save_path=out_dir / subject / session / "Session Plot",
+                previous_choice_towers=(
+                    None if previous_choice_towers is None else previous_choice_towers[subject]
+                ),
+                poke_counts=None if poke_counts is None else poke_counts[subject][session],
             )
+
+
+# ---------------------------------------------------------------------------
+# Drifting-value analyses
+# ---------------------------------------------------------------------------
+
+
+def pooled_arm_windows(problems: dict) -> dict:
+    """Reversal windows of every problem, concatenated per mouse, as a one-entry problem dict.
+
+    Windows are built inside each problem, so none crosses a problem boundary. The entry point
+    would add a figure set per problem next to the pooled one; handing it one merged entry
+    keeps a folder to the scope it stands for.
+    """
+    per_problem = {
+        problem: build_windows_with_magnitudes(
+            trials, pre=REVERSAL_ARMS_PRE, post=REVERSAL_ARMS_POST
+        )
+        for problem, trials in problems.items()
+    }
+    return {"pooled": merge_windows_by_subject(per_problem)}
+
+
+def run_drifting_value_analyses(problems: dict, out_dir: Path, selection: AnalysisSelection):
+    """The selected drifting-only analyses over *problems*, each in a subfolder of *out_dir*.
+
+    Args:
+        problems: ``{problem: {mouse: {session_key: session_dict}}}``: one problem for a
+            problem folder, several for the pool over a mouse's drifting problems. Every
+            analysis computes inside each problem and then combines the mice's results, so
+            beliefs reset and windows end at each problem boundary.
+        out_dir: Folder that receives ``value-psychometrics``, ``reversal-aligned-arms`` and
+            ``value-change``.
+        selection: Which of the three to run.
+    """
+    out_dir = Path(out_dir)
+    if selection.run_value_psychometric_analysis:
+        run_value_psychometric_analysis(problems, out_dir / VALUE_PSYCHOMETRICS_FOLDER)
+    if selection.run_reversal_aligned_arm_analysis:
+        run_reversal_aligned_arm_analysis(
+            pooled_arm_windows(problems),
+            out_dir / REVERSAL_ARMS_FOLDER,
+            pre=REVERSAL_ARMS_PRE,
+            post=REVERSAL_ARMS_POST,
+        )
+    if selection.run_value_change_analysis:
+        run_value_change_analysis(problems, out_dir / VALUE_CHANGE_FOLDER)
 
 
 # ---------------------------------------------------------------------------
@@ -372,12 +473,22 @@ def run_problem(
     choice: ChoiceProbabilitySettings = DEFAULT_CHOICE,
     reversal_trial_window: int | None = None,
     task_type: str | None = None,
+    previous_choice_towers: dict | None = None,
 ) -> dict:
     """Run the selected analyses for one problem; returns rank-proportion results.
 
     The selection alone decides which analyses run; the caller picks it per task type.
     With *task_type*, figures go under ``<cohort>/<task_type>/problem-NN``.
+    *previous_choice_towers* is ``{mouse: ports of the mouse's previous problem, or None}``
+    (see ``previous_choice_towers_for_problem``) for the red outlines of the maze heatmaps; the
+    poke analysis (``long-pokes`` folder) and the single-session figures share one parse of the
+    raw events.
+
+    Raises:
+        ValueError: If a drifting-only analysis is selected for ``task_type="blocked"``.
+        PokeAlignmentError: If parsed pokes do not match the imported trials of a session.
     """
+    check_selection_for_task_type(selection, task_type)
     out = problem_dir(output_root, task, cohort, problem_number, task_type)
     if selection.run_choice_probability_analysis:
         print(f"Problem {problem_number}: choice probabilities around good reversals")
@@ -396,9 +507,29 @@ def run_problem(
         rank_results = run_rank_proportion_analysis(
             subjects_trials, out / "choice-stats", selection
         )
+    if any(getattr(selection, name) for name in DRIFTING_ONLY_SECTIONS):
+        print(f"Problem {problem_number}: value psychometrics and reversal-aligned analyses")
+        run_drifting_value_analyses({problem_number: subjects_trials}, out, selection)
+    # parse once: the same counts feed the poke analysis and the single-session maze row
+    parsed = None
+    if selection.run_poke_analysis and selection.run_single_session_analysis:
+        parsed = {m: mouse_poke_counts(m, sessions) for m, sessions in subjects_trials.items()}
+    if selection.run_poke_analysis:
+        print(f"Problem {problem_number}: long pokes and maze heatmaps")
+        run_poke_analysis(
+            subjects_trials,
+            out / LONG_POKES_FOLDER,
+            previous_choice_towers=previous_choice_towers,
+            poke_counts=parsed,
+        )
     if selection.run_single_session_analysis:
         print(f"Problem {problem_number}: single sessions")
-        run_single_session_analysis(subjects_trials, out / "single-sessions")
+        run_single_session_analysis(
+            subjects_trials,
+            out / "single-sessions",
+            previous_choice_towers=previous_choice_towers,
+            poke_counts=parsed,
+        )
     return rank_results
 
 

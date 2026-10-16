@@ -8,12 +8,20 @@ Edit the settings below, or override some of them on the command line:
 
 Raw data is read from <BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N. Figures
 go to results/figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/ and tables to
-results/tables/open-field/cohort-0N/ (see src/pipelines/cohort_analysis.py).
+results/tables/open-field/cohort-0N/ (see src/pipelines/cohort_analysis.py). Every problem also
+gets a long-pokes/ folder; drifting problems get value-psychometrics/, reversal-aligned-arms/
+and value-change/, which are repeated over all drifting problems in all-drifting-problems/.
+Switch an analysis off in the selections below (e.g. run_value_change_analysis=False).
 """
 
 import argparse
 
-from src.pipelines.cohort_analysis import DEFAULT_RESULTS_ROOT, run_cohorts
+from src.pipelines.cohort_analysis import (
+    BLOCKED_SELECTION,
+    DEFAULT_RESULTS_ROOT,
+    DRIFTING_SELECTION,
+    run_cohorts,
+)
 from src.pipelines.open_field import ChoiceProbabilitySettings
 
 COHORT_IDS = [1, 2, 3, 4]
@@ -22,6 +30,11 @@ CONTINUE_ON_ERROR = False
 RESULTS_ROOT = DEFAULT_RESULTS_ROOT
 # Trials per bin of the trial-based reversal-rate plots.
 REVERSAL_TRIAL_WINDOW = 100
+
+# Which analyses run per task type; copy one with model_copy(update={"<switch>": False}) to turn
+# a switch off. The drifting-only value analyses raise if switched on in the blocked selection.
+BLOCKED = BLOCKED_SELECTION
+DRIFTING = DRIFTING_SELECTION
 
 # Choice-probability sub-analyses (used for blocked problems only)
 CHOICE = ChoiceProbabilitySettings(
@@ -49,6 +62,8 @@ def main(argv=None) -> None:
         args.cohorts,
         continue_on_error=args.continue_on_error,
         results_root=RESULTS_ROOT,
+        blocked_selection=BLOCKED,
+        drifting_selection=DRIFTING,
         choice=CHOICE,
         reversal_trial_window=REVERSAL_TRIAL_WINDOW,
     )
