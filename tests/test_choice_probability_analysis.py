@@ -36,6 +36,8 @@ class Recorder:
         )
         for name, fake in fakes.items():
             monkeypatch.setattr(pipeline, name, fake)
+        # the fake windows are tags, not mice; skipping empty figures is tested separately
+        monkeypatch.setattr(pipeline, "_report_missing_mice", lambda *args, **kwargs: True)
 
     def windows(self, trials, pre, post, include_first_block):
         self.calls.append("windows")
