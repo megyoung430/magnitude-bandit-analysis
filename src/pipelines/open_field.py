@@ -239,19 +239,35 @@ def problem_dir(
 # ---------------------------------------------------------------------------
 
 
-def _report_missing_mice(mice, used, *, figure: str, problem_number: int | None) -> bool:
+def problem_place(task_type: str | None, problem_number: int | None) -> str:
+    """How a warning names the problem: ``"blocked problem 2"``, ``"problem 2"`` or a fallback.
+
+    Args:
+        task_type (str | None): ``"blocked"`` or ``"drifting"``, or ``None`` if unknown.
+        problem_number (int | None): The problem's number within its task type, or ``None``.
+
+    Returns:
+        str: The place, ``"this problem"`` when there is no number. The task type is what lets
+        :func:`~src.behavior_analysis.warnings_log.warnings_log_table` place the warning in the
+        mouse's problems.
+    """
+    if problem_number is None:
+        return "this problem"
+    return f"{task_type} problem {problem_number}" if task_type else f"problem {problem_number}"
+
+
+def _report_missing_mice(mice, used, *, figure: str, where: str) -> bool:
     """Warn about mice that add nothing to *figure*; return whether any mouse is left to draw.
 
     Args:
         mice: Every mouse of the problem.
         used: The mice that have good reversals in the figure's windows.
         figure (str): The figure's name, for the messages.
-        problem_number (int | None): The problem, for the messages; ``None`` says "this problem".
+        where (str): The problem, for the messages (see :func:`problem_place`).
 
     Returns:
         bool: ``False`` (after a warning) if no mouse is in *used*, so the figure is skipped.
     """
-    where = "this problem" if problem_number is None else f"problem {problem_number}"
     for mouse in sorted(set(mice) - set(used)):
         warnings.warn(
             f"{figure}: mouse {mouse} has no good reversals in {where}; "
@@ -272,7 +288,7 @@ def _choice_probs(
     windows,
     s: ChoiceProbabilitySettings,
     figure: str,
-    problem_number,
+    where: str,
     *,
     skip=False,
     smooth=False,
@@ -287,7 +303,7 @@ def _choice_probs(
         windows (dict): ``{mouse: [reversal windows]}`` of the figure.
         s (ChoiceProbabilitySettings): Windows and smoothing.
         figure (str): The figure's file name, for the warnings.
-        problem_number (int | None): The problem, for the warnings.
+        where (str): The problem, for the warnings (see :func:`problem_place`).
         skip (bool): Skip the first trials after each reversal. Default ``False``. Keyword-only.
         smooth (bool): Apply the moving average. Default ``False``. Keyword-only.
 
@@ -301,7 +317,7 @@ def _choice_probs(
         )
     except NoReversalsError:
         per_subject = {}
-    if not _report_missing_mice(windows, per_subject, figure=figure, problem_number=problem_number):
+    if not _report_missing_mice(windows, per_subject, figure=figure, where=where):
         return None
     if smooth:
         x, _, across = apply_moving_average_to_choice_probs(
@@ -343,27 +359,27 @@ def _drop_after_bad(windows, idx):
 
 
 def _plot_all_reversals(
-    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, problem_number=None
+    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, where="this problem"
 ):
     """Raw choice probabilities: all good reversals, then the first two and the later ones."""
     windows, idx = _windows_and_indices(subjects_trials, s)
     early, late = split_good_reversals_early_late(windows, first_n=2)
     for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
         path = out_dir / f"{_CHOICE_PROBS_NAME}{suffix}"
-        curves = _choice_probs(w, s, path.name, problem_number)
+        curves = _choice_probs(w, s, path.name, where)
         if curves is not None:
             _plot_with_reversal_axis(*curves, w, idx, path, only_good=True)
 
 
 def _plot_skipping_initial_trials(
-    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, problem_number=None
+    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, where="this problem"
 ):
     """Choice probabilities that skip the first trials after each reversal."""
     windows, _ = _windows_and_indices(subjects_trials, s)
     early, late = split_good_reversals_early_late(windows, first_n=2)
     for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
         path = out_dir / f"{_CHOICE_PROBS_NAME}, Skipping Initial Trials{suffix}"
-        curves = _choice_probs(w, s, path.name, problem_number, skip=True)
+        curves = _choice_probs(w, s, path.name, where, skip=True)
         if curves is None:
             continue
         x, across = curves
@@ -377,7 +393,7 @@ def _plot_skipping_initial_trials(
 
 
 def _plot_moving_average(
-    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, problem_number=None
+    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, where="this problem"
 ):
     """Moving-average choice probabilities, optionally split by half and by first two."""
     windows, idx = _windows_and_indices(subjects_trials, s)
@@ -390,13 +406,13 @@ def _plot_moving_average(
         families += [(" (Early)", early), (" (Late)", late)]
     for suffix, w in families:
         path = out_dir / f"{_CHOICE_PROBS_NAME} (Moving Average){suffix}"
-        curves = _choice_probs(w, s, path.name, problem_number, smooth=True)
+        curves = _choice_probs(w, s, path.name, where, smooth=True)
         if curves is not None:
             _plot_with_reversal_axis(*curves, w, idx, path, only_good=True)
 
 
 def _plot_remove_bad(
-    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, problem_number=None
+    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, where="this problem"
 ):
     """Moving-average choice probabilities with the trials after a bad reversal removed."""
     windows, idx = _windows_and_indices(subjects_trials, s)
@@ -409,13 +425,18 @@ def _plot_remove_bad(
     ]
     for suffix, w in families:
         path = out_dir / f"{_CHOICE_PROBS_NAME} (Remove Bad){suffix}"
-        curves = _choice_probs(w, s, path.name, problem_number, smooth=True)
+        curves = _choice_probs(w, s, path.name, where, smooth=True)
         if curves is not None:
             _plot_with_reversal_axis(*curves, w, idx, path, only_good=False)
 
 
 def run_choice_probability_analysis(
-    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, *, problem_number=None
+    subjects_trials,
+    out_dir: Path,
+    s: ChoiceProbabilitySettings,
+    *,
+    problem_number=None,
+    task_type=None,
 ):
     """All enabled choice-probability figures for one problem, saved in *out_dir*.
 
@@ -426,26 +447,29 @@ def run_choice_probability_analysis(
         subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem.
         out_dir (Path): Folder that receives the figures.
         s (ChoiceProbabilitySettings): Which figure families to make and their windows.
-        problem_number (int | None): The problem's number, for the warnings. Default ``None``.
-            Keyword-only.
+        problem_number (int | None): The problem's number within its task type, for the
+            warnings. Default ``None``. Keyword-only.
+        task_type (str | None): ``"blocked"`` or ``"drifting"``, for the warnings. Default
+            ``None``. Keyword-only.
 
     Returns:
         None: Returns nothing; the figures are written to *out_dir*.
     """
+    where = problem_place(task_type, problem_number)
     if s.run_all:
-        _plot_all_reversals(subjects_trials, out_dir, s, problem_number)
+        _plot_all_reversals(subjects_trials, out_dir, s, where)
     if s.skip:
-        _plot_skipping_initial_trials(subjects_trials, out_dir, s, problem_number)
+        _plot_skipping_initial_trials(subjects_trials, out_dir, s, where)
     if s.moving_avg:
-        _plot_moving_average(subjects_trials, out_dir, s, problem_number)
+        _plot_moving_average(subjects_trials, out_dir, s, where)
     if s.remove_bad:
-        _plot_remove_bad(subjects_trials, out_dir, s, problem_number)
+        _plot_remove_bad(subjects_trials, out_dir, s, where)
     if s.split_by_best_change and s.moving_avg:
-        _run_best_change(subjects_trials, out_dir, s, problem_number)
+        _run_best_change(subjects_trials, out_dir, s, where)
 
 
 def _run_best_change(
-    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, problem_number=None
+    subjects_trials, out_dir: Path, s: ChoiceProbabilitySettings, where="this problem"
 ):
     name = "Choice Probs Good Reversals"
     windows, idx = _windows_and_indices(subjects_trials, s)
@@ -464,7 +488,7 @@ def _run_best_change(
         ]
     for suffix, w in families:
         path = out_dir / f"{name}{suffix}"
-        curves = _choice_probs(w, s, path.name, problem_number, smooth=True)
+        curves = _choice_probs(w, s, path.name, where, smooth=True)
         if curves is not None:
             _plot_with_reversal_axis(*curves, w, idx, path, only_good=True)
 
@@ -482,7 +506,7 @@ def _run_best_change(
         ]
     for suffix, w in families:
         path = out_dir / f"{name}{suffix}"
-        curves = _choice_probs(w, s, path.name, problem_number, smooth=True)
+        curves = _choice_probs(w, s, path.name, where, smooth=True)
         if curves is not None:
             _plot_with_reversal_axis(*curves, w, idx, path, only_good=False)
 
@@ -492,7 +516,9 @@ def _run_best_change(
 # ---------------------------------------------------------------------------
 
 
-def run_first_leave_analysis(subjects_trials, out_dir: Path, *, problem_number=None):
+def run_first_leave_analysis(
+    subjects_trials, out_dir: Path, *, problem_number=None, task_type=None
+):
     """First arm left after good reversals: all, first two, and later reversals.
 
     A mouse without good reversals in a figure's windows adds nothing to that figure and is
@@ -501,21 +527,22 @@ def run_first_leave_analysis(subjects_trials, out_dir: Path, *, problem_number=N
     Args:
         subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem.
         out_dir (Path): Folder that receives the three figures.
-        problem_number (int | None): The problem's number, for the warnings. Default ``None``.
-            Keyword-only.
+        problem_number (int | None): The problem's number within its task type, for the
+            warnings. Default ``None``. Keyword-only.
+        task_type (str | None): ``"blocked"`` or ``"drifting"``, for the warnings. Default
+            ``None``. Keyword-only.
 
     Returns:
         None: Returns nothing; the figures are written to *out_dir*.
     """
+    where = problem_place(task_type, problem_number)
     windows = get_good_reversal_info(subjects_trials, include_first_block=False)
     early, late = split_good_reversals_early_late(windows, first_n=2)
     for suffix, w in [("", windows), (" (Early)", early), (" (Late)", late)]:
         path = out_dir / f"First Leave After Good Reversals{suffix}"
         per_subject = get_first_leave_after_good_reversals(w)
         with_reversals = [m for m, counts in per_subject.items() if counts["total"] > 0]
-        if not _report_missing_mice(
-            w, with_reversals, figure=path.name, problem_number=problem_number
-        ):
+        if not _report_missing_mice(w, with_reversals, figure=path.name, where=where):
             continue
         mean, se, _ = average_first_leave_across_subjects(per_subject)
         p_value = pvalue_paired_t_new_vs_third(per_subject, alternative="greater")
@@ -765,12 +792,19 @@ def run_problem(
     if selection.run_choice_probability_analysis:
         print(f"Problem {problem_number}: choice probabilities around good reversals")
         run_choice_probability_analysis(
-            subjects_trials, out / "reversal-stats", choice, problem_number=problem_number
+            subjects_trials,
+            out / "reversal-stats",
+            choice,
+            problem_number=problem_number,
+            task_type=task_type,
         )
     if selection.run_first_leave_analysis:
         print(f"Problem {problem_number}: first leave after good reversals")
         run_first_leave_analysis(
-            subjects_trials, out / "reversal-stats", problem_number=problem_number
+            subjects_trials,
+            out / "reversal-stats",
+            problem_number=problem_number,
+            task_type=task_type,
         )
     if selection.run_number_of_reversals_analysis:
         print(f"Problem {problem_number}: number of reversals")

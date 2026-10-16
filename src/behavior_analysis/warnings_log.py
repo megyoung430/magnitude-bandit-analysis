@@ -10,10 +10,13 @@ distinct warning (same class and text), in the order first seen. Columns:
   otherwise. The mouse is one of the cohort's mice named as a whole word, and only when the text
   names exactly one; the session is the first ``ses-<N>_date-<YYYYMMDD>`` (with ``_part-NN``)
   in the text; ``problem_in_message`` is the number after "problem" (as the text counts
-  problems, which is the importer's numbering for numbering warnings);
-- ``task_type``, ``problem_in_type``, ``overall_problem``: where the named session sits in the
-  mouse's problems, blank unless both mouse and session were read (see
-  :meth:`~src.behavior_analysis.review_context.ProblemIndex.columns`).
+  problems, which is the importer's numbering for numbering warnings, or the number within the
+  task type where the text says "blocked problem 2" or "drifting problem 2");
+- ``task_type``, ``problem_in_type``, ``overall_problem``: where the warning belongs. For a named
+  mouse and session, where that session sits in the mouse's problems (see
+  :meth:`~src.behavior_analysis.review_context.ProblemIndex.columns`). Otherwise, for a text that
+  says "<task type> problem <k>", that problem, with the overall number where a mouse is named
+  too. Blank when neither is read.
 """
 
 import re
@@ -28,6 +31,7 @@ from src.behavior_import.warning_records import WarningRecord
 
 _SESSION_RE = re.compile(r"ses-\d+_date-\d{8}(?:_part-\d+)?")
 _PROBLEM_RE = re.compile(r"\bproblem[ -](\d+)", re.IGNORECASE)
+_TYPED_PROBLEM_RE = re.compile(r"\b(blocked|drifting) problem[ -](\d+)", re.IGNORECASE)
 
 _DTYPES = {
     "category": "object",
@@ -52,16 +56,31 @@ def parse_warning_message(message: str, mice: Iterable[str]) -> dict:
 
     Returns:
         dict: ``mouse`` (the one mouse named, ``None`` if none or several), ``session`` (the
-        first session key) and ``problem_in_message`` (the first number after "problem").
+        first session key), ``problem_in_message`` (the first number after "problem") and
+        ``task_type_in_message`` (``"blocked"`` or ``"drifting"`` where the text says
+        "<task type> problem <k>", else ``None``).
     """
     named = {mouse for mouse in mice if re.search(rf"(?<![\w]){re.escape(mouse)}(?![\w])", message)}
     session = _SESSION_RE.search(message)
     problem = _PROBLEM_RE.search(message)
+    typed = _TYPED_PROBLEM_RE.search(message)
     return {
         "mouse": next(iter(named)) if len(named) == 1 else None,
         "session": session.group(0) if session else None,
         "problem_in_message": int(problem.group(1)) if problem else None,
+        "task_type_in_message": typed.group(1).lower() if typed else None,
     }
+
+
+def _placed(named: dict, index: ProblemIndex) -> dict:
+    """The three problem columns of a warning, from its session or its "<task type> problem k"."""
+    if named["mouse"] and named["session"]:
+        return index.columns(named["mouse"], named["session"])
+    if named["task_type_in_message"] and named["problem_in_message"] is not None:
+        return index.problem_columns(
+            named["mouse"], named["task_type_in_message"], named["problem_in_message"]
+        )
+    return dict.fromkeys(PROBLEM_DTYPES)
 
 
 def warnings_log_table(records: list[WarningRecord], index: ProblemIndex) -> pd.DataFrame:
@@ -84,7 +103,6 @@ def warnings_log_table(records: list[WarningRecord], index: ProblemIndex) -> pd.
     rows = []
     for (category, message), n_times in counts.items():
         named = parse_warning_message(message, mice)
-        located = named["mouse"] and named["session"]
         rows.append(
             {
                 "category": category,
@@ -92,12 +110,8 @@ def warnings_log_table(records: list[WarningRecord], index: ProblemIndex) -> pd.
                 "n_times": n_times,
                 "source": f"{Path(first[(category, message)].filename).name}:"
                 f"{first[(category, message)].lineno}",
-                **named,
-                **(
-                    index.columns(named["mouse"], named["session"])
-                    if located
-                    else dict.fromkeys(PROBLEM_DTYPES)
-                ),
+                **{key: value for key, value in named.items() if key in _DTYPES},
+                **_placed(named, index),
             }
         )
     return typed_frame(rows, _DTYPES)

@@ -103,7 +103,9 @@ def test_the_pipeline_skips_only_that_error(monkeypatch, figures):
         skip_n_trials_after_reversal=99,
     )
     with pytest.raises(ValueError, match="skip") as raised:
-        run_choice_probability_analysis("trials", OUT, bad_skip, problem_number=PROBLEM)
+        run_choice_probability_analysis(
+            "trials", OUT, bad_skip, problem_number=PROBLEM, task_type="blocked"
+        )
     assert not isinstance(raised.value, NoReversalsError)
 
 
@@ -112,12 +114,13 @@ def test_the_pipeline_skips_only_that_error(monkeypatch, figures):
 
 def test_a_mouse_without_reversals_is_named_and_the_others_are_drawn(monkeypatch, figures):
     use_windows(monkeypatch, {"m1": one_reversal(), "m2": []})
-    with pytest.warns(ReversalWarning, match=rf"m2.*no good reversals.*problem {PROBLEM}"):
+    with pytest.warns(ReversalWarning, match=rf"m2.*no good reversals.*blocked problem {PROBLEM}"):
         run_choice_probability_analysis(
             "trials",
             OUT,
             settings(skip=False, moving_avg=False, remove_bad=False),
             problem_number=PROBLEM,
+            task_type="blocked",
         )
     full = [across for name, across in figures if name.endswith("Reversals")]
     assert len(full) == 1 and full[0]["num_subjects"] == 1
@@ -126,10 +129,14 @@ def test_a_mouse_without_reversals_is_named_and_the_others_are_drawn(monkeypatch
 def test_no_mouse_with_reversals_skips_the_figures_with_a_warning(monkeypatch, figures):
     use_windows(monkeypatch, {"m1": [], "m2": []})
     with pytest.warns(ReversalWarning) as caught:
-        run_choice_probability_analysis("trials", OUT, settings(), problem_number=PROBLEM)
+        run_choice_probability_analysis(
+            "trials", OUT, settings(), problem_number=PROBLEM, task_type="blocked"
+        )
     assert figures == []
     texts = [str(w.message) for w in caught]
-    assert any("no mouse has good reversals" in t and f"problem {PROBLEM}" in t for t in texts)
+    assert any(
+        "no mouse has good reversals" in t and f"blocked problem {PROBLEM}" in t for t in texts
+    )
     assert any("m1" in t for t in texts) and any("m2" in t for t in texts)
 
 
@@ -142,6 +149,7 @@ def test_a_split_that_is_empty_is_skipped_but_the_full_figure_is_kept(monkeypatc
             OUT,
             settings(skip=False, moving_avg=False, remove_bad=False),
             problem_number=PROBLEM,
+            task_type="blocked",
         )
     names = [name for name, _ in figures]
     assert names == [
@@ -169,7 +177,9 @@ def test_a_split_that_is_empty_is_skipped_but_the_full_figure_is_kept(monkeypatc
 def test_every_figure_family_survives_a_problem_without_reversals(monkeypatch, figures, options):
     use_windows(monkeypatch, {"m1": []})
     with pytest.warns(ReversalWarning, match="no mouse has good reversals"):
-        run_choice_probability_analysis("trials", OUT, settings(**options), problem_number=PROBLEM)
+        run_choice_probability_analysis(
+            "trials", OUT, settings(**options), problem_number=PROBLEM, task_type="blocked"
+        )
     assert figures == []
 
 
@@ -178,13 +188,20 @@ def test_every_figure_family_survives_a_problem_without_reversals(monkeypatch, f
 
 def test_first_leave_names_the_mouse_without_reversals(monkeypatch, figures):
     use_windows(monkeypatch, {"m1": one_reversal(), "m2": []})
-    with pytest.warns(ReversalWarning, match=rf"m2.*no good reversals.*problem {PROBLEM}"):
-        run_first_leave_analysis("trials", OUT, problem_number=PROBLEM)
+    with pytest.warns(ReversalWarning, match=rf"m2.*no good reversals.*blocked problem {PROBLEM}"):
+        run_first_leave_analysis("trials", OUT, problem_number=PROBLEM, task_type="blocked")
     assert [name for name, _ in figures][0] == "First Leave After Good Reversals"
 
 
 def test_first_leave_skips_when_no_mouse_has_reversals(monkeypatch, figures):
     use_windows(monkeypatch, {"m1": [], "m2": []})
     with pytest.warns(ReversalWarning, match="no mouse has good reversals"):
-        run_first_leave_analysis("trials", OUT, problem_number=PROBLEM)
+        run_first_leave_analysis("trials", OUT, problem_number=PROBLEM, task_type="blocked")
     assert figures == []
+
+
+def test_the_place_in_a_warning_names_the_task_type_when_it_is_known():
+    assert pipeline.problem_place("drifting", 2) == "drifting problem 2"
+    assert pipeline.problem_place(None, 2) == "problem 2"
+    assert pipeline.problem_place("blocked", None) == "this problem"
+    assert pipeline.problem_place(None, None) == "this problem"

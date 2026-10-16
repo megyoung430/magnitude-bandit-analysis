@@ -102,6 +102,29 @@ class ProblemIndex:
         own = own or kind
         return _columns(own, in_type if own == kind else None, earlier)
 
+    def problem_columns(self, mouse: str | None, task_type: str, problem_in_type: int) -> dict:
+        """The three columns for a row about a problem rather than a session.
+
+        Args:
+            mouse (str | None): Subject id; ``None`` if the row names no mouse.
+            task_type (str): ``"blocked"`` or ``"drifting"``.
+            problem_in_type (int): The problem's number within its task type.
+
+        Returns:
+            dict: ``task_type`` and ``problem_in_type`` as given, and the mouse's overall problem
+            number there; ``None`` without a mouse, or if the mouse did not run that problem
+            (the number differs between mice).
+        """
+        overall = next(
+            (
+                number
+                for (name, number), label in self.labels.items()
+                if name == mouse and label == (task_type, problem_in_type)
+            ),
+            None,
+        )
+        return _columns(task_type, problem_in_type, overall)
+
 
 def _columns(task_type, problem_in_type, overall_problem) -> dict:
     return {
