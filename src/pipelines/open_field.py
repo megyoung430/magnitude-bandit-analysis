@@ -572,7 +572,7 @@ def pooled_arm_windows(problems: dict) -> dict:
 
 def run_drifting_value_analyses(
     problems: dict, out_dir: Path, selection: AnalysisSelection, *, arm_scope_label: str
-):
+) -> dict:
     """The selected drifting-only analyses over *problems*, each in a subfolder of *out_dir*.
 
     Args:
@@ -589,25 +589,33 @@ def run_drifting_value_analyses(
             the pool) because a pool of one problem is still the pool. Keyword-only.
 
     Returns:
-        None: Returns nothing; the figures are written under *out_dir*.
+        dict[str, pd.DataFrame]: The figures are written under *out_dir*. The diagnostic tables
+        the analyses return, for the analyses that ran: ``"reversal_aligned_arms_counts"`` and
+        ``"value_change_events"`` / ``"value_change_bin_counts"`` (see
+        :mod:`src.behavior_analysis.diagnostic_tables`).
     """
     out_dir = Path(out_dir)
+    tables = {}
     if selection.run_value_psychometric_analysis:
         run_value_psychometric_analysis(problems, out_dir / VALUE_PSYCHOMETRICS_FOLDER)
     if selection.run_reversal_aligned_arm_analysis:
-        run_reversal_aligned_arm_analysis(
+        arms = run_reversal_aligned_arm_analysis(
             pooled_arm_windows(problems),
             out_dir / REVERSAL_ARMS_FOLDER,
             pre=REVERSAL_ARMS_PRE,
             post=REVERSAL_ARMS_POST,
             scope_label=arm_scope_label,
         )
+        tables["reversal_aligned_arms_counts"] = arms["counts"]
     if selection.run_value_change_analysis:
-        run_value_change_analysis(problems, out_dir / VALUE_CHANGE_FOLDER)
+        value_change = run_value_change_analysis(problems, out_dir / VALUE_CHANGE_FOLDER)
+        tables["value_change_events"] = value_change["contamination_table"]
+        tables["value_change_bin_counts"] = value_change["bin_counts_table"]
     if selection.run_port_preference_analysis:
         run_port_preference_analysis(
             problems, out_dir / PORT_PREFERENCE_FOLDER, scope_label=arm_scope_label
         )
+    return tables
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +635,7 @@ def run_problem(
     reversal_trial_window: int | None = None,
     task_type: str | None = None,
     previous_choice_towers: dict | None = None,
+    diagnostics: dict | None = None,
 ) -> dict:
     """Run the selected analyses for one problem; returns rank-proportion results.
 
@@ -653,6 +662,10 @@ def run_problem(
             folder level and no blocked-task guard. Default ``None``.
         previous_choice_towers (dict | None): ``{mouse: previous-problem choice ports or None}``
             for the maze outlines. Default ``None``: no outlines.
+        diagnostics (dict | None): If given, receives the diagnostic tables of the analyses that
+            ran, as ``{kind: DataFrame}`` (``"poke_trial_summary"`` and those of
+            :func:`run_drifting_value_analyses`; see
+            :mod:`src.behavior_analysis.diagnostic_tables`). Default ``None``. Keyword-only.
 
     Returns:
         dict: The rank-proportion results of :func:`run_rank_proportion_analysis`: ``{}`` if
@@ -687,24 +700,28 @@ def run_problem(
             _SECTION_NAMES[name] for name in DRIFTING_ONLY_SECTIONS if getattr(selection, name)
         ]
         print(f"Problem {problem_number}: {', '.join(names)}")
-        run_drifting_value_analyses(
+        tables = run_drifting_value_analyses(
             {problem_number: subjects_trials},
             out,
             selection,
             arm_scope_label=f"problem-{problem_number:02d}",
         )
+        if diagnostics is not None:
+            diagnostics.update(tables)
     # parse once: the same counts feed the poke analysis and the single-session maze row
     parsed = None
     if selection.run_poke_analysis and selection.run_single_session_analysis:
         parsed = {m: mouse_poke_counts(m, sessions) for m, sessions in subjects_trials.items()}
     if selection.run_poke_analysis:
         print(f"Problem {problem_number}: long pokes and maze heatmaps")
-        run_poke_analysis(
+        poke = run_poke_analysis(
             subjects_trials,
             out / LONG_POKES_FOLDER,
             previous_choice_towers=previous_choice_towers,
             poke_counts=parsed,
         )
+        if diagnostics is not None:
+            diagnostics["poke_trial_summary"] = poke["summary"]
     if selection.run_single_session_analysis:
         print(f"Problem {problem_number}: single sessions")
         run_single_session_analysis(

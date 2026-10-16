@@ -84,6 +84,7 @@ class Recording:
         self._long(held or port)
         printed = {
             "num_t": self.num_t,
+            "num_blocks": 1,
             "chosen_tow": port,
             "chosen_rank": "best",
             "num_long_pokes": len(self._trial_long_pokes),

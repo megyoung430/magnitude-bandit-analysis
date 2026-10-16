@@ -12,7 +12,7 @@ mouse's problems into blocked and drifting from the pyControl task name
   proportions and the value analyses and port preference pooled over all of a mouse's drifting
   problems;
 - trial and block-length summaries over all problems;
-- a problem map and a review table of suspect reversals, as CSV.
+- the review tables, as CSV (below).
 
 Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
 
@@ -23,11 +23,28 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
     figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
         reversal-aligned-arms,value-change,port-preference}/
     figures/open-field/<cohort>/trial-block-summaries/all-problems/
-    tables/open-field/<cohort>/problem_map.csv
-    tables/open-field/<cohort>/suspect_reversals.csv
+    tables/open-field/<cohort>/*.csv
 
 ``KK`` counts a mouse's problems within the type, so drifting problem 1 is the first drifting
 problem of every mouse; ``problem_map.csv`` gives the overall problem number it stands for.
+
+The tables are for looking at by hand; each row names the mouse, the session (and the file where
+it has one), the task type and the problem (number within the type, and overall):
+
+- ``problem_map.csv``: one row per mouse and problem, with its towers and session range;
+- ``suspect_reversals.csv``: the good reversals and block changes the analyses drop;
+- ``suspect_sessions.csv``: sessions the problem numbering flagged (a one-session layout in
+  "A A B A" is treated as a settings error), and configuration settings that changed within a
+  session;
+- ``suspect_starting_reward_mags.csv``: sessions that start on other reward magnitudes than the
+  problem's previous session ended on, with the most likely cause;
+- ``no_trial_sessions.csv``: files, recordings and sessions the importer skipped, with the reason;
+- ``no_second_best.csv``: blocks in which more than one arm is at 0;
+- ``poke_trial_summary.csv``, ``reversal_aligned_arms_counts.csv``, ``value_change_events.csv``
+  and ``value_change_bin_counts.csv``: the diagnostics the analyses return, over all problems
+  (the pooled drifting analyses repeat the per-problem ones and add none);
+- ``warnings_log.csv``: every distinct Python warning of the run, with the mouse and session its
+  text names.
 
 The maze heatmaps outline the choice ports of the problem the mouse ran immediately before, in
 the overall problem order and whatever its task type, so drifting problem 1 is outlined with
@@ -42,14 +59,19 @@ from typing import NamedTuple
 
 import pandas as pd
 
+from src.behavior_analysis.diagnostic_tables import stack_diagnostics
 from src.behavior_analysis.get_diagnostic_p_value import pvalue_paired_t_best_vs_second_vs_third
 from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
 from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_value
 from src.behavior_analysis.merge_across_problems import merge_windows_by_subject
+from src.behavior_analysis.no_second_best import no_second_best_table
+from src.behavior_analysis.no_trial_sessions import no_trial_sessions_table
 from src.behavior_analysis.poke_counts import (
     previous_choice_towers_for_problem,
     previous_problem_choice_towers,
 )
+from src.behavior_analysis.review_context import ProblemIndex
+from src.behavior_analysis.starting_magnitudes import starting_magnitudes_table
 from src.behavior_analysis.suspect_reversal_table import (
     COLUMNS as SUSPECT_COLUMNS,
 )
@@ -57,12 +79,15 @@ from src.behavior_analysis.suspect_reversal_table import (
     suspect_reversal_table_by_problem,
     write_suspect_reversal_table,
 )
+from src.behavior_analysis.suspect_sessions import suspect_sessions_table
 from src.behavior_analysis.trial_block_summary import (
     build_trial_block_tables,
     subject_numbers_from_paths,
 )
+from src.behavior_analysis.warnings_log import warnings_log_table
 from src.behavior_import.import_data import session_source_paths
-from src.behavior_import.load_trials import load_trials_by_problem
+from src.behavior_import.import_log import ImportLog
+from src.behavior_import.load_trials import ImportedTrials, load_trials_with_log
 from src.behavior_import.task_types import (
     BLOCKED,
     DRIFTING,
@@ -70,6 +95,7 @@ from src.behavior_import.task_types import (
     problem_map_table,
     regroup_by_task_type,
 )
+from src.behavior_import.warning_records import record_warnings
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
 from src.pipelines.open_field import (
@@ -142,12 +168,15 @@ class CohortResult(NamedTuple):
         pooled_drifting_ranks (dict): Output of :func:`pooled_drifting_rank_results`:
             ``{value_basis: {pool_trials: {"problems", "counts", "p_values"}}}``; ``{}`` if the
             cohort has no drifting problems.
+        review_tables (dict): ``{name: DataFrame}`` of the other tables written next to the
+            problem map (``suspect_sessions``, ``warnings_log`` and so on; see the module doc).
     """
 
     problem_map: pd.DataFrame
     suspect_reversals: pd.DataFrame
     rank_results: dict  # {(task_type, k): run_problem's rank results}
     pooled_drifting_ranks: dict  # {value_basis: {pool_trials: {...}}}
+    review_tables: dict  # {table name: DataFrame}
 
 
 # ---------------------------------------------------------------------------
@@ -413,15 +442,64 @@ def _previous_ports_by_problem(
     }
 
 
-def _write_problem_map(problem_map: pd.DataFrame, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    problem_map.to_csv(path, index=False)
+def _write_tables(tables: dict[str, pd.DataFrame], directory: Path) -> None:
+    """``<name>.csv`` in *directory* (created) for each table."""
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, table in tables.items():
+        table.to_csv(directory / f"{name}.csv", index=False)
 
 
-def _load(cohort_id: int, data_root, use_cache: bool) -> dict:
+def import_review_tables(
+    grouped: dict, problem_map: pd.DataFrame, index: ProblemIndex, log: ImportLog
+) -> dict[str, pd.DataFrame]:
+    """The tables that come from the imported sessions and the import log alone.
+
+    Args:
+        grouped (dict): ``{(task_type, k): {mouse: sessions}}`` from
+            :func:`~src.behavior_import.task_types.regroup_by_task_type`.
+        problem_map (pd.DataFrame): The cohort's problem map.
+        index (ProblemIndex): Where each session sits in its mouse's problems.
+        log (ImportLog): What the import skipped and flagged.
+
+    Returns:
+        dict[str, pd.DataFrame]: ``problem_map``, ``suspect_sessions``,
+        ``suspect_starting_reward_mags``, ``no_trial_sessions`` and ``no_second_best``.
+    """
+    return {
+        "problem_map": problem_map,
+        "suspect_sessions": suspect_sessions_table(log.flags, grouped, index),
+        "suspect_starting_reward_mags": starting_magnitudes_table(grouped, log.skips, index),
+        "no_trial_sessions": no_trial_sessions_table(log.skips, index),
+        "no_second_best": no_second_best_table(grouped, index),
+    }
+
+
+def run_review_tables(
+    diagnostics: dict, problem_map: pd.DataFrame, index: ProblemIndex, log: ImportLog, run_warnings
+) -> dict[str, pd.DataFrame]:
+    """The tables that need the analyses to have run: diagnostics and the warnings log.
+
+    Args:
+        diagnostics (dict): ``{(task_type, k): {kind: DataFrame}}`` collected from the problems.
+        problem_map (pd.DataFrame): The cohort's problem map.
+        index (ProblemIndex): The cohort's problems.
+        log (ImportLog): Its ``warnings`` (raised during the import) come first in the log.
+        run_warnings (list[WarningRecord]): The warnings raised during the run.
+
+    Returns:
+        dict[str, pd.DataFrame]: The stacked diagnostic tables (see
+        :func:`~src.behavior_analysis.diagnostic_tables.stack_diagnostics`) and ``warnings_log``.
+    """
+    return {
+        **stack_diagnostics(diagnostics, problem_map),
+        "warnings_log": warnings_log_table([*log.warnings, *run_warnings], index),
+    }
+
+
+def _load(cohort_id: int, data_root, use_cache: bool) -> ImportedTrials:
     root = Path(data_root) if data_root is not None else get_settings().data_root
     # task types are read at import, so a task-type change starts a new problem
-    return load_trials_by_problem(
+    return load_trials_with_log(
         cohort_raw_dir(root, cohort_id), use_cache=use_cache, classify_task_types=True
     )
 
@@ -465,15 +543,16 @@ def run_cohort(
             skip the load. Default ``None``: load the cohort. Keyword-only.
 
     Returns:
-        CohortResult: The problem map, suspect-reversal table, per-problem rank results and
-        pooled drifting rank results.
+        CohortResult: The problem map, suspect-reversal table, per-problem rank results,
+        pooled drifting rank results and the other review tables.
 
     Raises:
         ValueError: If the cohort has no problems, or a session's task name is not recognised.
     """
     cohort = cohort_name(cohort_id)
+    log = ImportLog()  # trials passed in were not imported here: nothing was skipped or flagged
     if trials_by_problem is None:
-        trials_by_problem = _load(cohort_id, data_root, use_cache)
+        trials_by_problem, log = _load(cohort_id, data_root, use_cache)
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort}")
 
@@ -486,15 +565,17 @@ def run_cohort(
     numbering = number_within_task_type(trials_by_problem)
     grouped = regroup_by_task_type(trials_by_problem, numbering)
     problem_map = problem_map_table(trials_by_problem, numbering)
+    index = ProblemIndex.from_cohort(trials_by_problem, problem_map)
     previous_ports = _previous_ports_by_problem(trials_by_problem, grouped, selections)
     figures, tables = _figures_dir(results_root, cohort), _tables_dir(results_root, cohort)
 
-    with each_reversal_warning_once():
-        _write_problem_map(problem_map, tables / "problem_map.csv")
+    with each_reversal_warning_once(), record_warnings() as run_warnings:
+        review_tables = import_review_tables(grouped, problem_map, index, log)
+        _write_tables(review_tables, tables)
         suspects = suspect_table_with_task_types(grouped, problem_map)
         write_suspect_reversal_table(suspects, tables / "suspect_reversals.csv")
 
-        rank_results = {}
+        rank_results, diagnostics = {}, {}
         for (task_type, k), subjects_trials in grouped.items():
             selection = selection_for_task_type(task_type, blocked_selection, drifting_selection)
             print(f"[INFO] {cohort} {task_type} problem {k}: mice {sorted(subjects_trials)}")
@@ -509,6 +590,7 @@ def run_cohort(
                 reversal_trial_window=reversal_trial_window,
                 task_type=task_type,
                 previous_choice_towers=previous_ports.get((task_type, k)),
+                diagnostics=diagnostics.setdefault((task_type, k), {}),
             )
 
         drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
@@ -534,7 +616,12 @@ def run_cohort(
             figures / "trial-block-summaries" / "all-problems",
             show=False,
         )
-        return CohortResult(problem_map, suspects, rank_results, pooled)
+    # after the block, so that the log holds every warning of the run
+    late_tables = run_review_tables(diagnostics, problem_map, index, log, run_warnings)
+    _write_tables(late_tables, tables)
+    return CohortResult(
+        problem_map, suspects, rank_results, pooled, {**review_tables, **late_tables}
+    )
 
 
 def run_cohorts(cohort_ids, *, continue_on_error: bool = False, **settings) -> dict:

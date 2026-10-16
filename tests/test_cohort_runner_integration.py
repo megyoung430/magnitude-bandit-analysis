@@ -51,6 +51,14 @@ ENTRY_POINTS = (
     "run_value_change_analysis",
     "run_port_preference_analysis",
 )
+# What the entry points return that the runner collects as diagnostic tables.
+STUB_RESULTS = {
+    "run_reversal_aligned_arm_analysis": {"counts": pd.DataFrame()},
+    "run_value_change_analysis": {
+        "contamination_table": pd.DataFrame(),
+        "bin_counts_table": pd.DataFrame(),
+    },
+}
 FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change", "port-preference")
 LONG_POKE_FILES = (
     "Long Pokes by Relative Session.png",
@@ -75,6 +83,7 @@ def calls(monkeypatch):
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             (Path(out_dir) / "stub.txt").write_text(name)
             seen.append((name, Path(out_dir), data))
+            return STUB_RESULTS.get(name)
 
         return record
 
@@ -427,7 +436,10 @@ def arm_labels(monkeypatch):
     monkeypatch.setattr(
         pipeline,
         "run_reversal_aligned_arm_analysis",
-        lambda windows, out_dir, **kwargs: seen.update({Path(out_dir): kwargs["scope_label"]}),
+        lambda windows, out_dir, **kwargs: (
+            seen.update({Path(out_dir): kwargs["scope_label"]})
+            or STUB_RESULTS["run_reversal_aligned_arm_analysis"]
+        ),
     )
     return seen
 
