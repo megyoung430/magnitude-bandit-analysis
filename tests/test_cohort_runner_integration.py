@@ -55,7 +55,6 @@ LONG_POKE_FILES = (
     "Long Pokes by Relative Session.png",
     "Maze Heatmaps - Pokes After Choice.png",
     "Maze Heatmaps - Pokes After Initiation.png",
-    "Poke Trial Summary.csv",
 )
 
 
@@ -405,11 +404,10 @@ def test_a_session_with_unreadable_events_warns_and_the_run_goes_on(
     monkeypatch.setattr(poke_counts_module, "parse_session", failing)
     with pytest.warns(UserWarning, match="impossible log"):
         run(tmp_path)
-    table = pd.read_csv(
-        cohort_dir / DRIFTING / "problem-01" / "long-pokes" / "Poke Trial Summary.csv"
-    )
-    assert table.loc[table["session"] == "ses-3_date-20260103", "parse_error"].notna().any()
-    assert (cohort_dir / DRIFTING / "problem-02" / "long-pokes" / "Poke Trial Summary.csv").exists()
+    for problem in ("problem-01", "problem-02"):
+        folder = cohort_dir / DRIFTING / problem / "long-pokes"
+        assert (folder / "Maze Heatmaps - Pokes After Choice.png").exists()
+        assert not list(folder.glob("*.csv"))
 
 
 def test_misaligned_trials_stop_the_run(tmp_path, calls, cohort_extras, monkeypatch):
