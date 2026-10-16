@@ -344,13 +344,66 @@ def _skip_assignment(session):
     return ProblemAssignment(None, NO_CHOICE_TOWERS, ("no choice towers",))
 
 
-def _evidence_reasons(session):
+def evidence_reasons(session):
     """Why the first session of a new problem needs review (empty if it passes)."""
     if not session.starts_found_ports_false:
         return ("does not start with found_ports false",)
     if not session.has_port_finding_trials:
         return ("no port-finding trials (num_t_found) printed",)
     return ()
+
+
+def describe_flag(flag, *, evidence, provisional, task_types_classified, task_name=None):
+    """A flagged session's outcome in plain words, for the review table.
+
+    Args:
+        flag (str | None): The session's numbering flag, or ``None``.
+        evidence (dict): The session's ``settings_evidence`` (``starts_found_ports_false`` and
+            ``has_port_finding_trials`` are read).
+        provisional (bool): Whether the session's number is provisional.
+        task_types_classified (bool): Whether the task type was part of the numbering.
+        task_name (str | None): The session's task name, named for pretraining.
+
+    Returns:
+        str: One sentence per fact: the flag's meaning, then the provisional note, joined by
+        ``"; "``. Empty for an unflagged, non-provisional session.
+
+    Raises:
+        ValueError: For an unknown *flag*.
+    """
+    changed = "layout or task type" if task_types_classified else "layout"
+    review = SessionFacts(
+        None, evidence["starts_found_ports_false"], evidence["has_port_finding_trials"]
+    )
+    meanings = {
+        None: None,
+        SUSPECTED_SETTINGS_ERROR: (
+            f"the {changed} lasts one session before changing again, so it is treated as a "
+            "settings error and left out of the problems (the sessions on either side are pooled)"
+        ),
+        REVIEW_SETTINGS: (
+            "starts a new problem but "
+            + "; ".join(evidence_reasons(review))
+            + "; kept as a problem, check the settings"
+        ),
+        PORT_FINDING: (
+            "no choice towers and port-finding trials printed: a port-finding session, "
+            "left out of the problems"
+        ),
+        NO_CHOICE_TOWERS: "no choice towers logged, left out of the problems",
+        PRETRAINING: f"pretraining task ({task_name}), left out of the problems",
+    }
+    if flag not in meanings:
+        raise ValueError(
+            f"unknown problem flag {flag!r}; expected one of {sorted(map(str, meanings))}"
+        )
+    parts = [meanings[flag]] if meanings[flag] else []
+    if provisional:
+        parts.append(
+            "last run of the mouse's data is a single session, so its problem number is "
+            "provisional: a later session can turn it into a settings error"
+        )
+    return "; ".join(parts)
 
 
 def _layout_runs(facts, indices):
@@ -391,7 +444,7 @@ def assign_problems(facts):
             continue
         else:
             problem, last_signature = problem + 1, signature
-            reasons = _evidence_reasons(facts[run[0]]) if problem > 1 else ()
+            reasons = evidence_reasons(facts[run[0]]) if problem > 1 else ()
             first = ProblemAssignment(problem, REVIEW_SETTINGS if reasons else None, reasons)
             first = first._replace(provisional=len(run) == 1 and position == len(runs) - 1)
         assignments[run[0]] = first

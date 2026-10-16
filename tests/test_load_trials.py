@@ -3,7 +3,12 @@ import os
 import pytest
 
 import src.behavior_import.load_trials as load_trials
-from src.behavior_import.load_trials import load_trials_by_problem, raw_data_fingerprint
+from src.behavior_import.import_log import ImportLog
+from src.behavior_import.load_trials import (
+    ImportedTrials,
+    load_trials_by_problem,
+    raw_data_fingerprint,
+)
 
 
 @pytest.fixture
@@ -21,7 +26,7 @@ def computed(monkeypatch):
 
     def fake_import(root, classify_task_types=False):
         calls.append(root)
-        return {1: {"M1": {"n_calls": len(calls)}}}
+        return ImportedTrials({1: {"M1": {"n_calls": len(calls)}}}, ImportLog())
 
     monkeypatch.setattr(load_trials, "_import_and_extract", fake_import)
     return calls

@@ -23,6 +23,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.behavior_import.import_log import (
+    FILE,
+    NO_SUBJECT,
+    UNNUMBERED_SESSION,
+    UNREADABLE_FILE,
+    ImportLog,
+    SkipRecord,
+)
 from src.behavior_import.problem_numbering import (
     SessionFacts,
     classify_task_name,
@@ -219,7 +227,9 @@ def _import_subject_sessions(
     }
 
 
-def import_data(root: str | Path, *, classify_task_types: bool = False) -> dict:
+def import_data(
+    root: str | Path, *, classify_task_types: bool = False, log: ImportLog | None = None
+) -> dict:
     """Import behavioral experiment data from a directory tree of TSV files.
 
     Recursively scans *root* for ``.tsv`` files, groups them by subject and
@@ -251,6 +261,9 @@ def import_data(root: str | Path, *, classify_task_types: bool = False) -> dict:
             ``.tsv`` files.
         classify_task_types (bool): Classify and number by task type (see above). Keyword-only.
             Default ``False``.
+        log (ImportLog | None): Receives a :class:`~src.behavior_import.import_log.SkipRecord`
+            for every file left out (unreadable, no subject, unnumbered session folder). It
+            changes nothing that is loaded or printed. Default ``None``. Keyword-only.
 
     Returns:
         dict: Nested dict of the form::
@@ -294,7 +307,7 @@ def import_data(root: str | Path, *, classify_task_types: bool = False) -> dict:
     """
     root = Path(root).resolve()
 
-    grouped_tsv_files = group_by_subj_and_ses(collect_tsv_files(root))
+    grouped_tsv_files = group_by_subj_and_ses(collect_tsv_files(root, log), log)
 
     unique_subjects = sorted({subj for subj, _ in grouped_tsv_files.keys()})
     # A plain loop, not a comprehension, so the warning stacklevel in
@@ -311,11 +324,34 @@ def import_data(root: str | Path, *, classify_task_types: bool = False) -> dict:
 
 
 # ========== File Parsing Helper Functions ==========
-def collect_tsv_files(root: Path) -> list:
+def path_labels(tsv_path) -> tuple[str | None, str | None]:
+    """The mouse and the session folder named in a file's path; never raises.
+
+    Args:
+        tsv_path (str | Path): Path of a ``.tsv`` file.
+
+    Returns:
+        tuple[str | None, str | None]: ``(subject id, name of the first ``ses-`` folder)``;
+        ``None`` for a part the path does not have. A folder such as ``ses-test_date-20260102``
+        is returned as it is.
+    """
+    mouse = create_subject_id(tsv_path)[0]
+    session = next((p for p in Path(tsv_path).parts if p.startswith("ses-")), None)
+    return mouse, session
+
+
+def _file_skip(tsv_path, kind: str, reason: str) -> SkipRecord:
+    mouse, session = path_labels(tsv_path)
+    return SkipRecord(mouse, session, str(tsv_path), FILE, kind, reason)
+
+
+def collect_tsv_files(root: Path, log: ImportLog | None = None) -> list:
     """Recursively scan *root* and read every TSV file found.
 
     Args:
         root (Path): Directory to search recursively.
+        log (ImportLog | None): Receives a skip record for each file that could not be read.
+            Default ``None``.
 
     Returns:
         list[tuple[Path, pd.DataFrame]]: ``(tsv_path, dataframe)`` tuples for every ``.tsv``
@@ -332,6 +368,10 @@ def collect_tsv_files(root: Path) -> list:
         # skipped, so a corrupt recording silently shrinks the session instead of raising.
         except Exception as e:
             print(f"[WARN] Failed to read {tsv_path}: {e}.")
+            if log is not None:
+                log.add_skip(
+                    _file_skip(tsv_path, UNREADABLE_FILE, f"the file could not be read: {e}")
+                )
     return tsv_files
 
 
@@ -578,12 +618,13 @@ def parse_file_timestamp(tsv_path, df=None):
     return datetime.fromtimestamp(p.stat().st_mtime)
 
 
-def group_by_subj_and_ses(tsv_files: list) -> dict:
+def group_by_subj_and_ses(tsv_files: list, log: ImportLog | None = None) -> dict:
     """Group DataFrames by (subject_id, session_key), sorted within-session by time.
 
     Args:
         tsv_files (list[tuple[Path, pd.DataFrame]]): ``(tsv_path, dataframe)`` tuples as
             returned by :func:`collect_tsv_files`.
+        log (ImportLog | None): Receives a skip record for each file left out. Default ``None``.
 
     Returns:
         dict[tuple[str, str], list[pd.DataFrame]]: Keyed by ``(subject_id, session_key)``;
@@ -601,11 +642,17 @@ def group_by_subj_and_ses(tsv_files: list) -> dict:
         subject_id, subject_number, subject_key = create_subject_id(tsv_path)
         if not subject_id:
             print(f"[WARN] Skipping {tsv_path}: no subject_id parsed.")
+            if log is not None:
+                reason = "no sub-<N>_id-<mouse> folder in the file's path"
+                log.add_skip(_file_skip(tsv_path, NO_SUBJECT, reason))
             continue
         try:
             session_num, session_date, session_key = create_session_key(tsv_path)
         except UnnumberedSessionError as err:
             warnings.warn(f"Skipping non-task session file: {err}", stacklevel=2)
+            if log is not None:
+                reason = "the session folder has no number, so it is not a task session"
+                log.add_skip(_file_skip(tsv_path, UNNUMBERED_SESSION, reason))
             continue
         file_ts = parse_file_timestamp(tsv_path, df)
         grouped.setdefault((subject_id, session_key), []).append((file_ts, tsv_path, df))
