@@ -51,6 +51,7 @@ from src.behavior_visualization.plot_num_reversals import (
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_single_session import plot_single_session
 from src.pipelines.poke_analysis import run_poke_analysis
+from src.pipelines.port_preference import run_port_preference_analysis
 from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from src.pipelines.value_change_analysis import run_value_change_analysis
 from src.pipelines.value_psychometrics import run_value_psychometric_analysis
@@ -62,17 +63,20 @@ DRIFTING_ONLY_SECTIONS = (
     "run_value_psychometric_analysis",
     "run_reversal_aligned_arm_analysis",
     "run_value_change_analysis",
+    "run_port_preference_analysis",
 )
 POOLED_DRIFTING_LABEL = "all drifting problems"
 _SECTION_NAMES = {
     "run_value_psychometric_analysis": "value psychometrics",
     "run_reversal_aligned_arm_analysis": "reversal-aligned arms",
     "run_value_change_analysis": "value-change choice probabilities",
+    "run_port_preference_analysis": "port preference",
 }
 LONG_POKES_FOLDER = "long-pokes"
 VALUE_PSYCHOMETRICS_FOLDER = "value-psychometrics"
 REVERSAL_ARMS_FOLDER = "reversal-aligned-arms"
 VALUE_CHANGE_FOLDER = "value-change"
+PORT_PREFERENCE_FOLDER = "port-preference"
 # One window size for building the reversal windows and for the entry point that checks it.
 REVERSAL_ARMS_PRE = 10
 REVERSAL_ARMS_POST = 30
@@ -131,8 +135,9 @@ class AnalysisSelection(BaseModel):
 
     ``run_poke_analysis`` (long pokes and maze heatmaps) applies to any problem. The three
     value analyses (``run_value_psychometric_analysis``, ``run_reversal_aligned_arm_analysis``,
-    ``run_value_change_analysis``) are for drifting problems only; :func:`run_problem` raises if
-    one is on for a blocked problem. All four are off unless asked for.
+    ``run_value_change_analysis``, ``run_port_preference_analysis``) are for drifting problems
+    only; :func:`run_problem` raises if one is on for a blocked problem. All five are off unless
+    asked for.
 
     Frozen; an unknown field name raises a validation error.
 
@@ -152,6 +157,8 @@ class AnalysisSelection(BaseModel):
             only). Default ``False``.
         run_value_change_analysis (bool): Value-change choice probabilities (drifting problems
             only). Default ``False``.
+        run_port_preference_analysis (bool): Chosen-versus-best preference per port and for X and
+            plus ports (drifting problems only). Default ``False``.
         rank_value_bases (tuple[str, ...] | None): ``"true"`` and/or ``"believed"``; ``None``
             gives the true-value rank proportions of ``get_rank_counts_by_good_reversal``.
             Default ``None``.
@@ -171,6 +178,7 @@ class AnalysisSelection(BaseModel):
     run_value_psychometric_analysis: bool = False
     run_reversal_aligned_arm_analysis: bool = False
     run_value_change_analysis: bool = False
+    run_port_preference_analysis: bool = False
     rank_value_bases: tuple[str, ...] | None = None
     rank_pooling_modes: tuple[bool, ...] = (True, False)
 
@@ -572,10 +580,11 @@ def run_drifting_value_analyses(
             problem folder, several for the pool over a mouse's drifting problems. Every
             analysis computes inside each problem and then combines the mice's results, so
             beliefs reset and windows end at each problem boundary.
-        out_dir (Path): Folder that receives ``value-psychometrics``, ``reversal-aligned-arms``
-            and ``value-change``.
-        selection (AnalysisSelection): Which of the three to run.
-        arm_scope_label (str): Scope named in the titles of the reversal-aligned figures, given
+        out_dir (Path): Folder that receives ``value-psychometrics``, ``reversal-aligned-arms``,
+            ``value-change`` and ``port-preference``.
+        selection (AnalysisSelection): Which of the four to run.
+        arm_scope_label (str): Scope named in the titles of the reversal-aligned and
+            port-preference figures, given
             by the caller (``"problem-03"`` for a problem folder, ``POOLED_DRIFTING_LABEL`` for
             the pool) because a pool of one problem is still the pool. Keyword-only.
 
@@ -595,6 +604,10 @@ def run_drifting_value_analyses(
         )
     if selection.run_value_change_analysis:
         run_value_change_analysis(problems, out_dir / VALUE_CHANGE_FOLDER)
+    if selection.run_port_preference_analysis:
+        run_port_preference_analysis(
+            problems, out_dir / PORT_PREFERENCE_FOLDER, scope_label=arm_scope_label
+        )
 
 
 # ---------------------------------------------------------------------------
