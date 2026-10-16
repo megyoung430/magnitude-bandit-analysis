@@ -219,6 +219,8 @@ report all failures at the end.
   ports share its row or column and X ports lie on its diagonals (from B2 these are the eight
   neighbours). A mouse offered ports from one category only has that category's ratio of 1 by
   construction; it is left out of the X vs plus figure, which says how many mice were excluded.
+  The X vs plus figure is made only for the pool of all drifting problems: one problem's three
+  choice ports usually all lie in one category.
   In a problem's folder the per-mouse mazes use the same outlines as the poke heatmaps (green:
   the problem's choice ports; red: the previous problem's; blue: initiation). The pooled mazes
   outline only the initiation port, since the choice ports differ between problems.
@@ -250,7 +252,7 @@ report all failures at the end.
   | `drifting/problem-KK/value-psychometrics/` | value heatmaps and psychometric curves |
   | `drifting/problem-KK/reversal-aligned-arms/` | arm choice probability and magnitude around block changes |
   | `drifting/problem-KK/value-change/` | choice probabilities around value changes |
-  | `drifting/problem-KK/port-preference/` | port preference per port and X vs plus |
+  | `drifting/problem-KK/port-preference/` | port preference per port (X vs plus only in the pooled folder) |
   | `drifting/problem-KK/long-pokes/`, `.../single-sessions/` | as for blocked |
   | `drifting/all-drifting-problems/choice-stats/` | rank proportions pooled over the drifting problems |
   | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change,port-preference}/` | the four drifting-only analyses pooled over the drifting problems |

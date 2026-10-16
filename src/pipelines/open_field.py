@@ -736,6 +736,7 @@ def run_drifting_value_analyses(
             out_dir / PORT_PREFERENCE_FOLDER,
             scope_label=arm_scope_label,
             previous_choice_towers=previous_choice_towers,
+            x_vs_plus=arm_scope_label == POOLED_DRIFTING_LABEL,
         )
     return tables
 

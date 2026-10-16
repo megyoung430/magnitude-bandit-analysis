@@ -7,7 +7,7 @@ secondary axis on the right. Two labelling schemes, each with its own two kinds 
 arm is rewarded again):
 
 - ``prev``: arms labelled by their rank before the block change (best blue, second green, third
-  grey); kinds "Prev Best \u2192 Third" and "Prev Second \u2192 Third";
+  grey); kinds "Prev Best to Third" and "Prev Second to Third";
 - ``new``: arms labelled by their rank after the block change (best blue, second green, third
   black); kinds "New Best from Third" and "New Second from Third".
 
@@ -46,8 +46,8 @@ SCHEME_FILE_LABELS = {
 TYPE_LABELS = {
     "prev": {
         "all": "All",
-        "best_to_third": "Prev Best \u2192 Third",
-        "second_to_third": "Prev Second \u2192 Third",
+        "best_to_third": "Prev Best to Third",
+        "second_to_third": "Prev Second to Third",
     },
     "new": {
         "all": "All",
@@ -83,7 +83,7 @@ def figure_stem(result: ReversalAlignedArms, scope: str) -> str:
         ``Choice Probabilities Around Block Changes (Prev Best to Third) (Arms Labelled by Rank
         Before) (pooled)``.
     """
-    heading = figure_heading(result).replace(" \u2192 ", " to ")
+    heading = figure_heading(result)
     return f"{heading} ({SCHEME_FILE_LABELS[result.scheme]}) ({scope})"
 
 

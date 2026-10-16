@@ -199,7 +199,7 @@ def test_a_drifting_problem_writes_into_its_port_preference_folder(tmp_path):
     )
     folder = tmp_path / "open-field" / "cohort-01" / "drifting" / "problem-03" / "port-preference"
     assert (folder / "Port Preference Per Mouse.png").exists()
-    assert (folder / "Port Preference X vs Plus.png").exists()
+    assert not (folder / "Port Preference X vs Plus.png").exists()  # pooled scope only
 
 
 # ---------------------------------------------------------------- labels and exclusions
@@ -312,3 +312,20 @@ def test_panel_draws_red_and_green_rings(tmp_path):
 def _one_problem_for_outlines():
     sessions = {"ses-1": {**session(TRIALS), "choice_towers": ["B1", "B3", "C2"]}}
     return {1: {"m1": sessions}}
+
+
+def test_choice_towers_stored_per_trial_give_their_union(tmp_path, monkeypatch):
+    # The importer can store choice_towers as one list of ports per trial (lists are unhashable).
+    captured = {}
+    import src.pipelines.port_preference as pipeline
+
+    monkeypatch.setattr(pipeline, "plot_port_ratio_heatmaps", lambda r, **k: captured.update(k))
+    sessions = {"ses-1": {**session(TRIALS), "choice_towers": [["B1", "B3", "C2"]] * 3}}
+    run_port_preference_analysis({1: {"m1": sessions}}, tmp_path, scope_label="problem-01")
+    assert captured["current_ports"] == {"m1": frozenset({"B1", "B3", "C2"})}
+
+
+def test_x_vs_plus_figure_can_be_left_out(tmp_path):
+    run_port_preference_analysis(problems(), tmp_path, scope_label="problem-01", x_vs_plus=False)
+    assert not list(tmp_path.glob("Port Preference X vs Plus*"))
+    assert list(tmp_path.glob("Port Preference Per Mouse*.png"))

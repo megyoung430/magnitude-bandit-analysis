@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.behavior_analysis.poke_counts import session_choice_ports
 from src.behavior_analysis.port_preference import (
     COMPARED_CATEGORIES,
     add_ratio,
@@ -38,13 +39,16 @@ def _problem_outlines(subjects_trials_by_problem: dict, previous_choice_towers) 
     """Green (the problem's choice ports) and red (previous problem's) outlines per mouse.
 
     Empty when several problems are pooled: their choice ports differ, so no single set of
-    outlines describes the pooled heatmap.
+    outlines describes the pooled heatmap. Sessions without ``"choice_towers"`` add no green
+    outline.
     """
     if len(subjects_trials_by_problem) != 1:
         return {}
     (subjects,) = subjects_trials_by_problem.values()
     current = {
-        mouse: frozenset(t for s in sessions.values() for t in s.get("choice_towers") or ())
+        mouse: frozenset().union(
+            *(session_choice_ports(s) for s in sessions.values() if s.get("choice_towers"))
+        )
         for mouse, sessions in subjects.items()
     }
     outlines = {"current_ports": current}
@@ -59,6 +63,7 @@ def run_port_preference_analysis(
     *,
     scope_label: str,
     previous_choice_towers: dict | None = None,
+    x_vs_plus: bool = True,
 ) -> dict:
     """How much each port, and X versus plus ports, is chosen relative to how often it is best.
 
@@ -91,6 +96,10 @@ def run_port_preference_analysis(
             in red on the per-mouse heatmaps. Used only for one problem: with one problem the
             heatmaps also outline its choice ports in green; pooled over several problems,
             whose ports differ, only the initiation port is outlined. Default None.
+        x_vs_plus (bool): Draw ``Port Preference X vs Plus``. A single problem's three choice
+            ports usually all lie in one category, so the cohort runner draws it only for the
+            pool of all drifting problems. Default True. The category ratios are returned
+            either way.
 
     Returns:
         dict: ``"counts"`` (the :class:`PortCounts` per mouse and problem), ``"port_ratios"``
@@ -128,13 +137,14 @@ def run_port_preference_analysis(
             ", ".join(single_category_mice),
         )
     out_dir = Path(out_dir)
-    plot_category_ratios(
-        category_ratios[category_ratios["category"].isin(COMPARED_CATEGORIES)],
-        summary,
-        scope_label=scope_label,
-        n_excluded=len(single_category_mice),
-        save_path=out_dir / CATEGORY_FIGURE,
-    )
+    if x_vs_plus:
+        plot_category_ratios(
+            category_ratios[category_ratios["category"].isin(COMPARED_CATEGORIES)],
+            summary,
+            scope_label=scope_label,
+            n_excluded=len(single_category_mice),
+            save_path=out_dir / CATEGORY_FIGURE,
+        )
     plot_port_ratio_heatmaps(
         port_ratios,
         scope_label=scope_label,

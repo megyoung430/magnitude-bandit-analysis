@@ -165,8 +165,8 @@ def run_reversal_aligned_arm_analysis(
     block changes concatenated per subject) and, if more than one problem is given, each problem
     (``"problem-04"``). At a drifting block change the previous best or the previous second arm
     drops to 0 and the previous third arm is rewarded again; each scheme splits by that:
-    ``"prev"`` labels arms by their rank before the block change (types "Prev Best \u2192 Third" and
-    "Prev Second \u2192 Third"), ``"new"`` by their rank after it (types "New Best from Third" and
+    ``"prev"`` labels arms by their rank before the block change (types "Prev Best to Third" and
+    "Prev Second to Third"), ``"new"`` by their rank after it (types "New Best from Third" and
     "New Second from Third"); "All" averages over both types. Block changes with tied magnitudes
     are left out (see :mod:`src.behavior_analysis.reversal_arm_ranks`); the counts say how many.
 
