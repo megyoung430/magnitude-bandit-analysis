@@ -2,8 +2,8 @@
 
 ``session`` builds the part of an imported session dict the review tables read: the raw
 recordings (``df``) with a ``run_start`` and ``run_end`` row each, the per-trial reward
-magnitudes and block ids, the problem's towers, and the boundary descriptions that
-``reconcile_reversals`` stores. Nothing here reads a file.
+magnitudes and block ids, the problem's towers, and the first and last trial of the session
+(``session_edges``) that ``reconcile_reversals`` stores. Nothing here reads a file.
 """
 
 import json
@@ -43,12 +43,25 @@ def recording(run_start=None, run_end=None, path="M1-2026-01-01-100000.tsv"):
     return frame
 
 
+def side(magnitudes, **totals):
+    """One side of a boundary: the magnitudes and the session totals (``block=3`` etc.)."""
+    return {"magnitudes": magnitudes, "totals": totals, "counters": {}}
+
+
+def edge_sides(first_magnitudes, last_magnitudes, *, first_totals=None, last_totals=None):
+    """``session_edges`` of a session: its first and last trial."""
+    return {
+        "first": side(first_magnitudes, **(first_totals or {})),
+        "last": side(last_magnitudes, **(last_totals or {})),
+    }
+
+
 def session(
     recordings=None,
     *,
     magnitudes=None,
     blocks=None,
-    boundaries=None,
+    edges=None,
     task_name=DRIFTING_NAME,
     towers=TOWERS,
     initiation_tower="B2",
@@ -59,12 +72,17 @@ def session(
         recordings: Raw frames; default one recording with equal run_start and run_end.
         magnitudes: ``{tower: [magnitude per trial]}``; default 4 trials of (4, 2, 0).
         blocks: Block id per trial; default all 1.
-        boundaries: ``run_boundaries``; default ``[None]``.
+        edges: ``session_edges``; default the first and last trial of *magnitudes*, with no
+            totals. Set ``session["session_edges"] = None`` afterwards for a session without trials.
     """
     if recordings is None:
         recordings = [recording(dict(SETTINGS), dict(SETTINGS))]
     magnitudes = magnitudes or {"A1": [4] * 4, "B1": [2] * 4, "C1": [0] * 4}
     n = len(next(iter(magnitudes.values())))
+    if edges is None:
+        edges = edge_sides(
+            {t: v[0] for t, v in magnitudes.items()}, {t: v[-1] for t, v in magnitudes.items()}
+        )
     return {
         "df": recordings[0] if len(recordings) == 1 else recordings,
         "task_name": task_name,
@@ -76,7 +94,7 @@ def session(
         "reward_magnitudes_by_tower": magnitudes,
         "choices_by_tower": {},
         "choices_by_rank": {},
-        "run_boundaries": boundaries or [None] * len(recordings),
+        "session_edges": edges,
     }
 
 

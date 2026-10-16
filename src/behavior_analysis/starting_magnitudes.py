@@ -3,11 +3,14 @@
 Reward magnitudes carry over from one session of a problem to the next, in both tasks. A session
 that starts on other magnitudes than the previous session of its problem ended on had something
 change in between. Only sessions that continue a problem are compared; the first session of a
-problem starts from fresh magnitudes. The comparison is the first entry of
-``session["run_boundaries"]``
-(:func:`~src.behavior_import.run_boundaries.describe_boundary`): the magnitudes on the last
-trial of the previous session against those on the first trial of this one, with the change in
-the logged counter totals between them.
+problem starts from fresh magnitudes.
+
+The "previous session" is the previous session *of the problem that has trials*, not the session
+before it in time: a session without trial information (``no_trial_sessions.csv``) or one left
+out of the problem as a settings error lies in between but is not compared. The comparison is
+:func:`~src.behavior_import.run_boundaries.describe_boundary` of the last trial of the previous
+session against the first trial of this one (the sessions' ``"session_edges"``), with the change
+in the logged counter totals between them.
 
 Columns: ``mouse``, ``session``, ``previous_session``, ``file`` (this session's first
 recording), ``task_type``, ``problem_in_type``, ``overall_problem``,
@@ -24,17 +27,21 @@ most to the least likely (:data:`CAUSES`):
    magnitudes show it: for the drifting task the zero arm moved, for the blocked task the best
    tower changed at a good reversal and the magnitudes changed at a bad one.
 2. :data:`LOGGED_BUT_INCONSISTENT`: a change was logged but the magnitudes do not fit it (the
-   zero arm stayed, the best tower stayed at a good reversal, or a total went down).
+   zero arm stayed, the best tower stayed at a good reversal), or a total went down without the
+   magnitudes going back to the initial values.
 3. :data:`DRIFT`: drifting task, nothing logged, the zero arm unchanged and every other arm
    moved by at most :data:`MAX_DRIFT_STEP`: the drift of one trial, which happens between
    consecutive trials of a session as well.
 4. :data:`RESET`: the session starts with every arm at :data:`INITIAL_MAGNITUDE` while the
-   previous session did not end that way: the task was restarted with its initial values.
-5. :data:`PREVIOUS_SESSION_NO_TRIALS`: a session of the same mouse with no trial information lies
+   previous session did not end that way: the task was restarted with its initial values. A
+   restart also sets the logged totals back to 0, which is not read as a logged change.
+5. :data:`CHANGE_FROM_MAGNITUDES`: the file logs no totals, so the change (the zero arm moved, or
+   the blocked magnitudes differ) is inferred from the magnitudes alone, as the importer does.
+6. :data:`PREVIOUS_SESSION_NO_TRIALS`: a session of the same mouse with no trial information lies
    between the two (see ``no_trial_sessions.csv``); whatever happened in it is not in the data.
-6. :data:`NO_LOGGED_CHANGE`: the magnitudes changed and nothing explains it.
-7. :data:`CANNOT_COMPARE`: a side has no complete magnitudes, or the importer found no
-   continuous previous session to compare with.
+7. :data:`NO_LOGGED_CHANGE`: the magnitudes changed and nothing explains it.
+8. :data:`CANNOT_COMPARE`: a side has no complete magnitudes (a tower is missing), the two sides
+   have different towers, or the session has no first or last trial to compare.
 """
 
 from pathlib import Path
@@ -44,7 +51,7 @@ import pandas as pd
 from src.behavior_analysis.review_context import ProblemIndex, magnitudes_text, typed_frame
 from src.behavior_import.import_data import session_source_paths
 from src.behavior_import.import_log import SESSION, SkipRecord
-from src.behavior_import.run_boundaries import CONSISTENT
+from src.behavior_import.run_boundaries import CONSISTENT, describe_boundary
 from src.behavior_import.session_order import ordered_session_keys, session_sort_key
 
 INITIAL_MAGNITUDE = 2  # every arm starts a problem at this magnitude
@@ -58,14 +65,16 @@ LOGGED_AND_CONSISTENT = (
 LOGGED_BUT_INCONSISTENT = "change logged between the sessions but magnitudes inconsistent"
 DRIFT = "drifting arms moved by normal drift (zero arm unchanged, no change logged)"
 RESET = f"reset to the initial values (all {INITIAL_MAGNITUDE})"
+CHANGE_FROM_MAGNITUDES = "change inferred from the magnitudes (no totals logged)"
 PREVIOUS_SESSION_NO_TRIALS = "previous session has no trials"
 NO_LOGGED_CHANGE = "magnitudes changed with no logged change"
-CANNOT_COMPARE = "cannot compare: magnitudes missing or no continuous previous session"
+CANNOT_COMPARE = "cannot compare: magnitudes missing, different towers, or no trial to compare"
 CAUSES = (
     LOGGED_AND_CONSISTENT,
     LOGGED_BUT_INCONSISTENT,
     DRIFT,
     RESET,
+    CHANGE_FROM_MAGNITUDES,
     PREVIOUS_SESSION_NO_TRIALS,
     NO_LOGGED_CHANGE,
     CANNOT_COMPARE,
@@ -105,8 +114,28 @@ def differing_towers(before: dict, after: dict) -> list[str]:
     return sorted(t for t in before.keys() | after.keys() if before.get(t) != after.get(t))
 
 
+def _total_deltas(boundary: dict) -> list[int]:
+    return [delta for delta in boundary["total_delta"].values() if delta is not None]
+
+
+def _is_restart(boundary: dict) -> bool:
+    """A total went down and the magnitudes are back at the initial values: the task restarted."""
+    return any(delta < 0 for delta in _total_deltas(boundary)) and _is_reset(boundary)
+
+
 def _logged_any(boundary: dict) -> bool:
-    return any(delta for delta in boundary["total_delta"].values() if delta is not None)
+    """A total changed, other than by a restart setting the totals back to 0."""
+    return any(_total_deltas(boundary)) and not _is_restart(boundary)
+
+
+def _comparable(boundary: dict | None) -> bool:
+    """Whether both sides have complete magnitudes of the same towers."""
+    return boundary is not None and boundary["magnitude_change"] is not None
+
+
+def _inferred_from_magnitudes(boundary: dict) -> bool:
+    """No total is logged and the magnitudes show a block change."""
+    return boundary["source"] == "magnitudes" and boundary["magnitude_change"] is True
 
 
 def _is_normal_drift(boundary: dict) -> bool:
@@ -129,15 +158,15 @@ def starting_magnitude_cause(boundary: dict | None, *, gap_without_trials: bool)
     """The most likely cause of differing magnitudes across a session boundary.
 
     Args:
-        boundary (dict | None): ``describe_boundary`` of the session's first recording against
-            the previous session's last, or ``None`` if the importer found none.
+        boundary (dict | None): ``describe_boundary`` of the previous session's last trial
+            against the session's first, or ``None`` if either has no trial.
         gap_without_trials (bool): Whether a session without trial information lies between
             the two sessions.
 
     Returns:
         str: One of :data:`CAUSES`, the first that applies.
     """
-    if boundary is None or not (boundary["magnitudes_before"] and boundary["magnitudes_after"]):
+    if not _comparable(boundary):
         return CANNOT_COMPARE
     if _logged_any(boundary):
         consistent = boundary["verdict"] == CONSISTENT
@@ -146,6 +175,8 @@ def starting_magnitude_cause(boundary: dict | None, *, gap_without_trials: bool)
         return DRIFT
     if _is_reset(boundary):
         return RESET
+    if _inferred_from_magnitudes(boundary):
+        return CHANGE_FROM_MAGNITUDES
     if gap_without_trials:
         return PREVIOUS_SESSION_NO_TRIALS
     return NO_LOGGED_CHANGE
@@ -167,9 +198,27 @@ def _has_gap(empty_sessions: list[str], previous: str, current: str) -> bool:
 
 def _differs(boundary: dict | None) -> bool:
     """Whether the boundary shows different magnitudes, or cannot be compared at all."""
-    if boundary is None or not (boundary["magnitudes_before"] and boundary["magnitudes_after"]):
+    if not _comparable(boundary):
         return True
     return bool(differing_towers(boundary["magnitudes_before"], boundary["magnitudes_after"]))
+
+
+def session_boundary(previous: dict, session: dict, mode: str) -> dict | None:
+    """The last trial of *previous* against the first trial of *session*.
+
+    Args:
+        previous (dict): The previous session of the problem, with its ``"session_edges"``.
+        session (dict): The session, with its ``"session_edges"``.
+        mode (str): ``"drifting"`` or ``"blocked"``.
+
+    Returns:
+        dict | None: :func:`~src.behavior_import.run_boundaries.describe_boundary` of the two
+        sides; ``None`` if either session has no trial.
+    """
+    before, after = previous.get("session_edges"), session.get("session_edges")
+    if not (before and after):
+        return None
+    return describe_boundary(before["last"], after["first"], mode)
 
 
 def _row(mouse, previous, key, sess, boundary, cause, index) -> dict:
@@ -203,7 +252,7 @@ def starting_magnitudes_table(
     Args:
         grouped (dict): ``{(task_type, k): {mouse: {session_key: session_dict}}}`` from
             :func:`~src.behavior_import.task_types.regroup_by_task_type`; each session carries the
-            importer's ``"run_boundaries"``.
+            importer's ``"session_edges"``.
         skips (list[SkipRecord]): ``ImportLog.skips``, to find sessions without trials between
             two sessions of a problem.
         index (ProblemIndex): Where each session sits in its mouse's problems.
@@ -214,12 +263,12 @@ def starting_magnitudes_table(
     """
     empty = _sessions_without_trials(skips)
     rows = []
-    for mice in grouped.values():
+    for (task_type, _), mice in grouped.items():
         for mouse in sorted(mice):
             keys = ordered_session_keys(mouse, mice[mouse])
             for previous, key in zip(keys, keys[1:], strict=False):
                 sess = mice[mouse][key]
-                boundary = (sess.get("run_boundaries") or [None])[0]
+                boundary = session_boundary(mice[mouse][previous], sess, task_type)
                 if not _differs(boundary):
                     continue
                 gap = _has_gap(empty.get(mouse, []), previous, key)

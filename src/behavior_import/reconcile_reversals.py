@@ -556,6 +556,17 @@ def _session_mode(sess, kinds):
         return None
 
 
+def _session_edges(runs):
+    """The sides of the session's first and last trial, ``None`` if it has no trial.
+
+    A recording without trials is skipped: it has no trial to read the magnitudes or counters of.
+    """
+    with_trials = [run for run in runs if run.n_trials]
+    if not with_trials:
+        return None
+    return {"first": with_trials[0].first_side, "last": with_trials[-1].last_side}
+
+
 def _reconcile_session(sess, previous):
     """Reconcile one session in place; return the last run's end state."""
     frames = _session_frames(sess)
@@ -566,6 +577,7 @@ def _reconcile_session(sess, previous):
     runs, last_end_state = _reconcile_runs(frames, snapshots, variables, previous, kinds, mode)
     _write_session(sess, *_combine_runs(runs, kinds))
     sess["run_boundaries"] = [run.boundary for run in runs]
+    sess["session_edges"] = _session_edges(runs)
     if runs:
         last_end_state["diagnostics"] = sess["reversal_diagnostics"]
     return last_end_state
@@ -620,7 +632,11 @@ def reconcile_reversals(data):
     each with a ``"source"`` such as ``"counter_rollback"``), ``"run_boundaries"`` (one
     :func:`~src.behavior_import.run_boundaries.describe_boundary` description per recording: the
     gap between the previous recording's last trial and this one's first, ``None`` for the very
-    first recording or when the previous recording is another problem) and
+    first recording or when the previous recording is another problem),
+    ``"session_edges"`` (``{"first", "last"}``: the first trial of the session's first recording
+    with trials and the last trial of its last one, each as a side of a boundary in the layout
+    of :func:`~src.behavior_import.run_boundaries.describe_boundary`; ``None`` without trials,
+    so that two sessions of a problem can be compared whatever lies between them in time) and
     ``"blocks_before_boundary_reconciliation"``. It overwrites ``"blocks"``, and
     ``"good_reversals"`` / ``"bad_reversals"`` (with ``"has_good"`` / ``"has_bad"`` set) for
     recorded kinds, with the corrected per-trial cumulative counts.
