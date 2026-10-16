@@ -301,6 +301,26 @@ def classify_task_name(task_name):
     )
 
 
+def known_task_type(session):
+    """The task type of a session dict: its ``task_type``, else the type its task name gives.
+
+    Args:
+        session (dict): A session dict with the importer's ``task_type`` (set when the import
+            classified task types) and ``task_name``.
+
+    Returns:
+        str | None: ``"blocked"`` or ``"drifting"``; ``None`` when the session carries neither
+        (hand-built data), so that the caller applies its default deliberately.
+
+    Raises:
+        ValueError: If there is a task name that is unrecognised or matches both types.
+    """
+    if session.get("task_type") is not None:
+        return session["task_type"]
+    name = session.get("task_name")
+    return classify_task_name(name) if name else None
+
+
 def numbering_signature(session):
     """What must stay equal for sessions to belong to one problem: layout and task type.
 

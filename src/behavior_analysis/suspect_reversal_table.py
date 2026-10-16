@@ -1,9 +1,11 @@
-"""A table of the good reversals that the analyses drop, to review by hand.
+"""A table of the good reversals and block changes that the analyses drop, to review by hand.
 
 :func:`~src.behavior_analysis.get_good_reversal_info.get_good_reversal_info` leaves out every
-good reversal whose best tower is unchanged or tied, or whose reward magnitude is missing. A
-reversal logged while nothing was recording (between runs, or after a run's last trial) is
-checked like any other and dropped only when that check fails. This module lists the dropped
+good reversal (blocked task) whose best tower is unchanged or tied, every block change (drifting
+task) where the zero arm did not move, and any whose reward magnitude is missing. An unchanged
+best tower is normal in the drifting task and is not listed for it. A reversal logged while
+nothing was recording (between runs, or after a run's last trial) is checked like any other and
+dropped only when that check fails. This module lists the dropped
 reversals, one row each, with what is needed to find them in the raw files. The rows come from
 the same function as the analyses' drops
 (:func:`~src.behavior_analysis.get_good_reversal_info.collect_good_reversals`), so the table
@@ -21,7 +23,8 @@ Columns (see :data:`COLUMNS`):
   restarts in every recording, so it is the number to search for in ``file``; it is not
   ``session_trial``. Empty when the raw recordings are not kept;
 - ``print_time``: the time column of that print row in the file (seconds), empty with ``num_t``;
-- ``reason``: ``best tower unchanged``, ``tie for best`` or ``missing magnitude``;
+- ``reason``: ``best tower unchanged``, ``tie for best`` or ``missing magnitude`` (blocked
+  task); ``zero arm unchanged`` or ``missing magnitude`` (drifting task);
 - ``logged_between_runs``: true if the reversal was logged while nothing was recording (between
   runs, or after a run's last trial). It was checked like any other, so ``reason`` is the real
   result of the check;
