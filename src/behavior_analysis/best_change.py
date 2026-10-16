@@ -38,8 +38,8 @@ def best_change_problem(before, after):
             it was not logged.
 
     Returns:
-        str | None: ``"missing magnitude"`` if any magnitude is ``None`` (the best tower is unknown),
-        ``"tie for best"`` or ``"best tower unchanged"`` if the first-listed best tower is
+        str | None: ``"missing magnitude"`` if any magnitude is ``None`` (the best tower is
+        unknown), ``"tie for best"`` or ``"best tower unchanged"`` if the first-listed best tower is
         the same on both sides (the tie wording tells whoever investigates that a tie, not an
         off-by-one, may be behind it), else ``None``.
     """

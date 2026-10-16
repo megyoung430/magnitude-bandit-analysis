@@ -11,8 +11,8 @@ def first_leave_fractions(counts: dict) -> tuple[float, float] | None:
             :func:`src.behavior_analysis.get_first_leave_after_good_reversals.get_first_leave_after_good_reversals`.
 
     Returns:
-        tuple[float, float] | None: ``(new_best_fraction, third_fraction)``, or ``None`` if the subject had no
-        reversals (``total == 0``).
+        tuple[float, float] | None: ``(new_best_fraction, third_fraction)``, or ``None`` if
+        the subject had no reversals (``total == 0``).
     """
     if counts["total"] == 0:
         return None

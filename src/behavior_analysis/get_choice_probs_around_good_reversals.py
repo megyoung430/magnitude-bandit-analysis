@@ -412,8 +412,8 @@ def remove_trials_after_bad_rev(good_windows, all_good_idx, all_bad_idx, include
             is cut just before it. Default True.
 
     Returns:
-        dict: A new dict (inputs are not modified) with the same structure as *good_windows* but with the
-        ``"post"`` lists in ``"choices_by_tower"``, ``"choices_by_rank"``, and
+        dict: A new dict (inputs are not modified) with the same structure as
+        *good_windows* but with the ``"post"`` lists in ``"choices_by_tower"``, ``"choices_by_rank"``, and
         ``"trial_window_idx"`` truncated where a bad reversal intervenes.
         Each modified reversal dict gains two extra keys:
         ``"removed_bad_idx"`` (int | None) and

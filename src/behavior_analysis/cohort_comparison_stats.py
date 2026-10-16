@@ -174,7 +174,8 @@ def mouse_rank_cell(label: str, problem, mouse: str, rows: list[dict]) -> RankCe
         label (str): Cohort name.
         problem (int): Problem number.
         mouse (str): Mouse identifier.
-        rows (list[dict]): The mouse's per-reversal rank-count dicts, as for :func:`rank_proportions`.
+        rows (list[dict]): The mouse's per-reversal rank-count dicts, as for
+            :func:`rank_proportions`.
 
     Returns:
         RankCell | None: The cell, or ``None`` if the mouse has no eligible trials.

@@ -71,15 +71,15 @@ def get_block_lengths(subjects_trials, boundary="all"):
     to the second reversal, and so on.
 
     Args:
-        subjects_trials: Nested dict ``{subject: {session_key: session_dict}}``.
-        boundary: Which reversal type to use as block boundaries.  One of:
+        subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        boundary (str): Which reversal type to use as block boundaries.  One of:
 
             - ``"all"`` (default) — union of good and bad reversal indices.
             - ``"good"`` — good reversal indices only.
             - ``"bad"`` — bad reversal indices only.
 
     Returns:
-        Dict with keys:
+        dict: Dict with keys:
 
         - ``"boundary"`` (str): The *boundary* argument used.
         - ``"per_mouse_blocklens"`` (dict): ``{subject: {block_num: length}}``

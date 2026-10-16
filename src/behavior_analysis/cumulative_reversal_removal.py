@@ -45,9 +45,9 @@ def post_window_steps(x: ArrayLike) -> tuple[np.ndarray, np.ndarray, np.ndarray]
         x (ArrayLike): Trial offsets relative to the anchor; may contain NaN.
 
     Returns:
-        tuple[np.ndarray, np.ndarray, np.ndarray]: ``(post_mask, steps, step_idx)``: which entries of *x* are finite and
-        ``>= 0``; the sorted unique rounded offsets of those entries; and, for
-        each post entry, the index of its offset in ``steps``.
+        tuple[np.ndarray, np.ndarray, np.ndarray]: ``(post_mask, steps, step_idx)``: which
+        entries of *x* are finite and ``>= 0``; the sorted unique rounded offsets of those
+        entries; and, for each post entry, the index of its offset in ``steps``.
     """
     x = np.asarray(x, dtype=float)
     post_mask = np.isfinite(x) & (x >= 0)
