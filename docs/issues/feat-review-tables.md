@@ -37,8 +37,41 @@ problem (number within the type and overall).
 
 ## Decisions
 
-(see the sections below; filled in as the work proceeds)
+- **Import log.** `ImportLog` (skips, flags, warnings) is threaded as an optional `log=None`
+  argument; what the importer loads is unchanged. The load_trials cache stores the log
+  (`CACHE_FORMAT_VERSION=2`), so skip records survive a cached load.
+- **Warnings.** `record_warnings()` wraps `warnings.showwarning`, records and forwards, instead of
+  `catch_warnings(record=True)`: console output and timing stay as they were. The log holds what
+  Python's filters let through (what the console shows), identical warnings aggregated in
+  `n_times`.
+- **Settings comparisons.** Keys are the documented constant `SETTINGS_KEYS` (timing and
+  thresholds, reward, block structure, cues, problem, `found_ports`). Counters, dynamic state,
+  `with_init_rew` and `hw_solenoid_calibration` are left out. `found_ports` False to True in a
+  problem's first session is not listed. A recording without a complete `run_end` (truncated) is
+  skipped from the comparisons.
+- **`likely_cause`** of a starting-magnitude difference, first match wins: logged change and
+  magnitudes consistent; logged change but inconsistent; normal drift (drifting task, zero arm
+  unchanged, steps within 2); reset to the initial magnitudes; previous session had no trials;
+  no logged change; cannot compare.
+- **Diagnostics** are written per problem only; the pooled drifting analyses repeat them.
+- **Skipped sessions** that belong to no problem are placed after the mouse's previous problem.
 
 ## Results change
 
-(filled in at the end)
+- New CSVs in `tables/open-field/<cohort>/`: `suspect_sessions`, `suspect_starting_reward_mags`,
+  `no_trial_sessions`, `no_second_best`, `warnings_log`, and the four diagnostic tables.
+- `problem_map.csv` gains `initiation_tower`, `choice_towers`, `n_sessions`, `session_range`;
+  existing columns unchanged.
+- `poke_trial_summary`, `reversal_aligned_arms_counts`, `value_change_events` (was the
+  contamination table) and `value_change_bin_counts` are no longer written into the figure
+  folders; they are in the tables folder with `task_type` and `problem_in_type` columns.
+- No figure and no analysis number changes; the console output is unchanged.
+- Staged data: MY_71_R (cohort 1) `no_second_best` is empty (every trial has exactly one zero arm);
+  ses-231 starts with B1=2 against 3 at the end of ses-230, labelled normal drift. MY_175_L
+  (cohort 3) ses-33 `found_ports` False to True is exempt; ses-36 has no `run_end` and is skipped
+  from the settings comparisons; its starting magnitudes differ from ses-33's end by a logged
+  reversal (consistent).
+- Pre-existing, not from this change: cohort 3 stops in `run_choice_probability_analysis`
+  (`np.vstack` on no arrays, MY_175_L has no good reversals) on the base branch too. The tables
+  that do not need the analyses are written before it stops; the diagnostics and `warnings_log`
+  are not.

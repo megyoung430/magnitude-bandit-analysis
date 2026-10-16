@@ -167,7 +167,11 @@ def test_problem_map_table_columns_and_rows():
 def test_problem_map_names_the_towers_and_compresses_the_session_numbers():
     keys = [f"ses-{n}_date-202601{n:02d}" for n in (3, 4, 5, 6, 7, 8, 20)]
     sessions = {
-        key: {**session(DRIFTING_NAME), "choice_towers": {"C1", "A3", "B1"}, "initiation_tower": "A2"}
+        key: {
+            **session(DRIFTING_NAME),
+            "choice_towers": {"C1", "A3", "B1"},
+            "initiation_tower": "A2",
+        }
         for key in keys
     }
     (row,) = problem_map_table({1: {"A": sessions}}).to_dict("records")
