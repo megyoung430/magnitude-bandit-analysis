@@ -169,7 +169,6 @@ def test_review_settings_and_provisional_numbers_are_recorded(tmp_path):
         True,
     )
     assert "no port-finding trials" in flag.reason
-    assert "provisional" in flag.reason
 
 
 def test_pretraining_session_without_trials_still_gets_a_flag(tmp_path):

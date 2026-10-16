@@ -353,20 +353,25 @@ def evidence_reasons(session):
     return ()
 
 
-def describe_flag(flag, *, evidence, provisional, task_types_classified, task_name=None):
-    """A flagged session's outcome in plain words, for the review table.
+PROVISIONAL_REASON = (
+    "the last run of the mouse's data is a single session, so its problem number is "
+    "provisional: a later session can turn it into a settings error"
+)
+
+
+def describe_flag(flag, *, evidence, task_types_classified, task_name=None):
+    """What a problem flag means for one session, in plain words, for the review table.
 
     Args:
         flag (str | None): The session's numbering flag, or ``None``.
         evidence (dict): The session's ``settings_evidence`` (``starts_found_ports_false`` and
             ``has_port_finding_trials`` are read).
-        provisional (bool): Whether the session's number is provisional.
         task_types_classified (bool): Whether the task type was part of the numbering.
         task_name (str | None): The session's task name, named for pretraining.
 
     Returns:
-        str: One sentence per fact: the flag's meaning, then the provisional note, joined by
-        ``"; "``. Empty for an unflagged, non-provisional session.
+        str: The flag's meaning; empty for ``None``. The note for a provisional number is
+        :data:`PROVISIONAL_REASON`.
 
     Raises:
         ValueError: For an unknown *flag*.
@@ -397,13 +402,7 @@ def describe_flag(flag, *, evidence, provisional, task_types_classified, task_na
         raise ValueError(
             f"unknown problem flag {flag!r}; expected one of {sorted(map(str, meanings))}"
         )
-    parts = [meanings[flag]] if meanings[flag] else []
-    if provisional:
-        parts.append(
-            "last run of the mouse's data is a single session, so its problem number is "
-            "provisional: a later session can turn it into a settings error"
-        )
-    return "; ".join(parts)
+    return meanings[flag] or ""
 
 
 def _layout_runs(facts, indices):

@@ -66,7 +66,7 @@ class SessionFlag(NamedTuple):
         flag (str | None): The numbering flag, ``None`` for a provisional number without a flag.
         problem (int | None): The overall problem number, ``None`` if the session is left out.
         provisional (bool): Whether a later session can still change the number.
-        reason (str): The reason in plain words.
+        reason (str): What ``flag`` means for this session, in plain words; empty without a flag.
         task_name (str | None): The session's ``task_name``.
     """
 

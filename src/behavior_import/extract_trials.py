@@ -1088,7 +1088,6 @@ def flagged_sessions(data):
             reason = describe_flag(
                 flag,
                 evidence=sess["settings_evidence"],
-                provisional=provisional,
                 task_types_classified=bool(sess.get("task_types_classified")),
                 task_name=sess.get("task_name"),
             )
