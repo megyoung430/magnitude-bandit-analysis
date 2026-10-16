@@ -22,19 +22,41 @@ _NUMBER_RE = re.compile(r"ses-(\d+)")
 
 
 def session_date(key):
-    """The ``date-YYYYMMDD`` of a session key as an int, or ``None``."""
+    """The ``date-YYYYMMDD`` of a session key as an int, or ``None``.
+
+    Args:
+        key (str): A session key such as ``"ses-3_date-20260102"``.
+
+    Returns:
+        int | None: The date as ``YYYYMMDD`` (e.g. ``20260102``), or ``None`` if the key has none.
+    """
     match = _DATE_RE.search(key)
     return int(match[1]) if match else None
 
 
 def session_number(key):
-    """The ``ses-<n>`` number of a session key as an int, or ``None``."""
+    """The ``ses-<n>`` number of a session key as an int, or ``None``.
+
+    Args:
+        key (str): A session key such as ``"ses-3_date-20260102"``.
+
+    Returns:
+        int | None: The session number, or ``None`` if the key has no ``ses-<n>``.
+    """
     match = _NUMBER_RE.search(key)
     return int(match[1]) if match else None
 
 
 def session_sort_key(session_id):
-    """Chronological sort key: date, then session number, then the key (see the module doc)."""
+    """Chronological sort key: date, then session number, then the key (see the module doc).
+
+    Args:
+        session_id (str): A session key such as ``"ses-3_date-20260102"``.
+
+    Returns:
+        tuple[float | int, float | int, str]: ``(date, number, session_id)``; a missing date or
+        number is ``inf``, so such keys sort last.
+    """
     date, number = session_date(session_id), session_number(session_id)
     return (
         float("inf") if date is None else date,
@@ -45,6 +67,13 @@ def session_sort_key(session_id):
 
 def check_session_order(subject, keys):
     """Raise if the session keys of *subject* cannot be ordered unambiguously.
+
+    Args:
+        subject (str): Subject id, named in the error message.
+        keys (Iterable[str]): The subject's session keys.
+
+    Returns:
+        None: Returns nothing when the keys are consistent.
 
     Raises:
         ValueError: Naming *subject* and the sessions, if a key has no ``ses-<n>``, one number
@@ -79,7 +108,15 @@ def check_session_order(subject, keys):
 def ordered_session_keys(subject, keys):
     """*keys* of one subject in :func:`session_sort_key` order, after checking them.
 
-    Raises ``ValueError`` as :func:`check_session_order` does.
+    Args:
+        subject (str): Subject id, named in the error message.
+        keys (Iterable[str]): The subject's session keys (any iterable, e.g. a dict).
+
+    Returns:
+        list[str]: The keys, oldest first.
+
+    Raises:
+        ValueError: As :func:`check_session_order` does.
     """
     keys = list(keys)
     check_session_order(subject, keys)

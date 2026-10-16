@@ -27,10 +27,10 @@ def make_arm_mapping(tower_keys: Any) -> dict[str, str]:
     ``"Arm3"``, ...
 
     Args:
-        tower_keys: An iterable of tower identifiers.
+        tower_keys (Iterable[str]): Tower identifiers.
 
     Returns:
-        ``{tower_key: "ArmN"}`` for each key.
+        dict[str, str]: ``{tower_key: "ArmN"}`` for each key.
     """
     keys_sorted = sorted(list(tower_keys))
     return {k: f"Arm{i + 1}" for i, k in enumerate(keys_sorted)}
@@ -40,11 +40,11 @@ def remap_tower_dict_to_arms(d: dict[str, Any], mapping: dict[str, str]) -> dict
     """Remap a ``{tower: data}`` dict to ``{ArmN: data}`` using a mapping.
 
     Args:
-        d: Dict keyed by tower identifiers.
-        mapping: ``{tower: arm_name}`` as produced by :func:`make_arm_mapping`.
+        d (dict[str, Any]): Dict keyed by tower identifiers.
+        mapping (dict[str, str]): ``{tower: arm_name}`` as produced by :func:`make_arm_mapping`.
 
     Returns:
-        New dict keyed by arm names; towers absent from *mapping* are skipped.
+        dict[str, Any]: New dict keyed by arm names; towers absent from *mapping* are skipped.
     """
     return {mapping[tower]: arr for tower, arr in d.items() if tower in mapping}
 
@@ -59,11 +59,13 @@ def get_chosen_reward_per_trial(
     trial.
 
     Args:
-        choices_by_tower: ``{tower: list[0|1]}`` - one-hot choice indicator.
-        reward_magnitudes_by_tower: ``{tower: list[float]}`` - reward magnitudes.
+        choices_by_tower (dict[str, list[int]]): ``{tower: list[0|1]}`` - one-hot choice indicator.
+        reward_magnitudes_by_tower (dict[str, list[float]]): ``{tower: list[float]}`` - reward
+            magnitudes.
 
     Returns:
-        List of reward magnitudes length ``n_trials``.
+        list[float]: Reward magnitude of the chosen tower on each trial, of length ``n_trials``
+        (the shortest list among the towers; empty if there are no towers).
 
     Raises:
         KeyError: If *choices_by_tower* is missing a tower present in
@@ -109,16 +111,16 @@ class RowCounts:
     ``n_trials = n_dropped_no_history + n_dropped_nan + n_rows``.
 
     Attributes:
-        n_trials: Trials of the subject across all sessions (``len(trial)``).
-        n_dropped_no_history: Trials set aside because a lag has no real trial
+        n_trials (int): Trials of the subject across all sessions (``len(trial)``).
+        n_dropped_no_history (int): Trials set aside because a lag has no real trial
             behind it. With ``reset_history_per_session=True``: the first
             ``n_lags`` trials of every session. With ``False``: the arm design
             drops only trial 0 (the next ``n_lags - 1`` trials are kept, their
             lags reaching before the start filled with zeros); the rank design
             drops the first ``max(n_lags, 1)`` trials.
-        n_dropped_nan: Remaining trials with a NaN response (true choice) or a
+        n_dropped_nan (int): Remaining trials with a NaN response (true choice) or a
             NaN in any regressor.
-        n_rows: Rows returned.
+        n_rows (int): Rows returned.
     """
 
     n_trials: int
@@ -132,14 +134,14 @@ class GlmDesign:
     """Design matrices of all subjects together with how they were built.
 
     Attributes:
-        regressors: ``{subject: ndarray(n_rows, n_cols)}``.
-        true_choices: ``{subject: ndarray(n_rows, 3)}``.
-        col_labels: One label per column of every regressor matrix.
-        row_counts: ``{subject: RowCounts}``.
-        n_lags: Number of history lags.
-        reset_history_per_session: Whether lags were restricted to the trial's
+        regressors (dict[str, np.ndarray]): ``{subject: ndarray(n_rows, n_cols)}``.
+        true_choices (dict[str, np.ndarray]): ``{subject: ndarray(n_rows, 3)}``.
+        col_labels (list[str]): One label per column of every regressor matrix.
+        row_counts (dict[str, RowCounts]): ``{subject: RowCounts}``.
+        n_lags (int): Number of history lags.
+        reset_history_per_session (bool): Whether lags were restricted to the trial's
             own session.
-        reset_beliefs_per_session: Rank design only (``None`` for the arm
+        reset_beliefs_per_session (bool | None): Rank design only (``None`` for the arm
             design, which has no beliefs): whether the believed ranks
             (last-seen magnitudes) started empty in every session. Only
             affects the result with ``use_believed=True``.
@@ -539,6 +541,25 @@ def format_glm_input_with_info(
     Same as :func:`format_glm_input`, but returns a :class:`GlmDesign` that also
     records ``n_lags``, ``reset_history_per_session`` and, per subject, how many
     trials were dropped and why (:class:`RowCounts`).
+
+    Args:
+        data (dict[str, Any]): ``{subject: {session_key: session_dict}}`` as returned by
+            ``import_data()``.
+        n_lags (int): Number of history lags to include. Default 4.
+        drop_redundant_cols (bool): If ``True``, removes the ``Arm3`` columns for
+            choice and interaction terms to make the design matrix full rank. Default True.
+        reset_history_per_session (bool): Keyword-only. If ``True`` a lag never crosses a
+            session boundary; if ``False`` history runs across sessions. See
+            :func:`format_glm_input`. Default True.
+
+    Returns:
+        GlmDesign: The per-subject regressors and true choices, the column labels, and the
+        settings and row counts they were built with.
+
+    Raises:
+        ValueError: As for :func:`format_glm_input`, and if no subject has any trials.
+        TypeError: If the reward of a chosen tower that enters a lag is missing
+            (``None``) and ``n_lags >= 1``.
     """
     return _build_design(
         data,
@@ -569,12 +590,14 @@ def format_glm_input(
     For rank-ordered arms use :func:`format_glm_input_by_rank`.
 
     Args:
-        data: Raw subjects data as returned by ``import_data()``.
-        n_lags: Number of history lags to include (default: 4).
-        drop_redundant_cols: If ``True``, removes the ``Arm3`` columns for
-            choice and interaction terms to make the design matrix full rank
-            (default: ``True``).
-        reset_history_per_session: How lags treat session boundaries
+        data (dict[str, Any]): Raw subjects data as returned by ``import_data()``:
+            ``{subject: {session_key: session_dict}}``. Subjects without trials are
+            skipped with a warning.
+        n_lags (int): Number of history lags to include. Default 4.
+        drop_redundant_cols (bool): If ``True``, removes the ``Arm3`` columns for
+            choice and interaction terms to make the design matrix full rank.
+            Default True.
+        reset_history_per_session (bool): How lags treat session boundaries
             (keyword-only, default ``True``).
 
             - ``True``: a lag never crosses a session boundary. The first
@@ -590,8 +613,8 @@ def format_glm_input(
     settings used.
 
     Returns:
-        A three-tuple ``(regressors_across_subjects, true_choices_across_subjects,
-        col_labels)`` where:
+        tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]: A three-tuple
+        ``(regressors_across_subjects, true_choices_across_subjects, col_labels)`` where:
 
         - *regressors_across_subjects* is ``{subject: ndarray(n_rows, n_cols)}``,
         - *true_choices_across_subjects* is ``{subject: ndarray(n_rows, 3)}``,
@@ -782,6 +805,28 @@ def format_glm_input_by_rank_with_info(
     that also records ``n_lags``, ``reset_history_per_session``,
     ``reset_beliefs_per_session`` and, per subject, how many trials were dropped
     and why (:class:`RowCounts`).
+
+    Args:
+        data (dict[str, Any]): ``{subject: {session_key: session_dict}}`` as returned by
+            ``import_data()``.
+        use_believed (bool): If True, use believed rank; if False, use true rank. Default False.
+        n_lags (int): Number of history lags. Default 4.
+        drop_redundant_cols (bool): Drop "Chose Third" and "Third*Reward" columns. Default True.
+        reset_history_per_session (bool): Keyword-only. If ``True`` a lag never crosses a
+            session boundary; if ``False`` history runs across sessions. See
+            :func:`format_glm_input_by_rank`. Default True.
+        reset_beliefs_per_session (bool): Keyword-only. If ``True`` the believed ranks start
+            empty in every session; only matters with ``use_believed=True``. See
+            :func:`format_glm_input_by_rank`. Default True.
+
+    Returns:
+        GlmDesign: The per-subject regressors and true choices (columns chose best, second,
+        third), the column labels, and the settings and row counts they were built with.
+
+    Raises:
+        ValueError: As for :func:`format_glm_input_by_rank`, and if no subject has any trials.
+        TypeError: If a magnitude that has to be sorted or multiplied into the history is
+            missing (``None``).
     """
     return _build_design(
         data,
@@ -837,12 +882,12 @@ def format_glm_input_by_rank(
     matrix has 1 + 2*n_lags + n_lags + 2*n_lags = 1 + 5*n_lags columns.
 
     Args:
-        data:                Raw subjects data.
-        use_believed:        If True, use believed rank; if False, use true rank.
-        n_lags:              Number of history lags (default 4).
-        drop_redundant_cols: Drop "Chose Third" and "Third*Reward" columns
-                             (default True).
-        reset_history_per_session: How lags treat session boundaries
+        data (dict[str, Any]): Raw subjects data, ``{subject: {session_key: session_dict}}``.
+        use_believed (bool): If True, use believed rank; if False, use true rank. Default False.
+        n_lags (int): Number of history lags. Default 4.
+        drop_redundant_cols (bool): Drop "Chose Third" and "Third*Reward" columns.
+            Default True.
+        reset_history_per_session (bool): How lags treat session boundaries
                              (keyword-only, default True).
 
                              - True: a lag never crosses a session boundary.
@@ -852,7 +897,7 @@ def format_glm_input_by_rank(
                                across their boundaries; the first
                                ``max(n_lags, 1)`` trials of the merged data
                                are dropped.
-        reset_beliefs_per_session: Independent of the history option, and only
+        reset_beliefs_per_session (bool): Independent of the history option, and only
                              relevant with ``use_believed=True`` (keyword-only,
                              default True).
 
@@ -882,7 +927,8 @@ def format_glm_input_by_rank(
     and the settings used.
 
     Returns:
-        A three-tuple ``(regressors, true_choices, col_labels)`` where:
+        tuple[dict[str, np.ndarray], dict[str, np.ndarray], list[str]]: A three-tuple
+        ``(regressors, true_choices, col_labels)`` where:
 
         - *regressors* is ``{subject: ndarray(n_rows, n_cols)}``,
         - *true_choices* is ``{subject: ndarray(n_rows, 3)}``

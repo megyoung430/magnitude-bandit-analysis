@@ -121,15 +121,19 @@ def match_trial_budget(
     after its final retained trial, but excluding later reversals.
 
     Args:
-        subjects: ``{mouse: {session_key: session_dict}}``.
-        subject_numbers: ``{mouse: subject number}``.
-        reference_numbers: Subject numbers whose mean trial count sets the cap.
-        trial_budget: Fixed positive int cap; ``None`` uses the reference mean.
+        subjects (dict): ``{mouse: {session_key: session_dict}}``.
+        subject_numbers (dict): ``{mouse: subject number}``; must contain every mouse in
+            *subjects*.
+        reference_numbers (tuple[int, ...]): Subject numbers whose mean trial count sets the
+            cap. Default ``(5, 6, 7, 8)``.
+        trial_budget (int | None): Fixed positive int cap; ``None`` uses the reference mean.
 
     Returns:
-        ``(matched, report)``: *matched* has the same layout as *subjects* and
-        omits mice without trials; *report* holds the reference counts and mean,
-        the budget, and one row per mouse under ``"mice"``.
+        tuple[dict, dict]: ``(matched, report)``. *matched* has the same layout as *subjects*
+        and omits mice without trials; *report* holds the reference counts and mean,
+        the budget, and one row per mouse under ``"mice"`` (keys ``mouse``,
+        ``subject_number``, ``available_trials``, ``retained_trials``, ``below_budget``,
+        ``reference_mouse``).
     """
     counts = _trial_counts(subjects)
     budget, reference, mean = _resolve_budget(

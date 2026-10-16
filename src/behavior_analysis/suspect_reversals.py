@@ -47,6 +47,13 @@ def good_event_counts(session):
 
     The index is the trial at which the event enters the good counter; an index equal to the
     number of trials is an event after the session's last trial.
+
+    Args:
+        session (dict): A session dict, optionally with ``reversal_boundary_events``
+            (``{"kind": "good" | "bad", "index": int, "count": int}`` entries).
+
+    Returns:
+        Counter: ``{trial index: number of good reversals}``; empty if there are none.
     """
     events = Counter()
     for event in session.get("reversal_boundary_events", []):
@@ -59,14 +66,14 @@ def count_suspect_good_reversals(session):
     """Suspect and uncheckable good reversals of one session.
 
     Args:
-        session: A session dict with ``good_reversals`` (the corrected per-trial counter),
+        session (dict): A session dict with ``good_reversals`` (the corrected per-trial counter),
             ``reward_magnitudes_by_tower`` and optionally ``reversal_boundary_events``.
 
     Returns:
-        ``{"suspect": int, "uncheckable": int}``. *suspect* counts the within-run increments of
-        the good counter where the best tower is unchanged or tied. *uncheckable* counts the
-        increments with a missing magnitude (all of them if the session has no reward
-        magnitudes), any reversal on the first trial, plus every event logged while nothing
+        dict[str, int]: ``{"suspect": int, "uncheckable": int}``. *suspect* counts the
+        within-run increments of the good counter where the best tower is unchanged or tied.
+        *uncheckable* counts the increments with a missing magnitude (all of them if the
+        session has no reward magnitudes), any reversal on the first trial, plus every event logged while nothing
         was recording. A session without a good counter has neither.
     """
     rewards = session.get("reward_magnitudes_by_tower") or {}

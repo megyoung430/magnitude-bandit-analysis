@@ -197,15 +197,49 @@ report all failures at the end.
   "drifting problem 1" lines up across mice even if their blocked problems differ in number.
   All sessions of one problem must have the same type.
 - **Blocked** problems: choice probabilities, first leave, number of reversals, true-value rank
-  proportions, single sessions. **Drifting** problems: number of reversals, true- and
-  believed-value rank proportions, single sessions, plus rank proportions pooled over all of a
-  mouse's drifting problems (ranks are computed within each problem first).
-- **Outputs** (under `results/`, which is git-ignored):
-  `figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/`,
-  `figures/open-field/cohort-0N/drifting/all-drifting-problems/choice-stats/`,
-  `figures/open-field/cohort-0N/trial-block-summaries/all-problems/`, and
-  `tables/open-field/cohort-0N/problem_map.csv` (mouse, task type, number within type, overall
-  problem, sessions) and `suspect_reversals.csv` (the good reversals the analyses drop, for
+  proportions, long pokes and maze heatmaps, single sessions. **Drifting** problems: number of
+  reversals, true- and believed-value rank proportions, long pokes and maze heatmaps, the three
+  drifting-only analyses below, and single sessions, plus the rank proportions and the three
+  drifting-only analyses pooled over all of a mouse's drifting problems. Ranks, beliefs and
+  reversal windows are computed within each problem first, so nothing crosses a problem boundary.
+- **Drifting-only analyses** (never run on blocked problems; switches on the drifting
+  `AnalysisSelection`, all on in `DRIFTING_SELECTION`): `run_value_psychometric_analysis`
+  (`value-psychometrics/`: heatmaps and psychometric curves of P(best) and P(second) by true and
+  believed value), `run_reversal_aligned_arm_analysis` (`reversal-aligned-arms/`: arm choice
+  probability and reward magnitude around block changes) and `run_value_change_analysis`
+  (`value-change/`: choice probabilities around changes in the best or second value). Turn one off
+  by passing `drifting_selection=DRIFTING_SELECTION.model_copy(update={"run_value_change_analysis":
+  False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
+  in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).
+- **Long pokes and maze heatmaps** (`run_poke_analysis`, every problem, `long-pokes/`): mean
+  non-choice long pokes per trial per relative session, and per-mouse maze maps of the pokes after
+  the choice and the long pokes after initiation. Green outlines are the problem's choice ports and
+  red outlines the choice ports of the problem the mouse ran immediately before, whatever its task
+  type (so drifting problem 1 is outlined with the last blocked problem's ports); blue is the
+  initiation port. The single-session figures carry the same maps for their session, with the red
+  outlines. Every session's raw events are parsed once for both. A session whose raw events cannot
+  be read as trials warns and is drawn without maps (and noted in `Poke Trial Summary.csv`); parsed
+  trials that disagree with the imported trials stop the run with a `PokeAlignmentError`.
+- **Outputs** (under `results/`, which is git-ignored), for cohort `cohort-0N`:
+
+  | Folder under `results/figures/open-field/cohort-0N/` | Contents |
+  | --- | --- |
+  | `blocked/problem-KK/reversal-stats/` | choice probabilities around good reversals, first leave, reversal counts |
+  | `blocked/problem-KK/choice-stats/` | true-value rank proportions |
+  | `blocked/problem-KK/long-pokes/` | long pokes per relative session, maze heatmaps, four CSVs |
+  | `blocked/problem-KK/single-sessions/<mouse>/<session>/` | one overview figure per session |
+  | `drifting/problem-KK/reversal-stats/` | reversal counts |
+  | `drifting/problem-KK/choice-stats/` | true- and believed-value rank proportions |
+  | `drifting/problem-KK/value-psychometrics/` | value heatmaps and psychometric curves |
+  | `drifting/problem-KK/reversal-aligned-arms/` | arm choice probability and magnitude around block changes, counts CSV |
+  | `drifting/problem-KK/value-change/` | choice probabilities around value changes, contamination and bin-count CSVs |
+  | `drifting/problem-KK/long-pokes/`, `.../single-sessions/` | as for blocked |
+  | `drifting/all-drifting-problems/choice-stats/` | rank proportions pooled over the drifting problems |
+  | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change}/` | the three drifting-only analyses pooled over the drifting problems |
+  | `trial-block-summaries/all-problems/` | trial and block-length summaries |
+
+  Tables go to `tables/open-field/cohort-0N/`: `problem_map.csv` (mouse, task type, number within
+  type, overall problem, sessions) and `suspect_reversals.csv` (the good reversals the analyses drop, for
   review by hand). In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
   session; to find a row in the raw file, search `file` for `"num_t": <num_t>` (the run-local,
   1-based trial number pyControl printed) or for the row at `print_time`.

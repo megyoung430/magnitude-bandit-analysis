@@ -280,12 +280,21 @@ def test_despine_hides_only_the_top_and_right_spines():
     }
 
 
-def test_jittered_draws_from_the_global_stream_and_skips_it_when_zero():
+def test_jittered_is_seeded_by_default_and_leaves_the_global_stream_alone():
     xs = np.arange(4.0)
     np.random.seed(3)
-    expected = xs + np.random.uniform(-0.1, 0.1, size=4)
-    np.random.seed(3)
+    expected = xs + np.random.default_rng(0).uniform(-0.1, 0.1, size=4)
     np.testing.assert_array_equal(jittered(xs, 0.1), expected)
-    np.random.seed(3)
+    np.testing.assert_array_equal(jittered(xs, 0.1), expected)  # same every call
     np.testing.assert_array_equal(jittered(xs, 0), xs)
-    assert np.random.uniform() == np.random.RandomState(3).uniform()  # stream untouched
+    assert np.random.uniform() == np.random.RandomState(3).uniform()  # global stream untouched
+
+
+def test_jittered_continues_a_given_generator_so_lines_get_different_noise():
+    xs = np.arange(4.0)
+    rng = np.random.default_rng(5)
+    first, second = jittered(xs, 0.1, rng), jittered(xs, 0.1, rng)
+    assert not np.array_equal(first, second)
+    expected = np.random.default_rng(5)
+    np.testing.assert_array_equal(first, xs + expected.uniform(-0.1, 0.1, size=4))
+    np.testing.assert_array_equal(second, xs + expected.uniform(-0.1, 0.1, size=4))

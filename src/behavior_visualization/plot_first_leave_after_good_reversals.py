@@ -106,12 +106,17 @@ def plot_first_leave_panel(
     """Draw first-leave proportions (new-best vs third arm) with per-subject lines.
 
     Args:
-        mean: ``{"new_best", "third", "num_reversals"}``; see
+        mean (dict): ``{"new_best", "third", "num_reversals"}``; see
             :func:`plot_first_leave_after_good_reversals`.
-        se: ``{"new_best", "third"}`` standard errors across subjects.
-        per_subject_counts: ``{subject: {"new_best", "third", "total"}}``.
-        p_value: Annotated above the bars when given.
-        ax: Axes to draw into; a new 6.5 x 5.5 inch figure is created if ``None``.
+        se (dict): ``{"new_best", "third"}`` standard errors across subjects.
+        per_subject_counts (dict): ``{subject: {"new_best", "third", "total"}}`` integer
+            counts; subjects without reversals are not drawn.
+        p_value (float | None): Annotated above the bars when given. Default None.
+        ax (plt.Axes | None): Axes to draw into; a new 6.5 x 5.5 inch figure is created if
+            ``None``. Default None.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     means = [mean["new_best"], mean["third"]]
     errs = [se["new_best"], se["third"]]
@@ -140,17 +145,17 @@ def plot_first_leave_after_good_reversals(
     with a p-value.
 
     Args:
-        mean: Dict with keys ``"new_best"`` (float), ``"third"`` (float), and
+        mean (dict): Dict with keys ``"new_best"`` (float), ``"third"`` (float), and
             ``"num_reversals"`` (int) as returned by
             :func:`src.behavior_analysis.get_first_leave_after_good_reversals.average_first_leave_across_subjects`.
-        se: Dict with keys ``"new_best"`` and ``"third"`` (floats), standard
+        se (dict): Dict with keys ``"new_best"`` and ``"third"`` (floats), standard
             errors across subjects.
-        per_subject_counts: ``{subject: {"new_best": int, "third": int,
+        per_subject_counts (dict): ``{subject: {"new_best": int, "third": int,
             "total": int}}`` used to draw per-subject lines.
-        p_value: Optional float p-value to annotate above the bars (default:
-            ``None`` — no annotation).
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output.  If ``None``, the figure is shown interactively.
+        p_value (float | None): P-value to annotate above the bars. Default None (no
+            annotation).
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output. If None or empty, the figure is shown interactively. Default None.
     """
     ax = plot_first_leave_panel(mean, se, per_subject_counts, p_value=p_value)
     fig = ax.figure

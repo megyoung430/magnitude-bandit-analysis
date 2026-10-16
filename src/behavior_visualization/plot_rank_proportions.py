@@ -76,29 +76,33 @@ def plot_rank_proportions(
     Each sub-function saves a separate file (or shows interactively).
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}`` as
+        rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}`` as
             returned by
             :func:`src.behavior_analysis.get_rank_counts_by_good_reversal.get_rank_counts_by_good_reversal`.
-        average_across_mice_pvalues: Optional dict with keys
+            Each dict holds ``"best_prop"``, ``"second_prop"``, ``"third_prop"`` and
+            optionally ``"total"``.
+        average_across_mice_pvalues (dict | None): Optional dict with keys
             ``"best_vs_second"``, ``"best_vs_third"``, ``"second_vs_third"``
-            (floats) to annotate the average-across-mice panel.  If ``None``,
-            no p-value annotations are added (default: ``None``).
-        save_path: Base path (without extension) shared by all sub-functions.
-            Each sub-function appends its own suffix before the file extension.
-            If ``None``, figures are shown interactively.
-        by_mouse: If ``True``, produce the by-mouse panel grid, saved as
-            ``<save_path> by Mouse`` (default: ``False``).
-        by_block: If ``True``, produce the by-block panel grid, saved as
-            ``<save_path> by Block`` (default: ``False``).
-        average_by_mouse: If ``True``, produce the across-mice figure (with
-            p-values), saved as ``<save_path> by Average Across Mice``
-            (default: ``True``).
-        average_by_block: If ``True``, produce the across-blocks figure, saved as
-            ``<save_path> by Average Across Blocks`` (default: ``False``).
-        pool_trials_within_subject: If ``True``, the by-mouse grid and the
+            (floats) to annotate the average-across-mice panel. If None,
+            no p-value annotations are added. Default None.
+        save_path (str | Path | None): Base path (without extension) shared by all
+            sub-functions. Each sub-function appends its own suffix before the file extension.
+            If None or empty, figures are shown interactively. Default None.
+        by_mouse (bool): If True, produce the by-mouse panel grid, saved as
+            ``<save_path> by Mouse``. Default False.
+        by_block (bool): If True, produce the by-block panel grid, saved as
+            ``<save_path> by Block``. Default False.
+        average_by_mouse (bool): If True, produce the across-mice figure (with
+            p-values), saved as ``<save_path> by Average Across Mice``. Default True.
+        average_by_block (bool): If True, produce the across-blocks figure, saved as
+            ``<save_path> by Average Across Blocks``. Default False.
+        pool_trials_within_subject (bool): If True, the by-mouse grid and the
             average-across-mice panel weight each mouse's blocks by trial count
-            (pooled proportions) instead of averaging the block proportions
-            (default: ``False``).  The by-block grid ignores it.
+            (pooled proportions) instead of averaging the block proportions.
+            The by-block grid ignores it. Default False.
+
+    Returns:
+        None
 
     See the sub-functions for known issues in what each view includes.
     """
@@ -168,10 +172,10 @@ def _label_means(ax, means, fontsize, *, finite_only=True):
     return labelled
 
 
-def _draw_line(ax, y, color, label, *, jitter, linewidth, **style):
+def _draw_line(ax, y, color, label, *, rng, jitter, linewidth, **style):
     """Plot one jittered rank line and return its legend handle."""
     ax.plot(
-        _helpers.jittered(_X, jitter),
+        _helpers.jittered(_X, jitter, rng),
         y,
         color=color,
         linewidth=linewidth,
@@ -230,14 +234,19 @@ def plot_average_across_mice(
     """Bars (mean ± SE across mice) with one coloured line per mouse.
 
     Args:
-        rank_counts: ``{subject: list[rank_count_dict]}``; every row of every
-            subject is used.
-        pvalues: Optional ``{"best_vs_second", "best_vs_third", "second_vs_third"}``
-            floats to annotate on the bars. Known issue: raises ``IndexError``
-            if a bar's mean is not finite and any p-value is given.
-        pool_trials_within_subject: Each mouse's value is its pooled proportion
+        rank_counts (_summary.RankCounts): ``{subject: list[rank_count_dict]}``; every row of
+            every subject is used.
+        pvalues (dict | None): Optional ``{"best_vs_second", "best_vs_third",
+            "second_vs_third"}`` floats to annotate on the bars. Known issue: raises
+            ``IndexError`` if a bar's mean is not finite and any p-value is given. Default None.
+        pool_trials_within_subject (bool): Each mouse's value is its pooled proportion
             (weighted by trial count) instead of the mean of its block proportions.
-        ax: Axes to draw into; a new figure is created if ``None``.
+            Default False.
+        ax (plt.Axes | None): Axes to draw into; a new 6.5 x 5.5 inch figure is created if
+            None. Default None.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 5.5))
@@ -250,12 +259,14 @@ def plot_average_across_mice(
     _draw_bars(ax, means, ses)
     labelled_x = _label_means(ax, means, 12)
     _annotate_pvalues(ax, labelled_x, pvalues)
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             [v[rank] for rank in _summary.RANKS],
             _helpers.palette_color(i, MOUSE_COLORS),
             subj,
+            rng=rng,
             **_MOUSE_LINES,
         )
         for i, (subj, v) in enumerate(per_mouse.items())
@@ -272,6 +283,15 @@ def plot_average_across_blocks(
     """Bars (mean ± SE across blocks) with one coloured line per block.
 
     Every row of every subject is a block; block *b* averages the subjects that have it.
+
+    Args:
+        rank_counts (_summary.RankCounts): ``{subject: list[rank_count_dict]}``, one dict per
+            block in block order.
+        ax (plt.Axes | None): Axes to draw into; a new 6.5 x 5.5 inch figure is created if
+            None. Default None.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 5.5))
@@ -280,12 +300,14 @@ def plot_average_across_blocks(
     ses = _summary.se_by_rank(per_block, guard_single=False)
     _draw_bars(ax, means, ses)
     _label_means(ax, means, 12)
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             [b[rank] for rank in _summary.RANKS],
             BLOCK_COLORS[i % len(BLOCK_COLORS)],
             f"Block {i + 1}",
+            rng=rng,
             **_AVERAGE_BLOCK_LINES,
         )
         for i, b in enumerate(per_block)
@@ -310,20 +332,27 @@ def plot_mouse_panel(
     (see :func:`src.behavior_analysis.rank_proportions.subject_rank_ses`).
 
     Args:
-        subject: Title of the panel.
-        rows: The mouse's rank-count dicts to draw, one per block.
-        pool_trials_within_subject: Pool the rows' counts for the bars and errors.
-        ax: Axes to draw into; a new figure is created if ``None``.
-        show_ylabel: Whether to write the y-axis label.
+        subject (Hashable): Title of the panel.
+        rows (list[_summary.RankRow]): The mouse's rank-count dicts to draw, one per block.
+        pool_trials_within_subject (bool): Pool the rows' counts for the bars and errors.
+            Default False.
+        ax (plt.Axes | None): Axes to draw into; a new 4.2 x 4 inch figure is created if None.
+            Default None.
+        show_ylabel (bool): Whether to write the y-axis label. Default True.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(4.2, 4))
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             _summary.row_props(r, strict=True),
             BLOCK_COLORS[i % len(BLOCK_COLORS)],
             f"Block {i + 1}",
+            rng=rng,
             **_MOUSE_PANEL_LINES,
         )
         for i, r in enumerate(rows)
@@ -358,19 +387,25 @@ def plot_block_panel(
     The lines and the bars cover the same mice: those with a row at *block_idx*.
 
     Args:
-        rank_counts: ``{subject: list[rank_count_dict]}``.
-        block_idx: Zero-based block number.
-        ax: Axes to draw into; a new figure is created if ``None``.
-        show_ylabel: Whether to write the y-axis label.
+        rank_counts (_summary.RankCounts): ``{subject: list[rank_count_dict]}``.
+        block_idx (int): Zero-based block number.
+        ax (plt.Axes | None): Axes to draw into; a new 4.2 x 4 inch figure is created if None.
+            Default None.
+        show_ylabel (bool): Whether to write the y-axis label. Default True.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(4.2, 4))
+    rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
             ax,
             _summary.row_props(rows[block_idx]),
             _helpers.palette_color(si, MOUSE_COLORS),
             _block_legend_label(subject, rows[block_idx]),
+            rng=rng,
             **_BLOCK_PANEL_LINES,
         )
         for si, (subject, rows) in enumerate(rank_counts.items())
@@ -415,18 +450,25 @@ def plot_rank_proportions_average(
       accept a ``Path`` and create the folder.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
+        rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}``
             where each dict contains at least ``"best_prop"``, ``"second_prop"``,
             and ``"third_prop"`` keys (floats).
-        average_across_mice_pvalues: Optional dict with keys
+        average_across_mice_pvalues (dict | None): Optional dict with keys
             ``"best_vs_second"``, ``"best_vs_third"``, ``"second_vs_third"``
-            (floats) to annotate the left panel with p-values.  If ``None``,
-            no p-value annotations are added (default: ``None``).
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output.  If ``None``, the figure is shown interactively.
-        pool_trials_within_subject: If ``True``, the left panel uses each
+            (floats) to annotate the left panel with p-values. If None,
+            no p-value annotations are added. Default None.
+        save_path (str | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output; the folder must already exist. If None or empty, the figure is
+            shown interactively. Default None.
+        pool_trials_within_subject (bool): If True, the left panel uses each
             mouse's pooled proportion (weighted by trial count) and is titled
-            "Pooled Trials Within Mouse" (default: ``False``).
+            "Pooled Trials Within Mouse". Default False.
+
+    Returns:
+        None
+
+    Raises:
+        TypeError: If *save_path* is given and is not a ``str``.
     """
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.5), sharey=True)
     plot_average_across_mice(
@@ -455,14 +497,17 @@ def plot_rank_proportions_average_by_mouse(
     Known issues are those of :func:`plot_average_across_mice`.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``.
-        average_across_mice_pvalues: Optional ``"best_vs_second"``,
-            ``"best_vs_third"``, ``"second_vs_third"`` p-values to annotate.
-        save_path: Base path (``str`` or ``Path``, without extension) for the
-            ``.pdf`` and ``.png`` files; missing folders are created. If ``None``,
-            the figure is shown interactively.
-        pool_trials_within_subject: Use each mouse's pooled proportion (weighted by
-            trial count); the panel is then titled "Pooled Trials Within Mouse".
+        rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}``.
+        average_across_mice_pvalues (dict | None): Optional ``"best_vs_second"``,
+            ``"best_vs_third"``, ``"second_vs_third"`` p-values to annotate. Default None.
+        save_path (str | Path | None): Base path (without extension) for the
+            ``.pdf`` and ``.png`` files; missing folders are created. If None or empty,
+            the figure is shown interactively. Default None.
+        pool_trials_within_subject (bool): Use each mouse's pooled proportion (weighted by
+            trial count); the panel is then titled "Pooled Trials Within Mouse". Default False.
+
+    Returns:
+        None
     """
     fig, ax = plt.subplots(figsize=_SINGLE_PANEL_FIGSIZE)
     plot_average_across_mice(
@@ -481,10 +526,13 @@ def plot_rank_proportions_average_by_block(rank_counts_by_good_reversal, save_pa
     It draws what the right panel of :func:`plot_rank_proportions_average` draws.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``.
-        save_path: Base path (``str`` or ``Path``, without extension) for the
-            ``.pdf`` and ``.png`` files; missing folders are created. If ``None``,
-            the figure is shown interactively.
+        rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}``.
+        save_path (str | Path | None): Base path (without extension) for the
+            ``.pdf`` and ``.png`` files; missing folders are created. If None or empty,
+            the figure is shown interactively. Default None.
+
+    Returns:
+        None
     """
     fig, ax = plt.subplots(figsize=_SINGLE_PANEL_FIGSIZE)
     plot_average_across_blocks(rank_counts_by_good_reversal, ax=ax)
@@ -502,15 +550,18 @@ def plot_rank_proportions_by_mouse(
     lines overlaid using ``BLOCK_COLORS``.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
+        rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}``
             where each dict contains ``"best_prop"``, ``"second_prop"``, and
-            ``"third_prop"`` keys.
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output.  If ``None``, the figure is shown interactively.
-        pool_trials_within_subject: If ``True``, draw the bars as the pooled
+            ``"third_prop"`` keys. Subjects with no rows get an empty panel.
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output. If None or empty, the figure is shown interactively. Default None.
+        pool_trials_within_subject (bool): If True, draw the bars as the pooled
             proportion (weighted by trial count) with the SE across the pooled
             trials, instead of the mean of the block proportions with the SE
-            across blocks (default: ``False``).
+            across blocks. Default False.
+
+    Returns:
+        None
     """
     subjects = list(rank_counts_by_good_reversal)
     ncols = math.ceil(len(subjects) / 2)
@@ -542,12 +593,15 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
     lines overlaid using ``MOUSE_COLORS``.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}``
+        rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}``
             where each dict contains ``"best_prop"``, ``"second_prop"``,
             ``"third_prop"``, and optionally ``"total"`` keys.  Subjects that
             do not have data for a given block are silently skipped.
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output.  If ``None``, the figure is shown interactively.
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output. If None or empty, the figure is shown interactively. Default None.
+
+    Returns:
+        None: If no subject has any block, a warning is printed and nothing is drawn.
     """
     n_blocks = _summary.n_blocks(rank_counts_by_good_reversal)
     if n_blocks == 0:

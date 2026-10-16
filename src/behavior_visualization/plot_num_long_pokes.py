@@ -7,6 +7,8 @@ chart with per-mouse overlaid lines.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -74,22 +76,48 @@ def _plot_mouse_lines(
     return handles
 
 
-def _style_axes(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_text: float) -> None:
+def relative_session_label(session_key: str) -> str:
+    """The number of a ``rel_ses-NN`` key without leading zeros (``"rel_ses-03"`` -> ``"3"``).
+
+    Args:
+        session_key (str): A relative session key such as ``"rel_ses-03"``.
+
+    Returns:
+        str: The session number as a string, e.g. ``"3"``.
+
+    Raises:
+        ValueError: If *session_key* is not of the form ``rel_ses-<digits>``.
+    """
+    match = re.fullmatch(r"rel_ses-0*(\d+)", session_key)
+    if match is None:
+        raise ValueError(f"not a relative session key: {session_key!r}")
+    return match[1]
+
+
+def _style_axes(
+    ax: plt.Axes,
+    x: np.ndarray,
+    summary: PokesBySession,
+    y_text: float,
+    *,
+    xlabel: str,
+    title: str | None,
+    tick_label: Callable[[str], str],
+) -> None:
     # Known issue: the title's subject count includes mice without finite data,
     # which are not drawn.
-    ax.set_xlabel("Session")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Non-Choice Long Pokes")
     ax.set_xticks(x)
-    ax.set_xticklabels(
-        [get_short_session_label(s) for s in summary.sessions], fontsize=12, rotation=45
-    )
+    ax.set_xticklabels([tick_label(s) for s in summary.sessions], fontsize=12, rotation=45)
     ax.tick_params(axis="y", labelsize=13)
     ax.set_ylim(0, y_text)
     despine(ax)
-    title = (
-        "Mean Non-Choice Long Pokes Across Sessions\n"
-        f" (mean ± se across subjects | n={len(summary.mice)} subjects)"
-    )
+    if title is None:
+        title = (
+            "Mean Non-Choice Long Pokes Across Sessions\n"
+            f" (mean ± se across subjects | n={len(summary.mice)} subjects)"
+        )
     ax.set_title(title, fontsize=16, pad=25)
 
 
@@ -99,30 +127,54 @@ def plot_num_pokes_panel(
     *,
     ax: plt.Axes | None = None,
     rng: np.random.Generator | None = None,
+    xlabel: str = "Session",
+    title: str | None = None,
+    tick_label: Callable[[str], str] = get_short_session_label,
 ) -> plt.Axes:
     """Draw mean non-choice long pokes per session with per-mouse overlays.
 
     Args:
-        avg_num_pokes_across_subjects: ``{mouse: {session_key: mean_pokes}}``; see
+        avg_num_pokes_across_subjects (dict): ``{mouse: {session_key: mean_pokes}}``; see
             :func:`plot_num_pokes_across_mice`.
-        y_text: Y-coordinate for bar-value annotations and the upper y-limit.
-        ax: Axes to draw into; a new 12 x 5.5 inch figure is created if ``None``.
-        rng: Generator for the per-mouse x-jitter. Known issue: when ``None`` an
-            unseeded generator is used, so the jitter differs on every call.
+        y_text (float): Y-coordinate for bar-value annotations and the upper y-limit.
+        ax (plt.Axes | None): Axes to draw into; a new 12 x 5.5 inch figure is created if
+            None. Default None.
+        rng (np.random.Generator | None): Generator for the per-mouse x-jitter. Known issue:
+            when None an unseeded generator is used, so the jitter differs on every call.
+            Default None.
+        xlabel (str): X-axis label. Default ``"Session"``.
+        title (str | None): Axes title; the default (None) is the across-sessions title with
+            the subject count.
+        tick_label (Callable[[str], str]): Maps a session key to its x-tick label. Default the
+            short ``ses-XX`` form (``get_short_session_label``); use
+            :func:`relative_session_label` for ``rel_ses-NN`` keys.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+
+    Raises:
+        ValueError: If there are no mice or no sessions.
     """
     summary = summarize_pokes_by_session(avg_num_pokes_across_subjects)
     x = np.arange(len(summary.sessions))
     with axes_or_new(ax, figsize=(12, 5.5)) as ax:
         _plot_session_bars(ax, x, summary, y_text)
         handles = _plot_mouse_lines(ax, x, summary, rng)
-        _style_axes(ax, x, summary, y_text)
+        _style_axes(ax, x, summary, y_text, xlabel=xlabel, title=title, tick_label=tick_label)
         if handles:
             ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=10)
     return ax
 
 
 def plot_num_pokes_across_mice(
-    avg_num_pokes_across_subjects: dict, y_text: float, save_path: str | Path | None = None
+    avg_num_pokes_across_subjects: dict,
+    y_text: float,
+    save_path: str | Path | None = None,
+    *,
+    rng: np.random.Generator | None = None,
+    xlabel: str = "Session",
+    title: str | None = None,
+    tick_label: Callable[[str], str] = get_short_session_label,
 ) -> None:
     """Plot mean non-choice long-poke counts per session with per-mouse overlays.
 
@@ -131,17 +183,32 @@ def plot_num_pokes_across_mice(
     ``ses-XX`` index; x-tick labels show the short ``ses-XX`` form.
 
     Args:
-        avg_num_pokes_across_subjects: Nested dict
+        avg_num_pokes_across_subjects (dict): Nested dict
             ``{mouse: {session_key: mean_pokes_float}}``, optionally including
             an ``"average_across_subjects"`` key which is excluded from the
             per-mouse overlay.
-        y_text: Y-coordinate for bar-value annotations and the upper y-limit
+        y_text (float): Y-coordinate for bar-value annotations and the upper y-limit
             of the axis.
-        save_path: Base path (without extension) for saving ``.pdf`` and
-            ``.png`` output, creating the parent directory if needed.  If ``None``,
-            the figure is shown interactively.
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output, creating the parent directory if needed. If None or empty,
+            the figure is shown interactively. Default None.
+        rng (np.random.Generator | None): As for :func:`plot_num_pokes_panel`. Default None.
+        xlabel (str): As for :func:`plot_num_pokes_panel`. Default ``"Session"``.
+        title (str | None): As for :func:`plot_num_pokes_panel`. Default None.
+        tick_label (Callable[[str], str]): As for :func:`plot_num_pokes_panel`. Default the
+            short ``ses-XX`` form.
+
+    Raises:
+        ValueError: If there are no mice or no sessions.
     """
-    ax = plot_num_pokes_panel(avg_num_pokes_across_subjects, y_text)
+    ax = plot_num_pokes_panel(
+        avg_num_pokes_across_subjects,
+        y_text,
+        rng=rng,
+        xlabel=xlabel,
+        title=title,
+        tick_label=tick_label,
+    )
     fig = ax.figure
     fig.tight_layout()
     # An empty save_path means "show" here, so it is passed on as None.

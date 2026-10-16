@@ -135,6 +135,58 @@ def test_get_choice_probs_nan_pads_truncated_windows_and_averages_the_finite_row
     np.testing.assert_allclose(role_sum(across["mean"]), 1.0)
 
 
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_get_choice_probs_right_aligns_a_short_pre_window():
+    # Reversal 3 trials into the data: pre holds 3 trials but the axis has 10 pre bins.
+    rev = make_reversal(3, pre=["A", "A", "C"], post=["B", "B"], prev_best="A", next_best="B")
+    x, per_subject, _ = get_choice_probs_around_good_reversals({"m": [rev]}, pre=10, post=2)
+    nan7 = [np.nan] * 7
+    assert list(x[:10]) == list(range(-10, 0))
+    np.testing.assert_array_equal(per_subject["m"]["prev_best"], [[*nan7, 1, 1, 0, 0, 0]])
+    np.testing.assert_array_equal(per_subject["m"]["third"], [[*nan7, 0, 0, 1, 0, 0]])
+    np.testing.assert_array_equal(per_subject["m"]["next_best"], [[*nan7, 0, 0, 0, 1, 1]])
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_get_choice_probs_short_pre_does_not_move_the_post_values():
+    short = make_reversal(2, pre=["A", "A"], post=["B", "C", "B"])
+    full = make_reversal(20, pre=["A"] * 4, post=["B", "C", "B"])
+    _, per_subject, _ = get_choice_probs_around_good_reversals(
+        {"s": [short], "f": [full]}, pre=4, post=3
+    )
+    for role in ROLES:
+        np.testing.assert_array_equal(per_subject["s"][role][0, 4:], per_subject["f"][role][0, 4:])
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_get_choice_probs_reversal_at_data_start_has_empty_pre_bins():
+    rev = make_reversal(0, pre=[], post=["B", "B"])
+    _, per_subject, _ = get_choice_probs_around_good_reversals({"m": [rev]}, pre=3, post=2)
+    assert np.isnan(per_subject["m"]["next_best"][0, :3]).all()
+    np.testing.assert_array_equal(per_subject["m"]["next_best"][0, 3:], [1, 1])
+
+
+def test_get_choice_probs_keeps_the_last_trials_of_a_pre_window_longer_than_the_axis():
+    rev = make_reversal(10, pre=["C", "C", "A", "A"], post=["B"])
+    _, per_subject, _ = get_choice_probs_around_good_reversals({"m": [rev]}, pre=2, post=1)
+    np.testing.assert_array_equal(per_subject["m"]["prev_best"], [[1, 1, 0]])
+    np.testing.assert_array_equal(per_subject["m"]["third"], [[0, 0, 0]])
+
+
+@pytest.mark.filterwarnings("ignore:Mean of empty slice:RuntimeWarning")
+def test_get_choice_probs_short_pre_and_short_post_with_skip():
+    rev = make_reversal(2, pre=["A", "C"], post=["B", "A", "A", "C"])
+    _, per_subject, _ = get_choice_probs_around_good_reversals(
+        {"m": [rev]}, pre=4, post=6, skip_n_trials_after_reversal=2
+    )
+    # Post trials 1 and 2 are dropped; trials 0 and 3 land at offsets 0 and 1.
+    nan2 = [np.nan] * 2
+    np.testing.assert_array_equal(
+        per_subject["m"]["next_best"], [[*nan2, 0, 0, 1, 0, np.nan, np.nan]]
+    )
+    np.testing.assert_array_equal(per_subject["m"]["third"], [[*nan2, 0, 1, 0, 1, np.nan, np.nan]])
+
+
 def test_get_choice_probs_truncates_long_post_windows_to_the_axis():
     windows = {"m1": [make_reversal(10, ["A"], ["B"] * 6)]}
     x, per_subject, _ = get_choice_probs_around_good_reversals(windows, pre=1, post=2)

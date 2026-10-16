@@ -36,6 +36,7 @@ from src.behavior_analysis.rank_proportions_summary import (
 )
 from src.behavior_visualization.plot_helpers import (
     despine,
+    jitter_rng,
     jittered,
     mouse_color_map,
     save_or_show,
@@ -64,7 +65,16 @@ def _value_range(values: np.ndarray) -> tuple[float, float] | None:
 
 
 class BarStyle(NamedTuple):
-    """Presentation differences between the per-problem bar charts."""
+    """Presentation differences between the per-problem bar charts.
+
+    Attributes:
+        value_fmt (str): Format spec for the value label above each bar, e.g. ``".2f"``.
+        legend_suffix (str): Text appended to each mouse's ``(n=...)`` legend entry.
+        legend_fontsize (int): Legend font size.
+        title_pad (int): Padding between the axes and the title, in points.
+        ylim_headroom (float): Factor applied to the top of the y-axis, which otherwise ends
+            at the larger of the value labels and the tallest bar plus its error.
+    """
 
     value_fmt: str
     legend_suffix: str
@@ -173,9 +183,10 @@ def _draw_mouse_lines(
 ) -> None:
     """One jittered line per mouse across problems, with a legend entry each.
 
-    An explicit loop: the jitter draws from a shared random stream, so the
+    An explicit loop: the jitter draws from one seeded generator, so the
     mouse order fixes which noise each line gets.
     """
+    rng = jitter_rng()
     blocks, per_mouse = summary["blocks"], summary["per_mouse_blocklens"]
     handles = []
     for m in summary["mice"]:
@@ -183,7 +194,7 @@ def _draw_mouse_lines(
         if xs.size == 0:
             continue
         ax.plot(
-            jittered(xs, jitter),
+            jittered(xs, jitter, rng),
             ys,
             color=colors[m],
             linewidth=2.5,
@@ -220,17 +231,25 @@ def plot_problem_bars(
     The y-axis starts at 0, so bars with negative means are clipped.
 
     Args:
-        summary: Summary dict with ``"blocks"``, ``"means"``, ``"ses"`` and
-            ``"per_mouse_blocklens"``, ``"mice"``.
-        ax: Axes to draw into; a new figure is made if ``None``.
-        ylabel: Y-axis label.
-        title: Axes title.
-        jitter: Half-width of the horizontal jitter on the mouse lines
-            (default: 0.06); 0 turns it off and leaves the random stream untouched.
-        annotate_y: Height of the value labels above the bars. Defaults to
+        summary (dict): Summary dict with ``"blocks"`` (list of problem labels, one per bar),
+            ``"means"`` and ``"ses"`` (one value per bar), ``"per_mouse_blocklens"``
+            (``{mouse: {problem: value}}``) and ``"mice"`` (list of mouse ids).
+        ax (plt.Axes | None): Axes to draw into; a new 10 x 4.8 inch figure is made if None.
+            Default None.
+        ylabel (str): Y-axis label.
+        title (str): Axes title.
+        jitter (float): Half-width of the horizontal jitter on the mouse lines; 0 turns it
+            off. Default 0.06.
+        annotate_y (float | None): Height of the value labels above the bars. Defaults to
             ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
             error (1 if every bar is NaN).
-        style: Number format, legend and spacing choices.
+        style (BarStyle): Number format, legend and spacing choices. Default ``METRIC_STYLE``.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+
+    Raises:
+        KeyError: If *summary* lacks ``"blocks"``, ``"means"``, ``"ses"`` or ``"mice"``.
     """
     blocks, means, ses = _read_bar_values(summary)
     colors = mouse_color_map(summary["mice"])
@@ -268,18 +287,21 @@ def plot_metric_by_problem(
     """Plot a per-problem metric as a bar chart with per-mouse overlay lines.
 
     Args:
-        summary: A summary dict with keys ``"blocks"``, ``"means"``, ``"ses"``,
+        summary (dict): A summary dict with keys ``"blocks"``, ``"means"``, ``"ses"``,
             ``"ns"``, ``"per_mouse_blocklens"``, and ``"mice"``, as returned by
             :func:`src.behavior_analysis.problem_utils.summarize_by_problem`.
-        title: Figure title.
-        ylabel: Y-axis label.
-        jitter: Horizontal jitter width applied to per-mouse markers
-            (default: 0.06).
-        annotate_y: Y-position for value annotations above bars.  Defaults to
+        title (str): Figure title.
+        ylabel (str): Y-axis label.
+        jitter (float): Horizontal jitter half-width applied to per-mouse markers. Default 0.06.
+        annotate_y (float | None): Y-position for value annotations above bars. Defaults to
             ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
             error (1 if every bar is NaN).
-        save_path: If provided, the figure is saved as both ``.pdf`` and
-            ``.png`` at this path (suffix added automatically).
+        save_path (str | Path | None): If provided, the figure is saved as both ``.pdf`` and
+            ``.png`` at this path (extension-less base; suffixes added automatically).
+            If None or empty, the figure is shown. Default None.
+
+    Raises:
+        KeyError: If *summary* lacks one of the keys above.
     """
     _require_summary_keys(summary)
     ax = plot_problem_bars(
@@ -308,16 +330,21 @@ def plot_problem_lengths(
     Pass ``ylabel`` and ``title`` to customise the axis labels.
 
     Args:
-        problem_summary: Summary dict as returned by
+        problem_summary (dict): Summary dict as returned by
             :func:`src.behavior_analysis.problem_summary.compute_problem_length_summary`
-            or any compatible function.
-        ylabel: Y-axis label (default: ``"Sessions to Complete"``).
-        title: Figure title.  Auto-generated from *ylabel* if not provided.
-        jitter: Horizontal jitter width for per-mouse markers (default: 0.06).
-        annotate_y: Y-position for value annotations above bars.  Defaults to
+            or any compatible function; same keys as for :func:`plot_metric_by_problem`.
+        ylabel (str): Y-axis label. Default ``"Sessions to Complete"``.
+        title (str | None): Figure title. Auto-generated from *ylabel* and the number of mice
+            if None. Default None.
+        jitter (float): Horizontal jitter half-width for per-mouse markers. Default 0.06.
+        annotate_y (float | None): Y-position for value annotations above bars. Defaults to
             ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
             error (1 if every bar is NaN).
-        save_path: If provided, saves ``.pdf`` and ``.png`` at this path.
+        save_path (str | Path | None): If provided, saves ``.pdf`` and ``.png`` at this
+            extension-less base path; if None or empty, the figure is shown. Default None.
+
+    Raises:
+        KeyError: If *problem_summary* lacks one of the required keys.
     """
     _require_summary_keys(problem_summary)
     if title is None:
@@ -409,10 +436,15 @@ def plot_blocklen_histogram(
     """Histogram of block lengths with mean line and summary stats; "no data" if empty.
 
     Args:
-        vals: 1-D array of finite block lengths.
-        ax: Axes to draw into; a new figure is made if ``None``.
-        title: Panel title.
-        xlim: Shared x-range to apply to a non-empty panel.
+        vals (np.ndarray): 1-D array of finite block lengths.
+        ax (plt.Axes | None): Axes to draw into; a new 3.6 x 2.8 inch figure is made if None.
+            Default None.
+        title (str): Panel title.
+        xlim (tuple[float, float] | None): Shared x-range to apply to a non-empty panel.
+            Default None.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(3.6, 2.8))
@@ -517,14 +549,16 @@ def plot_distributions_per_mouse(
     If ``drop_last_problem`` leaves no mouse with data, nothing is drawn.
 
     Args:
-        problem_block_stats: ``{problem: {"block_stats": {...}}}``
-        drop_last_problem: If ``True``, exclude each mouse's last problem
-            (default: False).
-        ncols: Number of subplot columns (default: 4).
-        sharex: Share x-axis across subplots (default: False).
-        sharey: Share y-axis across subplots (default: False).
-        save_dir: Directory for saved figures.  If ``None``, figures are shown
-            interactively.
+        problem_block_stats (dict): ``{problem: {"block_stats": {"per_mouse_blocklens":
+            {mouse: {block: length}}}}}``, built from
+            :func:`src.behavior_analysis.get_task_statistics.get_block_lengths`.
+        drop_last_problem (bool): If True, exclude each mouse's last problem. Default False.
+        ncols (int): Number of subplot columns. Default 4.
+        sharex (bool): Share x-axis across subplots. Default False.
+        sharey (bool): Share y-axis across subplots. Default False.
+        save_dir (str | Path | None): Directory for saved figures, one
+            ``blocklen_distributions_mouse_<mouse>`` (png and pdf) per mouse. If None,
+            figures are shown interactively. Default None.
     """
     problems, mice, data = collect_blocklens(problem_block_stats)
     if drop_last_problem:
@@ -553,14 +587,16 @@ def plot_distributions_per_problem_all_mice(
     nothing.
 
     Args:
-        problem_block_stats: ``{problem: {"block_stats": {...}}}``
-        drop_last_problem: If ``True``, exclude each mouse's last problem
-            (default: False).
-        ncols: Number of subplot columns (default: 4).
-        sharex: Share x-axis across subplots (default: False).
-        sharey: Share y-axis across subplots (default: False).
-        save_path: Path for saved figure (suffixes added automatically).
-            If ``None``, the figure is shown interactively.
+        problem_block_stats (dict): ``{problem: {"block_stats": {"per_mouse_blocklens":
+            {mouse: {block: length}}}}}``, built from
+            :func:`src.behavior_analysis.get_task_statistics.get_block_lengths`.
+        drop_last_problem (bool): If True, exclude each mouse's last problem. Default False.
+        ncols (int): Number of subplot columns. Default 4.
+        sharex (bool): Share x-axis across subplots. Default False.
+        sharey (bool): Share y-axis across subplots. Default False.
+        save_path (str | Path | None): Extension-less base path for the saved figure (png and
+            pdf suffixes added automatically). If None or empty, the figure is shown
+            interactively. Default None.
     """
     problems, mice, data = collect_blocklens(problem_block_stats)
     if drop_last_problem:
@@ -580,6 +616,16 @@ def pvalue_annotations(pvalues: dict | None, finite_x: list[int]) -> list[tuple[
 
     Labels are anchored on the *finite_x* bar positions (those with a finite
     mean), by position in that list.
+
+    Args:
+        pvalues (dict | None): Optional ``"best_vs_second"``, ``"best_vs_third"``,
+            ``"second_vs_third"`` p-values; missing or None entries are skipped.
+        finite_x (list[int]): Bar positions with a finite mean, in ascending order.
+
+    Returns:
+        list[tuple[int, float, str]]: One ``(x, y, text)`` per available p-value, where *x* is
+        a bar position from *finite_x*, *y* the label height in axes-data units and *text* the
+        label with the p-value to three decimals.
     """
     pvalues = pvalues or {}
     # (key, label, index into finite_x, y); a label needs more than idx finite bars
@@ -624,15 +670,16 @@ def _draw_rank_bars(
 def _draw_rank_mouse_lines(ax: plt.Axes, per_mouse: dict, *, jitter: float) -> None:
     """One jittered line per mouse across the three ranks, with a legend entry each.
 
-    An explicit loop: the jitter draws from a shared random stream, so the
+    An explicit loop: the jitter draws from one seeded generator, so the
     mouse order fixes which noise each line gets.
     """
+    rng = jitter_rng()
     x = np.arange(len(RANK_LABELS))
     colors = mouse_color_map(list(per_mouse))
     handles = []
     for subj, v in per_mouse.items():
         ax.plot(
-            jittered(x, jitter),
+            jittered(x, jitter, rng),
             [v[rank] for rank in RANKS],
             color=colors[subj],
             linewidth=2.5,
@@ -658,12 +705,16 @@ def plot_rank_proportions_average_panel(
     which documents a known issue with the error bars.
 
     Args:
-        per_mouse: ``{subject: {"best", "second", "third"}}`` from
+        per_mouse (dict): ``{subject: {"best": float, "second": float, "third": float}}`` from
             :func:`src.behavior_analysis.rank_proportions_summary.mean_rank_proportions_by_subject`.
-        ax: Axes to draw into; a new figure is made if ``None``.
-        pvalues: Optional ``"best_vs_second"``, ``"best_vs_third"``,
-            ``"second_vs_third"`` p-values to print on the panel.
-        jitter: Half-width of the horizontal jitter on the mouse lines.
+        ax (plt.Axes | None): Axes to draw into; a new 7 x 5.5 inch figure is made if None.
+            Default None.
+        pvalues (dict | None): Optional ``"best_vs_second"``, ``"best_vs_third"``,
+            ``"second_vs_third"`` p-values to print on the panel. Default None.
+        jitter (float): Half-width of the horizontal jitter on the mouse lines. Default 0.03.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     means, ses = rank_mean_and_se(per_mouse)
     if ax is None:
@@ -692,14 +743,15 @@ def plot_rank_proportions_average_without_blocks(
     separate per-block panel.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[reversal_dict]}``
+        rank_counts_by_good_reversal (dict): ``{subject: list[reversal_dict]}``
             where each reversal dict contains ``"best_prop"``,
             ``"second_prop"``, and ``"third_prop"``.
-        average_across_mice_pvalues: Optional dict of p-values with keys
+        average_across_mice_pvalues (dict | None): Optional dict of p-values with keys
             ``"best_vs_second"``, ``"best_vs_third"``, and
-            ``"second_vs_third"``.
-        save_path: Path for saved figure (suffixes added automatically).
-            If ``None``, the figure is shown interactively.
+            ``"second_vs_third"``. Default None.
+        save_path (str | Path | None): Extension-less base path for the saved figure (pdf and
+            png suffixes added automatically). If None or empty, the figure is shown
+            interactively. Default None.
     """
     # Averaged before the figure exists, so unusable counts raise without leaving
     # an empty figure open.

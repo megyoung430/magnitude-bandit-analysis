@@ -18,14 +18,19 @@ def pvalue_paired_t_best_vs_second_vs_third(
     best vs second, best vs third, and second vs third.
 
     Args:
-        rank_counts_by_good_reversal: ``{subject: list[rank_count_dict]}`` as
+        rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}`` as
             returned by
             :func:`src.behavior_analysis.get_rank_counts_by_good_reversal.get_rank_counts_by_good_reversal`.
             Each inner dict must contain ``"best_prop"``, ``"second_prop"``,
-            and ``"third_prop"`` keys.
+            and ``"third_prop"`` keys (``"best"``, ``"second"``, ``"third"`` and
+            ``"total"`` when pooling). Subjects with no reversals are skipped.
+        pool_trials_within_subject (bool): If ``True``, each subject's proportion is the
+            summed count over its reversals divided by the summed ``"total"`` (subjects
+            with no trials are skipped) instead of the mean of the per-reversal
+            proportions. Default False.
 
     Returns:
-        Dict with keys ``"best_vs_second"``, ``"best_vs_third"``, and
+        dict: Dict with keys ``"best_vs_second"``, ``"best_vs_third"``, and
         ``"second_vs_third"``, each mapping to the corresponding two-sided
         p-value (float).
     """
@@ -67,14 +72,15 @@ def pvalue_paired_t_new_vs_third(per_subject_counts, alternative="greater"):
     deterministically).
 
     Args:
-        per_subject_counts: ``{subject: {"new_best": int, "third": int, "total":
+        per_subject_counts (dict): ``{subject: {"new_best": int, "third": int, "total":
             int}}`` as returned by
             :func:`src.behavior_analysis.get_first_leave_after_good_reversals.get_first_leave_after_good_reversals`.
-        alternative: Tail of the t-test — ``"greater"``, ``"less"``, or
-            ``"two-sided"`` (default: ``"greater"``).
+            Subjects with ``total <= 0`` are skipped.
+        alternative (str): Tail of the t-test — ``"greater"``, ``"less"``, or
+            ``"two-sided"``. Default ``"greater"``.
 
     Returns:
-        Float p-value, or ``numpy.nan`` if fewer than 2 subjects have valid
+        float: p-value, or ``numpy.nan`` if fewer than 2 subjects have valid
         data.
     """
     new_vals = []

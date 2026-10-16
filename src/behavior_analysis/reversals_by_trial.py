@@ -11,7 +11,16 @@ def reversal_trial_series(subjects_trials):
     Counter index i describes the state before trial i (after i trials).
     The extra endpoint includes reversals triggered by the final trial. Raises ``ValueError``
     for a mouse that mixes counter and blocks-only sessions
-    (:func:`src.behavior_analysis.reversal_format.check_formats_agree`).
+    (:func:`src.behavior_analysis.reversal_format.check_formats_agree`), or when no mouse has
+    trials, or when a mouse's counters are not cumulative and aligned to its trials.
+
+    Args:
+        subjects_trials (dict): ``{mouse: {session_key: session_dict}}``.
+
+    Returns:
+        dict[str, dict[str, np.ndarray]]: ``{mouse: {kind: cumulative counts}}``. *kind* is
+        ``"good"`` and/or ``"bad"`` for counter-format mice, else ``"total"``; each array is
+        float of length ``n_trials + 1``. Mice without trials are omitted.
     """
     for mouse, sessions in subjects_trials.items():
         check_formats_agree(mouse, sessions)
@@ -45,6 +54,18 @@ def trailing_reversal_rate(cumulative, window=100):
     Early windows use their actual observed exposure. Events before the first
     observed trial are included in the first interval. No padding or future
     trials are used.
+
+    Args:
+        cumulative (array-like): Cumulative reversal counts at boundaries 0 through n trials
+            (length ``n_trials + 1``), e.g. one series from :func:`reversal_trial_series`.
+        window (int): Trailing window in trials, a positive int. Default 100.
+
+    Returns:
+        np.ndarray: Float array of length ``n_trials``: reversals per 100 trials in the window
+        ending at each trial.
+
+    Raises:
+        ValueError: If *window* is not a positive int.
     """
     if not isinstance(window, int) or isinstance(window, bool) or window < 1:
         raise ValueError('Trial window must be a positive integer')

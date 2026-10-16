@@ -24,11 +24,11 @@ def get_first_leave_after_good_reversals(reversal_windows):
     new-best or the third arm.
 
     Args:
-        reversal_windows: ``{subject: list[reversal_dict]}`` as returned by
+        reversal_windows (dict): ``{subject: list[reversal_dict]}`` as returned by
             :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
 
     Returns:
-        Dict ``{subject: {"new_best": int, "third": int, "total": int}}``
+        dict: ``{subject: {"new_best": int, "third": int, "total": int}}``
         where ``"total"`` is the number of reversals examined, ``"new_best"``
         is the count where the animal first left toward the new best arm, and
         ``"third"`` is the count where it left toward the third arm.
@@ -72,12 +72,13 @@ def average_first_leave_across_subjects(per_subject_counts):
     """Compute mean and SE of first-leave fractions across subjects.
 
     Args:
-        per_subject_counts: ``{subject: {"new_best": int, "third": int,
+        per_subject_counts (dict): ``{subject: {"new_best": int, "third": int,
             "total": int}}`` as returned by
-            :func:`get_first_leave_after_good_reversals`.
+            :func:`get_first_leave_after_good_reversals`. Subjects with ``total == 0`` are
+            left out of the means and SEs.
 
     Returns:
-        A three-tuple ``(mean, se, n_subjects)`` where:
+        tuple[dict, dict, int]: A three-tuple ``(mean, se, n_subjects)`` where:
 
         - ``mean`` – dict with keys ``"new_best"``, ``"third"``, and
           ``"num_reversals"`` (total reversals pooled across all subjects).
@@ -116,12 +117,12 @@ def chosen_tower_from_onehots(reversal, trial_idx, towers):
     highest value.
 
     Args:
-        reversal: A reversal dict containing a ``"choices_by_tower"`` key.
-        trial_idx: Integer index into the post-window lists.
-        towers: Ordered list of tower key strings to check.
+        reversal (dict): A reversal dict containing a ``"choices_by_tower"`` key.
+        trial_idx (int): Index into the post-window lists.
+        towers (list[str]): Ordered list of tower key strings to check.
 
     Returns:
-        The tower key string with the highest one-hot value, or ``None`` if
+        str | None: The tower key with the highest one-hot value, or ``None`` if
         all values are ``None`` (trial not recorded).
     """
     vals = []

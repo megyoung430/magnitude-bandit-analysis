@@ -86,12 +86,17 @@ def extract_trials_grouped_by_problem(data):
     sessions into problems (see :mod:`src.behavior_import.problem_numbering`).
 
     Args:
-        data: Nested dict ``{subject: {session_key: session_dict}}`` as returned
-            by :func:`src.behavior_import.import_data.import_data`.
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}`` as returned
+            by :func:`src.behavior_import.import_data.import_data`. Mutated in place by
+            :func:`extract_trials`.
 
     Returns:
-        Dict ``{problem_id: {subject: {session_key: session_dict}}}``; sessions
-        flagged as suspected settings errors are left out.
+        dict: ``{problem_id: {subject: {session_key: session_dict}}}`` with deep-copied
+        sessions; sessions flagged as suspected settings errors are left out.
+
+    Raises:
+        ValueError: If a session lacks ``"settings_evidence"``, a subject's session numbers
+            and dates disagree, or a recording's ``run_start`` cannot be parsed.
     """
     data = extract_trials(data)
     problems = group_sessions_by_problem(data)
@@ -102,6 +107,14 @@ def recording_trial_rows(df):
     """Return ``[(time, trial_dict)]`` for the trials printed by one recording, in time order.
 
     The rows behind :func:`recording_trial_info`: port-finding prints are left out.
+
+    Args:
+        df (pd.DataFrame): One recording with ``type``, ``subtype``, ``time`` and ``content``
+            columns (``content`` as the raw JSON string).
+
+    Returns:
+        list[tuple[float, dict]]: ``(time, parsed content)`` for each ``variable`` / ``print``
+        row, sorted by ``time``.
     """
     is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
     printed = df[is_print].sort_values("time")
@@ -117,6 +130,13 @@ def recording_trial_info(df):
     (the ``""`` default has no ``.isin``). A recording lacking a ``type`` column
     yields no trials here, without an error; the pipeline then fails later with
     ``KeyError: 'type'`` in ``reconcile_reversals``.
+
+    Args:
+        df (pd.DataFrame): One recording with ``type``, ``subtype``, ``time`` and ``content``
+            columns.
+
+    Returns:
+        list[dict]: One dict of raw (un-aliased) variable names to values per printed trial.
     """
     # Known issue: with no ``type`` column, ``df.get("type", "") == "variable"`` is False, so this
     # returns [] instead of raising.
@@ -129,6 +149,15 @@ def bandit_trial_info(df, subject, session_key):
     The cohort directory can also contain port-finding and initiation
     pretraining. Those print trials but no bandit fields; keeping them would
     create all-``None`` bandit variables.
+
+    Args:
+        df (pd.DataFrame): One recording (see :func:`recording_trial_info`).
+        subject (str): Subject id, used in the warning.
+        session_key (str): Session key, used in the warning.
+
+    Returns:
+        list[dict]: The per-trial dicts of :func:`recording_trial_info`, or ``[]`` if the
+        recording printed no trials or none with a bandit field (a warning is printed).
     """
     trial_info = recording_trial_info(df)
     if trial_info and not session_has_any_key(trial_info, BANDIT_KEYS):
@@ -141,7 +170,16 @@ def bandit_trial_info(df, subject, session_key):
 
 
 def merge_segments(var_name, segments):
-    """Merge one variable's per-recording lists using the rule for that variable."""
+    """Merge one variable's per-recording lists using the rule for that variable.
+
+    Args:
+        var_name (str): Canonical variable name; selects the merge rule (serial, cumulative
+            number, cumulative dict, within-block index, or plain concatenation).
+        segments (list[list]): One list of per-trial values per recording, in recording order.
+
+    Returns:
+        list: The merged per-trial values of the whole session.
+    """
     if var_name in SERIAL_VARS:
         return concat_serial_numeric(segments)
     if var_name in CUMULATIVE_NUMERIC_VARS:
@@ -154,7 +192,16 @@ def merge_segments(var_name, segments):
 
 
 def merge_trial_variables(trial_vars_list):
-    """Combine the per-recording ``{variable: list}`` dicts of one session into one."""
+    """Combine the per-recording ``{variable: list}`` dicts of one session into one.
+
+    Args:
+        trial_vars_list (list[dict]): One ``{variable: [per-trial values]}`` dict per recording,
+            in recording order (see :func:`transpose_trials`). Must be non-empty.
+
+    Returns:
+        dict: ``{variable: [per-trial values over all recordings]}`` for every variable
+        present in any recording. Key order is not reproducible across runs.
+    """
     # Variables come out of a set, so the key order of a merged session depends on PYTHONHASHSEED
     # and is not reproducible across runs.
     all_var_names = set().union(*[tv.keys() for tv in trial_vars_list])
@@ -165,7 +212,17 @@ def merge_trial_variables(trial_vars_list):
 
 
 def session_trial_variables(trial_vars_list, subject, session_key):
-    """Return one ``{variable: list}`` dict for a session, merging its recordings if several."""
+    """Return one ``{variable: list}`` dict for a session, merging its recordings if several.
+
+    Args:
+        trial_vars_list (list[dict]): One ``{variable: [per-trial values]}`` dict per recording.
+        subject (str): Subject id, used in the log message.
+        session_key (str): Session key, used in the log message.
+
+    Returns:
+        dict: ``{variable: [per-trial values]}``; the single recording's dict itself if there
+        is only one.
+    """
     if len(trial_vars_list) == 1:
         return trial_vars_list[0]
     print(f"[INFO] Merging multiple files for subject {subject}, session {session_key}")
@@ -173,7 +230,18 @@ def session_trial_variables(trial_vars_list, subject, session_key):
 
 
 def add_derived_fields(session_data):
-    """Add the per-tower and per-rank fields derived from the standardised trial variables."""
+    """Add the per-tower and per-rank fields derived from the standardised trial variables.
+
+    Args:
+        session_data (dict): Session dict holding the merged trial variables
+            (``"reward_magnitudes"``, ``"choice"``, ``"choice_towers"``, ``"chosen_rank"``,
+            ``"rank_counts"``).
+
+    Returns:
+        dict: The same *session_data*, with ``"reward_magnitudes_by_tower"``, the
+        reward-magnitude features, ``"choices_by_tower"``, a filled ``"chosen_rank"`` and
+        ``"choices_by_rank"`` added.
+    """
     # Known issue: unpack_reward_magnitudes writes ``reward_magnitudes_by_tower`` and
     # add_reward_magnitude_features then overwrites it (it also includes towers from
     # ``choice_towers``), so the order of these two steps changes the result.
@@ -194,6 +262,14 @@ def drop_unlogged_reversal_vars(session_data):
     """Remove good/bad reversal counters from sessions that never logged them.
 
     Downstream code would otherwise try to merge ``int(None)``.
+
+    Args:
+        session_data (dict): Session dict with boolean ``"has_good"`` / ``"has_bad"`` entries
+            (a missing entry counts as ``False``).
+
+    Returns:
+        dict: The same *session_data*, without ``"good_reversals"`` if ``has_good`` is false
+        and without ``"bad_reversals"`` if ``has_bad`` is false.
     """
     if not session_data.get("has_good", False):
         session_data.pop("good_reversals", None)
@@ -207,6 +283,19 @@ def extract_session_trials(session_data, subject, session_key):
 
     A session without any bandit trial information gets empty
     ``"trial_variables"`` and ``"trial_info"`` and a warning.
+
+    Args:
+        session_data (dict): Session dict from ``import_data``; ``"data"`` holds one
+            ``pd.DataFrame`` or a list of them (one per recording).
+        subject (str): Subject id, used in messages.
+        session_key (str): Session key, used in messages.
+
+    Returns:
+        dict: The same *session_data*. With trials it gains ``"has_good"``, ``"has_bad"``,
+        ``"trial_variables"`` (list of per-recording ``{variable: list}`` dicts),
+        ``"trial_info"`` (list of per-recording lists of raw trial dicts), the merged
+        standardised variables and the derived fields of :func:`add_derived_fields`.
+        Without trials, ``"trial_variables"`` is ``{}`` and ``"trial_info"`` is ``[]``.
     """
     # A session is one dataframe, or a list of them when the recording was restarted
     frames = session_data["data"]
@@ -240,13 +329,18 @@ def extract_trials(data):
     rules, and adds derived fields (reward magnitude features, choice one-hots,
     rank one-hots).
 
+    Sessions whose restarted recordings changed tower configuration are first split into
+    ``_part-NN`` segments (see :mod:`src.behavior_import.split_recording_configurations`),
+    and reversal counters are reconciled at the end
+    (:func:`~src.behavior_import.reconcile_reversals.reconcile_reversals`).
+
     Args:
-        data: Nested dict ``{subject: {session_key: session_dict}}`` where each
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}`` where each
             ``session_dict`` contains at least a ``"data"`` key holding a
             ``pd.DataFrame`` or list of ``pd.DataFrame`` objects.
 
     Returns:
-        The same *data* dict, mutated in-place, with each ``session_dict``
+        dict: The same *data* dict, mutated in-place, with each ``session_dict``
         extended by the following keys (when trial information is available):
 
         - ``"trial"``, ``"blocks"``, ``"good_reversals"``, ``"bad_reversals"``,
@@ -278,12 +372,12 @@ def standardize_variables(dictionary, aliases):
     canonical name ``"good_reversals"``.
 
     Args:
-        dictionary: A single-trial dict of raw variable names and values.
-        aliases: Dict mapping canonical name → tuple of alias strings, as
+        dictionary (dict): A single-trial dict of raw variable names and values.
+        aliases (dict[str, tuple[str, ...]]): Maps canonical name to its alias strings, as
             defined in :data:`ALIASES`.
 
     Returns:
-        A new dict with exactly the canonical keys from *aliases*, each mapped
+        dict: A new dict with exactly the canonical keys from *aliases*, each mapped
         to the first matching value found in *dictionary* (or ``None``).
     """
     out = {}
@@ -307,15 +401,15 @@ def transpose_trials(trial_dicts, aliases, keep=None):
     alias key is present in a trial dict) become ``None``.
 
     Args:
-        trial_dicts: List of per-trial raw dicts.
-        aliases: Dict mapping canonical name → tuple of alias strings, as
+        trial_dicts (list[dict]): Per-trial raw dicts.
+        aliases (dict[str, tuple[str, ...]]): Maps canonical name to its alias strings, as
             defined in :data:`ALIASES`.
-        keep: Optional iterable of canonical key names to retain.  If ``None``
+        keep (Iterable[str] | None): Canonical key names to retain.  If ``None``
             (default), all keys in *aliases* are included.
 
     Returns:
-        Dict ``{canonical_key: [per_trial_values]}`` with one entry per
-        retained key.
+        dict: ``{canonical_key: [per_trial_values]}`` with one entry per
+        retained key and one value per trial dict.
     """
     standardized_keys = list(aliases.keys()) if keep is None else list(keep)
     out = {k: [] for k in standardized_keys}
@@ -336,13 +430,14 @@ def unpack_reward_magnitudes(session_data):
     under ``session_data["reward_magnitudes_by_tower"]``.
 
     Args:
-        session_data: Session dict containing a ``"reward_magnitudes"`` key whose
+        session_data (dict): Session dict containing a ``"reward_magnitudes"`` key whose
             value is a list of dicts mapping tower names to magnitudes.
             Missing trials or tower values remain ``None`` without shifting
             trial indices. Towers are collected across all trials.
 
     Returns:
-        The same *session_data* dict with ``"reward_magnitudes_by_tower"`` added.
+        dict: The same *session_data* dict with ``"reward_magnitudes_by_tower"``
+        (``{tower: [magnitude per trial]}``) added.
     """
     magnitudes = session_data.get("reward_magnitudes", [])
     choice_towers = dict.fromkeys(
@@ -363,12 +458,13 @@ def unpack_choices(session_data):
     Stores the result under ``session_data["choices_by_tower"]``.
 
     Args:
-        session_data: Session dict containing ``"choice_towers"`` (a list whose
+        session_data (dict): Session dict containing ``"choice_towers"`` (a list whose
             first element gives the available tower identifiers) and ``"choice"``
             (a per-trial list of the tower chosen on each trial).
 
     Returns:
-        The same *session_data* dict with ``"choices_by_tower"`` added.
+        dict: The same *session_data* dict with ``"choices_by_tower"``
+        (``{tower: [0 or 1 per trial]}``) added.
     """
     choice_towers = session_data["choice_towers"][0]
     choices_by_tower = {k: [] for k in choice_towers}
@@ -391,13 +487,13 @@ def unpack_chosen_rank(session_data):
     each rank (``"best"``, ``"second"``, ``"third"``).
 
     Args:
-        session_data: Session dict containing ``"chosen_rank"`` (list of raw rank
+        session_data (dict): Session dict containing ``"chosen_rank"`` (list of raw rank
             strings) and ``"rank_counts"`` (list of per-trial cumulative count
             dicts used to derive the canonical rank keys).
 
     Returns:
-        The same *session_data* dict with ``"chosen_rank"`` normalised in-place
-        and ``"choices_by_rank"`` added.
+        dict: The same *session_data* dict with ``"chosen_rank"`` normalised in-place
+        and ``"choices_by_rank"`` (``{rank: [0 or 1 per trial]}``) added.
     """
     # Map inconsistent labels to standardized labels
     rank_map = {
@@ -434,6 +530,13 @@ def standardize_rank_key(k):
 
     Unrecognised strings come back stripped and lower-cased; ``None`` and
     non-strings are returned unchanged.
+
+    Args:
+        k (object): A rank label such as ``"second_best"`` or ``"Third Best"``, or ``None``.
+
+    Returns:
+        str | object: ``"best"``, ``"second"`` or ``"third"`` for a recognised label; the
+        stripped, lower-cased string for any other string; *k* itself otherwise.
     """
     if k is None:
         return k
@@ -447,6 +550,12 @@ def standardize_rank_counts(counts):
     """Return *counts* keyed only by ``"best"``/``"second"``/``"third"``.
 
     Other keys are dropped. A trial whose counts are not a dict yields ``{}``.
+
+    Args:
+        counts (dict | None): One trial's cumulative rank counts, ``{rank_label: count}``.
+
+    Returns:
+        dict[str, int]: Counts keyed by the standard labels present in *counts*.
     """
     if not isinstance(counts, dict):
         return {}
@@ -458,13 +567,13 @@ def infer_rank_from_counts(current, previous, is_first_trial):
     """Infer the rank chosen on a trial from the change in cumulative rank counts.
 
     Args:
-        current: Standardised cumulative counts after this trial.
-        previous: Standardised cumulative counts after the previous trial
+        current (dict[str, int]): Standardised cumulative counts after this trial.
+        previous (dict[str, int]): Standardised cumulative counts after the previous trial
             (``{}`` for the first trial).
-        is_first_trial: Whether this is the session's first trial.
+        is_first_trial (bool): Whether this is the session's first trial.
 
     Returns:
-        The one rank whose count went up. On the first trial, if no single
+        str | None: The one rank whose count went up. On the first trial, if no single
         rank went up, the rank with the largest count (earliest on ties) as
         long as that count is positive. ``None`` if the rank is ambiguous.
     """
@@ -488,12 +597,12 @@ def fill_missing_chosen_rank_from_rank_counts(session_data):
     are never modified.
 
     Args:
-        session_data: Session dict containing ``"chosen_rank"`` (list, may have
+        session_data (dict): Session dict containing ``"chosen_rank"`` (list, may have
             ``None`` entries) and ``"rank_counts"`` (list of cumulative count
             dicts, same length as ``"chosen_rank"``).
 
     Returns:
-        The same *session_data* dict with ``"chosen_rank"`` filled in where
+        dict: The same *session_data* dict with ``"chosen_rank"`` filled in where
         possible. Left untouched if either key is missing or empty, or if
         their lengths differ.
     """
@@ -525,11 +634,11 @@ def session_has_any_key(trial_info, keys):
     independent from performance-dependent task variants.
 
     Args:
-        trial_info: List of per-trial dicts.
-        keys: Tuple of key strings to search for.
+        trial_info (list[dict]): Per-trial dicts.
+        keys (tuple[str, ...]): Key strings to search for.
 
     Returns:
-        ``True`` if at least one dict in *trial_info* contains any key from
+        bool: ``True`` if at least one dict in *trial_info* contains any key from
         *keys*; ``False`` otherwise (including when *trial_info* is empty).
     """
     if not trial_info:
@@ -550,11 +659,11 @@ def concat_serial_numeric(segments):
     ``24``).
 
     Args:
-        segments: List of lists of integers (or ``None`` values) representing
-            per-file trial index sequences.
+        segments (list[list[int | None]]): Per-file trial index sequences, in file order.
+            ``None`` entries and empty segments are dropped.
 
     Returns:
-        A single flat list with continuous trial numbering.
+        list[int]: A single flat list with continuous trial numbering.
     """
     out = []
     offset = 0
@@ -578,11 +687,11 @@ def concat_cumulative_numeric(segments):
     detected (i.e. the current segment starts below the running maximum).
 
     Args:
-        segments: List of lists of numbers (or ``None`` values) representing
-            per-file cumulative counter sequences.
+        segments (list[list[int | None]]): Per-file cumulative counter sequences, in file
+            order. ``None`` entries and empty segments are dropped.
 
     Returns:
-        A single flat list of monotonically non-decreasing cumulative counts.
+        list[int]: A single flat list of monotonically non-decreasing cumulative counts.
     """
     out = []
     prev_last = None
@@ -620,11 +729,11 @@ def add_dicts(a, b):
     silently undercount the merged counters.
 
     Args:
-        a: Base dict (or ``None`` / empty dict).
-        b: Dict of increments to add (or ``None`` / empty dict).
+        a (dict | None): Base dict (or ``None`` / empty dict).
+        b (dict | None): Dict of increments to add (or ``None`` / empty dict).
 
     Returns:
-        A new dict containing the union of keys from *a* and *b* with their
+        dict[str, int]: A new dict containing the union of keys from *a* and *b* with their
         values summed.
     """
     out = dict(a) if a else {}
@@ -643,10 +752,11 @@ def offset_dict_list_cumulative(segments):
     monotonically non-decreasing.
 
     Args:
-        segments: List of lists-of-dicts, one inner list per recording file.
+        segments (list[list[dict]]): Lists of cumulative-count dicts, one inner list per
+            recording file. Non-dict entries are passed through unchanged.
 
     Returns:
-        A single flat list of cumulative-count dicts spanning all files.
+        list[dict]: A single flat list of cumulative-count dicts spanning all files.
     """
     out = []
     offset = {}
@@ -677,11 +787,11 @@ def concat_trials_in_block(segments):
     onward are kept as-is.
 
     Args:
-        segments: List of lists of integers (or ``None`` values) representing
-            per-file within-block trial index sequences.
+        segments (list[list[int | None]]): Per-file within-block trial index sequences, in
+            file order. ``None`` entries and empty segments are dropped.
 
     Returns:
-        A single flat list of within-block trial indices that resets to ``1``
+        list[int]: A single flat list of within-block trial indices that resets to ``1``
         only at genuine block transitions.
     """
     out = []
@@ -728,11 +838,13 @@ def choice_towers_signature(session_data):
     and converts it to a stable hashable form (tuple for lists/tuples/dicts,
     or a one-element tuple for strings).
 
+    The signature also carries the session's initiation tower (``"B2"`` if it logged none).
+
     Args:
-        session_data: Session dict containing a ``"choice_towers"`` key.
+        session_data (dict): Session dict containing a ``"choice_towers"`` key.
 
     Returns:
-        A hashable tuple representing the tower set, or ``None`` if
+        tuple | None: ``(towers_tuple, initiation_tower)``, or ``None`` if
         ``"choice_towers"`` is absent, all values are ``None`` or the first is empty.
     """
     towers_seq = session_data.get("choice_towers", None)
@@ -771,6 +883,15 @@ def problem_signature(session_data):
     """Return the session's tower layout (choice towers, initiation tower), or ``None``.
 
     ``None`` means the session logged no choice towers.
+
+    Args:
+        session_data (dict): Session dict with trial-level ``"choice_towers"`` and, optionally,
+            ``"initiation_tower"``.
+
+    Returns:
+        tuple | None: The permutation-invariant signature from
+        :func:`~src.behavior_import.problem_numbering.permutation_invariant_signature`, or
+        ``None`` if no choice towers were logged.
     """
     return permutation_invariant_signature(choice_towers_signature(session_data))
 
@@ -780,6 +901,17 @@ def session_facts(subject_id, session_id, session_data):
 
     The layout comes from the trial-level ``choice_towers``; the settings evidence is the
     ``"settings_evidence"`` entry that ``import_data`` stores on every session.
+
+    Args:
+        subject_id (str): Subject id, used in the error message.
+        session_id (str): Session key, used in the error message.
+        session_data (dict): An extracted session dict.
+
+    Returns:
+        SessionFacts: The layout signature, settings evidence, task name and task type.
+
+    Raises:
+        ValueError: If the session has no ``"settings_evidence"`` entry.
     """
     evidence = session_data.get("settings_evidence")
     if evidence is None:
@@ -802,6 +934,19 @@ def signed_sessions(subject_id, subject_sessions):
     Sessions without trial information are skipped with a warning. Raises ``ValueError`` if
     the subject's session numbers and dates disagree
     (:mod:`src.behavior_import.session_order`).
+
+    Args:
+        subject_id (str): Subject id.
+        subject_sessions (dict): ``{session_key: session_dict}`` for this subject, after
+            :func:`extract_trials`.
+
+    Returns:
+        list[tuple[str, SessionFacts]]: ``(session_key, facts)`` for each session that has
+        trial information, oldest first.
+
+    Raises:
+        ValueError: If session numbers and dates disagree, or a session lacks
+            ``"settings_evidence"``.
     """
     signed = []
     for session_id in ordered_session_keys(subject_id, subject_sessions):
@@ -842,13 +987,18 @@ def group_sessions_by_problem(data, copy_sessions=True):
     its session, so each flagged session warns once overall.
 
     Args:
-        data: Nested dict ``{subject: {session_key: session_dict}}`` after
-            :func:`extract_trials` has been applied.
-        copy_sessions: If ``True`` (default), each session dict is deep-copied
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}`` after
+            :func:`extract_trials` has been applied. Each numbered session gains
+            ``"problem"``, ``"problem_flag"`` and ``"problem_provisional"``.
+        copy_sessions (bool): If ``True`` (default), each session dict is deep-copied
             into the output to avoid aliasing the input.
 
     Returns:
-        Dict ``{problem_id: {subject: {session_key: session_dict}}}``.
+        dict: ``{problem_id: {subject: {session_key: session_dict}}}``.
+
+    Raises:
+        ValueError: If a subject's session numbers and dates disagree, or a session lacks
+            ``"settings_evidence"``.
     """
     problems = {}
     for subject_id, subject_sessions in data.items():
@@ -883,6 +1033,13 @@ def available_towers(towers_entry, magnitudes):
     set or a single string). Anything else, including ``None``, means the
     towers were not logged, so the keys of the trial's *magnitudes* dict are
     used instead.
+
+    Args:
+        towers_entry (dict | list | tuple | set | str | None): One trial's ``choice_towers`` value.
+        magnitudes (dict): That trial's ``{tower: magnitude}`` dict.
+
+    Returns:
+        list: The tower identifiers on offer.
     """
     if towers_entry is not None:
         if isinstance(towers_entry, dict):
@@ -897,7 +1054,15 @@ def available_towers(towers_entry, magnitudes):
 def top_magnitudes(towers, magnitudes, n):
     """Return the *n* largest magnitudes among *towers*, best first.
 
-    Towers without a magnitude are ignored.
+    Towers without a magnitude are ignored; equal magnitudes are ordered by tower name.
+
+    Args:
+        towers (Iterable): Tower identifiers on offer.
+        magnitudes (dict): ``{tower: magnitude}`` for the trial.
+        n (int): How many magnitudes to return.
+
+    Returns:
+        list[float]: Up to *n* magnitudes, largest first.
     """
     pairs = [(tw, magnitudes.get(tw)) for tw in towers]
     pairs = [(tw, m) for tw, m in pairs if m is not None]
@@ -909,17 +1074,17 @@ def reward_magnitude_features(mags_seq, choice_seq, towers_seq):
     """Derive per-trial value features from the logged reward magnitudes.
 
     Args:
-        mags_seq: Non-empty list with one ``{tower: magnitude}`` dict per trial
+        mags_seq (list): Non-empty list with one ``{tower: magnitude}`` dict per trial
             (other entries count as "no magnitudes logged").
-        choice_seq: Chosen tower per trial. Ignored (treated as all missing)
+        choice_seq (list | None): Chosen tower per trial. Ignored (treated as all missing)
             unless it has one entry per trial.
-        towers_seq: Per-trial available towers, or ``None``/shorter than
+        towers_seq (list | None): Per-trial available towers, or ``None``/shorter than
             *mags_seq* where the towers must be read from the magnitude dicts.
 
     Returns:
-        ``(chosen_magnitude, magnitude_by_arm, magnitude_by_rank)``: a list, a
-        ``{tower: list}`` dict and a ``{rank: list}`` dict. Entries are ``None``
-        where nothing was logged.
+        tuple[list, dict, dict]: ``(chosen_magnitude, magnitude_by_arm, magnitude_by_rank)``: a
+        list, a ``{tower: list}`` dict and a ``{rank: list}`` dict with keys ``"best"``,
+        ``"second"``, ``"third"``. Entries are ``None`` where nothing was logged.
     """
     n = len(mags_seq)
     mags = [m if isinstance(m, dict) else {} for m in mags_seq]
@@ -962,16 +1127,13 @@ def add_reward_magnitude_features(session_data):
     ``"reward_magnitudes_by_tower"``.
 
     Args:
-        session_data: Session dict containing:
-
-        - ``"reward_magnitudes"`` — list of per-trial ``{tower: magnitude}``
-          dicts.
-        - ``"choice"`` — list of chosen tower tokens (same length).
-        - ``"choice_towers"`` (optional) — list of available tower sets per
-          trial; falls back to ``reward_magnitudes[t].keys()`` if absent.
+        session_data (dict): Session dict containing ``"reward_magnitudes"`` (list of
+            per-trial ``{tower: magnitude}`` dicts), ``"choice"`` (list of chosen tower
+            tokens, same length) and optionally ``"choice_towers"`` (list of available tower
+            sets per trial; falls back to ``reward_magnitudes[t].keys()`` if absent).
 
     Returns:
-        The same *session_data* dict with the three derived keys added, or
+        dict: The same *session_data* dict with the three derived keys added, or
         unchanged if there are no reward magnitudes.
     """
     mags_seq = session_data.get("reward_magnitudes", [])

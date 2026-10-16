@@ -8,13 +8,41 @@ MODEL_VERSION = 1
 
 class DriftingBanditTask():
 
-    """
-    This class implements a multi-armed bandit task, similar to the drifting reward bandit.
+    """Multi-armed bandit task, similar to the drifting reward bandit.
 
-    swap_mode: "random" chooses a nonzero arm uniformly at each block boundary;
-    "most_chosen" chooses the nonzero arm with the most choices in that block.
-    Ties are broken uniformly at random. Counts reset after each swap and persist
-    across simulate calls when a block is only partially completed.
+    swap_mode: "random" chooses a nonzero arm uniformly at each block boundary; "most_chosen"
+    chooses the nonzero arm with the most choices in that block. Ties are broken uniformly at
+    random. Counts reset after each swap and persist across simulate calls when a block is only
+    partially completed. The task draws from Python's global ``random`` module, and it changes the
+    *arms* list it is given in place.
+
+    Args:
+        arms (list[int]): Current reward of each arm; exactly one entry is 0 (the arm that swaps
+            with another at each block boundary). Stored by reference, so it is modified as the task
+            runs.
+        reward_values (list[int]): Allowed nonzero reward values, ascending; arms drift only within
+            the range from the first to the last. Default ``[1, 2, 3, 4]``.
+        drift_rate (float): Per-trial probability that each nonzero arm moves up or down to the
+            nearest unoccupied value (it stays put if none is in range). Default 0.1.
+        min_block_length (int): Shortest block, in trials, between swaps. Default 30.
+        max_block_length (int): Longest block, in trials. Default 35.
+        swap_mode (str): ``'random'`` or ``'most_chosen'``. Default ``'random'``.
+
+    Attributes:
+        arms (list[int]): Current reward of each arm.
+        num_arms (int): Number of arms.
+        swap_mode (str): As in Args.
+        reward_values (list[int]): As in Args.
+        drift_rate (float): As in Args.
+        min_block_length (int): As in Args.
+        max_block_length (int): As in Args.
+        current_block_length (int): Trials remaining in the current block.
+        block_choice_counts (np.ndarray): ``(num_arms,)`` int choices per arm in the current block.
+        arm_history (list[list[int]]): After ``simulate``: the arm values available before each
+            trial.
+
+    Raises:
+        ValueError: If *swap_mode* is not ``'random'`` or ``'most_chosen'``.
     """
 
     def __init__(self, arms, reward_values=[1,2,3,4], drift_rate=0.1, min_block_length=30, max_block_length=35, swap_mode="random"):

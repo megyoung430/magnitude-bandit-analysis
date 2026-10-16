@@ -111,9 +111,15 @@ def plot_choice_probs(x: ArrayLike, across: dict, ax: plt.Axes | None = None) ->
     """Mean ± SE choice-probability curves around good reversals on one axis.
 
     Args:
-        x: Trial offsets relative to the reversal.
-        across: Aggregated statistics dict (``mean``, ``se``, ``num_subjects``,
-            ``num_reversals``).
+        x (ArrayLike): Trial offsets relative to the reversal, shape ``(n_offsets,)``.
+        across (dict): Aggregated statistics dict: ``"mean"`` and ``"se"`` (each
+            ``{"prev_best", "next_best", "third"}`` to an array of shape ``(n_offsets,)``),
+            plus ``"num_subjects"`` and ``"num_reversals"`` for the title.
+        ax (plt.Axes | None): Axes to draw into; a new 8 x 4.5 inch figure if None.
+            Default None.
+
+    Returns:
+        plt.Axes: The axes drawn into.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(8, 4.5))
@@ -179,14 +185,16 @@ def plot_choice_probs_broken_axis(
     trials here, so the right-hand segment starts just after the omitted gap.
 
     Args:
-        x: Trial offsets relative to the reversal, unshifted.
-        across: Aggregated statistics dict.
-        skip_n_trials_after_reversal: Number of omitted trials (> 0).
-        axes: ``(left, right)`` axes to draw into; a new figure if ``None``.
-            The caller is responsible for their relative widths.
+        x (ArrayLike): Trial offsets relative to the reversal, unshifted, shape
+            ``(n_offsets,)``.
+        across (dict): Aggregated statistics dict (``"mean"``, ``"se"``; see
+            :func:`plot_choice_probs`).
+        skip_n_trials_after_reversal (int): Number of omitted trials (> 0).
+        axes (tuple[plt.Axes, plt.Axes] | None): ``(left, right)`` axes to draw into; a new
+            figure if None. The caller is responsible for their relative widths. Default None.
 
     Returns:
-        The ``(left, right)`` axes.
+        tuple[plt.Axes, plt.Axes]: The ``(left, right)`` axes.
     """
     x_disp = _skipped_offsets(x, skip_n_trials_after_reversal)
     left_xlim, right_xlim = _broken_xlims(x_disp, skip_n_trials_after_reversal)
@@ -231,17 +239,17 @@ def plot_cumulative_removed(
     its background patch is hidden, so the twin's curves show behind the host's.
 
     Args:
-        x: Trial offsets.
-        series: ``{kind: values over x}`` (kinds ``"total"``, ``"good"``, ``"bad"``)
-            as from
+        x (ArrayLike): Trial offsets, shape ``(n_offsets,)``.
+        series (dict[str, np.ndarray]): ``{kind: values over x}`` (kinds ``"total"``,
+            ``"good"``, ``"bad"``, ``"unclassified"``), each of shape ``(n_offsets,)``, as from
             :func:`src.behavior_analysis.cumulative_reversal_removal.cumulative_removal_series`.
-        fraction: Whether *series* holds fractions (axis 0-1) or raw counts.
-        hidden: Kinds in *series* to leave undrawn; they still determine which
-            bins are finite and the count axis limits.
-        ax: Axis to attach the twin to; a new figure if ``None``.
+        fraction (bool): Whether *series* holds fractions (axis 0-1.05) or raw counts.
+        hidden (Collection[str]): Kinds in *series* to leave undrawn; they still determine
+            which bins are finite and the count axis limits. Default ``()``.
+        ax (plt.Axes | None): Axis to attach the twin to; a new figure if None. Default None.
 
     Returns:
-        The twin axis.
+        plt.Axes: The twin axis.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 6))
@@ -285,17 +293,19 @@ def plot_choice_probs_with_removal(
     """Choice-probability curves with the data-removed twin axis and a merged legend.
 
     Args:
-        x: Trial offsets relative to the reversal.
-        across: Aggregated statistics dict.
-        series: ``{kind: values over x}`` removal curves; see
+        x (ArrayLike): Trial offsets relative to the reversal, shape ``(n_offsets,)``.
+        across (dict): Aggregated statistics dict (``"mean"``, ``"se"``; see
+            :func:`plot_choice_probs`).
+        series (dict[str, np.ndarray]): ``{kind: values over x}`` removal curves; see
             :func:`plot_cumulative_removed`.
-        fraction: Whether *series* holds fractions (twin axis 0-1) or raw counts.
-        hidden: Kinds in *series* to leave undrawn (still used for the axis limits).
-        ax: Axis to draw into; a new figure if ``None``. Its zorder and
-            background are changed by :func:`plot_cumulative_removed`.
+        fraction (bool): Whether *series* holds fractions (twin axis 0-1) or raw counts.
+        hidden (Collection[str]): Kinds in *series* to leave undrawn (still used for the axis
+            limits). Default ``()``.
+        ax (plt.Axes | None): Axis to draw into; a new figure if None. Its zorder and
+            background are changed by :func:`plot_cumulative_removed`. Default None.
 
     Returns:
-        ``(ax, ax2)``: the main axis and its twin.
+        tuple[plt.Axes, plt.Axes]: ``(ax, ax2)``, the main axis and its twin.
     """
     if ax is None:
         _, ax = plt.subplots(figsize=(10, 6))
@@ -363,28 +373,34 @@ def plot_choice_probs_around_good_reversals(
     layout has no cumulative axis, so ``add_cumulative_axis`` is ignored.
 
     Args:
-        x: Trial offsets relative to the reversal (negative = pre, else post).
-        across: Aggregated statistics dict with keys ``"mean"``, ``"se"``,
+        x (ArrayLike): Trial offsets relative to the reversal (negative = pre, else post),
+            shape ``(n_offsets,)``.
+        across (dict): Aggregated statistics dict with keys ``"mean"``, ``"se"``,
             ``"num_subjects"``, and ``"num_reversals"`` as returned by
             :func:`src.behavior_analysis.get_choice_probs_around_good_reversals.get_choice_probs_around_good_reversals`.
-        add_cumulative_axis: If ``True``, hand over to
-            :func:`add_cumulative_rev_axis` (default: ``True``).
-        only_good: In good/bad mode, draw only the good-reversal line
-            (default: ``False``).
-        use_total: If ``True``, use *total* mode (one line, every reversal
-            kind) instead of good/bad mode (default: ``False``).
-        windows_for_cumulative_axis: ``{subject: [reversal_dict]}`` windows
-            dict for the cumulative axis; required when ``add_cumulative_axis``.
-        all_good_idx: ``{subject: [int]}`` good-reversal indices (cumulative axis).
-        all_bad_idx: ``{subject: [int]}`` bad-reversal indices (cumulative axis).
-        all_unclassified_idx: ``{subject: [int]}`` block changes of sessions
+        add_cumulative_axis (bool): If True, hand over to :func:`add_cumulative_rev_axis`.
+            Default True.
+        only_good (bool): In good/bad mode, draw only the good-reversal line. Default False.
+        use_total (bool): If True, use *total* mode (one line, every reversal kind) instead of
+            good/bad mode. Default False.
+        windows_for_cumulative_axis (dict | None): ``{subject: [reversal_dict]}`` windows
+            dict for the cumulative axis; required when ``add_cumulative_axis``. Default None.
+        all_good_idx (dict | None): ``{subject: [int]}`` good-reversal indices (cumulative
+            axis). Default None.
+        all_bad_idx (dict | None): ``{subject: [int]}`` bad-reversal indices (cumulative
+            axis). Default None.
+        all_unclassified_idx (dict | None): ``{subject: [int]}`` block changes of sessions
             without good/bad counters
             (:func:`src.behavior_analysis.get_total_reversals.get_unclassified_reversal_indices`);
             required (like ``all_good_idx``) when ``add_cumulative_axis``;
-            ``{subject: []}`` if every session logs counters.
-        skip_n_trials_after_reversal: Post-reversal trials to omit (default: 0).
-        save_path: Base path without extension for ``.pdf`` / ``.png`` output;
-            if ``None``, the figure is shown.
+            ``{subject: []}`` if every session logs counters. Default None.
+        skip_n_trials_after_reversal (int): Post-reversal trials to omit. Default 0.
+        save_path (str | Path | None): Base path without extension for ``.pdf`` / ``.png``
+            output; if None or empty, the figure is shown. Default None.
+
+    Raises:
+        ValueError: If ``add_cumulative_axis`` is used (and ``skip_n_trials_after_reversal``
+            is 0) while ``all_good_idx``, ``all_bad_idx`` or ``all_unclassified_idx`` is None.
     """
     if skip_n_trials_after_reversal > 0:
         fig = _broken_axis_figure(x, across, skip_n_trials_after_reversal)
@@ -426,31 +442,31 @@ def add_cumulative_rev_axis(
     "cut short" by subsequent reversals on the secondary (right) axis.
 
     Args:
-        x: 1-D array of trial offsets relative to the reversal.
-        across: Aggregated statistics dict (same structure as in
+        x (ArrayLike): 1-D array of trial offsets relative to the reversal.
+        across (dict): Aggregated statistics dict (same structure as in
             :func:`plot_choice_probs_around_good_reversals`).
-        windows_for_cumulative_axis: ``{subject: [reversal_dict]}`` windows
-            dict used to compute the cumulative axis.
-        all_good_idx: ``{subject: [int]}`` good-reversal index lists.  Required.
-        all_bad_idx: ``{subject: [int]}`` bad-reversal index lists.  Required.
-        save_path: Base path for saving ``.pdf`` / ``.png`` files.  If
-            ``None``, the figure is shown interactively.
-        plot_fraction_removed: If ``True``, plot the fraction of data removed
-            (range 0–1); if ``False``, plot raw cumulative reversal counts
-            (default: ``True``).
-        only_good: Suppress the bad-reversal line in good/bad mode (default:
-            ``False``).
-        use_total: If truthy, use total-mode cumulative axis (one line, every
-            reversal kind); if falsy, use good/bad-mode (two lines, default:
-            ``None`` → falsy).
-        all_unclassified_idx: ``{subject: [int]}`` reversals of unknown kind
+        windows_for_cumulative_axis (dict | None): ``{subject: [reversal_dict]}`` windows
+            dict used to compute the cumulative axis. Default None.
+        all_good_idx (dict | None): ``{subject: [int]}`` good-reversal index lists. Required
+            in practice. Default None.
+        all_bad_idx (dict | None): ``{subject: [int]}`` bad-reversal index lists. Required in
+            practice. Default None.
+        save_path (str | Path | None): Base path for saving ``.pdf`` / ``.png`` files. If
+            None or empty, the figure is shown interactively. Default None.
+        plot_fraction_removed (bool): If True, plot the fraction of data removed (range 0-1);
+            if False, plot raw cumulative reversal counts. Default True.
+        only_good (bool): Suppress the bad-reversal line in good/bad mode. Default False.
+        use_total (bool | None): If truthy, use total-mode cumulative axis (one line, every
+            reversal kind); if falsy, use good/bad-mode (two lines). Default None.
+        all_unclassified_idx (dict | None): ``{subject: [int]}`` reversals of unknown kind
             (blocks-only sessions), from
             :func:`src.behavior_analysis.get_total_reversals.get_reversal_indices_by_kind`;
-            required keyword-only (``{subject: []}`` if every session logs
-            counters). Adds an "unclassified" line in good/bad mode.
+            required keyword-only (``{subject: []}`` if every session logs counters). Adds an
+            "unclassified" line in good/bad mode.
 
     Raises:
-        ValueError: If ``all_good_idx`` or ``all_bad_idx`` is missing.
+        ValueError: If ``all_good_idx``, ``all_bad_idx`` or ``all_unclassified_idx`` is None.
+        KeyError: If a subject in the windows is missing from one of the index dicts.
     """
     x = np.asarray(x, dtype=float)
     series = cumulative_removal_series(
@@ -500,22 +516,22 @@ def cumulative_reversal_events_over_post(
     :func:`src.behavior_analysis.cumulative_reversal_removal.good_bad_removal_curves`.
 
     Args:
-        good_windows: ``{subject: [reversal_dict]}`` windows dict.
-        all_good_idx: ``{subject: [int]}`` good-reversal trial indices.
-        all_bad_idx: ``{subject: [int]}`` bad-reversal trial indices.
-        x: 1-D float array of trial offsets.
-        across: Aggregated statistics dict (unused, kept for API symmetry).
-        exclude_anchor_good: If ``True``, only count reversals *after* anchor
-            *g*; if ``False``, reversals at *g* itself are also eligible
-            (default: ``True``).
-        all_unclassified_idx: ``{subject: [int]}`` reversals of unknown kind
-            (blocks-only sessions); they cut windows but are in neither the
-            good nor the bad curve.
+        good_windows (dict): ``{subject: [reversal_dict]}`` windows dict.
+        all_good_idx (dict): ``{subject: [int]}`` good-reversal trial indices.
+        all_bad_idx (dict): ``{subject: [int]}`` bad-reversal trial indices.
+        x (ArrayLike): 1-D array of trial offsets.
+        across (dict | None): Aggregated statistics dict (unused, kept for API symmetry).
+        exclude_anchor_good (bool): If True, only count reversals *after* anchor *g*; if
+            False, reversals at *g* itself are also eligible. Default True.
+        all_unclassified_idx (dict): ``{subject: [int]}`` reversals of unknown kind
+            (blocks-only sessions); they cut windows but are in neither the good nor the bad
+            curve.
 
     Returns:
-        A five-tuple ``(x_disp, cumulative_good_full, cumulative_bad_full,
-        fraction_removed_good, fraction_removed_bad)`` where each is a 1-D
-        float array the same length as *x*.  Pre-window offsets are ``nan``.
+        tuple[np.ndarray, ...]: A five-tuple ``(x_disp, cumulative_good_full,
+        cumulative_bad_full, fraction_removed_good, fraction_removed_bad)`` where each is a
+        1-D float array the same length as *x* (the two cumulative ones are counts).
+        Pre-window offsets are ``nan``.
     """
     x = np.asarray(x, dtype=float)
     curves = good_bad_removal_curves(
@@ -552,21 +568,19 @@ def cumulative_total_events_over_post(
     :func:`src.behavior_analysis.cumulative_reversal_removal.total_removal_curves`.
 
     Args:
-        windows: ``{subject: [reversal_dict]}`` windows dict.
-        x: 1-D float array of trial offsets.
-        across: Aggregated statistics dict (unused, kept for API symmetry).
-        exclude_anchor: If ``True``, only count reversals strictly after anchor
-            *g*; if ``False``, reversals at *g* itself are also eligible
-            (default: ``True``).
-        good_idx: ``{subject: [int]}`` good-reversal trial indices.
-        bad_idx: ``{subject: [int]}`` bad-reversal trial indices.
-        unclassified_idx: ``{subject: [int]}`` reversals of unknown kind (block
-            changes of sessions without good/bad counters); ``{subject: []}``
-            if none.
+        windows (dict): ``{subject: [reversal_dict]}`` windows dict.
+        x (ArrayLike): 1-D array of trial offsets.
+        across (dict | None): Aggregated statistics dict (unused, kept for API symmetry).
+        exclude_anchor (bool): If True, only count reversals strictly after anchor *g*; if
+            False, reversals at *g* itself are also eligible. Default True.
+        good_idx (dict): ``{subject: [int]}`` good-reversal trial indices.
+        bad_idx (dict): ``{subject: [int]}`` bad-reversal trial indices.
+        unclassified_idx (dict): ``{subject: [int]}`` reversals of unknown kind (block
+            changes of sessions without good/bad counters); ``{subject: []}`` if none.
 
     Returns:
-        A three-tuple ``(x_disp, cum_total_full, frac_total_full)`` where each
-        is a 1-D float array the same length as *x*.  Pre-window offsets are
+        tuple[np.ndarray, ...]: A three-tuple ``(x_disp, cum_total_full, frac_total_full)``
+        where each is a 1-D float array the same length as *x*.  Pre-window offsets are
         ``nan``.  ``frac_total_full`` is the fraction of anchor windows removed
         at each offset (in ``[0, 1]``).
     """

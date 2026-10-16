@@ -36,7 +36,19 @@ ALGORITHM_VERSION = 1
 
 
 def recovery_design(config):
-    """Full factorial design, with independent reproducible seeds per session."""
+    """Full factorial design, with independent reproducible seeds per session.
+
+    Args:
+        config (dict): Needs ``swap_modes`` (list of task swap modes), ``trial_lengths`` (list of
+            ints), ``parameter_grid`` (``{'learning_rate': [...], 'beta': [...], 'alpha': [...]}``),
+            ``n_repeats`` (int) and ``seed`` (int).
+
+    Returns:
+        pd.DataFrame: One row per combination of swap mode, trial length, true parameter values and
+            repeat, with columns ``run_id`` (16 hex characters naming the condition), ``swap_mode``,
+            ``num_trials``, ``repeat``, ``seed`` (derived from ``config['seed']`` and the condition,
+            independent of row order), ``true_learning_rate``, ``true_beta`` and ``true_alpha``.
+    """
     combinations = itertools.product(
         config["swap_modes"],
         config["trial_lengths"],
@@ -277,8 +289,41 @@ def _progress_line(n_saved: int, n_total: int, remaining_seconds: float) -> str:
 def run_recovery(config, fit_function, loss_function, bounds, output_root, max_new_runs=None):
     """Save each fit and its synthetic data atomically; resume identical runs.
 
-    max_new_runs limits new work for a pilot. Failed fits remain visible in the
-    checkpoint; they are not silently discarded or retried on resume.
+    max_new_runs limits new work for a pilot. Failed fits remain visible in the checkpoint; they are
+    not silently discarded or retried on resume. The experiment directory is named by a hash of the
+    configuration, bounds and the source of both functions, so changing any of them starts a new
+    experiment. The global Python and NumPy random generators are restored afterwards.
+
+    Args:
+        config (dict): Everything that defines the experiment: the keys of ``recovery_design`` plus
+            ``initial_arms`` (list of arm values, one of them 0), ``task_parameters`` (dict of extra
+            ``DriftingBanditTask`` keyword arguments) and ``n_starts`` (int, fit restarts per
+            session).
+        fit_function (Callable): ``fit_function(actions, rewards, num_arms=, n_starts=, seed=)``
+            returning ``(estimates, result)``: a dict mapping ``'learning_rate'``, ``'beta'`` and
+            ``'alpha'`` to floats, and an optimizer result with ``fun`` and ``message``. It signals
+            a failed fit by raising ``RuntimeError``. It must have retrievable source.
+        loss_function (Callable): ``loss_function([learning_rate, beta, alpha], actions, rewards,
+            num_arms)`` returning the mean negative log likelihood per trial. It must have
+            retrievable source.
+        bounds (list[tuple]): Three ``(low, high)`` pairs in the order learning_rate, beta, alpha,
+            used to flag fits at a bound.
+        output_root (str | Path): Directory that holds one subdirectory per experiment (created if
+            missing).
+        max_new_runs (int | None): Maximum number of design rows to run in this call; None runs all
+            pending rows. Default None.
+
+    Returns:
+        tuple[pd.DataFrame, Path]: ``(results, output)``. ``results`` has one row per finished run:
+            the ``recovery_design`` columns plus ``true_loss``, ``uniform_loss``, ``success``
+            (bool), ``loss``, ``message``, ``fit_seconds``, and ``recovered_<name>`` and
+            ``at_bound_<name>`` for each of learning_rate, beta and alpha (None for a failed fit).
+            ``output`` is the experiment directory, which also holds the manifest, design,
+            per-session ``.npz`` data, ``results.json`` and ``results.csv``.
+
+    Raises:
+        ValueError: If the design is empty or has duplicate conditions, or a function has no
+            retrievable source.
     """
     design = recovery_design(config)
     if design.empty or design.run_id.duplicated().any():
@@ -319,7 +364,20 @@ def run_recovery(config, fit_function, loss_function, bounds, output_root, max_n
 
 
 def summarize_recovery(results, group_columns):
-    """Summarise estimation error and failures without pooling task conditions."""
+    """Summarise estimation error and failures without pooling task conditions.
+
+    Args:
+        results (pd.DataFrame): Output of ``run_recovery``.
+        group_columns (list[str]): Columns whose combinations define the groups, e.g.
+            ``['swap_mode', 'num_trials']``. Pass a list, not a bare string.
+
+    Returns:
+        pd.DataFrame: One row per group and parameter, with the ``group_columns``, ``parameter``
+            (``'learning_rate'``, ``'beta'`` or ``'alpha'``), ``n_sessions``, ``n_success``,
+            ``failure_rate``, and over successful fits only: ``bias`` (mean of recovered minus
+            true), ``mae``, ``rmse``, ``correlation`` (NaN when fewer than two sessions or either
+            value is constant) and ``boundary_rate`` (fraction of fits at a bound).
+    """
     summaries = []
     for keys, group in results.groupby(group_columns):
         if not isinstance(keys, tuple):

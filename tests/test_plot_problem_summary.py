@@ -243,19 +243,18 @@ def test_unusable_summary_values_raise_before_any_figure_is_made(drawn):
     assert plt.get_fignums() == [] and drawn.figures == []
 
 
-def test_jitter_draws_from_the_global_random_stream_in_mouse_order(drawn):
+def test_jitter_draws_from_one_seeded_generator_in_mouse_order(drawn):
     np.random.seed(7)
+    before = np.random.get_state()
     pps.plot_metric_by_problem(summary(), title="T", ylabel="Y", jitter=0.1)
-    after = np.random.get_state()
     lines = mouse_lines(drawn.figures[0].axes[0])
 
-    np.random.seed(7)
-    expected_a = np.array([0.0, 2.0]) + np.random.uniform(-0.1, 0.1, size=2)
-    expected_b = np.array([0.0]) + np.random.uniform(-0.1, 0.1, size=1)
+    rng = np.random.default_rng(0)
+    expected_a = np.array([0.0, 2.0]) + rng.uniform(-0.1, 0.1, size=2)
+    expected_b = np.array([0.0]) + rng.uniform(-0.1, 0.1, size=1)
     np.testing.assert_array_equal(lines[0].get_xdata(), expected_a)
     np.testing.assert_array_equal(lines[1].get_xdata(), expected_b)
-    # exactly those draws and no others: mice without points consume nothing
-    assert same_random_state(after, np.random.get_state())
+    assert same_random_state(before, np.random.get_state())  # the global stream is not used
 
 
 def test_zero_jitter_leaves_the_random_stream_untouched(drawn):
@@ -512,15 +511,15 @@ def test_rank_pvalue_label_lands_on_the_wrong_bar_when_a_mean_is_nan_known_issue
 
 def test_rank_jitter_consumes_three_draws_per_mouse_in_order(drawn):
     np.random.seed(3)
+    before = np.random.get_state()
     pps.plot_rank_proportions_average_without_blocks(rank_counts())
-    after = np.random.get_state()
     lines = mouse_lines(drawn.figures[0].axes[0])
 
-    np.random.seed(3)
+    rng = np.random.default_rng(0)
     for line in lines:
-        expected = np.arange(3) + np.random.uniform(-0.03, 0.03, size=3)
+        expected = np.arange(3) + rng.uniform(-0.03, 0.03, size=3)
         np.testing.assert_array_equal(line.get_xdata(), expected)
-    assert same_random_state(after, np.random.get_state())
+    assert same_random_state(before, np.random.get_state())
 
 
 def test_rank_figure_with_unusable_counts_raises_before_any_figure_is_made(drawn):

@@ -23,7 +23,16 @@ IMPORT_CODE_DIR = Path(__file__).resolve().parent
 
 
 def raw_data_fingerprint(root: Path) -> tuple[tuple[str, int, int], ...]:
-    """``(relative path, size, mtime_ns)`` of every ``.tsv`` under *root*, sorted."""
+    """``(relative path, size, mtime_ns)`` of every ``.tsv`` under *root*, sorted.
+
+    Args:
+        root (Path): Raw-data folder to scan recursively.
+
+    Returns:
+        tuple[tuple[str, int, int], ...]: One ``(posix path relative to root, size in bytes,
+        modification time in ns)`` entry per file; it changes whenever a file is added, edited
+        or removed.
+    """
     root = Path(root)
     return tuple(
         sorted(
@@ -34,7 +43,12 @@ def raw_data_fingerprint(root: Path) -> tuple[tuple[str, int, int], ...]:
 
 
 def import_code_version() -> str:
-    """Hash of the import code, so editing it invalidates cached results."""
+    """Hash of the import code, so editing it invalidates cached results.
+
+    Returns:
+        str: Hex SHA-256 of the names and contents of the ``*.py`` files directly in
+        ``src/behavior_import``.
+    """
     digest = hashlib.sha256()
     for path in sorted(IMPORT_CODE_DIR.glob("*.py")):
         digest.update(path.name.encode())
@@ -69,14 +83,20 @@ def load_trials_by_problem(
     """``extract_trials_grouped_by_problem(import_data(root))``, cached on disk.
 
     Args:
-        root: Raw-data folder, e.g. ``<data_root>/<experiment>/<cohort>/rawdata``.
-        cache_dir: Cache location (default: ``get_settings().cache_dir``).
-        use_cache: ``False`` always re-imports and leaves the cache untouched.
-        classify_task_types: Number problems by task type as well as layout (see
-            :func:`~src.behavior_import.import_data.import_data`).
+        root (Path): Raw-data folder, e.g. ``<data_root>/<experiment>/<cohort>/rawdata``.
+        cache_dir (Path | None): Cache location. Default ``None``, meaning
+            ``get_settings().cache_dir``. Keyword-only.
+        use_cache (bool): ``False`` always re-imports and leaves the cache untouched.
+            Default ``True``. Keyword-only.
+        classify_task_types (bool): Number problems by task type as well as layout (see
+            :func:`~src.behavior_import.import_data.import_data`). Default ``False``.
+            Keyword-only.
 
     Returns:
-        ``{problem_number: {subject: {session_key: session_dict}}}``.
+        dict: ``{problem_number: {subject: {session_key: session_dict}}}``.
+
+    Raises:
+        FileNotFoundError: If *root* is not an existing directory.
     """
     root = Path(root).resolve()
     if not root.is_dir():

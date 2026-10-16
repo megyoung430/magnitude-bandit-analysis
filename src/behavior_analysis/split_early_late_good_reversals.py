@@ -57,18 +57,18 @@ def split_good_reversals_early_late(good_reversal_info, first_n=None, last_n=Non
       (may overlap if the subject has too few reversals).
 
     Args:
-        good_reversal_info: ``{subject: list[reversal_dict]}`` as returned by
+        good_reversal_info (dict): ``{subject: list[reversal_dict]}`` as returned by
             :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
-        first_n: Number of reversals to include in the early split, or
-            ``None`` to use the midpoint / complement of *last_n*
-            (default: ``None``).
-        last_n: Number of reversals to include in the late split, or
-            ``None`` to use the midpoint / complement of *first_n*
-            (default: ``None``).
+        first_n (int | None): Number of reversals to include in the early split, or
+            ``None`` to use the midpoint / complement of *last_n*. Negative counts mean zero.
+            Default ``None``.
+        last_n (int | None): Number of reversals to include in the late split, or
+            ``None`` to use the midpoint / complement of *first_n*. Negative counts mean zero.
+            Default ``None``.
 
     Returns:
-        A two-tuple ``(early_info, late_info)`` where each element is a
-        ``{subject: list[reversal_dict]}`` dict.
+        tuple[dict, dict]: A two-tuple ``(early_info, late_info)`` where each element is a
+        ``{subject: list[reversal_dict]}`` dict with the same subjects as the input.
     """
     early, late = {}, {}
     for subj, revs in good_reversal_info.items():

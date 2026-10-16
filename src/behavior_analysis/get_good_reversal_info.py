@@ -15,6 +15,7 @@ from pathlib import PurePath
 from src.behavior_analysis.best_change import best_change_problem
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.reversal_alignment import window_bounds, window_indices
 from src.behavior_analysis.reversal_format import check_formats_agree
 from src.behavior_analysis.suspect_reversals import good_event_counts
 from src.behavior_import.session_order import ordered_session_keys
@@ -194,15 +195,25 @@ def _block_id_at(blocks, idx):
     return blocks[idx] if idx < len(blocks) else None
 
 
-def _window_indices(boundaries, k, n_trials, *, pre, post):
-    """Absolute ``(pre_idx, post_idx)`` trial indices around boundary number *k*.
+def _block_change_indices(series, boundaries, include_first_block):
+    """Indices where ``blocks`` changes (good or bad reversals), checked against *boundaries*.
 
-    The post-window never extends past the next boundary (or the last trial).
+    Raises:
+        ValueError: If the subject has no ``blocks`` series, or a reversal boundary (other than
+            the prepended first block) is not a block change, so the blocks cannot bound
+            the windows.
     """
-    idx = boundaries[k]
-    next_boundary = boundaries[k + 1] if k + 1 < len(boundaries) else n_trials
-    post_end = next_boundary if post is None else min(n_trials, idx + post, next_boundary)
-    return list(range(max(0, idx - pre), idx)), list(range(idx, post_end))
+    if len(series.blocks) < 2:
+        raise ValueError("stop_at_block_changes needs a 'blocks' series with at least 2 trials")
+    changes = _find_change_indices(series.blocks)
+    real = boundaries[1:] if include_first_block else boundaries
+    stray = [b for b in real if b not in changes]
+    if stray:
+        raise ValueError(
+            f"stop_at_block_changes: reversal boundaries {stray} are not block changes in "
+            "'blocks'; the blocks cannot bound the windows"
+        )
+    return changes
 
 
 def _slice_choices(choices, pre_idx, post_idx):
@@ -276,7 +287,18 @@ def _best_tower(magnitudes, label, where):
 
 
 def _build_reversal(
-    series, towers, boundary_source, idx, pre_idx, post_idx, *, before, after, first_block, where
+    series,
+    towers,
+    boundary_source,
+    idx,
+    pre_idx,
+    post_idx,
+    bounds,
+    *,
+    before,
+    after,
+    first_block,
+    where,
 ):
     """Assemble the reversal dict for the boundary at trial *idx* (see the public docstring)."""
     block_id = _block_id_at(series.blocks, idx)
@@ -291,6 +313,8 @@ def _build_reversal(
         "session_trial": where.trial,
         "first_block": first_block,
         "trial_window_idx": {"pre": pre_idx, "post": post_idx},
+        "pre_start": bounds[0],
+        "post_end": bounds[1],
         "reward_magnitudes_by_tower_before": before,
         "reward_magnitudes_by_tower_after": after,
         "choices_by_tower": _slice_choices(series.choices_by_tower, pre_idx, post_idx),
@@ -308,6 +332,17 @@ class DroppedReversal:
     run's last trial). ``before`` and ``after`` are the ``{tower: magnitude}`` dicts that the
     check compared; ``good_reversal_number`` is the logged counter at the boundary, or
     ``None`` when no counter was logged.
+
+    Attributes:
+        where (_Where): Subject, session, session-local trial, recording run and merged
+            trial of the boundary (``.text()`` gives a readable label).
+        reason (str): ``"missing magnitude"``, ``"tie for best"`` or ``"best tower unchanged"``.
+        count (int): Reversals on the boundary trial. Default 1.
+        good_reversal_number (int | None): Logged good counter at the boundary.
+        before (dict | None): ``{tower: magnitude}`` on the trial before the boundary.
+        after (dict | None): ``{tower: magnitude}`` on the boundary trial.
+        events (int): How many of the ``count`` reversals were logged while nothing was
+            recording. Default 0.
     """
 
     where: _Where
@@ -346,7 +381,17 @@ def _logged_good_number(series, idx):
     return series.good[idx]
 
 
-def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block, max_zero_count):
+def _subject_reversals(
+    subj,
+    series,
+    sessions,
+    *,
+    pre,
+    post,
+    include_first_block,
+    max_zero_count,
+    stop_at_block_changes=False,
+):
     """Reversal dicts for one subject, the dropped suspect ones, and its bad-only sessions.
 
     Returns ``(reversals, dropped, bad_only_sessions)``; the first is ``[]`` when there is
@@ -370,6 +415,11 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
     if include_first_block:
         boundaries = [0] + boundaries
 
+    block_changes = (
+        _block_change_indices(series, boundaries, include_first_block)
+        if stop_at_block_changes
+        else None
+    )
     events = _events_at(spans)
     reversals, dropped = [], []
     for k, idx in enumerate(boundaries):
@@ -406,7 +456,10 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
             continue
         # Windows come from the full boundary list, so a kept reversal's post-window
         # still stops at a neighbouring boundary that was skipped, masked or dropped.
-        pre_idx, post_idx = _window_indices(boundaries, k, n_trials, pre=pre, post=post)
+        bounds = window_bounds(boundaries, k, n_trials, block_changes=block_changes)
+        pre_idx, post_idx = window_indices(
+            boundaries, k, n_trials, pre=pre, post=post, block_changes=block_changes
+        )
         reversals.append(
             _build_reversal(
                 series,
@@ -415,6 +468,7 @@ def _subject_reversals(subj, series, sessions, *, pre, post, include_first_block
                 idx,
                 pre_idx,
                 post_idx,
+                bounds,
                 before=before,
                 after=after,
                 first_block=first_block,
@@ -468,17 +522,34 @@ def _warn_dropped(dropped):
     )
 
 
-def collect_good_reversals(data, *, pre, post, include_first_block, max_zero_count):
+def collect_good_reversals(
+    data, *, pre, post, include_first_block, max_zero_count, stop_at_block_changes=False
+):
     """Windows, dropped reversals and bad-only sessions of every subject (no warnings).
 
     The shared core of :func:`get_good_reversal_info` and
     :func:`~src.behavior_analysis.suspect_reversal_table.suspect_reversal_table`, so that
     the table lists exactly the reversals that the analyses drop.
 
+    Args:
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        pre (int): Trials before the reversal index in the pre-window. Keyword-only.
+        post (int | None): Trials after the reversal index in the post-window; ``None``
+            extends to the next boundary. Keyword-only.
+        include_first_block (bool): If ``True``, prepend index ``0`` to the boundaries.
+            Keyword-only.
+        max_zero_count (int): Maximum towers with zero reward on the trial before a reversal;
+            reversals above it are skipped. Keyword-only.
+        stop_at_block_changes (bool): If ``True``, both windows stay inside the reversal's
+            block. Keyword-only. Default False.
+
     Returns:
-        ``(result, dropped, bad_only)``: the ``{subject: [reversal_dict]}`` result, the
-        :class:`DroppedReversal` list across subjects, and ``(subject, session)`` of each
-        bad-only session.
+        tuple[dict, list[DroppedReversal], list[tuple]]: ``(result, dropped, bad_only)``: the
+        ``{subject: [reversal_dict]}`` result, the :class:`DroppedReversal` list across
+        subjects, and ``(subject, session)`` of each bad-only session.
+
+    Raises:
+        ValueError: As for :func:`get_good_reversal_info`.
     """
     for subj, subject_sessions in data.items():
         check_formats_agree(subj, subject_sessions)
@@ -494,13 +565,21 @@ def collect_good_reversals(data, *, pre, post, include_first_block, max_zero_cou
             post=post,
             include_first_block=include_first_block,
             max_zero_count=max_zero_count,
+            stop_at_block_changes=stop_at_block_changes,
         )
         dropped += subj_dropped
         bad_only += [(subj, key) for key in subj_bad_only]
     return result, dropped, bad_only
 
 
-def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, max_zero_count=1):
+def get_good_reversal_info(
+    data,
+    pre=5,
+    post=None,
+    include_first_block=False,
+    max_zero_count=1,
+    stop_at_block_changes=False,
+):
     """Extract windowed trial data around each good reversal for all subjects.
 
     Identifies good-reversal boundaries from the merged session data for each
@@ -555,23 +634,31 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
     ``ValueError`` naming the subject.
 
     Args:
-        data: Nested dict ``{subject: {session_key: session_dict}}``.
-        pre: Number of trials before the reversal index to include in the
-            pre-window (default: 5).
-        post: Number of trials after the reversal index to include in the
-            post-window.  If ``None``, extends to the next reversal boundary
-            (default: ``None``).
-        include_first_block: If ``True``, prepend index ``0`` to the boundary
-            list so the very first block is also represented (default:
-            ``False``). Not done when trial 0 belongs to a bad-only session
+        data (dict): Nested dict ``{subject: {session_key: session_dict}}``.
+        pre (int): Number of trials before the reversal index to include in the
+            pre-window. Default 5.
+        post (int | None): Number of trials after the reversal index to include in the
+            post-window.  If ``None``, extends to the next reversal boundary.
+            Default None.
+        include_first_block (bool): If ``True``, prepend index ``0`` to the boundary
+            list so the very first block is also represented. Default
+            ``False``. Not done when trial 0 belongs to a bad-only session
             and the subject has no good counter: that session has no good
             reversals, and its first block ends at a bad reversal.
-        max_zero_count: Maximum number of towers allowed to have a zero reward
+        max_zero_count (int): Maximum number of towers allowed to have a zero reward
             magnitude on the trial immediately before the reversal.  Reversals
-            exceeding this count are skipped (default: 1).
+            exceeding this count are skipped. Default 1.
+        stop_at_block_changes (bool): If ``True``, both windows stay inside the block of the
+            reversal: the pre window starts at the previous block change and the post window
+            ends at the next one, bad reversals included (block changes are the changes in
+            the merged ``blocks`` series). Sessions of a problem are not bounded at their
+            starts, because blocks continue across days. Raises ``ValueError`` if the
+            subject has no ``blocks`` series or a reversal boundary is not a block change.
+            If ``False`` (default), the pre window reaches back ``pre`` trials whatever
+            block they belong to, and the post window ends at the next reversal boundary.
 
     Returns:
-        Dict ``{subject: list[reversal_dict]}`` where each *reversal_dict*
+        dict: ``{subject: list[reversal_dict]}`` where each *reversal_dict*
         contains:
 
         - ``"reversal_idx"`` (int): Trial index of the reversal.
@@ -591,6 +678,10 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
           *include_first_block*. The first block is not a reversal.
         - ``"trial_window_idx"`` (dict): ``{"pre": [...], "post": [...]}``
           lists of absolute trial indices.
+        - ``"pre_start"``, ``"post_end"`` (int): The bounds the windows were cut
+          with: the pre window uses trials from ``pre_start`` (0 unless
+          *stop_at_block_changes*) and the post window ends before ``post_end``
+          (the next boundary, or the next block change, or the trial count).
         - ``"reward_magnitudes_by_tower_before"`` (dict): Tower → magnitude on
           the trial immediately before the reversal.
         - ``"reward_magnitudes_by_tower_after"`` (dict): Tower → magnitude on
@@ -600,6 +691,12 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
           [...]}`` one-hot choice slices.
         - ``"choices_by_rank"`` (dict): Rank → ``{"pre": [...], "post":
           [...]}`` one-hot choice slices.
+
+    Raises:
+        ValueError: If a subject mixes counter and blocks-only sessions, its merged per-trial
+            series are not aligned with the trial list, its session numbers and dates
+            disagree, or (with *stop_at_block_changes*) it has no ``blocks`` series or a
+            reversal boundary is not a block change.
     """
     result, dropped, bad_only = collect_good_reversals(
         data,
@@ -607,6 +704,7 @@ def get_good_reversal_info(data, pre=5, post=None, include_first_block=False, ma
         post=post,
         include_first_block=include_first_block,
         max_zero_count=max_zero_count,
+        stop_at_block_changes=stop_at_block_changes,
     )
     # Warnings are raised here, not in the helpers, so stacklevel=2 is the caller's line.
     for subj, key in bad_only:
@@ -628,12 +726,13 @@ def classify_towers_at_good_reversals(reversal):
     reversal, which became the best arm after, and which is neither.
 
     Args:
-        reversal: A reversal dict as returned by :func:`get_good_reversal_info`,
+        reversal (dict): A reversal dict as returned by :func:`get_good_reversal_info`,
             containing ``"reward_magnitudes_by_tower_before"`` and
             ``"reward_magnitudes_by_tower_after"`` keys.
 
     Returns:
-        A three-tuple ``(prev_best, next_best, third)``. When the best tower
+        tuple[str, str, str | None]: A three-tuple ``(prev_best, next_best, third)`` of
+        tower keys. When the best tower
         changes, ``third`` is the remaining tower. When it is unchanged
         (``prev_best == next_best``) there is no meaningful third tower and
         ``third`` is ``None``. Ties for best resolve to the tower listed first.
@@ -677,12 +776,12 @@ def exclude_best_unchanged(reversals, *, subject, caller):
     best tower is unchanged.
 
     Args:
-        reversals: A subject's list of reversal dicts.
-        subject: Subject name, for the warning.
-        caller: Name of the calling analysis, for the warning.
+        reversals (list[dict]): A subject's list of reversal dicts.
+        subject (str): Subject name, for the warning. Keyword-only.
+        caller (str): Name of the calling analysis, for the warning. Keyword-only.
 
     Returns:
-        The reversals that can be classified, in their original order.
+        list[dict]: The reversals that can be classified, in their original order.
     """
     has_third = [classify_towers_at_good_reversals(r)[2] is not None for r in reversals]
     kept = [r for r, ok in zip(reversals, has_third, strict=True) if ok]

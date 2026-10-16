@@ -29,30 +29,78 @@ def palette_color(index: int, palette: Sequence[str] | None = None) -> str:
 
     A module whose palette a notebook may replace passes its own module-level palette
     here, looked up at call time.
+
+    Args:
+        index (int): Position of the item; wraps around modulo the palette length.
+        palette (Sequence[str] | None): Colours to cycle through. Default None, meaning
+            ``MOUSE_COLORS``.
+
+    Returns:
+        str: The colour at ``index % len(palette)``.
     """
     palette = MOUSE_COLORS if palette is None else palette
     return palette[index % len(palette)]
 
 
 def mouse_color_map(mice: Iterable[str]) -> dict[str, str]:
-    """Map each mouse to a palette colour, cycling when there are more mice than colours."""
+    """Map each mouse to a palette colour, cycling when there are more mice than colours.
+
+    Args:
+        mice (Iterable[str]): Mouse identifiers, in the order that fixes their colours.
+
+    Returns:
+        dict[str, str]: ``{mouse: colour}`` using ``MOUSE_COLORS``.
+    """
     return {m: palette_color(i) for i, m in enumerate(mice)}
 
 
 def despine(ax: plt.Axes) -> None:
-    """Hide the top and right spines."""
+    """Hide the top and right spines.
+
+    Args:
+        ax (plt.Axes): Axes to modify in place.
+    """
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
 
-def jittered(xs: np.ndarray, half_width: float) -> np.ndarray:
+JITTER_SEED = 0
+
+
+def jitter_rng(seed: int = JITTER_SEED) -> np.random.Generator:
+    """A generator for the jitter of one figure; one per figure keeps it reproducible.
+
+    Args:
+        seed (int): Seed for the generator. Default ``JITTER_SEED`` (0).
+
+    Returns:
+        np.random.Generator: A new generator from ``np.random.default_rng(seed)``.
+    """
+    return np.random.default_rng(seed)
+
+
+def jittered(
+    xs: np.ndarray, half_width: float, rng: np.random.Generator | None = None
+) -> np.ndarray:
     """*xs* plus uniform noise of half-width *half_width* (unchanged if it is ``<= 0``).
 
-    Draws from the global ``np.random`` stream, so ``np.random.seed`` makes it
-    repeatable; nothing is drawn when the jitter is off, which leaves the stream alone.
+    Pass one *rng* for all the lines of a figure so each gets its own noise; the default is a
+    fresh generator seeded with ``JITTER_SEED``, so the same input always gives the same
+    output. Nothing is drawn when the jitter is off.
+
+    Args:
+        xs (np.ndarray): Positions to jitter, shape ``(n,)``.
+        half_width (float): Half-width of the uniform noise; ``<= 0`` turns jitter off.
+        rng (np.random.Generator | None): Generator to draw from. Default None, meaning a
+            fresh ``jitter_rng()``.
+
+    Returns:
+        np.ndarray: ``xs`` plus noise, shape ``(n,)``; the input array itself when jitter is
+        off.
     """
     if half_width > 0:
-        return xs + np.random.uniform(-half_width, half_width, size=len(xs))
+        rng = jitter_rng() if rng is None else rng
+        return xs + rng.uniform(-half_width, half_width, size=len(xs))
     return xs
 
 
@@ -63,6 +111,14 @@ def axes_or_new(ax: plt.Axes | None, **subplots_kwargs) -> Iterator[plt.Axes]:
     A figure made here is closed if the body raises (the error is re-raised), so a
     failed draw leaves nothing open. A figure that is returned normally stays open for
     the caller. An *ax* passed in belongs to the caller and is left alone either way.
+
+    Args:
+        ax (plt.Axes | None): Axes to draw into, or None to create a new figure.
+        **subplots_kwargs: Passed to ``plt.subplots`` when a figure is created; ignored if
+            *ax* is given.
+
+    Yields:
+        plt.Axes: *ax*, or the axes of the new figure.
     """
     if ax is not None:
         yield ax
@@ -103,6 +159,16 @@ def save_or_show(
     in a single ``plt.show()``. Every figure is closed afterwards, also when saving
     raises. With ``make_parent=False`` the parent directory must already exist and
     *save_path* is used as given.
+
+    Args:
+        figures (plt.Figure | Mapping[str, plt.Figure]): One figure, or ``{suffix: figure}``.
+        save_path (str | Path | None): Base path without extension; None shows the figures
+            instead of saving.
+        formats (tuple[str, ...]): File formats to write. Default ``("pdf", "png")``.
+        dpi (Mapping[str, int]): Dots per inch by format; formats not listed use matplotlib's
+            default. Default ``DEFAULT_DPI`` (png at 300).
+        make_parent (bool): Create *save_path*'s parent directory (and convert the path to a
+            ``Path``). Default True.
     """
     named = {"": figures} if isinstance(figures, plt.Figure) else dict(figures)
     try:
@@ -120,7 +186,13 @@ def save_or_show(
 
 
 class TableOutput(NamedTuple):
-    """A table to write as ``<directory>/<filename>`` (CSV)."""
+    """A table to write as ``<directory>/<filename>`` (CSV).
+
+    Attributes:
+        filename (str): File name within the output directory, including extension.
+        frame (pd.DataFrame): The table to write.
+        index (bool): Whether to write the DataFrame index. Default False.
+    """
 
     filename: str
     frame: pd.DataFrame
@@ -128,7 +200,12 @@ class TableOutput(NamedTuple):
 
 
 class FigureOutput(NamedTuple):
-    """A finished figure to save as ``<directory>/<name>.png`` and ``.pdf``."""
+    """A finished figure to save as ``<directory>/<name>.png`` and ``.pdf``.
+
+    Attributes:
+        name (str): File name without extension.
+        figure (plt.Figure): The figure to save; it is closed after saving.
+    """
 
     name: str
     figure: plt.Figure
@@ -151,8 +228,18 @@ def write_outputs(
     that raises cannot hand back its unfinished figure, so it is found in pyplot).
     Figures that were already open beforehand are left alone.
 
+    Args:
+        outputs (Iterable[TableOutput | FigureOutput]): Tables and figures to write; may be a
+            generator.
+        directory (Path): Existing directory the files are written into.
+        show (bool): Also display each figure after saving it.
+
     Returns:
-        The saved figure paths, PNG then PDF for each figure.
+        list[Path]: The saved figure paths, PNG then PDF for each figure (table paths are
+        not included).
+
+    Raises:
+        TypeError: If an item of *outputs* is neither a ``TableOutput`` nor a ``FigureOutput``.
     """
     already_open = _open_figures()
     paths: list[Path] = []

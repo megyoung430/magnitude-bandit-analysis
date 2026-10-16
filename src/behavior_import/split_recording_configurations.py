@@ -46,6 +46,25 @@ def split_recording_configurations(data):
     problems. The first segment keeps the parent's ``problem_flag``: ``import_data`` numbered
     the session by its first recording and warned about that flag, so
     ``group_sessions_by_problem`` must not warn about it again. The other segments carry none.
+
+    Each segment is a shallow copy of the parent session with its own ``"data"`` / ``"df"``
+    (one DataFrame, or a list if the segment has several recordings), ``"settings_evidence"``,
+    ``"task_name"``, ``"choice_towers"``, ``"initiation_tower"`` and, when the parent had task
+    types classified, ``"task_type"``. Each carries ``"source_session"`` (the parent's key).
+    A split session's key ``ses-<N>_date-<YYYYMMDD>`` is replaced by
+    ``ses-<N>_date-<YYYYMMDD>_part-01``, ``_part-02`` and so on.
+
+    Args:
+        data (dict): ``{subject: {session_key: session_dict}}`` as returned by
+            :func:`src.behavior_import.import_data.import_data`. Mutated in place.
+
+    Returns:
+        dict: The same *data* object, with each split session replaced by its segments.
+
+    Raises:
+        ValueError: If a recording's first ``run_start`` row is not valid JSON (naming mouse,
+            session and file), if a segment key already exists, or if a segment's task name
+            cannot be classified when task types are classified.
     """
     for mouse,sessions in data.items():
         for key,session in list(sessions.items()):

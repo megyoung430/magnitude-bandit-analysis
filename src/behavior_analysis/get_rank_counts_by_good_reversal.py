@@ -1,6 +1,8 @@
 """Aggregate arm-rank choice counts per good reversal for all subjects."""
 import numpy as np
 
+from src.behavior_analysis.get_believed_value import rank_weights
+
 
 def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=True):
     """Count and proportion best/second/third arm choices in each reversal's post window.
@@ -10,16 +12,16 @@ def get_rank_counts_by_good_reversal(good_reversal_info, include_first_block=Tru
     downstream for rank-proportion plots and statistical tests.
 
     Args:
-        good_reversal_info: ``{subject: list[reversal_dict]}`` as returned by
+        good_reversal_info (dict): ``{subject: list[reversal_dict]}`` as returned by
             :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
             Each reversal dict must contain a ``"choices_by_rank"`` key with
             sub-keys ``"best"``, ``"second"``, ``"third"``, each holding a
             ``{"pre": [...], "post": [...]}`` one-hot list.
-        include_first_block: Parameter accepted for API symmetry; not currently
-            used in the computation (default: ``True``).
+        include_first_block (bool): Parameter accepted for API symmetry; not currently
+            used in the computation. Default True.
 
     Returns:
-        Dict ``{subject: list[rank_count_dict]}`` with one entry per reversal.
+        dict: ``{subject: list[rank_count_dict]}`` with one entry per reversal.
         Each *rank_count_dict* contains:
 
         - ``"best"`` (int): Number of post-window trials where the best arm
@@ -73,6 +75,25 @@ def get_rank_counts_by_value(subjects_trials, reversal_windows, value_basis="tru
     choices of unseen arms are excluded. Ties share weight equally among the
     occupied rank positions. ``total`` counts eligible choices, so pooling uses
     the appropriate denominator. True-value counts retain the existing logic.
+
+    Args:
+        subjects_trials (dict): ``{subject: {session_key: session_dict}}`` for one problem;
+            merged across sessions to follow beliefs. Unused when *value_basis* is ``"true"``.
+        reversal_windows (dict): ``{subject: list[reversal_dict]}`` as returned by
+            :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`;
+            for the believed basis each dict needs ``trial_window_idx["post"]``.
+        value_basis (str): ``"true"`` or ``"believed"``. Default ``"true"``.
+
+    Returns:
+        dict: ``{subject: list[rank_count_dict]}`` with one entry per reversal window, with
+        keys ``best``, ``second``, ``third`` (counts; fractional when ties share weight
+        on the believed basis), ``total``, ``n_trials`` and ``best_prop``, ``second_prop``,
+        ``third_prop`` (``nan`` if ``total`` is 0). See
+        :func:`get_rank_counts_by_good_reversal`.
+
+    Raises:
+        ValueError: If *value_basis* is not ``"true"`` or ``"believed"``, or a subject
+            has more than three arms (believed basis).
     """
     if value_basis == "true":
         return get_rank_counts_by_good_reversal(reversal_windows)
@@ -96,11 +117,7 @@ def get_rank_counts_by_value(subjects_trials, reversal_windows, value_basis="tru
             weight = dict.fromkeys(ranks, 0.0)
             seen = {arm: last_seen[arm] for arm in rewards if arm in last_seen}
             if chosen in seen:
-                value = seen[chosen]
-                above = sum(v > value for v in seen.values())
-                tied = sum(v == value for v in seen.values())
-                for position in range(above, above + tied):
-                    weight[ranks[position]] = 1.0 / tied
+                weight = dict(zip(ranks, rank_weights(seen[chosen], seen.values()), strict=True))
             weights.append(weight)
             if chosen in rewards and rewards[chosen][i] is not None:
                 last_seen[chosen] = rewards[chosen][i]

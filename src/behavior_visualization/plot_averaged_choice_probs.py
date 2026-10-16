@@ -47,19 +47,27 @@ def fraction_removed_by_problem(
     across problems), then averaged across problems.
 
     Args:
-        windows_dict: ``{problem: reversal_windows}``.
-        curves_by_problem: As returned by
-            :func:`curves_by_problem_from_windows_dict`.
-        x: Trial-offset array.
-        reversals_by_problem: ``{problem: reversals}`` where *reversals* is
+        windows_dict (dict): ``{problem: reversal_windows}``; problems with empty windows are
+            skipped.
+        curves_by_problem (dict): ``{problem: {"x", "across", "subjects", "num_reversals"}}``
+            as returned by :func:`curves_by_problem_from_windows_dict`. Problems absent from
+            it are skipped.
+        x (np.ndarray): Trial-offset array, shape ``(n_offsets,)``.
+        reversals_by_problem (dict): ``{problem: reversals}`` where *reversals* is
             :func:`src.behavior_analysis.get_total_reversals.get_reversal_indices_by_kind`
-            of that problem's trials; a reversal of any kind cuts a window.
-        exclude_anchor: Passed to ``cumulative_total_events_over_post``
-            (default: True).
+            of that problem's trials (keys ``"good"``, ``"bad"``, ``"unclassified"``); a
+            reversal of any kind cuts a window.
+        exclude_anchor (bool): Passed to ``cumulative_total_events_over_post``.
+            Default True.
 
     Returns:
-        ``(frac_avg, probs_used)`` where *frac_avg* is the mean
-        fraction-removed curve averaged over problems.
+        tuple[np.ndarray, list]: ``(frac_avg, probs_used)``. *frac_avg* is the fraction-removed
+        curve averaged over problems (``nanmean``), shape ``(n_offsets,)``; *probs_used* lists
+        the problems that contributed, in sorted order.
+
+    Raises:
+        KeyError: If a problem has windows and a curve but is missing from
+            *reversals_by_problem*.
 
     Known issue: when no problem yields a curve, *frac_avg* is all NaN and no
     warning is raised.
@@ -177,14 +185,19 @@ def plot_choice_probs_with_fraction_removed_panel(
     """Draw averaged choice-probability curves with a fraction-removed twin axis.
 
     Args:
-        x: Trial-offset array.
-        across: Averaged across dict from :func:`average_across_problem_curves`.
-        frac_removed: Fraction-removed curve from :func:`fraction_removed_by_problem`.
-        ax: Axes to draw into; a new 10 x 6 inch figure is created if ``None``.
-        title_extra: Optional extra string appended to the title.
+        x (np.ndarray): Trial-offset array, shape ``(n_offsets,)``.
+        across (dict): Averaged across dict from :func:`average_across_problem_curves`, with
+            ``"mean"`` and ``"se"`` (each ``{"prev_best", "next_best", "third"}`` to a curve of
+            shape ``(n_offsets,)``) and the counts ``"num_subjects"``, ``"num_reversals"``,
+            ``"num_problems"`` used in the title.
+        frac_removed (np.ndarray): Fraction-removed curve from
+            :func:`fraction_removed_by_problem`, shape ``(n_offsets,)``.
+        ax (plt.Axes | None): Axes to draw into; a new 10 x 6 inch figure is created if
+            ``None``. Default None.
+        title_extra (str): Optional extra string appended to the title. Default ``""``.
 
     Returns:
-        The left (choice-probability) axes; the twin axis shares its figure.
+        plt.Axes: The left (choice-probability) axes; the twin axis shares its figure.
     """
     x = np.asarray(x, float)
     frac_removed = np.asarray(frac_removed, float)
@@ -210,13 +223,15 @@ def plot_choice_probs_with_fraction_removed_axis(
     """Plot averaged choice-probability curves with a fraction-removed twin axis.
 
     Args:
-        x: Trial-offset array.
-        across: Averaged across dict from :func:`average_across_problem_curves`.
-        frac_removed: Fraction-removed curve from
-            :func:`fraction_removed_by_problem`.
-        save_path: If provided, saves ``.pdf`` and ``.png`` at this path.
-            If ``None``, the figure is shown interactively.
-        title_extra: Optional extra string appended to the figure title.
+        x (np.ndarray): Trial-offset array, shape ``(n_offsets,)``.
+        across (dict): Averaged across dict from :func:`average_across_problem_curves`; see
+            :func:`plot_choice_probs_with_fraction_removed_panel`.
+        frac_removed (np.ndarray): Fraction-removed curve from
+            :func:`fraction_removed_by_problem`, shape ``(n_offsets,)``.
+        save_path (str | Path | None): If provided, saves ``.pdf`` and ``.png`` at this path
+            (extension-less base). If ``None`` or empty, the figure is shown interactively.
+            Default None.
+        title_extra (str): Optional extra string appended to the figure title. Default ``""``.
     """
     ax = plot_choice_probs_with_fraction_removed_panel(
         x, across, frac_removed, title_extra=title_extra

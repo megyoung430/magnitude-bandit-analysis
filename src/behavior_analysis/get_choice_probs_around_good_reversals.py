@@ -17,6 +17,11 @@ from src.behavior_analysis.get_good_reversal_info import (
     classify_towers_at_good_reversals,
     exclude_best_unchanged,
 )
+from src.behavior_analysis.reversal_alignment import (
+    align_window_values,
+    bin_offsets,
+    smooth_pre_post,
+)
 from src.behavior_analysis.stats import nan_standard_error
 
 # Roles of the three towers around a good reversal, in the order returned by
@@ -30,53 +35,43 @@ _MEAN_KEYS = {role: f"{role}_mean" for role in _TOWER_ROLES}
 # ---------------------------------------------------------------------------
 
 
-def _keep_zero_then_skip(post_list: list, skip: int) -> list:
-    """Return *post_list* with index 0 kept and the next *skip* entries dropped.
-
-    Exactly *skip* trials are removed (indices ``1 .. skip``), so a full-length
-    list ends up with ``len(post_list) - skip`` entries, matching the x axis.
-    """
-    if skip <= 0:
-        return post_list
-    return post_list[:1] + post_list[skip + 1 :]
-
-
-def _pad_to_length(arr: Sequence[float], length: int) -> np.ndarray:
-    """Pad or truncate *arr* to *length*, filling missing entries with NaN."""
-    out = np.full(length, np.nan, dtype=float)
-    n = min(len(arr), length)
-    out[:n] = arr[:n]
-    return out
-
-
-def _reversal_choice_rows(reversal: dict, *, skip: int, length: int) -> dict[str, np.ndarray]:
+def _reversal_choice_rows(
+    reversal: dict, *, skip: int, pre: int, post: int
+) -> dict[str, np.ndarray]:
     """One-hot choice row per tower role (pre + post window) for one reversal.
 
     Args:
         reversal: A reversal dict from ``get_good_reversal_info``.
-        skip: Post trial 0 (the reversal trial) is kept and the next *skip*
-            post trials (``1 .. skip``) are dropped (see
-            :func:`_keep_zero_then_skip`).
-        length: Row length; shorter windows are NaN-padded, longer truncated.
+        skip: Post trials ``1 .. skip`` are dropped (see :func:`align_window_values`).
+        pre: Number of pre-reversal bins; a longer window keeps its last *pre* trials.
+        post: Post-reversal trials before skipping; a longer window is truncated.
 
     Returns:
-        ``{role: 1-D float array}`` for ``prev_best``, ``next_best``, ``third``.
+        ``{role: 1-D float array of length pre + post - skip}`` for ``prev_best``,
+        ``next_best``, ``third``.
     """
     towers = classify_towers_at_good_reversals(reversal)
     by_tower = reversal["choices_by_tower"]
     return {
-        role: _pad_to_length(
-            by_tower[tower]["pre"] + _keep_zero_then_skip(by_tower[tower]["post"], skip), length
+        role: align_window_values(
+            by_tower[tower]["pre"],
+            by_tower[tower]["post"],
+            pre=pre,
+            post=post,
+            skip=skip,
+            truncate=True,
         )
         for role, tower in zip(_TOWER_ROLES, towers, strict=True)
     }
 
 
 def _subject_choice_matrices(
-    reversals: list[dict], *, skip: int, length: int
+    reversals: list[dict], *, skip: int, pre: int, post: int
 ) -> dict[str, np.ndarray]:
-    """Stack the per-reversal rows of one subject into ``{role: (n_reversals, length)}``."""
-    rows = [_reversal_choice_rows(reversal, skip=skip, length=length) for reversal in reversals]
+    """Stack the per-reversal rows of one subject into ``{role: (n_reversals, n_bins)}``."""
+    rows = [
+        _reversal_choice_rows(reversal, skip=skip, pre=pre, post=post) for reversal in reversals
+    ]
     return {role: np.vstack([row[role] for row in rows]) for role in _TOWER_ROLES}
 
 
@@ -94,6 +89,12 @@ def mean_and_se(stack: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     The standard error is the sample SD (``ddof=1``) over the non-NaN rows of a
     bin divided by the square root of their number, and NaN in bins with fewer
     than two such rows (so always NaN for a single row).
+
+    Args:
+        stack (np.ndarray): 2-D array of shape ``(n_rows, n_bins)``; NaN marks missing values.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: ``(mean, se)``, each of shape ``(n_bins,)``.
     """
     return np.nanmean(stack, axis=0), nan_standard_error(stack)
 
@@ -140,21 +141,6 @@ def _assert_probabilities_sum_to_one(
     assert np.isclose(finite_sums, 1.0, atol=1e-6).all(), f"{label} do not sum to 1 (finite bins)."
 
 
-def _trial_offsets(*, pre: int, post: int, skip: int) -> np.ndarray:
-    """Trial offsets ``[-pre, 0)`` followed by ``[0, post - skip)``.
-
-    Raises:
-        ValueError: If *skip* is negative or leaves no post window (``skip >= post``).
-    """
-    if skip < 0:
-        raise ValueError("skip_n_trials_after_reversal must be >= 0")
-    if skip >= post:
-        raise ValueError(
-            "skip_n_trials_after_reversal must be < post (otherwise post window is empty)."
-        )
-    return np.concatenate([np.arange(-pre, 0), np.arange(0, post - skip)])
-
-
 def get_choice_probs_around_good_reversals(
     reversal_windows, pre=10, post=40, skip_n_trials_after_reversal=0
 ):
@@ -164,17 +150,17 @@ def get_choice_probs_around_good_reversals(
     per-reversal choice matrices, then averages within and across subjects.
 
     Args:
-        reversal_windows: ``{subject: [reversal_dict]}`` as returned by
+        reversal_windows (dict): ``{subject: [reversal_dict]}`` as returned by
             :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
-        pre: Number of trials before the reversal to include (default: 10).
-        post: Number of trials after the reversal to include (default: 40).
-        skip_n_trials_after_reversal: ``n``; post trial 0 (the reversal trial)
+        pre (int): Number of trials before the reversal to include. Default 10.
+        post (int): Number of trials after the reversal to include. Default 40.
+        skip_n_trials_after_reversal (int): ``n``; post trial 0 (the reversal trial)
             is always kept and the next ``n`` post trials (``1 .. n``) are
-            dropped, so ``x`` is ``n`` entries shorter.  Default: 0 (nothing
+            dropped, so ``x`` is ``n`` entries shorter.  Default 0 (nothing
             skipped).
 
     Returns:
-        A three-tuple ``(x, per_subject, across)`` where:
+        tuple: A three-tuple ``(x, per_subject, across)`` where:
 
         - ``x`` – 1-D int array of trial offsets, length
           ``pre + (post - skip_n_trials_after_reversal)``.  With a skip
@@ -188,6 +174,11 @@ def get_choice_probs_around_good_reversals(
           and ``"num_reversals"``, where ``"mean"`` and ``"se"`` are themselves
           dicts keyed by ``"prev_best"``, ``"next_best"``, ``"third"``.
 
+    Rows are aligned to the reversal: the last pre trial is at offset -1 and the
+    reversal trial at offset 0, whatever the window lengths.  Positions a window
+    does not cover (a reversal near the start of the data, a post window cut by
+    the next boundary or the end) are NaN and ignored by the means.
+
     Reversals whose best tower did not change have no third tower and are left
     out; a ``UserWarning`` reports how many per subject.
 
@@ -198,8 +189,7 @@ def get_choice_probs_around_good_reversals(
             all finite time-bins.
     """
     skip = skip_n_trials_after_reversal
-    x = _trial_offsets(pre=pre, post=post, skip=skip)
-    n_bins = pre + (post - skip)
+    x = bin_offsets(pre=pre, post=post, skip=skip)
 
     per_subject = {}
     for subj, reversals in reversal_windows.items():
@@ -210,7 +200,7 @@ def get_choice_probs_around_good_reversals(
             print(f"[INFO] Skipping subject {subj} with no good reversals.")
             continue
         per_subject[subj] = _summarize_subject(
-            _subject_choice_matrices(reversals, skip=skip, length=n_bins)
+            _subject_choice_matrices(reversals, skip=skip, pre=pre, post=post)
         )
 
     across = _across_subject_curves(per_subject, _MEAN_KEYS)
@@ -224,62 +214,6 @@ def get_choice_probs_around_good_reversals(
 # ---------------------------------------------------------------------------
 # Moving-average smoothing
 # ---------------------------------------------------------------------------
-
-
-def _centered_window_sum(values: np.ndarray, kernel: np.ndarray) -> np.ndarray:
-    """Sliding sum of *kernel* width, centred, with the same length as *values*.
-
-    Equal to ``np.convolve(values, kernel, "same")`` when *values* is at least as
-    long as *kernel*; that call returns ``len(kernel)`` entries for a shorter
-    input, which would not fit the segment it is written back to.
-    """
-    start = (len(kernel) - 1) // 2
-    return np.convolve(values, kernel, mode="full")[start : start + len(values)]
-
-
-def _nan_moving_average(
-    y: Sequence[float], window: int | None, mode: str = "centered"
-) -> np.ndarray:
-    """Apply a NaN-aware moving average of *window* width to array *y*.
-
-    Each output bin is the mean of the finite values inside its window; bins
-    whose window holds no finite value are NaN.  ``mode="trailing"`` averages
-    the current and previous ``window - 1`` bins, anything else is centred.
-    A centred window of even width ``w`` covers bins ``[i - w/2, i + w/2 - 1]``
-    (two before and one after for ``w = 4``).
-    A *window* of ``None`` or ``<= 1`` returns *y* as a float array.
-    """
-    y = np.asarray(y, dtype=float)
-    if window is None or window <= 1:
-        return y
-
-    valid = np.isfinite(y).astype(float)
-    y0 = np.nan_to_num(y, nan=0.0)
-    kernel = np.ones(int(window), dtype=float)
-
-    if mode == "trailing":
-        num = np.convolve(y0, kernel, mode="full")[: len(y0)]
-        den = np.convolve(valid, kernel, mode="full")[: len(y0)]
-    else:
-        num = _centered_window_sum(y0, kernel)
-        den = _centered_window_sum(valid, kernel)
-
-    out = np.full_like(y0, np.nan, dtype=float)
-    has_data = den > 0
-    out[has_data] = num[has_data] / den[has_data]
-    return out
-
-
-def _smooth_pre_post(
-    y: Sequence[float], pre_mask: np.ndarray, window: int | None, mode: str = "centered"
-) -> np.ndarray:
-    """Smooth *y* separately on the ``pre_mask`` and ``~pre_mask`` segments."""
-    y = np.asarray(y, dtype=float)
-    out = np.full_like(y, np.nan, dtype=float)
-    for segment in (pre_mask, ~pre_mask):
-        if segment.any():
-            out[segment] = _nan_moving_average(y[segment], window, mode=mode)
-    return out
 
 
 def _add_smoothed_means(
@@ -332,12 +266,12 @@ def apply_moving_average_to_choice_probs(
     also returned.
 
     Args:
-        x: 1-D float array of trial offsets (same *x* returned by
+        x (np.ndarray): 1-D array of trial offsets (same *x* returned by
             :func:`get_choice_probs_around_good_reversals`).
-        per_subject: Per-subject dict as returned by
+        per_subject (dict): Per-subject dict as returned by
             :func:`get_choice_probs_around_good_reversals`.
-        moving_avg_window: Kernel width for the moving average (default: 5).
-        mode: ``"centered"`` (default) or ``"trailing"``.  Controls whether
+        moving_avg_window (int): Kernel width for the moving average. Default 5.
+        mode (str): ``"centered"`` (default) or ``"trailing"``.  Controls whether
             the convolution kernel is centred or trailing.  An even centred
             window of width ``w`` covers bins ``[i - w/2, i + w/2 - 1]`` (for
             ``w = 4``: two before, one after).  A centred window longer than
@@ -345,24 +279,28 @@ def apply_moving_average_to_choice_probs(
             each bin averages the finite bins of its window that lie inside
             the segment (the whole segment only once ``w >= 2n - 1`` for a
             segment of ``n`` bins).
-        use_keys: Exactly three source keys in each subject dict, one per
-            tower role in the order prev-best, next-best, third (default:
-            ``("prev_best_mean", "next_best_mean", "third_mean")``).  Subjects
+        use_keys (Sequence[str]): Exactly three source keys in each subject dict, one per
+            tower role in the order prev-best, next-best, third. Default
+            ``("prev_best_mean", "next_best_mean", "third_mean")``.  Subjects
             lacking any of them are dropped from the result.
-        out_keys: Exactly three destination keys, in the same role order (default:
-            ``("prev_best_mean_sm", "next_best_mean_sm", "third_mean_sm")``).
+        out_keys (Sequence[str]): Exactly three destination keys, in the same role order.
+            Default ``("prev_best_mean_sm", "next_best_mean_sm", "third_mean_sm")``.
             Keys are processed in order, so an output key that is also a later
             input key chains the smoothing.
-        split_at: Trial-offset value that separates pre and post segments
-            (default: 0, i.e. the reversal trial itself begins the post
-            segment).
+        split_at (int | float): Trial-offset value that separates pre and post segments.
+            Default 0, i.e. the reversal trial itself begins the post segment.
 
     Returns:
-        A three-tuple ``(x, per_subject_moving_avg, across_moving_avg)``
-        with the same structure as :func:`get_choice_probs_around_good_reversals`
-        but with smoothed means.
+        tuple: ``(x, per_subject_moving_avg, across_moving_avg)``: ``x`` is the input
+        array, ``per_subject_moving_avg`` (dict) holds copies of the kept subjects'
+        dicts with the smoothed curves added under *out_keys*, and
+        ``across_moving_avg`` (dict) has the structure of ``across`` from
+        :func:`get_choice_probs_around_good_reversals` computed on the smoothed
+        curves, plus the keys ``"moving_avg_window"``, ``"mode"`` and ``"split_at"``.
+        If no subject has all of *use_keys*, ``across_moving_avg`` has
+        ``num_subjects`` 0 and ``None`` in place of each mean and SE curve.
     """
-    smooth = partial(_smooth_pre_post, pre_mask=x < split_at, window=moving_avg_window, mode=mode)
+    smooth = partial(smooth_pre_post, pre_mask=x < split_at, window=moving_avg_window, mode=mode)
     per_subject_moving_avg = {
         subj: _add_smoothed_means(curves, use_keys, out_keys, smooth)
         for subj, curves in per_subject.items()
@@ -465,17 +403,17 @@ def remove_trials_after_bad_rev(good_windows, all_good_idx, all_bad_idx, include
     then clipped to end at (or just before) that bad reversal.
 
     Args:
-        good_windows: ``{subject: [reversal_dict]}`` as returned by
+        good_windows (dict): ``{subject: [reversal_dict]}`` as returned by
             :func:`src.behavior_analysis.get_good_reversal_info.get_good_reversal_info`.
-        all_good_idx: ``{subject: [int]}`` sorted good-reversal indices.
-        all_bad_idx: ``{subject: [int]}`` sorted bad-reversal indices.
-        include_bad_trial: If ``True``, the bad-reversal trial itself is
+        all_good_idx (dict): ``{subject: [int]}`` good-reversal indices.
+        all_bad_idx (dict): ``{subject: [int]}`` bad-reversal indices.
+        include_bad_trial (bool): If ``True``, the bad-reversal trial itself is
             included in the truncated post window; if ``False``, the window
-            is cut just before it (default: ``True``).
+            is cut just before it. Default True.
 
     Returns:
-        A new dict with the same structure as *good_windows* but with the
-        ``"post"`` lists in ``"choices_by_tower"``, ``"choices_by_rank"``, and
+        dict: A new dict (inputs are not modified) with the same structure as
+        *good_windows* but with the ``"post"`` lists in ``"choices_by_tower"``, ``"choices_by_rank"``, and
         ``"trial_window_idx"`` truncated where a bad reversal intervenes.
         Each modified reversal dict gains two extra keys:
         ``"removed_bad_idx"`` (int | None) and

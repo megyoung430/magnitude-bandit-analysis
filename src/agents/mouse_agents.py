@@ -27,8 +27,19 @@ class BaseMouse(ABC):
 
 class QLearningMouse():
 
-    """
-    This class implements a standard Q-learning agent.
+    """Simulated Q-learning agent with softmax choice and a stickiness bonus on the previous arm.
+
+    Args:
+        num_arms (int): Number of arms.
+        learning_rate (float): Value learning rate.
+        beta (float): Softmax inverse temperature.
+        alpha (float): Bonus added to the previous arm's preference.
+
+    Attributes:
+        q_values (np.ndarray): ``(num_arms,)`` float array of current arm values, initially zero.
+        learning_rate (float): As in Args.
+        beta (float): As in Args.
+        alpha (float): As in Args.
     """
 
     def __init__(self, num_arms, learning_rate, beta, alpha):

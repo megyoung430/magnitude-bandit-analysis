@@ -27,12 +27,28 @@ def _has_trials(session):
 
 
 def is_counter_session(session):
-    """True for a session with trials that logs the good or the bad reversal counter."""
+    """True for a session with trials that logs the good or the bad reversal counter.
+
+    Args:
+        session (dict): A session dict with ``"trial"`` and optionally ``"has_good"`` and
+            ``"has_bad"``.
+
+    Returns:
+        bool: Whether the session is counter format.
+    """
     return _has_trials(session) and bool(session.get("has_good") or session.get("has_bad"))
 
 
 def is_blocks_only_session(session):
-    """True for a session with trials that logs neither the good nor the bad counter."""
+    """True for a session with trials that logs neither the good nor the bad counter.
+
+    Args:
+        session (dict): A session dict with ``"trial"`` and optionally ``"has_good"`` and
+            ``"has_bad"``.
+
+    Returns:
+        bool: Whether the session is blocks-only format.
+    """
     return _has_trials(session) and not session.get("has_good") and not session.get("has_bad")
 
 
@@ -40,8 +56,11 @@ def check_formats_agree(subject, sessions):
     """Raise if *subject* has both counter and blocks-only sessions.
 
     Args:
-        subject: Subject id, named in the error.
-        sessions: ``{session_key: session_dict}`` of that subject.
+        subject (str): Subject id, named in the error.
+        sessions (dict): ``{session_key: session_dict}`` of that subject.
+
+    Returns:
+        None: Nothing; the function only validates.
 
     Raises:
         ValueError: Naming the subject and the sessions of each format, in session order.

@@ -84,7 +84,18 @@ TOWER_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*(\d+)\s*$")
 
 
 class SessionFacts(NamedTuple):
-    """What the numbering rule needs to know about one session."""
+    """What the numbering rule needs to know about one session.
+
+    Attributes:
+        layout (tuple | None): Canonical tower layout from :func:`tower_layout`; ``None`` when
+            the session has no choice towers.
+        starts_found_ports_false (bool): Whether the first ``run_start`` has ``found_ports``
+            equal to false.
+        has_port_finding_trials (bool): Whether a printed trial dict carries ``num_t_found``.
+        task_name (str | None): The ``task_name`` info row, or ``None``. Default ``None``.
+        task_type (str | None): ``"blocked"`` or ``"drifting"`` when the importer classified
+            the task name, else ``None``. Default ``None``.
+    """
 
     layout: tuple | None  # from :func:`tower_layout`; ``None`` without choice towers
     starts_found_ports_false: bool
@@ -95,6 +106,18 @@ class SessionFacts(NamedTuple):
 
 
 class ProblemAssignment(NamedTuple):
+    """The outcome of the numbering rule for one session.
+
+    Attributes:
+        problem (int | None): 1-based problem number, ``None`` for a skipped or
+            settings-error session.
+        flag (str | None): One of :data:`SUSPECTED_SETTINGS_ERROR`, :data:`REVIEW_SETTINGS`,
+            :data:`PRETRAINING`, :data:`PORT_FINDING`, :data:`NO_CHOICE_TOWERS`, or ``None``.
+        reasons (tuple): Which checks fired, as strings for the warning text.
+        provisional (bool): ``True`` for a final run of one session, whose number a later
+            session can turn into a settings error. Default ``False``.
+    """
+
     problem: int | None  # ``None`` for a skipped or settings-error session
     flag: str | None
     reasons: tuple  # which of the checks fired, for the warning text
@@ -110,11 +133,11 @@ def normalize_tower_token(x):
     for raw strings, numbers, and nested tuples.
 
     Args:
-        x: A tower token — typically a string like ``"A1"`` or ``"C3"``, a
-            number, or a tuple of such values.
+        x (str | int | float | tuple): A tower token — typically a string like ``"A1"`` or
+            ``"C3"``, a number, or a tuple of such values.
 
     Returns:
-        A normalised ``(prefix, value)`` tuple:
+        tuple: A normalised ``(prefix, value)`` tuple:
 
         - String matching ``[A-Za-z]+[0-9]+`` → ``(UPPER_LETTER, int)``.
         - Other strings → ``("RAW", stripped_string)``.
@@ -159,14 +182,21 @@ def permutation_invariant_signature(raw_sig):
     - Dict → sort normalised ``(key, value)`` pairs.
     - Single string → normalise it.
     - ``None`` → kept as ``None``.
+    - A ``(towers_tuple, initiation_tower_str)`` pair, as built by
+      ``choice_towers_signature`` → ``(sorted normalised towers, normalised initiation tower)``.
 
     Args:
-        raw_sig: A raw signature as returned by :func:`choice_towers_signature`:
-            a sequence, dict, string, or ``None``.
+        raw_sig (tuple | list | set | frozenset | dict | str | None): A raw signature, such as
+            ``choice_towers_signature`` returns: a sequence, dict, string, a
+            ``(towers, initiation_tower)`` pair, or ``None``.
 
     Returns:
-        A sorted, normalised tuple suitable for equality comparison, or
-        ``None`` if *raw_sig* is ``None``.
+        tuple | None: A sorted, normalised tuple suitable for equality comparison, or
+        ``None`` if *raw_sig* is ``None``. A single string gives its normalised token; any
+        other type is returned unchanged.
+
+    Raises:
+        TypeError: If a token inside *raw_sig* is of an unsupported type.
     """
     if raw_sig is None:
         return None
@@ -200,6 +230,15 @@ def tower_layout(choice_towers, initiation_tower):
 
     Tower order and letter case do not matter. A missing initiation tower means the
     protocol default, ``"B2"``.
+
+    Args:
+        choice_towers (Iterable | None): The session's choice-tower identifiers (e.g. a set of
+            ``"A1"``-style strings); empty or ``None`` means none were logged.
+        initiation_tower (str | None): The initiation tower, or ``None`` for the default.
+
+    Returns:
+        tuple | None: ``(sorted normalised towers, normalised initiation tower)``, or ``None``
+        if there are no choice towers.
     """
     if not choice_towers:
         return None
@@ -208,7 +247,16 @@ def tower_layout(choice_towers, initiation_tower):
 
 
 def is_pretraining(task_name):
-    """True if *task_name* (the ``task_name`` info row, or ``None``) is a pretraining task."""
+    """True if *task_name* (the ``task_name`` info row, or ``None``) is a pretraining task.
+
+    Args:
+        task_name (str | None): The ``task_name`` info row; its last path component is matched
+            case-insensitively.
+
+    Returns:
+        bool: ``True`` for a pretraining task; ``False`` for any other name, including a
+        missing one.
+    """
     if not task_name:
         return False
     name = re.split(r"[\\/]", task_name.strip())[-1].casefold()
@@ -222,6 +270,12 @@ def classify_task_name(task_name):
 
     The last path component is matched case-insensitively: ``blocked`` or ``structured`` is
     blocked, ``drifting`` is drifting.
+
+    Args:
+        task_name (str | None): The ``task_name`` info row.
+
+    Returns:
+        str: ``"blocked"`` or ``"drifting"``.
 
     Raises:
         ValueError: If the name is missing, matches neither type, or matches both.
@@ -248,7 +302,14 @@ def classify_task_name(task_name):
 
 
 def numbering_signature(session):
-    """What must stay equal for sessions to belong to one problem: layout and task type."""
+    """What must stay equal for sessions to belong to one problem: layout and task type.
+
+    Args:
+        session (SessionFacts): One session's facts.
+
+    Returns:
+        tuple: ``(session.layout, session.task_type)``.
+    """
     return (session.layout, session.task_type)
 
 
@@ -286,8 +347,14 @@ def _layout_runs(facts, indices):
 def assign_problems(facts):
     """Problem number and flag for one subject's sessions, given in session order.
 
-    See the module docstring for the rule. Returns one :class:`ProblemAssignment` per
-    session.
+    See the module docstring for the rule.
+
+    Args:
+        facts (list[SessionFacts]): One :class:`SessionFacts` per session of one subject, in
+            session order.
+
+    Returns:
+        list[ProblemAssignment]: One assignment per session, in the order of *facts*.
     """
     assignments = {i: a for i, f in enumerate(facts) if (a := _skip_assignment(f))}
     runs = _layout_runs(facts, [i for i in range(len(facts)) if i not in assignments])
@@ -317,11 +384,16 @@ def warn_flagged(subject, session_ids, assignments, *, report=None, stacklevel=2
     """One :class:`ProblemNumberingWarning` per flagged session (pretraining is silent).
 
     Args:
-        subject: Subject id, named in the warnings.
-        session_ids: Session keys, in the same order as *assignments*.
-        assignments: As returned by :func:`assign_problems`.
-        report: Optional booleans, one per session; only sessions marked ``True`` warn.
-        stacklevel: Passed to ``warnings.warn``; 2 points at this function's caller.
+        subject (str): Subject id, named in the warnings.
+        session_ids (list[str]): Session keys, in the same order as *assignments*.
+        assignments (list[ProblemAssignment]): As returned by :func:`assign_problems`.
+        report (list[bool] | None): One boolean per session; only sessions marked ``True``
+            warn. Default ``None``: all sessions. Keyword-only.
+        stacklevel (int): Passed to ``warnings.warn``; 2 (default) points at this function's
+            caller. Keyword-only.
+
+    Returns:
+        None: Returns nothing; the warnings are the output.
     """
     report = [True] * len(assignments) if report is None else report
     for session_id, assignment, wanted in zip(session_ids, assignments, report, strict=True):
@@ -347,11 +419,15 @@ def number_subject_sessions(subject, session_ids, facts, *, warn=True, stackleve
     """:func:`assign_problems` plus a warning (see :func:`warn_flagged`) per flagged session.
 
     Args:
-        subject: Subject id, named in the warnings.
-        session_ids: Session keys, in the same order as *facts*.
-        facts: One :class:`SessionFacts` per session.
-        warn: ``False`` to stay silent.
-        stacklevel: Passed to ``warnings.warn``; 2 points at this function's caller.
+        subject (str): Subject id, named in the warnings.
+        session_ids (list[str]): Session keys, in the same order as *facts*.
+        facts (list[SessionFacts]): One :class:`SessionFacts` per session.
+        warn (bool): ``False`` to stay silent. Default ``True``. Keyword-only.
+        stacklevel (int): Passed to ``warnings.warn``; 2 (default) points at this function's
+            caller. Keyword-only.
+
+    Returns:
+        list[ProblemAssignment]: One assignment per session, in the order of *facts*.
     """
     assignments = assign_problems(facts)
     if warn:

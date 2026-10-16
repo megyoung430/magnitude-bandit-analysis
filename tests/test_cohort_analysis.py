@@ -37,7 +37,12 @@ SECTIONS = [
 def session(task_name, subject_number, problem):
     frame = pd.DataFrame({"type": []})
     frame.attrs["source_path"] = f"/raw/sub-{subject_number:02d}_id-M{subject_number}/x.tsv"
-    return {"task_name": task_name, "df": frame, "problem": problem}
+    return {
+        "task_name": task_name,
+        "df": frame,
+        "problem": problem,
+        "choice_towers": ["A1", "B1", "C1"],
+    }
 
 
 def mouse_problems(subject_number, task_names):
@@ -62,8 +67,17 @@ def two_mice():
 
 @pytest.fixture
 def sections(monkeypatch):
-    """Replace every analysis section by a recorder of ``(name, out_dir, selection)``."""
+    """Replace every analysis section by a recorder of ``(name, out_dir, selection)``.
+
+    The poke analysis and the drifting-only value analyses are replaced by no-ops: the sessions
+    here have no raw events (``tests/test_cohort_runner_integration.py`` runs them).
+    """
     seen = []
+    monkeypatch.setattr(pipeline, "run_poke_analysis", lambda *a, **k: {})
+    monkeypatch.setattr(pipeline, "mouse_poke_counts", lambda *a, **k: {})
+    for name in ("run_drifting_value_analyses",):
+        monkeypatch.setattr(pipeline, name, lambda *a, **k: None)
+        monkeypatch.setattr(cohort_analysis, name, lambda *a, **k: None)
     for name in SECTIONS:
         monkeypatch.setattr(
             pipeline, name, lambda *a, _n=name, **k: seen.append((_n, a[1], a[2:])) or {}
