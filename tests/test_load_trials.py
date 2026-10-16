@@ -55,6 +55,13 @@ def test_import_code_change_invalidates_cache(raw_root, tmp_path, computed, monk
     assert len(computed) == 2
 
 
+def test_the_hashed_import_code_includes_the_module_that_defines_what_is_cached():
+    # a change to the cached layout (ImportedTrials) is a change to this module, so it
+    # invalidates old caches without a separate version number
+    assert os.path.dirname(load_trials.__file__) == str(load_trials.IMPORT_CODE_DIR)
+    assert not hasattr(load_trials, "CACHE_FORMAT_VERSION")
+
+
 def test_use_cache_false_always_recomputes(raw_root, tmp_path, computed):
     for _ in range(2):
         load_trials_by_problem(raw_root, cache_dir=tmp_path / "cache", use_cache=False)

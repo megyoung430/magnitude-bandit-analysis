@@ -27,10 +27,9 @@ from src.behavior_import.import_log import ImportLog
 from src.behavior_import.warning_records import record_warnings
 from src.settings import get_settings
 
+# The source hashed into the cache key. It includes this module, so a change to what is cached
+# invalidates the caches written before it.
 IMPORT_CODE_DIR = Path(__file__).resolve().parent
-# Part of the cache key. Bump it when the layout of what is cached changes without a change to
-# the import code, which has its own hash.
-CACHE_FORMAT_VERSION = 2
 
 
 class ImportedTrials(NamedTuple):
@@ -89,10 +88,8 @@ def _import_and_extract(root: Path, classify_task_types: bool = False) -> Import
     return ImportedTrials(trials, log)
 
 
-def _load(
-    root: str, fingerprint, code_version: str, classify_task_types: bool, cache_format: int
-) -> ImportedTrials:
-    # fingerprint, code_version and cache_format are not used here: they are arguments only
+def _load(root: str, fingerprint, code_version: str, classify_task_types: bool) -> ImportedTrials:
+    # fingerprint and code_version are not used here: they are arguments only
     # so that they become part of the cache key
     return _import_and_extract(Path(root), classify_task_types)
 
@@ -141,7 +138,6 @@ def load_trials_with_log(
         raw_data_fingerprint(root),
         import_code_version(),
         classify_task_types,
-        CACHE_FORMAT_VERSION,
     )
     if load.check_call_in_cache(*args):
         print(f"[INFO] Loading trials for {root} from cache")

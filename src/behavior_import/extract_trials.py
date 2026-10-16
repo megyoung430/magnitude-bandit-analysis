@@ -1075,9 +1075,11 @@ def signed_sessions(subject_id, subject_sessions):
 def flagged_sessions(data):
     """The sessions of *data* that carry a problem flag or a provisional number.
 
-    Flagged sessions are not in the problems that :func:`group_sessions_by_problem` returns,
-    so this is the way to list them (sessions without trial information included, with the
-    flag ``import_data`` gave them).
+    Most flags leave the session out of the problems that :func:`group_sessions_by_problem`
+    returns (``suspected_settings_error``, ``pretraining``, ``port_finding``,
+    ``no_choice_towers``), so this is the way to list them (sessions without trial information
+    included, with the flag ``import_data`` gave them). A ``review_settings`` session and a
+    session with only a provisional number are in a problem and are listed here too.
 
     Args:
         data (dict): ``{subject: {session_key: session_dict}}`` after

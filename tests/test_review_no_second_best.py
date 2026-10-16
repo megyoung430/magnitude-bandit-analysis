@@ -62,6 +62,8 @@ def test_only_some_trials_of_a_block_may_have_two_zero_arms():
     )
     (row,) = table_of({1: {"M1": {S1: mixed}}}).to_dict("records")
     assert (row["first_trial"], row["last_trial"], row["n_trials"]) == (1, 4, 4)
+    # the extent is the block's, not that of the trials with two zero arms (trials 2 and 3)
+    assert (row["first_trial_in_session"], row["last_trial_in_session"]) == (1, 4)
     assert row["n_trials_multiple_zero"] == 2
     # described at the first trial with two zero arms
     assert row["magnitudes"] == "A1=4, B1=0, C1=0"
@@ -77,6 +79,20 @@ def test_trials_with_a_missing_magnitude_are_not_counted():
     gaps = session(magnitudes=mags([4, 4], [None, 0], [0, 0]), blocks=[1, 1])
     (row,) = table_of({1: {"M1": {S1: gaps}}}).to_dict("records")
     assert row["n_trials_multiple_zero"] == 1
+
+
+def test_a_trial_with_a_missing_magnitude_is_never_a_two_zero_trial_even_with_two_zeros():
+    gaps = session(magnitudes=mags([4, 4], [0, 0], [None, 0]), blocks=[1, 1])
+    (row,) = table_of({1: {"M1": {S1: gaps}}}).to_dict("records")
+    assert row["n_trials_multiple_zero"] == 1
+    assert row["magnitudes"] == "A1=4, B1=0, C1=0"
+
+
+def test_exactly_two_zero_arms_qualify_and_one_does_not():
+    two = session(magnitudes=mags([4], [0], [0]), blocks=[1])
+    one = session(magnitudes=mags([4], [1], [0]), blocks=[1])
+    assert len(table_of({1: {"M1": {S1: two}}})) == 1
+    assert table_of({1: {"M1": {S1: one}}}).empty
 
 
 def test_blocks_with_one_zero_arm_give_an_empty_table_with_the_columns():

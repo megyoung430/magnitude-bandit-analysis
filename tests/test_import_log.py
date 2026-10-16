@@ -171,6 +171,27 @@ def test_review_settings_and_provisional_numbers_are_recorded(tmp_path):
     assert "no port-finding trials" in flag.reason
 
 
+def test_a_provisional_number_without_a_flag_is_still_recorded(tmp_path):
+    write_layouts(tmp_path, [LAYOUT_A, LAYOUT_A])
+    # a new layout that starts with port finding is a fine problem start, but one session long
+    write_tsv(
+        session_dir(tmp_path, session="ses-3_date-20260103"),
+        "M1-2026-01-03-100000.tsv",
+        run_start=run_start_for(LAYOUT_B),
+        task_name=TASK,
+        port_finding=True,
+    )
+    problems, log = load(tmp_path)
+    (flag,) = log.flags
+    assert (flag.session, flag.flag, flag.provisional, flag.problem) == (
+        "ses-3_date-20260103",
+        None,
+        True,
+        2,
+    )
+    assert "ses-3_date-20260103" in problems[2]["M1"]
+
+
 def test_pretraining_session_without_trials_still_gets_a_flag(tmp_path):
     write_tsv(session_dir(tmp_path), "M1-2026-01-01-100000.tsv", task_name=TASK)
     write_prints(
