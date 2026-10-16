@@ -77,6 +77,18 @@ def test_colorbar_ticks_are_zero_and_the_actual_maximum_with_the_given_label():
     assert list(cbar_ax.get_yticks()) == [0, 40]
 
 
+def test_colorbar_can_be_drawn_into_a_given_axes_leaving_the_map_where_it_is():
+    fig = plt.figure(figsize=(4, 4))
+    ax = fig.add_axes([0.2, 0.2, 0.5, 0.5])
+    cax = fig.add_axes([0.75, 0.25, 0.03, 0.4])
+    before = ax.get_position().bounds
+    draw_maze_heatmap(counts_with(B1=40), colorbar_label="Pokes (count)", ax=ax, colorbar_ax=cax)
+    assert fig.axes == [ax, cax]  # no further axes were taken from the map
+    assert ax.get_position().bounds == pytest.approx(before)
+    assert cax.get_ylabel() == "Pokes (count)"
+    assert list(cax.get_yticks()) == [0, 40]
+
+
 def test_every_port_shows_its_name_and_count():
     ax = draw_maze_heatmap(counts_with(B1=40, A1=7), colorbar_label="x")
     texts = [t.get_text() for t in ax.texts]

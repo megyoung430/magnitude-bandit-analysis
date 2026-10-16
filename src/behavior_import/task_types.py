@@ -18,12 +18,27 @@ from src.behavior_import.import_data import session_source_paths
 from src.behavior_import.import_data import session_task_type as _classify
 from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
     BLOCKED,
+    DEFAULT_INITIATION_TOWER,
     DRIFTING,
     classify_task_name,
 )
-from src.behavior_import.session_order import ordered_session_keys
+from src.behavior_import.session_order import (
+    compress_numbers,
+    ordered_session_keys,
+    session_number,
+)
 
-MAP_COLUMNS = ("mouse", "task_type", "problem_in_type", "overall_problem", "sessions")
+MAP_COLUMNS = (
+    "mouse",
+    "task_type",
+    "problem_in_type",
+    "overall_problem",
+    "sessions",
+    "initiation_tower",
+    "choice_towers",
+    "n_sessions",
+    "session_range",
+)
 
 
 def session_task_type(subject: str, session_key: str, session: dict) -> str:
@@ -121,7 +136,12 @@ def problem_map_table(
     """One row per mouse and problem: its type, number within the type and overall number.
 
     Columns are :data:`MAP_COLUMNS`; ``sessions`` lists the session keys in session order,
-    separated by ``;``. *numbering* is as for :func:`regroup_by_task_type`.
+    separated by ``;``. ``initiation_tower`` and ``choice_towers`` (sorted, separated by ``;``)
+    are the layout of the problem's first session; the sessions of a problem share one layout.
+    ``n_sessions`` counts the sessions (the ``_part-NN`` segments of a split session count once)
+    and ``session_range`` gives their numbers as ranges, for example ``"1-10"``, or ``"3-8, 20"``
+    when the mouse was run on other settings in between and the problem resumed later.
+    *numbering* is as for :func:`regroup_by_task_type`.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``.
@@ -131,20 +151,45 @@ def problem_map_table(
     Returns:
         pd.DataFrame: One row per mouse and problem, sorted by ``mouse`` then
         ``overall_problem``; columns ``mouse`` (str), ``task_type`` (str), ``problem_in_type``
-        (int), ``overall_problem`` (int) and ``sessions`` (str, ``;``-separated keys).
+        (int), ``overall_problem`` (int), ``sessions`` (str, ``;``-separated keys),
+        ``initiation_tower`` (str; the protocol default ``B2`` if the session logged none),
+        ``choice_towers`` (str), ``n_sessions`` (int) and ``session_range`` (str).
     """
     if numbering is None:
         numbering = number_within_task_type(subjects_trials_by_problem)
     rows = [
-        {
-            "mouse": subject,
-            "task_type": kind,
-            "problem_in_type": k,
-            "overall_problem": problem,
-            "sessions": ";".join(ordered_session_keys(subject, sessions)),
-        }
+        _map_row(subject, kind, k, problem, subjects_trials_by_problem[problem][subject])
         for (subject, problem), (kind, k) in numbering.items()
-        for sessions in [subjects_trials_by_problem[problem][subject]]
     ]
     table = pd.DataFrame(rows, columns=list(MAP_COLUMNS))
     return table.sort_values(["mouse", "overall_problem"], ignore_index=True)
+
+
+def _choice_ports(sessions) -> set[str]:
+    """The union of the sessions' choice ports.
+
+    A session holds them as one set (just imported) or as the list of the towers on offer in
+    each trial (after trial extraction).
+    """
+    ports: set[str] = set()
+    for session in sessions:
+        for item in session.get("choice_towers") or ():
+            if item is not None:  # a trial that did not log its towers
+                ports.update([item] if isinstance(item, str) else item)
+    return ports
+
+
+def _map_row(subject: str, kind: str, k: int, problem: int, sessions: dict) -> dict:
+    keys = ordered_session_keys(subject, sessions)
+    first = sessions[keys[0]]
+    return {
+        "mouse": subject,
+        "task_type": kind,
+        "problem_in_type": k,
+        "overall_problem": problem,
+        "sessions": ";".join(keys),
+        "initiation_tower": first.get("initiation_tower") or DEFAULT_INITIATION_TOWER,
+        "choice_towers": ";".join(sorted(_choice_ports(sessions.values()))),
+        "n_sessions": len({session_number(key) for key in keys}),
+        "session_range": compress_numbers(session_number(key) for key in keys),
+    }

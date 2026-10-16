@@ -30,6 +30,7 @@ from src.behavior_import.extract_trials import (
     standardize_rank_key,
     top_magnitudes,
 )
+from src.behavior_import.import_log import ImportSkipWarning
 
 # Facts that ``import_data`` stores on every session; a clean first session of a layout.
 EVIDENCE = {
@@ -171,9 +172,10 @@ def test_signed_sessions_skips_sessions_without_trials_and_reports_it(capsys):
         "ses-1": session_with_towers(["B1"]),
         "ses-3": session_with_towers(["A1"], trials=False),
     }
-    signed = signed_sessions("mouse", sessions)
+    with pytest.warns(ImportSkipWarning, match="Skipping session ses-3 for subject mouse"):
+        signed = signed_sessions("mouse", sessions)
     assert [sid for sid, _ in signed] == ["ses-1", "ses-2"]
-    assert "ses-3" in capsys.readouterr().out
+    assert capsys.readouterr().out == ""
 
 
 def by_problem(grouped):
@@ -430,8 +432,9 @@ def test_recording_trial_info_pins_existing_behaviour_suspect_missing_type_colum
 
 def test_bandit_trial_info_skips_pretraining_recordings(capsys):
     pretraining = recording([{"num_trials": 1, "chosen_tower": "B1"}])
-    assert bandit_trial_info(pretraining, "mouse", "ses-1") == []
-    assert "ses-1" in capsys.readouterr().out
+    with pytest.warns(ImportSkipWarning, match="no bandit trial fields.*session ses-1"):
+        assert bandit_trial_info(pretraining, "mouse", "ses-1") == []
+    assert capsys.readouterr().out == ""
     bandit = recording([bandit_trial(1, "A1", "best", {"best": 1})])
     assert len(bandit_trial_info(bandit, "mouse", "ses-1")) == 1
 
@@ -476,10 +479,11 @@ def test_drop_unlogged_reversal_vars_only_when_not_logged():
 
 def test_extract_session_trials_without_bandit_trials_gets_empty_fields(capsys):
     session = {"data": recording([{"num_trials": 1}])}
-    extract_session_trials(session, "m", "ses-1")
+    with pytest.warns(ImportSkipWarning, match="No trial information found for subject m"):
+        extract_session_trials(session, "m", "ses-1")
     assert session["trial_info"] == []
     assert session["trial_variables"] == {}
-    assert "No trial information" in capsys.readouterr().out
+    assert capsys.readouterr().out == ""
 
 
 def test_extract_session_trials_merges_restarted_recordings_and_derives_fields():

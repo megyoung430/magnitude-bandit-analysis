@@ -11,6 +11,8 @@ import src.pipelines.cohort_analysis as cohort_analysis
 import src.pipelines.open_field as pipeline
 from src.behavior_analysis.get_good_reversal_info import ReversalWarning
 from src.behavior_analysis.suspect_reversal_table import COLUMNS
+from src.behavior_import.import_log import ImportLog
+from src.behavior_import.load_trials import ImportedTrials
 from src.behavior_import.task_types import BLOCKED, DRIFTING
 from src.pipelines.cohort_analysis import (
     cohort_name,
@@ -35,7 +37,7 @@ SECTIONS = [
 
 
 def session(task_name, subject_number, problem):
-    frame = pd.DataFrame({"type": []})
+    frame = pd.DataFrame({"type": [], "subtype": [], "content": []})
     frame.attrs["source_path"] = f"/raw/sub-{subject_number:02d}_id-M{subject_number}/x.tsv"
     return {
         "task_name": task_name,
@@ -73,11 +75,11 @@ def sections(monkeypatch):
     here have no raw events (``tests/test_cohort_runner_integration.py`` runs them).
     """
     seen = []
-    monkeypatch.setattr(pipeline, "run_poke_analysis", lambda *a, **k: {})
+    monkeypatch.setattr(pipeline, "run_poke_analysis", lambda *a, **k: {"summary": pd.DataFrame()})
     monkeypatch.setattr(pipeline, "mouse_poke_counts", lambda *a, **k: {})
     for name in ("run_drifting_value_analyses",):
-        monkeypatch.setattr(pipeline, name, lambda *a, **k: None)
-        monkeypatch.setattr(cohort_analysis, name, lambda *a, **k: None)
+        monkeypatch.setattr(pipeline, name, lambda *a, **k: {})
+        monkeypatch.setattr(cohort_analysis, name, lambda *a, **k: {})
     for name in SECTIONS:
         monkeypatch.setattr(
             pipeline, name, lambda *a, _n=name, **k: seen.append((_n, a[1], a[2:])) or {}
@@ -184,8 +186,15 @@ def test_problem_map_csv(tmp_path, sections, no_extras):
         "problem_in_type",
         "overall_problem",
         "sessions",
+        "initiation_tower",
+        "choice_towers",
+        "n_sessions",
+        "session_range",
     ]
     drifting = table[table.task_type == DRIFTING].set_index("mouse")
+    assert drifting.loc["M1", "choice_towers"] == "A1;B1;C1"
+    assert drifting.loc["M1", "initiation_tower"] == "B2"
+    assert drifting.loc["M1", "n_sessions"] == 1
     assert drifting.loc["M1", "overall_problem"] == 3
     assert drifting.loc["M2", "overall_problem"] == 4
     assert drifting.problem_in_type.tolist() == [1, 1]
@@ -347,9 +356,9 @@ def test_run_cohort_loads_with_task_types_classified(tmp_path, monkeypatch):
 
     def fake_load(root, **kwargs):
         seen.update(root=root, **kwargs)
-        return {}
+        return ImportedTrials({}, ImportLog())
 
-    monkeypatch.setattr(cohort_analysis, "load_trials_by_problem", fake_load)
+    monkeypatch.setattr(cohort_analysis, "load_trials_with_log", fake_load)
     with pytest.raises(ValueError, match="No problems"):
         run_cohort(2, data_root=tmp_path, results_root=tmp_path)
     assert seen["classify_task_types"] is True

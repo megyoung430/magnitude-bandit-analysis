@@ -1,8 +1,9 @@
 """The suspect counts and the drop warning of get_good_reversal_info use one definition.
 
 - suspect: checked, and the best tower is unchanged or tied;
-- uncheckable: a magnitude is missing, or the reversal happened while nothing was recording
-  (between runs, after a run's last trial), so there is no trial pair that straddles only it.
+- uncheckable: a magnitude is missing, or there is no trial to check against (the reversal
+  was logged after a session's last trial and the next session's start does not show it).
+  A reversal logged between recordings is checked like any other.
 
 Every reversal that is suspect or uncheckable is dropped by get_good_reversal_info, counted
 per reversal (a jump of two on one trial is two), except those the zero-reward gate or the
@@ -79,23 +80,25 @@ def test_a_missing_magnitude_is_uncheckable_not_suspect():
     assert count_suspect_good_reversals(sess) == {"suspect": 0, "uncheckable": 1}
 
 
-def test_events_while_nothing_recorded_are_uncheckable_and_still_dropped():
+def test_events_while_nothing_recorded_are_checked_and_dropped_when_they_fail():
     sessions = mixed_subject()
     # A reversal after ses-1's last trial: the counter of ses-2 starts one higher, and ses-1's
-    # best (A) is also ses-2's first best, so the best tower looks unchanged across the gap.
+    # best (A) is also ses-2's first best, so the best tower is unchanged across the gap. The
+    # import did not mark whether the next session shows it, so it is uncheckable.
     sessions["ses-1"]["reversal_boundary_events"] = [
         dict(kind="good", index=6, count=1, source="run_end")
     ]
     sessions["ses-1"]["reversal_totals"] = {"good": 3}
-    # ses-3's trial-2 reversal entered while the rig was not recording.
+    # ses-3's trial-2 reversal entered while the rig was not recording; it is checked like any
+    # reversal, and its best tower is unchanged.
     sessions["ses-3"]["reversal_boundary_events"] = [
         dict(kind="good", index=2, count=1, source="between_runs")
     ]
     totals = get_total_reversals(sessions)
-    # suspect: the tie only; uncheckable: the missing magnitude plus the two events
-    assert (totals["suspect_good_reversals"], totals["uncheckable_good_reversals"]) == (1, 3)
+    # suspect: the tie and ses-3's event; uncheckable: the missing magnitude and ses-1's event
+    assert (totals["suspect_good_reversals"], totals["uncheckable_good_reversals"]) == (2, 2)
     # every one of them is dropped: the tie, the missing magnitude and both events
-    assert dropped_count({"m": sessions}) == 1 + 3
+    assert dropped_count({"m": sessions}) == 2 + 2
 
 
 def test_a_terminal_event_and_a_between_run_event_on_one_boundary_are_two_dropped_reversals():

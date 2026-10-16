@@ -48,7 +48,8 @@ def reversal_event_indices(session_data: Mapping[str, Any], N: int) -> Reversals
 
     Good/bad indices come from the cumulative counters and are extended with
     ``reversal_boundary_events`` (``{"kind": "good" | "bad", "index": int}``)
-    that the counters did not already mark.
+    that the counters did not already mark. Events of kind ``"block"`` (a block change between
+    recordings) are block starts.
 
     Args:
         session_data (Mapping[str, Any]): A session dict; optional keys ``"good_reversals"``,
@@ -66,11 +67,15 @@ def reversal_event_indices(session_data: Mapping[str, Any], N: int) -> Reversals
     """
     good_idx = event_indices_from_cumulative(session_data.get("good_reversals"), N=N)
     bad_idx = event_indices_from_cumulative(session_data.get("bad_reversals"), N=N)
+    block_idx = event_indices_from_cumulative(session_data.get("blocks"), N=N)
     for event in session_data.get("reversal_boundary_events", []):
-        target = good_idx if event["kind"] == "good" else bad_idx
+        if event["kind"] == "block":
+            # A block change between recordings; one after the last trial has no trial to mark.
+            target = block_idx if event["index"] < N else []
+        else:
+            target = good_idx if event["kind"] == "good" else bad_idx
         if event["index"] not in target:
             target.append(event["index"])
-    block_idx = event_indices_from_cumulative(session_data.get("blocks"), N=N)
     return good_idx, bad_idx, block_idx
 
 

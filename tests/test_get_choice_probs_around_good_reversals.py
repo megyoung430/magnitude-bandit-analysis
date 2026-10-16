@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from src.behavior_analysis.get_choice_probs_around_good_reversals import (
+    NoReversalsError,
     apply_moving_average_to_choice_probs,
     get_choice_probs_around_good_reversals,
     remove_trials_after_bad_rev,
@@ -293,6 +294,11 @@ def test_get_choice_probs_rejects_windows_with_no_finite_bins():
 
 def test_get_choice_probs_rejects_no_usable_subjects():
     with pytest.raises(ValueError):
+        get_choice_probs_around_good_reversals({"none": []}, pre=1, post=2)
+
+
+def test_get_choice_probs_without_usable_subjects_raises_the_specific_error():
+    with pytest.raises(NoReversalsError):
         get_choice_probs_around_good_reversals({"none": []}, pre=1, post=2)
 
 

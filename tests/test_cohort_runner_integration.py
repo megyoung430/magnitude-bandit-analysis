@@ -2,7 +2,7 @@
 
 The cohort has a blocked problem followed by two drifting ones (``tests/cohort_fixtures.py``).
 The poke analysis and the single-session figures run for real on the synthetic recordings; the
-three drifting-only entry points are replaced by recorders that write a marker file (they have
+drifting-only entry points are replaced by recorders that write a marker file (they have
 their own tests), so these tests are about which folders get which data.
 """
 
@@ -49,13 +49,21 @@ ENTRY_POINTS = (
     "run_value_psychometric_analysis",
     "run_reversal_aligned_arm_analysis",
     "run_value_change_analysis",
+    "run_port_preference_analysis",
 )
-FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change")
+# What the entry points return that the runner collects as diagnostic tables.
+STUB_RESULTS = {
+    "run_reversal_aligned_arm_analysis": {"counts": pd.DataFrame()},
+    "run_value_change_analysis": {
+        "contamination_table": pd.DataFrame(),
+        "bin_counts_table": pd.DataFrame(),
+    },
+}
+FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change", "port-preference")
 LONG_POKE_FILES = (
     "Long Pokes by Relative Session.png",
     "Maze Heatmaps - Pokes After Choice.png",
     "Maze Heatmaps - Pokes After Initiation.png",
-    "Poke Trial Summary.csv",
 )
 
 
@@ -75,6 +83,7 @@ def calls(monkeypatch):
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             (Path(out_dir) / "stub.txt").write_text(name)
             seen.append((name, Path(out_dir), data))
+            return STUB_RESULTS.get(name)
 
         return record
 
@@ -201,11 +210,11 @@ def test_the_value_analyses_run_once_per_drifting_problem_and_once_pooled(
     run(tmp_path)
     drifting = cohort_dir / DRIFTING
     keys_by_dir = {out_dir: sorted(data) for _, out_dir, data in calls}
-    for folder in (FOLDERS[0], FOLDERS[2]):
+    for folder in (FOLDERS[0], FOLDERS[2], FOLDERS[3]):
         assert keys_by_dir[drifting / "problem-01" / folder] == [1]
         assert keys_by_dir[drifting / "problem-02" / folder] == [2]
         assert keys_by_dir[drifting / "all-drifting-problems" / folder] == [1, 2]
-    assert len(calls) == 3 * 3  # three analyses x (two problems + the pool)
+    assert len(calls) == 4 * 3  # four analyses x (two problems + the pool)
 
 
 def test_the_arm_windows_of_each_folder_come_from_its_own_problems(
@@ -252,13 +261,13 @@ def test_reversal_aligned_arms_are_pooled_without_per_problem_duplicates(tmp_pat
     capture = capture_figures(monkeypatch)
     selection = AnalysisSelection(run_reversal_aligned_arm_analysis=True)
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # empty best_to_third selections
+        warnings.simplefilter("ignore")  # empty selections of some block change types
         run_drifting_value_analyses(
             arm_data(), tmp_path, selection, arm_scope_label=POOLED_DRIFTING_LABEL
         )
     names = capture.saved_names()
-    assert names and all("_pooled_" in name for name in names), names
-    assert (tmp_path / "reversal-aligned-arms" / "reversal_aligned_arms_counts.csv").exists()
+    assert names and all("(pooled)" in name for name in names), names
+    assert not list((tmp_path / "reversal-aligned-arms").glob("*.csv"))
 
 
 def test_pooled_arm_windows_are_the_per_problem_windows_concatenated_per_mouse(
@@ -405,11 +414,10 @@ def test_a_session_with_unreadable_events_warns_and_the_run_goes_on(
     monkeypatch.setattr(poke_counts_module, "parse_session", failing)
     with pytest.warns(UserWarning, match="impossible log"):
         run(tmp_path)
-    table = pd.read_csv(
-        cohort_dir / DRIFTING / "problem-01" / "long-pokes" / "Poke Trial Summary.csv"
-    )
-    assert table.loc[table["session"] == "ses-3_date-20260103", "parse_error"].notna().any()
-    assert (cohort_dir / DRIFTING / "problem-02" / "long-pokes" / "Poke Trial Summary.csv").exists()
+    for problem in ("problem-01", "problem-02"):
+        folder = cohort_dir / DRIFTING / problem / "long-pokes"
+        assert (folder / "Maze Heatmaps - Pokes After Choice.png").exists()
+        assert not list(folder.glob("*.csv"))
 
 
 def test_misaligned_trials_stop_the_run(tmp_path, calls, cohort_extras, monkeypatch):
@@ -428,7 +436,10 @@ def arm_labels(monkeypatch):
     monkeypatch.setattr(
         pipeline,
         "run_reversal_aligned_arm_analysis",
-        lambda windows, out_dir, **kwargs: seen.update({Path(out_dir): kwargs["scope_label"]}),
+        lambda windows, out_dir, **kwargs: (
+            seen.update({Path(out_dir): kwargs["scope_label"]})
+            or STUB_RESULTS["run_reversal_aligned_arm_analysis"]
+        ),
     )
     return seen
 

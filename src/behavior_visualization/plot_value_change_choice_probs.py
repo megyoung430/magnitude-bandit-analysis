@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 
-from src.behavior_analysis.value_change_windows import ValueChangeCurves
+from src.behavior_analysis.value_change_windows import ValueChangeCurves, describe_value_change
 from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
 
@@ -30,27 +30,21 @@ LEGEND_LABELS = {
     "prev_best": "Prev Best",
     "prev_second": "Prev Second Best",
 }
-_FILTER_SUFFIX = {
-    "all": "",
-    "rank_preserving": "[Rank-Preserving Only]",
-    "rank_swap": "[Rank-Swap Only]",
-}
 X_LABEL = "Trials from Value Change"
 Y_LABEL = "Choice Probability"
 
 
 def _title(curves: ValueChangeCurves) -> str:
-    config = curves.config
-    rank = "Best" if config.rank == "best" else "Second-Best"
+    heading = describe_value_change(curves.config, curves.truncate_at_rank_swap)
     events = f"n={curves.num_events} events"
     if curves.truncate_at_rank_swap:
-        events += f", {curves.num_truncated} truncated at rank swap"
+        events += f", {curves.num_truncated} truncated at swap"
     average = "mean ± se" if curves.num_subjects >= 2 else "mean"
-    heading = f"Choice Probabilities Aligned to {rank} True Value {config.direction.capitalize()}"
-    suffix = _FILTER_SUFFIX[config.rank_filter].strip()
+    mice = "mouse" if curves.num_subjects == 1 else "mice"
     return (
-        f"{heading}\n{suffix}\n" if suffix else f"{heading}\n"
-    ) + f"({average} across subjects | n={curves.num_subjects} subjects, {events})"
+        f"Choice Probabilities Around {heading}\n"
+        f"({average} across mice | n={curves.num_subjects} {mice}, {events})"
+    )
 
 
 def _draw_label(ax: plt.Axes, curves: ValueChangeCurves, label: str, individual: bool) -> None:

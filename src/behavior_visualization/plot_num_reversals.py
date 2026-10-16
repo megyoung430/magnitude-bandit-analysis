@@ -34,7 +34,9 @@ from src.behavior_visualization.plot_style import BAD_COLOR, GOOD_COLOR, TOTAL_C
 
 KIND_COLORS = {"good": GOOD_COLOR, "bad": BAD_COLOR, "total": TOTAL_COLOR}
 KIND_LABELS = {"good": "Good Rev", "bad": "Bad Rev", "total": "Total Rev"}
-THRESHOLD_STYLE = dict(color="#DCDCDC", linewidth=2, linestyle="--", alpha=0.7)
+# Darker than the grey total bars (TOTAL_COLOR), and above them, so the line shows over a bar too.
+THRESHOLD_STYLE = dict(color="#4d4d4d", linewidth=2, linestyle="--", zorder=3)
+LEGEND_HEADROOM = 1.4  # y-axis top as a multiple of the tallest bar or threshold
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +45,10 @@ THRESHOLD_STYLE = dict(color="#DCDCDC", linewidth=2, linestyle="--", alpha=0.7)
 
 
 def plot_reversal_totals(
-    totals: pd.DataFrame, kinds: tuple[str, ...], ax: plt.Axes | None = None
+    totals: pd.DataFrame,
+    kinds: tuple[str, ...],
+    ax: plt.Axes | None = None,
+    threshold: float | None = None,
 ) -> plt.Axes:
     """Bar chart of total reversals per subject (rows of *totals*).
 
@@ -53,6 +58,8 @@ def plot_reversal_totals(
         kinds (tuple[str, ...]): ``("good", "bad")`` draws paired bars; anything else (normally
             ``("total",)``) draws one bar per subject from the ``total`` column.
         ax (plt.Axes | None): Axes to draw into; a new 10 x 5 inch figure if None. Default None.
+        threshold (float | None): Draw a dashed reference line at this y-value, in the style
+            of the cumulative-reversal plots, if given. Default None.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -75,6 +82,14 @@ def plot_reversal_totals(
         ax.legend(loc="upper left", fontsize=10)
     else:
         ax.bar(x_pos, totals["total"].astype(int), color=TOTAL_COLOR, edgecolor="black")
+    if threshold is not None:
+        ax.axhline(threshold, label="Threshold", **THRESHOLD_STYLE)
+        ax.legend(loc="upper left", fontsize=10)
+    # Room above the tallest bar and the line, so the upper-left legend covers neither.
+    plotted = totals[list(kinds)] if kinds == ("good", "bad") else totals[["total"]]
+    tallest = max(float(plotted.to_numpy().max(initial=0)), threshold or 0)
+    if tallest > 0:
+        ax.set_ylim(0, LEGEND_HEADROOM * tallest)
     ax.set_xticks(x_pos)
     ax.set_xticklabels(totals.index, rotation=45, ha="right")
     despine(ax)
@@ -242,13 +257,16 @@ def _print_subject_totals(subjects_trials: dict) -> None:
         print(f"{subject}: {get_total_reversals(subjects_trials[subject])}")
 
 
-def plot_num_reversals(subjects_trials, save_path=None):
+def plot_num_reversals(subjects_trials, save_path=None, *, threshold=10):
     """Bar chart of total good and bad (or total) reversals per subject.
 
     Args:
         subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
         save_path (str | Path | None): Base path (without extension) for ``.pdf`` and ``.png``
             output. If None or empty, the figure is shown. Default None.
+        threshold (float | None): Dashed reference line (the criterion reversal count) on the
+            single-bar total plot of block-change-only data; the good/bad bars never get one.
+            None for none. Default 10. Keyword-only.
 
     Returns:
         None
@@ -258,8 +276,11 @@ def plot_num_reversals(subjects_trials, save_path=None):
     """
     _print_subject_totals(subjects_trials)
     totals = reversal_totals_by_subject(subjects_trials)
+    kinds = reversal_kinds(totals)
     fig, ax = plt.subplots(figsize=(10, 5))
-    plot_reversal_totals(totals, reversal_kinds(totals), ax=ax)
+    plot_reversal_totals(
+        totals, kinds, ax=ax, threshold=None if kinds == ("good", "bad") else threshold
+    )
     fig.tight_layout()
     save_or_show(fig, save_path or None)
 

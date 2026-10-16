@@ -3,7 +3,12 @@ import os
 import pytest
 
 import src.behavior_import.load_trials as load_trials
-from src.behavior_import.load_trials import load_trials_by_problem, raw_data_fingerprint
+from src.behavior_import.import_log import ImportLog
+from src.behavior_import.load_trials import (
+    ImportedTrials,
+    load_trials_by_problem,
+    raw_data_fingerprint,
+)
 
 
 @pytest.fixture
@@ -21,7 +26,7 @@ def computed(monkeypatch):
 
     def fake_import(root, classify_task_types=False):
         calls.append(root)
-        return {1: {"M1": {"n_calls": len(calls)}}}
+        return ImportedTrials({1: {"M1": {"n_calls": len(calls)}}}, ImportLog())
 
     monkeypatch.setattr(load_trials, "_import_and_extract", fake_import)
     return calls
@@ -48,6 +53,13 @@ def test_import_code_change_invalidates_cache(raw_root, tmp_path, computed, monk
     monkeypatch.setattr(load_trials, "import_code_version", lambda: "edited")
     load_trials_by_problem(raw_root, cache_dir=tmp_path / "cache")
     assert len(computed) == 2
+
+
+def test_the_hashed_import_code_includes_the_module_that_defines_what_is_cached():
+    # a change to the cached layout (ImportedTrials) is a change to this module, so it
+    # invalidates old caches without a separate version number
+    assert os.path.dirname(load_trials.__file__) == str(load_trials.IMPORT_CODE_DIR)
+    assert not hasattr(load_trials, "CACHE_FORMAT_VERSION")
 
 
 def test_use_cache_false_always_recomputes(raw_root, tmp_path, computed):

@@ -24,6 +24,15 @@ from src.behavior_analysis.reversal_alignment import (
 )
 from src.behavior_analysis.stats import nan_standard_error
 
+
+class NoReversalsError(ValueError):
+    """No subject has a good reversal to average, so there is no curve to compute.
+
+    A ``ValueError`` so that callers written for the earlier failure keep working; a pipeline
+    that can carry on without the figure catches this class only.
+    """
+
+
 # Roles of the three towers around a good reversal, in the order returned by
 # classify_towers_at_good_reversals.
 _TOWER_ROLES = ("prev_best", "next_best", "third")
@@ -201,6 +210,12 @@ def get_choice_probs_around_good_reversals(
             continue
         per_subject[subj] = _summarize_subject(
             _subject_choice_matrices(reversals, skip=skip, pre=pre, post=post)
+        )
+
+    if not per_subject:
+        raise NoReversalsError(
+            "no subject has a good reversal to average (every subject has none, or only "
+            "reversals whose best tower did not change)"
         )
 
     across = _across_subject_curves(per_subject, _MEAN_KEYS)

@@ -1,5 +1,8 @@
 """Compute mean non-choice long-poke counts per session across subjects."""
+import warnings
+
 import numpy as np
+
 
 def get_num_long_pokes(subjects_trials):
     """Compute mean number of non-choice long pokes per session for each subject.
@@ -23,7 +26,7 @@ def get_num_long_pokes(subjects_trials):
                 avg_num_pokes_across_subjects.setdefault(subject, {})
                 avg_num_pokes_across_subjects[subject][session] = np.mean(num_long_pokes)
             except (KeyError, TypeError):
-                print(f"Missing num_long_pokes for {subject} {session}")
+                warnings.warn(f"Missing num_long_pokes for {subject} {session}", stacklevel=2)
     for session in avg_num_pokes_across_subjects[all_subjects[0]].keys():
         session_avg = np.mean([avg_num_pokes_across_subjects[subject][session] for subject in all_subjects if session in avg_num_pokes_across_subjects[subject]])
         avg_num_pokes_across_subjects.setdefault("average_across_subjects", {})

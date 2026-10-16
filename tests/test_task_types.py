@@ -133,6 +133,10 @@ def test_problem_map_table_columns_and_rows():
         "problem_in_type",
         "overall_problem",
         "sessions",
+        "initiation_tower",
+        "choice_towers",
+        "n_sessions",
+        "session_range",
     ]
     assert table.to_dict("records") == [
         {
@@ -141,6 +145,10 @@ def test_problem_map_table_columns_and_rows():
             "problem_in_type": 1,
             "overall_problem": 1,
             "sessions": "ses-1_date-20260101",
+            "initiation_tower": "B2",
+            "choice_towers": "",
+            "n_sessions": 1,
+            "session_range": "1",
         },
         {
             "mouse": "A",
@@ -148,8 +156,43 @@ def test_problem_map_table_columns_and_rows():
             "problem_in_type": 1,
             "overall_problem": 2,
             "sessions": "ses-2_date-20260102",
+            "initiation_tower": "B2",
+            "choice_towers": "",
+            "n_sessions": 1,
+            "session_range": "2",
         },
     ]
+
+
+def test_problem_map_names_the_towers_and_compresses_the_session_numbers():
+    keys = [f"ses-{n}_date-202601{n:02d}" for n in (3, 4, 5, 6, 7, 8, 20)]
+    sessions = {
+        key: {
+            **session(DRIFTING_NAME),
+            "choice_towers": {"C1", "A3", "B1"},
+            "initiation_tower": "A2",
+        }
+        for key in keys
+    }
+    (row,) = problem_map_table({1: {"A": sessions}}).to_dict("records")
+    assert row["initiation_tower"] == "A2"
+    assert row["choice_towers"] == "A3;B1;C1"
+    assert row["n_sessions"] == 7
+    assert row["session_range"] == "3-8, 20"
+
+
+def test_a_session_split_into_parts_counts_once_and_agrees_with_the_range():
+    keys = [
+        "ses-1_date-20260101",
+        "ses-2_date-20260102_part-01",
+        "ses-2_date-20260102_part-02",
+        "ses-2_date-20260102_part-03",
+        "ses-4_date-20260104",
+    ]
+    sessions = {key: session(DRIFTING_NAME) for key in keys}
+    (row,) = problem_map_table({1: {"A": sessions}}).to_dict("records")
+    assert row["session_range"] == "1-2, 4"
+    assert row["n_sessions"] == 3
 
 
 def test_problem_map_lists_sessions_in_order():
@@ -159,3 +202,10 @@ def test_problem_map_lists_sessions_in_order():
     }
     table = problem_map_table({1: {"A": sessions}})
     assert table["sessions"].tolist() == ["ses-1_date-20260101;ses-2_date-20260102"]
+
+
+def test_problem_map_reads_choice_towers_listed_per_trial():
+    per_trial = [["A1", "B1"], None, ["A1", "B1", "C3"]]
+    sessions = {"ses-1_date-20260101": {**session(DRIFTING_NAME), "choice_towers": per_trial}}
+    (row,) = problem_map_table({1: {"A": sessions}}).to_dict("records")
+    assert row["choice_towers"] == "A1;B1;C3"

@@ -213,6 +213,12 @@ report all failures at the end.
   by passing `drifting_selection=DRIFTING_SELECTION.model_copy(update={"run_value_change_analysis":
   False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
   in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).
+- **Port preference** (`run_port_preference_analysis`, drifting problems, `port-preference/`, also
+  pooled over all drifting problems): `P(chosen) / P(best)` per port (one maze per mouse) and for
+  the X and plus ports (mean ± SE across mice). Relative to the problem's initiation port, plus
+  ports share its row or column and X ports lie on its diagonals (from B2 these are the eight
+  neighbours). A mouse offered ports from one category only has that category's ratio of 1 by
+  construction; it is left out of the X vs plus figure, which says how many mice were excluded.
 - **Long pokes and maze heatmaps** (`run_poke_analysis`, every problem, `long-pokes/`): mean
   non-choice long pokes per trial per relative session, and per-mouse maze maps of the pokes after
   the choice and the long pokes after initiation. Green outlines are the problem's choice ports and
@@ -220,7 +226,7 @@ report all failures at the end.
   type (so drifting problem 1 is outlined with the last blocked problem's ports); blue is the
   initiation port. The single-session figures carry the same maps for their session, with the red
   outlines. Every session's raw events are parsed once for both. A session whose raw events cannot
-  be read as trials warns and is drawn without maps (and noted in `Poke Trial Summary.csv`); parsed
+  be read as trials warns and is drawn without maps (and noted in the `parse_error` column of the returned `summary`); parsed
   trials that disagree with the imported trials stop the run with a `PokeAlignmentError`.
 - **Outputs** (under `results/`, which is git-ignored), for cohort `cohort-0N`:
 
@@ -228,21 +234,37 @@ report all failures at the end.
   | --- | --- |
   | `blocked/problem-KK/reversal-stats/` | choice probabilities around good reversals, first leave, reversal counts |
   | `blocked/problem-KK/choice-stats/` | true-value rank proportions |
-  | `blocked/problem-KK/long-pokes/` | long pokes per relative session, maze heatmaps, four CSVs |
+  | `blocked/problem-KK/long-pokes/` | long pokes per relative session, maze heatmaps |
   | `blocked/problem-KK/single-sessions/<mouse>/<session>/` | one overview figure per session |
   | `drifting/problem-KK/reversal-stats/` | reversal counts |
   | `drifting/problem-KK/choice-stats/` | true- and believed-value rank proportions |
   | `drifting/problem-KK/value-psychometrics/` | value heatmaps and psychometric curves |
-  | `drifting/problem-KK/reversal-aligned-arms/` | arm choice probability and magnitude around block changes, counts CSV |
-  | `drifting/problem-KK/value-change/` | choice probabilities around value changes, contamination and bin-count CSVs |
+  | `drifting/problem-KK/reversal-aligned-arms/` | arm choice probability and magnitude around block changes |
+  | `drifting/problem-KK/value-change/` | choice probabilities around value changes |
+  | `drifting/problem-KK/port-preference/` | port preference per port and X vs plus |
   | `drifting/problem-KK/long-pokes/`, `.../single-sessions/` | as for blocked |
   | `drifting/all-drifting-problems/choice-stats/` | rank proportions pooled over the drifting problems |
-  | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change}/` | the three drifting-only analyses pooled over the drifting problems |
+  | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change,port-preference}/` | the four drifting-only analyses pooled over the drifting problems |
   | `trial-block-summaries/all-problems/` | trial and block-length summaries |
 
-  Tables go to `tables/open-field/cohort-0N/`: `problem_map.csv` (mouse, task type, number within
-  type, overall problem, sessions) and `suspect_reversals.csv` (the good reversals the analyses drop, for
-  review by hand). In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
+  Tables go to `tables/open-field/cohort-0N/`, for looking at by hand. Each row names the mouse,
+  the session (and the file where it has one), the task type and the problem (number within the
+  type, and overall). The long-pokes, reversal-aligned-arms and value-change CSVs are in this
+  folder, no longer in the figure folders; `trial-block-summaries/all-problems/` keeps its six
+  summary CSVs.
+
+  | Table | One row per |
+  | --- | --- |
+  | `problem_map.csv` | mouse and problem: initiation tower, choice towers, `sessions`, `n_sessions`, `session_range` (e.g. "1-10" or "3-8, 20") |
+  | `suspect_reversals.csv` | good reversal or block change the analyses drop |
+  | `suspect_sessions.csv` | problem-numbering flag (`suspected_settings_error`, `review_settings`, `provisional`, `port_finding`, `pretraining`, `no_choice_towers`) with a `reason`; or configuration setting that changed within a session (`run_start vs run_end`) or between recordings (`run_end vs next run_start`); keys are `suspect_sessions.SETTINGS_KEYS`; `found_ports` False to True in a problem's first session is not listed; a recording without `run_start` or `run_end` gets one "not checked: no run_end" row instead |
+  | `suspect_starting_reward_mags.csv` | session (within a problem) whose starting magnitudes differ from the previous session's end, compared with the problem's previous session that has trials (last trial against first trial), with `likely_cause`, most to least likely (`starting_magnitudes.CAUSES`); a total that goes down is a task restart (`RESET`); a missing tower on either side is "cannot compare" |
+  | `no_trial_sessions.csv` | file or recording the importer skipped, or session with no trials (one row per session, `files` lists its files), with `kind` and `reason` |
+  | `no_second_best.csv` | block with more than one arm at 0, with the only rewarded arm |
+  | `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv` | diagnostics of the analyses, stacked over problems with `task_type`, `problem_in_type` (and `overall_problem` where a mouse is named) |
+  | `warnings_log.csv` | distinct Python warning of the run that the console shows (`n_times`), with the mouse, session, task type and problem its text names; written even when the run fails, and always with every table (header only when empty) |
+
+  In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
   session; to find a row in the raw file, search `file` for `"num_t": <num_t>` (the run-local,
   1-based trial number pyControl printed) or for the row at `print_time`.
 - **Before you compare with older runs**: a `results/` folder from before this runner keeps the
@@ -252,14 +274,31 @@ report all failures at the end.
 
 ### Reversals at session boundaries
 
-Trial extraction reconciles good/bad counters with raw `run_start` and `run_end`
-records, including both long and abbreviated variable names. A reversal after
-its session's final trial contributes to that session's `reversal_totals`; its
-post-reversal window starts at the next available trial. Positive total-counter
-changes between runs are included in the receiving session. Recording restarts
-subtract their starting counter baseline to avoid counting persisted events twice.
-Magnitude-only changes and counter decreases are retained in
-`reversal_diagnostics`, without assigning a good/bad reversal type.
+Trial extraction reconciles good/bad counters and block numbers with raw `run_start` and
+`run_end` records, including both long and abbreviated variable names. The recordings of a
+session form one continuous session. The per-recording counters (`num_blocks`, `num_good_rev`,
+`num_bad_rev`) restart in every recording; the session totals (`tot_num_blocks`,
+`tot_num_good_rev`, `tot_num_bad_rev`) do not, so a change that the task logged while nothing was
+recording (in a `run_end` after the last trial, or in the next `run_start`) is read from them.
+The next recording's first trial is then the first trial of the new block (drifting task: a
+block change; blocked task: a good or bad reversal), and a recording that restarts at 1 while
+the totals show no change continues the block. Files without totals use the reward magnitudes
+instead: the zero arm moved (drifting) or the magnitudes permuted (blocked).
+`reversal_boundary_events` lists these events with kind `good`, `bad` or `block` (a block
+change of unknown kind in a blocked session without totals). `run_boundaries` describes every
+recording boundary (magnitudes before and after, counter and total deltas, and a verdict) with
+`src.behavior_import.run_boundaries.describe_boundary`.
+
+Such a reversal is checked like any other (the best tower changes at a good reversal), on the
+last trial before it and the first trial after it. A change logged after a session's final
+trial contributes to that session's `reversal_totals`. It starts a new block at the next
+session's first trial (same problem) only if the magnitudes there show it (`session_check`
+`consistent`); otherwise it is not carried into the next session, is recorded in
+`reversal_diagnostics` as `session_end_change_unmatched`, and counts as uncheckable. A reversal is
+uncheckable only when there is no trial to check against. Recording restarts subtract their
+starting counter baseline to avoid counting persisted events twice. Magnitude-only changes and
+counter decreases are retained in `reversal_diagnostics`, without assigning a good/bad
+reversal type.
 
 All reversal analyses use these corrected counters and totals. Re-extract raw
 sessions before rerunning analyses on previously loaded data; existing notebook

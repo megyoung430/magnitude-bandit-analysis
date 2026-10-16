@@ -265,6 +265,10 @@ def is_pretraining(task_name):
     )
 
 
+class UnrecognisedTaskName(ValueError):
+    """A task name that matches neither task type (a pretraining task, for example)."""
+
+
 def classify_task_name(task_name):
     """``"blocked"`` or ``"drifting"`` for a pyControl task name.
 
@@ -278,7 +282,8 @@ def classify_task_name(task_name):
         str: ``"blocked"`` or ``"drifting"``.
 
     Raises:
-        ValueError: If the name is missing, matches neither type, or matches both.
+        ValueError: If the name is missing, matches neither type (:class:`UnrecognisedTaskName`),
+            or matches both.
     """
     if not task_name:
         raise ValueError(
@@ -294,11 +299,31 @@ def classify_task_name(task_name):
         return BLOCKED
     if is_drifting:
         return DRIFTING
-    raise ValueError(
+    raise UnrecognisedTaskName(
         f"unrecognised task name {task_name!r}: expected a name containing "
         f"{' / '.join(BLOCKED_NAME_PARTS)} (blocked) or "
         f"{' / '.join(DRIFTING_NAME_PARTS)} (drifting)"
     )
+
+
+def known_task_type(session):
+    """The task type of a session dict: its ``task_type``, else the type its task name gives.
+
+    Args:
+        session (dict): A session dict with the importer's ``task_type`` (set when the import
+            classified task types) and ``task_name``.
+
+    Returns:
+        str | None: ``"blocked"`` or ``"drifting"``; ``None`` when the session carries neither
+        (hand-built data), so that the caller applies its default deliberately.
+
+    Raises:
+        ValueError: If there is a task name that is unrecognised or matches both types.
+    """
+    if session.get("task_type") is not None:
+        return session["task_type"]
+    name = session.get("task_name")
+    return classify_task_name(name) if name else None
 
 
 def numbering_signature(session):
@@ -324,13 +349,73 @@ def _skip_assignment(session):
     return ProblemAssignment(None, NO_CHOICE_TOWERS, ("no choice towers",))
 
 
-def _evidence_reasons(session):
-    """Why the first session of a new problem needs review (empty if it passes)."""
+def evidence_reasons(session):
+    """Why the first session of a new problem needs review (empty if it passes).
+
+    Args:
+        session (object): The session's numbering facts, with the attributes
+            ``starts_found_ports_false`` (bool) and ``has_port_finding_trials`` (bool).
+
+    Returns:
+        tuple[str, ...]: Plain-words reasons; empty when the session shows port finding.
+    """
     if not session.starts_found_ports_false:
         return ("does not start with found_ports false",)
     if not session.has_port_finding_trials:
         return ("no port-finding trials (num_t_found) printed",)
     return ()
+
+
+PROVISIONAL_REASON = (
+    "the last run of the mouse's data is a single session, so its problem number is "
+    "provisional: a later session can turn it into a settings error"
+)
+
+
+def describe_flag(flag, *, evidence, task_types_classified, task_name=None):
+    """What a problem flag means for one session, in plain words, for the review table.
+
+    Args:
+        flag (str | None): The session's numbering flag, or ``None``.
+        evidence (dict): The session's ``settings_evidence`` (``starts_found_ports_false`` and
+            ``has_port_finding_trials`` are read).
+        task_types_classified (bool): Whether the task type was part of the numbering.
+        task_name (str | None): The session's task name, named for pretraining.
+
+    Returns:
+        str: The flag's meaning; empty for ``None``. The note for a provisional number is
+        :data:`PROVISIONAL_REASON`.
+
+    Raises:
+        ValueError: For an unknown *flag*.
+    """
+    changed = "layout or task type" if task_types_classified else "layout"
+    review = SessionFacts(
+        None, evidence["starts_found_ports_false"], evidence["has_port_finding_trials"]
+    )
+    meanings = {
+        None: None,
+        SUSPECTED_SETTINGS_ERROR: (
+            f"the {changed} lasts one session before changing again, so it is treated as a "
+            "settings error and left out of the problems (the sessions on either side are pooled)"
+        ),
+        REVIEW_SETTINGS: (
+            "starts a new problem but "
+            + "; ".join(evidence_reasons(review))
+            + "; kept as a problem, check the settings"
+        ),
+        PORT_FINDING: (
+            "no choice towers and port-finding trials printed: a port-finding session, "
+            "left out of the problems"
+        ),
+        NO_CHOICE_TOWERS: "no choice towers logged, left out of the problems",
+        PRETRAINING: f"pretraining task ({task_name}), left out of the problems",
+    }
+    if flag not in meanings:
+        raise ValueError(
+            f"unknown problem flag {flag!r}; expected one of {sorted(map(str, meanings))}"
+        )
+    return meanings[flag] or ""
 
 
 def _layout_runs(facts, indices):
@@ -371,7 +456,7 @@ def assign_problems(facts):
             continue
         else:
             problem, last_signature = problem + 1, signature
-            reasons = _evidence_reasons(facts[run[0]]) if problem > 1 else ()
+            reasons = evidence_reasons(facts[run[0]]) if problem > 1 else ()
             first = ProblemAssignment(problem, REVIEW_SETTINGS if reasons else None, reasons)
             first = first._replace(provisional=len(run) == 1 and position == len(runs) - 1)
         assignments[run[0]] = first

@@ -6,10 +6,10 @@ before being averaged across problems.
 """
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # First-leave merge helpers
@@ -114,7 +114,7 @@ def merge_first_leave_dicts(counts_by_problem: dict[Any, dict]) -> dict:
 
     bad = {s: type(v) for s, v in merged.items() if not isinstance(v, dict)}
     if bad:
-        print("[WARNING] Non-dict merged values detected:", bad)
+        warnings.warn(f"Non-dict merged values detected: {bad}", stacklevel=2)
     return merged
 
 

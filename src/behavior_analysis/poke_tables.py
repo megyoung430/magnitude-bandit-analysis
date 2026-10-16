@@ -1,4 +1,4 @@
-"""Tables of the poke analysis results (pure; the pipeline writes them to CSV)."""
+"""Tables of the poke analysis results (pure: they build DataFrames and write nothing)."""
 
 from __future__ import annotations
 
@@ -90,7 +90,10 @@ def counts_by_session_table(per_session: PerMouseSession) -> pd.DataFrame:
 
 
 def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
-    """Trials counted and dropped, and raw-versus-printed long pokes, per mouse and session.
+    """Trials counted, dropped and port finding, and raw-versus-printed long pokes, per session.
+
+    Port-finding trials are not task trials: they are in ``n_port_finding_trials`` only, not in
+    ``n_trials`` or either drop count.
 
     ``parse_error`` is empty unless the session's raw events could not be read.
 
@@ -99,8 +102,9 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
 
     Returns:
         pd.DataFrame: One row per mouse and session; columns ``mouse``, ``session``,
-        ``n_trials``, ``n_trials_counted``, ``n_trials_dropped_no_print``,
-        ``n_trials_dropped_inconsistent``, ``n_open_after_choice_windows``,
+        ``n_trials``, ``n_port_finding_trials``, ``n_trials_counted``,
+        ``n_trials_dropped_no_print``, ``n_trials_dropped_inconsistent``,
+        ``n_open_after_choice_windows``,
         ``n_long_poke_checked``, ``n_long_poke_agree``, ``parse_error``.
     """
     rows = [
@@ -108,6 +112,7 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
             "mouse": mouse,
             "session": session,
             "n_trials": counts.n_trials,
+            "n_port_finding_trials": counts.n_port_finding_trials,
             "n_trials_counted": counts.n_valid,
             "n_trials_dropped_no_print": counts.n_dropped_no_print,
             "n_trials_dropped_inconsistent": counts.n_dropped_inconsistent,
@@ -125,6 +130,7 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
             "mouse",
             "session",
             "n_trials",
+            "n_port_finding_trials",
             "n_trials_counted",
             "n_trials_dropped_no_print",
             "n_trials_dropped_inconsistent",

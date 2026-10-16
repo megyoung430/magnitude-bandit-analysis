@@ -1,13 +1,30 @@
 """Extract and process trial-by-trial data from behavioral experiment recordings."""
 
+import warnings
 from copy import deepcopy
 
 import pandas as pd
 
-from src.behavior_import.import_data import parse_content_json
+from src.behavior_import.import_data import (
+    parse_content_json,
+    read_task_name,
+    session_source_paths,
+    source_path,
+)
+from src.behavior_import.import_log import (
+    NO_BANDIT_FIELDS,
+    NO_TRIAL_PRINTS,
+    ONLY_PORT_FINDING,
+    RECORDING,
+    SESSION,
+    ImportSkipWarning,
+    SessionFlag,
+    SkipRecord,
+)
 from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
     SessionFacts,
     assign_problems,
+    describe_flag,
     normalize_tower_token,
     permutation_invariant_signature,
     session_sort_key,
@@ -78,7 +95,7 @@ RANK_LABEL_MAP = {
 }
 
 
-def extract_trials_grouped_by_problem(data):
+def extract_trials_grouped_by_problem(data, log=None):
     """Extract trial variables and group sessions into problems by tower layout.
 
     A convenience wrapper that calls :func:`extract_trials` to parse all
@@ -89,6 +106,10 @@ def extract_trials_grouped_by_problem(data):
         data (dict): Nested dict ``{subject: {session_key: session_dict}}`` as returned
             by :func:`src.behavior_import.import_data.import_data`. Mutated in place by
             :func:`extract_trials`.
+        log (ImportLog | None): Receives a skip record for each recording and session without
+            trial information, and the flagged sessions of the final numbering
+            (:func:`flagged_sessions`). Changes nothing that is loaded or printed. Default
+            ``None``.
 
     Returns:
         dict: ``{problem_id: {subject: {session_key: session_dict}}}`` with deep-copied
@@ -98,8 +119,10 @@ def extract_trials_grouped_by_problem(data):
         ValueError: If a session lacks ``"settings_evidence"``, a subject's session numbers
             and dates disagree, or a recording's ``run_start`` cannot be parsed.
     """
-    data = extract_trials(data)
+    data = extract_trials(data, log)
     problems = group_sessions_by_problem(data)
+    if log is not None:
+        log.flags = flagged_sessions(data)
     return problems
 
 
@@ -157,16 +180,85 @@ def bandit_trial_info(df, subject, session_key):
 
     Returns:
         list[dict]: The per-trial dicts of :func:`recording_trial_info`, or ``[]`` if the
-        recording printed no trials or none with a bandit field (a warning is printed).
+        recording printed no trials or none with a bandit field (an ``ImportSkipWarning``).
     """
     trial_info = recording_trial_info(df)
     if trial_info and not session_has_any_key(trial_info, BANDIT_KEYS):
-        print(
-            "[WARNING] Skipping recording with no bandit trial fields "
-            f"for subject {subject}, session {session_key}"
+        warnings.warn(
+            "Skipping recording with no bandit trial fields "
+            f"for subject {subject}, session {session_key}",
+            ImportSkipWarning,
+            stacklevel=2,
         )
         return []
     return trial_info
+
+
+def empty_recording_kind(df):
+    """Why a recording has no bandit trials: the ``kind`` of its skip record.
+
+    Args:
+        df (pd.DataFrame): One recording (see :func:`recording_trial_info`) for which
+            :func:`bandit_trial_info` returned no trials.
+
+    Returns:
+        str: ``NO_BANDIT_FIELDS`` if it prints trials without a bandit field,
+        ``ONLY_PORT_FINDING`` if its prints are all port-finding prints, else
+        ``NO_TRIAL_PRINTS``.
+    """
+    if recording_trial_rows(df):
+        return NO_BANDIT_FIELDS
+    is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
+    printed = df.loc[is_print, "content"].map(parse_content_json)
+    if any(isinstance(d, dict) and "num_t_found" in d for d in printed):
+        return ONLY_PORT_FINDING
+    return NO_TRIAL_PRINTS
+
+
+_EMPTY_RECORDING_REASONS = {
+    NO_BANDIT_FIELDS: (
+        "it prints trials but none has a bandit field (reward magnitudes, choice towers or rank "
+        "counts), so it is not a bandit recording"
+    ),
+    ONLY_PORT_FINDING: "it prints only port-finding trials (num_t_found), no bandit trials",
+    NO_TRIAL_PRINTS: "it prints no trials",
+}
+
+
+def empty_recording_skips(frames, trial_info_list, subject, session_key, task_name):
+    """Skip records for the recordings of a session that have no bandit trials.
+
+    Args:
+        frames (list[pd.DataFrame]): The session's recordings, in order.
+        trial_info_list (list[list[dict]]): The trials of each recording, from
+            :func:`bandit_trial_info`.
+        subject (str): Subject id.
+        session_key (str): Session key.
+        task_name (str | None): The session's task name.
+
+    Returns:
+        list[SkipRecord]: One per recording without trials; level ``"session"`` if no recording
+        of the session has trials (the whole session is left out), else ``"recording"``.
+    """
+    level = SESSION if not any(trial_info_list) else RECORDING
+    skips = []
+    for frame, trial_info in zip(frames, trial_info_list, strict=True):
+        if trial_info:
+            continue
+        kind = empty_recording_kind(frame)
+        path = source_path(frame)
+        skips.append(
+            SkipRecord(
+                subject,
+                session_key,
+                None if path.startswith("<") else path,
+                level,
+                kind,
+                _EMPTY_RECORDING_REASONS[kind],
+                read_task_name(frame) or task_name,
+            )
+        )
+    return skips
 
 
 def merge_segments(var_name, segments):
@@ -278,7 +370,7 @@ def drop_unlogged_reversal_vars(session_data):
     return session_data
 
 
-def extract_session_trials(session_data, subject, session_key):
+def extract_session_trials(session_data, subject, session_key, log=None):
     """Attach trial variables and derived fields to one session, in place.
 
     A session without any bandit trial information gets empty
@@ -289,6 +381,8 @@ def extract_session_trials(session_data, subject, session_key):
             ``pd.DataFrame`` or a list of them (one per recording).
         subject (str): Subject id, used in messages.
         session_key (str): Session key, used in messages.
+        log (ImportLog | None): Receives a skip record for each recording without bandit trials
+            (:func:`empty_recording_skips`). Default ``None``.
 
     Returns:
         dict: The same *session_data*. With trials it gains ``"has_good"``, ``"has_bad"``,
@@ -304,8 +398,17 @@ def extract_session_trials(session_data, subject, session_key):
 
     trial_info_list = [bandit_trial_info(df, subject, session_key) for df in frames]
     trial_vars_list = [transpose_trials(trial_info, ALIASES) for trial_info in trial_info_list]
+    if log is not None:
+        for skip in empty_recording_skips(
+            frames, trial_info_list, subject, session_key, session_data.get("task_name")
+        ):
+            log.add_skip(skip)
     if not any(trial_info_list):
-        print(f"[WARNING] No trial information found for subject {subject}, session {session_key}")
+        warnings.warn(
+            f"No trial information found for subject {subject}, session {session_key}",
+            ImportSkipWarning,
+            stacklevel=2,
+        )
         session_data["trial_variables"] = {}
         session_data["trial_info"] = []
         return session_data
@@ -320,7 +423,7 @@ def extract_session_trials(session_data, subject, session_key):
     return drop_unlogged_reversal_vars(add_derived_fields(session_data))
 
 
-def extract_trials(data):
+def extract_trials(data, log=None):
     """Parse and attach trial-by-trial variables to every session in *data*.
 
     For each subject and session, reads the raw ``"data"`` DataFrame(s),
@@ -338,6 +441,7 @@ def extract_trials(data):
         data (dict): Nested dict ``{subject: {session_key: session_dict}}`` where each
             ``session_dict`` contains at least a ``"data"`` key holding a
             ``pd.DataFrame`` or list of ``pd.DataFrame`` objects.
+        log (ImportLog | None): Passed to :func:`extract_session_trials`. Default ``None``.
 
     Returns:
         dict: The same *data* dict, mutated in-place, with each ``session_dict``
@@ -357,7 +461,7 @@ def extract_trials(data):
     for subject, subject_sessions in data.items():
         for session_key, session_data in subject_sessions.items():
             subject_sessions[session_key] = extract_session_trials(
-                session_data, subject, session_key
+                session_data, subject, session_key, log
             )
     return reconcile_reversals(data)
 
@@ -686,6 +790,11 @@ def concat_cumulative_numeric(segments):
     each segment by the last value of the previous segment when a reset is
     detected (i.e. the current segment starts below the running maximum).
 
+    A segment that restarts at 1 is read as continuing the previous block, so a block change
+    that the task logged only between the recordings is not seen here.
+    :func:`~src.behavior_import.reconcile_reversals.reconcile_reversals` adds such changes, and
+    recomputes ``blocks`` of a session without good/bad counters from the session totals.
+
     Args:
         segments (list[list[int | None]]): Per-file cumulative counter sequences, in file
             order. ``None`` entries and empty segments are dropped.
@@ -952,13 +1061,61 @@ def signed_sessions(subject_id, subject_sessions):
     for session_id in ordered_session_keys(subject_id, subject_sessions):
         sess = subject_sessions[session_id]
         if not sess.get("trial_info"):
-            print(
-                f"[WARNING] Skipping session {session_id} for subject {subject_id} "
-                "due to missing trial information."
+            warnings.warn(
+                f"Skipping session {session_id} for subject {subject_id} "
+                "due to missing trial information.",
+                ImportSkipWarning,
+                stacklevel=2,
             )
             continue
         signed.append((session_id, session_facts(subject_id, session_id, sess)))
     return signed
+
+
+def flagged_sessions(data):
+    """The sessions of *data* that carry a problem flag or a provisional number.
+
+    Most flags leave the session out of the problems that :func:`group_sessions_by_problem`
+    returns (``suspected_settings_error``, ``pretraining``, ``port_finding``,
+    ``no_choice_towers``), so this is the way to list them (sessions without trial information
+    included, with the flag ``import_data`` gave them). A ``review_settings`` session and a
+    session with only a provisional number are in a problem and are listed here too.
+
+    Args:
+        data (dict): ``{subject: {session_key: session_dict}}`` after
+            :func:`group_sessions_by_problem` has written ``"problem"``, ``"problem_flag"`` and
+            ``"problem_provisional"`` onto the sessions.
+
+    Returns:
+        list[SessionFlag]: One per flagged or provisional session, subjects in the order of
+        *data*, sessions oldest first.
+    """
+    flags = []
+    for subject, subject_sessions in data.items():
+        for key in ordered_session_keys(subject, subject_sessions):
+            sess = subject_sessions[key]
+            flag, provisional = sess.get("problem_flag"), bool(sess.get("problem_provisional"))
+            if not (flag or provisional):
+                continue
+            reason = describe_flag(
+                flag,
+                evidence=sess["settings_evidence"],
+                task_types_classified=bool(sess.get("task_types_classified")),
+                task_name=sess.get("task_name"),
+            )
+            flags.append(
+                SessionFlag(
+                    subject,
+                    key,
+                    tuple(session_source_paths(sess)),
+                    flag,
+                    sess.get("problem"),
+                    provisional,
+                    reason,
+                    sess.get("task_name"),
+                )
+            )
+    return flags
 
 
 def group_sessions_by_problem(data, copy_sessions=True):

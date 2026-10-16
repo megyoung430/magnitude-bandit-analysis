@@ -22,6 +22,7 @@ and the imports below are public; every other module-level name starts with ``_`
 """
 
 import math
+import warnings
 from collections.abc import Hashable
 from pathlib import Path  # noqa: F401  # public to star-importing notebooks
 
@@ -601,11 +602,11 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
             ``.png`` output. If None or empty, the figure is shown interactively. Default None.
 
     Returns:
-        None: If no subject has any block, a warning is printed and nothing is drawn.
+        None: If no subject has any block, a warning is raised and nothing is drawn.
     """
     n_blocks = _summary.n_blocks(rank_counts_by_good_reversal)
     if n_blocks == 0:
-        print("[WARN] No blocks found to plot.")
+        warnings.warn("No blocks found to plot.", stacklevel=2)
         return
     ncols = math.ceil(n_blocks / 2)
     fig, axes = plt.subplots(2, ncols, figsize=(4.2 * ncols, 8), sharey=True)

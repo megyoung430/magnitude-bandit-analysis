@@ -6,9 +6,12 @@ import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import (
+    NO_PRINT,
     PokeAlignmentError,
     PokeParseError,
+    count_port_finding,
     cross_check_long_pokes,
+    is_port_finding,
     parse_recording,
     parse_session,
     pokes_after_choice,
@@ -19,12 +22,28 @@ from tests.poke_fixtures import Recording, full_trial, session_record
 # ------------------------------------------------------------- after-choice window rules
 
 
-def test_initiating_poke_of_the_next_trial_is_not_counted():
+def test_initiating_poke_of_the_next_trial_is_the_last_poke_of_the_window():
     rec = Recording()
     full_trial(rec, choice="A1", after_choice=["C3"])
-    full_trial(rec, choice="B1")  # initiates with B2_in, the poke that must not count
+    full_trial(rec, choice="B1")  # initiates with B2_in, the last poke of the previous window
     first = parse_recording(rec.to_frame())[0]
-    assert first.window_pokes == ("C3",)
+    assert first.window_pokes == ("C3", "B2")
+
+
+def test_initiating_poke_is_counted_after_the_choice_tower_pokes_are_dropped():
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["A1", "A1", "C3"])
+    full_trial(rec, choice="B1")
+    first = parse_recording(rec.to_frame())[0]
+    assert pokes_after_choice(first.window_pokes, first.chosen) == ["C3", "B2"]
+
+
+def test_a_window_with_only_choice_tower_pokes_still_counts_the_initiating_poke():
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["A1", "A1"])
+    full_trial(rec, choice="B1")
+    first = parse_recording(rec.to_frame())[0]
+    assert pokes_after_choice(first.window_pokes, first.chosen) == ["B2"]
 
 
 def test_other_b2_pokes_in_the_window_are_counted():
@@ -32,7 +51,7 @@ def test_other_b2_pokes_in_the_window_are_counted():
     full_trial(rec, choice="A1", after_choice=["B2", "C3"])
     full_trial(rec, choice="B1", pre_init=["B2"])  # a B2 poke that does not initiate
     first = parse_recording(rec.to_frame())[0]
-    assert first.window_pokes == ("B2", "C3", "B2")
+    assert first.window_pokes == ("B2", "C3", "B2", "B2")
 
 
 def test_pokes_are_not_collapsed_when_repeated():
@@ -40,7 +59,14 @@ def test_pokes_are_not_collapsed_when_repeated():
     full_trial(rec, choice="A1", after_choice=["C3", "C3", "C3", "A2", "A2"])
     full_trial(rec, choice="A1")
     first = parse_recording(rec.to_frame())[0]
-    assert pokes_after_choice(first.window_pokes, first.chosen) == ["C3", "C3", "C3", "A2", "A2"]
+    assert pokes_after_choice(first.window_pokes, first.chosen) == [
+        "C3",
+        "C3",
+        "C3",
+        "A2",
+        "A2",
+        "B2",
+    ]
 
 
 def test_pokes_during_the_reward_state_precede_the_window():
@@ -52,7 +78,7 @@ def test_pokes_during_the_reward_state_precede_the_window():
     rec.state("wait_init")
     full_trial(rec, choice="A1")
     first = parse_recording(rec.to_frame())[0]
-    assert first.window_pokes == ("C2",)
+    assert first.window_pokes == ("C2", "B2")
 
 
 def test_leading_choice_tower_pokes_are_dropped_until_another_port_is_poked():
@@ -78,7 +104,7 @@ def test_last_trial_without_a_following_initiation_has_an_open_window():
     full_trial(rec, choice="A1", after_choice=["C3"])
     full_trial(rec, choice="B1", after_choice=["A3"])  # recording ends in wait_init
     trials = parse_recording(rec.to_frame())
-    assert [t.window_pokes for t in trials] == [("C3",), None]
+    assert [t.window_pokes for t in trials] == [("C3", "B2"), None]
 
 
 def test_recording_that_ends_before_the_iti_has_an_open_window():
@@ -153,10 +179,10 @@ def test_windows_belong_to_the_trial_whose_print_precedes_them_across_recordings
     assert [t.chosen for t in trials] == ["A1", "B1", "C1", "A1", "B1"]
     # Trial 2 (B1) is followed by the crashed initiation in the same recording: closed window.
     assert [t.window_pokes for t in trials] == [
-        ("C3",),
-        ("A3",),
-        ("B3",),
-        ("A2",),
+        ("C3", "B2"),
+        ("A3", "B2"),
+        ("B3", "B2"),
+        ("A2", "B2"),
         None,
     ]
 
@@ -175,15 +201,103 @@ def test_alignment_with_the_sessions_merged_choice_list_is_checked():
         parse_session(session)
 
 
+# ------------------------------------------------------------------------ port finding
+
+
+def test_port_finding_trials_are_counted_separately_and_are_not_drops():
+    rec = Recording()
+    rec.port_finding_trial("A1")
+    rec.port_finding_trial("C1")
+    full_trial(rec, choice="B1", after_choice=["C3"])
+    full_trial(rec, choice="A1")
+    session = session_record([rec.to_frame()], choice=["B1", "A1"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # port finding must not raise the "dropped" warning
+        trials = parse_session(session)
+    assert count_port_finding(trials) == 2
+    task = [t for t in trials if not is_port_finding(t)]
+    assert [(t.chosen, t.drop_reason, t.window_pokes) for t in task] == [
+        ("B1", None, ("C3", "B2")),
+        ("A1", None, None),
+    ]
+
+
+def test_port_finding_between_task_trials_does_not_disturb_the_open_window():
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["C3"])
+    rec.port_finding_trial("B3")
+    full_trial(rec, choice="B1")
+    trials = parse_recording(rec.to_frame())
+    assert count_port_finding(trials) == 1
+    task = [t for t in trials if not is_port_finding(t)]
+    assert [t.drop_reason for t in task] == [None, None]
+    assert task[0].window_pokes == ("C3", "B2")
+
+
+def test_a_recording_of_only_port_finding_counts_its_trials():
+    rec = Recording()
+    rec.port_finding_trial("A1")
+    rec.port_finding_trial("C1")
+    trials = parse_recording(rec.to_frame())
+    assert count_port_finding(trials) == 2
+    assert not any(t.has_print for t in trials)
+
+
 def test_recording_without_bandit_trials_is_skipped():
     pretraining = pd.DataFrame(
-        [(0.0, "state", None, "wait_init"), (1.0, "variable", "print", '{"num_t_found": 1}')],
+        [
+            (0.0, "state", None, "wait_init"),
+            (1.0, "variable", "print", '{"num_t_found": 1, "found_ports": false}'),
+        ],
         columns=["time", "type", "subtype", "content"],
     )
     rec = Recording()
     full_trial(rec, choice="A1")
-    assert parse_recording(pretraining) == []
-    assert len(parse_session(session_record([pretraining, rec.to_frame()]))) == 1
+    (only,) = parse_recording(pretraining)
+    assert is_port_finding(only)
+    trials = parse_session(session_record([pretraining, rec.to_frame()]))
+    assert [t.chosen for t in trials if not is_port_finding(t)] == ["A1"]
+
+
+def test_port_finding_timeout_is_port_finding_not_a_dropped_task_trial():
+    rec = Recording()
+    rec.port_finding_timeout()
+    rec.port_finding_trial("A1")
+    full_trial(rec, choice="C1")
+    session = session_record([rec.to_frame()], choice=["C1"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        trials = parse_session(session)
+    assert count_port_finding(trials) == 2
+    assert [t.chosen for t in trials if not is_port_finding(t)] == ["C1"]
+
+
+def test_timeout_after_the_last_port_finding_print_is_a_task_drop():
+    rec = Recording()
+    rec.port_finding_trial("A1")
+    rec.port_finding_timeout()  # ports are found by now: the next print is a task trial
+    full_trial(rec, choice="C1")
+    trials = parse_recording(rec.to_frame())
+    assert count_port_finding(trials) == 1
+    assert [t.drop_reason for t in trials if not is_port_finding(t)] == [NO_PRINT, None]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        {"num_t_found": 1, "found_ports": True},
+        {"num_t_found": 1},
+        {"num_t_found": 1, "found_ports": False, "num_t": 3, "chosen_tow": "A1"},
+    ],
+    ids=["ports-found", "no-found-ports-field", "also-has-num_t"],
+)
+def test_print_that_only_partly_matches_the_port_finding_rule_raises(printed):
+    rec = Recording()
+    full_trial(rec, choice="A1")
+    rec.initiate()
+    rec.raw_print(printed)
+    with pytest.raises(PokeParseError, match="port-finding"):
+        parse_recording(rec.to_frame())
 
 
 def test_initiation_event_at_another_port_raises():
@@ -212,13 +326,45 @@ def test_a_second_iti_before_the_next_initiation_raises():
         parse_recording(rec.to_frame())
 
 
-def test_time_going_backwards_raises():
+def test_state_rows_going_backwards_in_time_raise():
     rec = Recording()
     full_trial(rec, choice="A1")
     frame = rec.to_frame()
-    frame.loc[5, "time"] = -1.0
-    with pytest.raises(ValueError, match="time"):
+    last_state = frame.index[frame["type"] == "state"][-1]
+    frame.loc[last_state, "time"] = -1.0
+    with pytest.raises(PokeParseError, match="state rows"):
         parse_recording(frame)
+
+
+def test_timer_events_logged_before_the_preceding_state_row_are_ignored():
+    # pyControl may log a timer a few ms before the state row that precedes it.
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["C3"])
+    full_trial(rec, choice="B1")
+    clean = parse_recording(rec.to_frame())
+    frame = rec.to_frame()
+    wait_choice = frame.index[frame["content"] == "wait_choice"][0]
+    early = frame.loc[[wait_choice]].assign(
+        time=frame.loc[wait_choice, "time"] - 0.005,
+        type="event",
+        subtype="timer",
+        content="init_rew_timer",
+    )
+    frame = pd.concat([frame.iloc[: wait_choice + 1], early, frame.iloc[wait_choice + 1 :]])
+    frame = frame.reset_index(drop=True)
+    assert frame["time"].diff().min() < 0  # the log really is out of time order
+    assert parse_recording(frame) == clean
+
+
+def test_input_events_logged_out_of_time_order_are_read_in_file_order():
+    rec = Recording()
+    full_trial(rec, choice="A1", after_choice=["C3", "A2"])
+    full_trial(rec, choice="B1")
+    frame = rec.to_frame()
+    clean = parse_recording(frame)
+    poke = frame.index[frame["content"] == "C3_in"][0]
+    frame.loc[poke, "time"] = frame.loc[poke - 1, "time"] - 0.003
+    assert parse_recording(frame) == clean
 
 
 # ------------------------------------------------ raw events against the printed long pokes
@@ -257,7 +403,7 @@ def test_b2_poke_in_the_iti_lets_later_chosen_tower_pokes_count_in_a_parsed_tria
     full_trial(rec, choice="A1", after_choice=["A1", "B2", "A1"])
     full_trial(rec, choice="B1")
     first = parse_recording(rec.to_frame())[0]
-    assert pokes_after_choice(first.window_pokes, first.chosen) == ["B2", "A1"]
+    assert pokes_after_choice(first.window_pokes, first.chosen) == ["B2", "A1", "B2"]
 
 
 # ------------------------------------------------------------------ dropped trials
@@ -286,7 +432,7 @@ def test_aborted_trial_without_a_print_is_dropped_and_not_a_session_trial():
         ("B1", True, True),
     ]
     # The first trial's window is closed by the aborted trial's initiation.
-    assert trials[0].window_pokes == ("C3",)
+    assert trials[0].window_pokes == ("C3", "B2")
     session = session_record([rec.to_frame()], choice=["A1", "B1"])
     with pytest.warns(UserWarning, match="dropped 1 trial"):
         assert len(parse_session(session)) == 3
@@ -316,7 +462,7 @@ def test_trial_that_returns_to_wait_init_without_an_iti_is_dropped_not_open():
     full_trial(rec, choice="C1")
     first, second, third = parse_recording(rec.to_frame())
     assert first.drop_reason is not None and "ITI" in first.drop_reason
-    assert second.window_pokes == ("C3",) and third.window_pokes is None
+    assert second.window_pokes == ("C3", "B2") and third.window_pokes is None
 
 
 def test_choice_poke_port_different_from_the_printed_choice_drops_the_trial():

@@ -2,12 +2,17 @@
 
 Choice probabilities (mean ± SE across subjects) are solid lines on the left axis; the mean
 reward magnitude of the same three arms is a dashed step line of the same colour on a
-secondary axis on the right. Two labelling schemes:
+secondary axis on the right. Two labelling schemes, each with its own two kinds of block change
+(the arm that drops to 0 is the previous best or the previous second, and the previous third
+arm is rewarded again):
 
 - ``prev``: arms labelled by their rank before the block change (best blue, second green, third
-  grey);
+  grey); kinds "Prev Best \u2192 Third" and "Prev Second \u2192 Third";
 - ``new``: arms labelled by their rank after the block change (best blue, second green, third
-  black).
+  black); kinds "New Best from Third" and "New Second from Third".
+
+Every figure is also made for all block changes ("All"), which averages over both kinds. The title
+and the file name carry the same wording (:func:`figure_heading`, :func:`figure_stem`).
 
 The analysis is in :mod:`src.behavior_analysis.reversal_aligned_arms`.
 """
@@ -31,15 +36,55 @@ ROLE_COLORS = {
 }
 ROLE_LABELS = {role: role.replace("_", " ").title() for role in ROLE_COLORS}
 SCHEME_DESCRIPTIONS = {
-    "prev": "arms labelled by their rank before the block change",
-    "new": "arms labelled by their rank after the block change",
+    "prev": "arms labelled by rank before the block change",
+    "new": "arms labelled by rank after the block change",
+}
+SCHEME_FILE_LABELS = {
+    "prev": "Arms Labelled by Rank Before",
+    "new": "Arms Labelled by Rank After",
 }
 TYPE_LABELS = {
-    "all": "All Block Changes",
-    "best_to_third": "Best to Third Block Changes",
-    "second_to_third": "Second to Third Block Changes",
+    "prev": {
+        "all": "All",
+        "best_to_third": "Prev Best \u2192 Third",
+        "second_to_third": "Prev Second \u2192 Third",
+    },
+    "new": {
+        "all": "All",
+        "third_to_best": "New Best from Third",
+        "third_to_second": "New Second from Third",
+    },
 }
+HEADING = "Choice Probabilities Around Block Changes"
 MIN_MAGNITUDE_YMAX = 4.0
+
+
+def figure_heading(result: ReversalAlignedArms) -> str:
+    """First line of the figure title, e.g. ``Choice Probabilities Around Block Changes (All)``.
+
+    Args:
+        result (ReversalAlignedArms): The curves to be drawn.
+
+    Returns:
+        str: The analysis, then the block change kind in parentheses.
+    """
+    return f"{HEADING} ({TYPE_LABELS[result.scheme][result.reversal_type]})"
+
+
+def figure_stem(result: ReversalAlignedArms, scope: str) -> str:
+    """File name (without extension) that carries the title's wording.
+
+    Args:
+        result (ReversalAlignedArms): The curves to be drawn.
+        scope (str): The data they come from, e.g. ``"pooled"`` or ``"problem-04"``.
+
+    Returns:
+        str: ``<heading with "to" for the arrow> (<labelling>) (<scope>)``, for example
+        ``Choice Probabilities Around Block Changes (Prev Best to Third) (Arms Labelled by Rank
+        Before) (pooled)``.
+    """
+    heading = figure_heading(result).replace(" \u2192 ", " to ")
+    return f"{heading} ({SCHEME_FILE_LABELS[result.scheme]}) ({scope})"
 
 
 def _title(result: ReversalAlignedArms, scope: str) -> str:
@@ -54,9 +99,9 @@ def _title(result: ReversalAlignedArms, scope: str) -> str:
     )
     scope_text = f" [{scope}]" if scope else ""
     return (
-        f"{TYPE_LABELS[result.reversal_type]}{scope_text}: {SCHEME_DESCRIPTIONS[result.scheme]}\n"
-        "(type defined by the prev ranking)\n"
-        f"mean ± se across subjects | {detail}\n{smoothing}"
+        f"{figure_heading(result)}{scope_text}\n"
+        f"{SCHEME_DESCRIPTIONS[result.scheme].capitalize()}\n"
+        f"(mean ± se across subjects | {detail})\n{smoothing}"
     )
 
 

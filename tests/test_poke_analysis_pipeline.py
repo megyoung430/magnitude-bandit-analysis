@@ -8,7 +8,6 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import PokeAlignmentError
@@ -61,23 +60,19 @@ def captured(monkeypatch):
     return figures
 
 
-def test_writes_all_figures_and_tables(tmp_path):
+def test_writes_the_figures_and_no_tables(tmp_path):
     result = run_poke_analysis(problem_data(), tmp_path / "long-pokes")
     names = {p.name for p in (tmp_path / "long-pokes").iterdir()}
-    for stem in (
-        "Long Pokes by Relative Session",
-        "Maze Heatmaps - Pokes After Choice",
-        "Maze Heatmaps - Pokes After Initiation",
-    ):
-        assert f"{stem}.png" in names and f"{stem}.pdf" in names
-    for table in (
-        "Long Pokes by Session.csv",
-        "Poke Counts by Port.csv",
-        "Poke Counts by Session.csv",
-        "Poke Trial Summary.csv",
-    ):
-        assert table in names
-    assert set(result) >= {"long_pokes", "counts", "per_session", "cross_check", "files"}
+    assert names == {
+        f"{stem}.{ext}"
+        for stem in (
+            "Long Pokes by Relative Session",
+            "Maze Heatmaps - Pokes After Choice",
+            "Maze Heatmaps - Pokes After Initiation",
+        )
+        for ext in ("png", "pdf")
+    }
+    assert set(result) >= {"long_pokes", "counts", "per_session", "cross_check", "summary", "files"}
 
 
 def test_problem_counts_are_sums_over_sessions_and_recordings(tmp_path):
@@ -91,10 +86,12 @@ def test_problem_counts_are_sums_over_sessions_and_recordings(tmp_path):
 
 def test_after_choice_counts_leave_out_trials_whose_window_never_closed(tmp_path):
     result = run_poke_analysis(problem_data(), tmp_path)
-    # Per recording only the first trial has pokes (C3, A2) and the last trial's window is open.
+    # Per recording the first trial has pokes (C3, A2), every closed window ends with the
+    # initiating B2 poke (two closed windows per session), and the last window is open.
     assert {p: n for p, n in result["counts"]["after_choice"]["m1"].items() if n} == {
         "C3": 2,
         "A2": 2,
+        "B2": 4,
     }
     assert sum(c.n_open_windows for c in result["per_session"]["m1"].values()) == 2
 
@@ -188,24 +185,6 @@ def test_no_warning_when_raw_and_printed_long_pokes_agree(tmp_path):
         run_poke_analysis(data, tmp_path)
 
 
-def test_csv_tables_hold_the_returned_numbers(tmp_path):
-    result = run_poke_analysis(problem_data(), tmp_path)
-    by_port = pd.read_csv(tmp_path / "Poke Counts by Port.csv")
-    row = by_port[(by_port.mouse == "m1") & (by_port.kind == "after_initiation")]
-    assert (
-        dict(zip(row.port, row["count"], strict=True)) == result["counts"]["after_initiation"]["m1"]
-    )
-    sessions = pd.read_csv(tmp_path / "Long Pokes by Session.csv")
-    assert list(sessions.columns) == [
-        "mouse",
-        "session",
-        "relative_session",
-        "n_trials",
-        "mean_long_pokes",
-    ]
-    assert np.isclose(sessions.mean_long_pokes.sum(), 1 / 3)
-
-
 def test_each_mouse_gets_its_own_initiation_outline(tmp_path, captured):
     data = problem_data()
     rec = Recording(init="B3")
@@ -235,7 +214,7 @@ def test_files_lists_exactly_what_this_call_wrote(tmp_path):
     result = run_poke_analysis(problem_data(), tmp_path)
     assert tmp_path / "unrelated.csv" not in result["files"]
     assert all(p.exists() for p in result["files"])
-    assert len(result["files"]) == 4 + 6
+    assert len(result["files"]) == 6
 
 
 def test_trial_summary_reports_dropped_trials(tmp_path):
@@ -251,11 +230,12 @@ def test_trial_summary_reports_dropped_trials(tmp_path):
     with pytest.warns(UserWarning, match="dropped 2 trials") as caught:
         result = run_poke_analysis(data, tmp_path)
     assert len([w for w in caught if "dropped" in str(w.message)]) == 1
-    summary = pd.read_csv(tmp_path / "Poke Trial Summary.csv")
+    summary = result["summary"]
     assert list(summary.columns) == [
         "mouse",
         "session",
         "n_trials",
+        "n_port_finding_trials",
         "n_trials_counted",
         "n_trials_dropped_no_print",
         "n_trials_dropped_inconsistent",
@@ -267,7 +247,24 @@ def test_trial_summary_reports_dropped_trials(tmp_path):
     row = summary.iloc[0]
     assert (row.n_trials, row.n_trials_counted) == (3, 2)
     assert (row.n_trials_dropped_no_print, row.n_trials_dropped_inconsistent) == (1, 1)
+    assert row.n_port_finding_trials == 0
     assert result["counts"]["after_initiation"]["m1"]["B3"] == 0
+
+
+def test_summary_reports_port_finding_trials_apart_from_drops(tmp_path):
+    rec = Recording()
+    rec.port_finding_trial("A1")
+    rec.port_finding_trial("C1")
+    full_trial(rec, choice="A1")
+    full_trial(rec, choice="B1")
+    data = {"m1": {"ses-1_date-20260101": imported_session([rec.to_frame()], 1, 1)}}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # port finding is not a drop and must not warn
+        result = run_poke_analysis(data, tmp_path)
+    (row,) = result["summary"].itertuples()
+    assert (row.n_trials, row.n_port_finding_trials, row.n_trials_counted) == (2, 2, 2)
+    assert (row.n_trials_dropped_no_print, row.n_trials_dropped_inconsistent) == (0, 0)
+    assert result["per_session"]["m1"]["ses-1_date-20260101"].n_port_finding_trials == 2
 
 
 # ---------------------------------------------- two problems end to end: previous-problem outlines
@@ -365,7 +362,7 @@ def test_session_with_unreadable_events_is_skipped_with_a_warning_and_reported(t
     data["m1"]["ses-3_date-20260103"] = unreadable_session()
     with pytest.warns(UserWarning, match="m1 ses-3_date-20260103: skipped.*poked_in"):
         result = run_poke_analysis(data, tmp_path)
-    summary = pd.read_csv(tmp_path / "Poke Trial Summary.csv", keep_default_na=False)
+    summary = result["summary"].fillna("")
     bad = summary[(summary.mouse == "m1") & (summary.session == "ses-3_date-20260103")].iloc[0]
     assert "poked_in" in bad.parse_error
     assert (bad.n_trials, bad.n_trials_counted) == (0, 0)

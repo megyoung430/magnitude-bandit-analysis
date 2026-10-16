@@ -126,6 +126,30 @@ class ValueChangeConfig(NamedTuple):
         return SWAP_LABELS if self.rank_filter == "rank_swap" else STANDARD_LABELS
 
 
+_RANK_WORDS = {"best": "Best-Value", "second": "Second-Best-Value"}
+_DIRECTION_WORDS = {"increase": "Increases", "decrease": "Decreases"}
+_FILTER_WORDS = {
+    "all": "All Events",
+    "rank_preserving": "Rank-Preserving",
+    "rank_swap": "Rank Swap",
+}
+
+
+def describe_value_change(config: ValueChangeConfig, truncated: bool) -> str:
+    """Readable name of a configuration and truncation mode, for figure titles and file names.
+
+    Args:
+        config (ValueChangeConfig): The rank, direction and event filter.
+        truncated (bool): Whether the post windows are cut at the first rank swap.
+
+    Returns:
+        str: E.g. ``"Best-Value Decreases (Rank Swap, Truncated at Swap)"``.
+    """
+    mode = "Truncated at Swap" if truncated else "Full Window"
+    rank, direction = _RANK_WORDS[config.rank], _DIRECTION_WORDS[config.direction]
+    return f"{rank} {direction} ({_FILTER_WORDS[config.rank_filter]}, {mode})"
+
+
 class ValueChangeEvent(NamedTuple):
     """One value-change event with its choice-label window.
 

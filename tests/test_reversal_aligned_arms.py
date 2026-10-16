@@ -177,8 +177,9 @@ def test_tied_reversals_are_left_out_and_counted():
 
 
 def test_type_selection_drops_reversals_whose_type_depends_on_a_tie():
-    # B and C tie for second before; C is third after, so by arm name B would be second ("other")
-    # and with C second the type is second_to_third.
+    # B and C tie for second before, and one of them is the prev third. By arm name C is third
+    # before and stays third after ("other"); with B third before it becomes best after, which is
+    # a third_to_best block change.
     ambiguous = make_reversal(
         ["A"] * 4,
         ["C"] * 3,
@@ -186,7 +187,7 @@ def test_type_selection_drops_reversals_whose_type_depends_on_a_tie():
         after={"A": 2.0, "B": 3.0, "C": 1.0},
     )
     with pytest.warns(EmptySelectionWarning):
-        result = curves({"m": [ambiguous]}, scheme="new", reversal_type="second_to_third")
+        result = curves({"m": [ambiguous]}, scheme="new", reversal_type="third_to_best")
     assert result.counts.tied_type == 1 and result.num_reversals == 0
 
 
@@ -320,8 +321,9 @@ def test_magnitude_windows_need_the_subject_s_sessions():
 
 
 def test_end_to_end_curves_from_sessions():
-    # The animal always picks the best tower; every block change moves each tower up one rank,
-    # so the previous third tower becomes best and all reversals are second_to_third.
+    # The animal always picks the best tower; every block change moves each tower down one rank
+    # and the previous third tower becomes best, so every block change is second_to_third (prev)
+    # and third_to_best (new).
     data = {"m": make_mouse(1, pick=0)}
     windows = build_windows_with_magnitudes(data, pre=10, post=6)
     prev = compute_reversal_aligned_arms(
@@ -338,7 +340,7 @@ def test_end_to_end_curves_from_sessions():
     np.testing.assert_allclose(prev.choice_mean["prev_best"][10:], 0.0)
     np.testing.assert_allclose(prev.choice_mean["prev_third"][10:], 1.0)
     new = compute_reversal_aligned_arms(
-        windows, scheme="new", reversal_type="second_to_third", pre=10, post=6, moving_avg_window=1
+        windows, scheme="new", reversal_type="third_to_best", pre=10, post=6, moving_avg_window=1
     )
     np.testing.assert_allclose(new.choice_mean["new_best"][10:], 1.0)
     # before the change the animal sits on the arm that becomes second best

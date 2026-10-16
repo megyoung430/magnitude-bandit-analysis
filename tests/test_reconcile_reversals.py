@@ -94,12 +94,41 @@ def test_between_runs_rollback_is_a_diagnostic_not_an_event():
     assert diagnostics == [dict(kind="bad", source="counter_rollback", delta=-1, run=2)]
 
 
+def side(magnitudes):
+    return {"magnitudes": magnitudes, "totals": {}, "counters": {}}
+
+
 def test_between_runs_magnitude_change_without_events_is_flagged():
     _, events, diagnostics = _between_runs(
-        state(total_good=1), state(total_good=1, magnitudes=OTHER_MAGS), 0, 1
+        state(total_good=1, last_side=side(MAGS)),
+        state(total_good=1, magnitudes=OTHER_MAGS),
+        0,
+        1,
+        first_side=side(OTHER_MAGS),
     )
     assert events == []
     assert [d["source"] for d in diagnostics] == ["unclassified_magnitude_change"]
+
+
+def test_between_runs_reads_the_trials_on_either_side_not_the_snapshots():
+    # Placeholder snapshot magnitudes (port finding) differ from both neighbouring trials.
+    placeholder = {"A": 2, "B": 2, "C": 2}
+    incoming, events, diagnostics = _between_runs(
+        state(last_side=side(MAGS)),
+        state(magnitudes=placeholder),
+        0,
+        1,
+        first_side=side(MAGS),
+    )
+    assert (incoming, events, diagnostics) == ({"good": 0, "bad": 0}, [], [])
+
+
+def test_between_runs_adds_no_magnitude_event_where_the_previous_run_ended_with_events():
+    previous = state(last_side=side(MAGS), end_events=[dict(kind="good", index=4, count=1)])
+    _, events, diagnostics = _between_runs(
+        previous, state(), 4, 1, first_side=side(OTHER_MAGS), mode="blocked"
+    )
+    assert (events, diagnostics) == ([], [])
 
 
 def test_between_runs_does_not_bridge_different_problems():
@@ -130,6 +159,11 @@ def test_end_state_fills_missing_total_magnitudes_and_problem():
     assert filled.get("total_bad") is None  # no start total to extend
     assert filled["magnitudes"] == MAGS
     assert filled["problem"] == 3
+
+
+def test_end_state_of_a_run_without_trials_shows_the_magnitudes_it_started_from():
+    filled = _end_state({"magnitudes": OTHER_MAGS, "problem": 3}, {}, None, {"good": 0, "bad": 0})
+    assert filled["magnitudes"] == OTHER_MAGS
 
 
 def test_end_state_keeps_recorded_values():

@@ -6,9 +6,11 @@ filter (multiset match against ``required_reward_pattern``) instead of the
 zero-count gate used for good reversals.
 """
 
+import warnings
 from collections import Counter
 from dataclasses import dataclass
 
+from src.behavior_analysis.get_good_reversal_info import ReversalWarning
 from src.behavior_analysis.get_total_reversals import find_increment_indices
 from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
 
@@ -145,12 +147,18 @@ def _subject_reversals(subj, series, *, pre, post, include_first_block, required
     if n_trials == 0:
         return []
     if len(series.blocks) != n_trials:
-        print(
-            f"[WARN] {subj}: blocks length {len(series.blocks)} != bad_reversals length {n_trials}"
+        warnings.warn(
+            f"{subj}: blocks length {len(series.blocks)} != bad_reversals length {n_trials}",
+            ReversalWarning,
+            stacklevel=2,
         )
     towers = _list_towers(series)
     if not towers:
-        print(f"[WARN] {subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower")
+        warnings.warn(
+            f"{subj}: no towers found in reward_magnitudes_by_tower or choices_by_tower",
+            ReversalWarning,
+            stacklevel=2,
+        )
         return []
 
     boundaries = _find_bad_boundaries(series, include_first_block=include_first_block)

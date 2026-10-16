@@ -7,8 +7,11 @@ from src.behavior_analysis.reversals_by_trial import reversal_trial_series, trai
 
 class TrialReversalTests(unittest.TestCase):
     def test_terminal_event_at_exact_completed_trial_count(self):
-        a,b=snapshot(),snapshot(bad=1,tb=1)
-        data={'mouse':{'ses-1':session(a,b),'ses-2':session(snapshot(tb=1),snapshot(tb=1))}}
+        # The bad reversal swaps the two lower arms, and the next session starts from that state.
+        swapped={'A':4,'B':0,'C':1}
+        a,b=snapshot(),snapshot(bad=1,tb=1,mags=swapped)
+        later=snapshot(tb=1,mags=swapped)
+        data={'mouse':{'ses-1':session(a,b),'ses-2':session(later,later)}}
         reconcile_reversals(data)
         values=reversal_trial_series(data)['mouse']['bad']
         np.testing.assert_array_equal(values,[0,0,1,1,1])
