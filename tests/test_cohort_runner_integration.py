@@ -2,7 +2,7 @@
 
 The cohort has a blocked problem followed by two drifting ones (``tests/cohort_fixtures.py``).
 The poke analysis and the single-session figures run for real on the synthetic recordings; the
-three drifting-only entry points are replaced by recorders that write a marker file (they have
+drifting-only entry points are replaced by recorders that write a marker file (they have
 their own tests), so these tests are about which folders get which data.
 """
 
@@ -49,8 +49,9 @@ ENTRY_POINTS = (
     "run_value_psychometric_analysis",
     "run_reversal_aligned_arm_analysis",
     "run_value_change_analysis",
+    "run_port_preference_analysis",
 )
-FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change")
+FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change", "port-preference")
 LONG_POKE_FILES = (
     "Long Pokes by Relative Session.png",
     "Maze Heatmaps - Pokes After Choice.png",
@@ -200,11 +201,11 @@ def test_the_value_analyses_run_once_per_drifting_problem_and_once_pooled(
     run(tmp_path)
     drifting = cohort_dir / DRIFTING
     keys_by_dir = {out_dir: sorted(data) for _, out_dir, data in calls}
-    for folder in (FOLDERS[0], FOLDERS[2]):
+    for folder in (FOLDERS[0], FOLDERS[2], FOLDERS[3]):
         assert keys_by_dir[drifting / "problem-01" / folder] == [1]
         assert keys_by_dir[drifting / "problem-02" / folder] == [2]
         assert keys_by_dir[drifting / "all-drifting-problems" / folder] == [1, 2]
-    assert len(calls) == 3 * 3  # three analyses x (two problems + the pool)
+    assert len(calls) == 4 * 3  # four analyses x (two problems + the pool)
 
 
 def test_the_arm_windows_of_each_folder_come_from_its_own_problems(

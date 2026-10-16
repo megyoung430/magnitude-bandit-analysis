@@ -8,8 +8,9 @@ mouse's problems into blocked and drifting from the pyControl task name
   proportions, long pokes with maze heatmaps, and single sessions;
 - drifting problems: number of reversals, true- and believed-value rank proportions, long pokes
   with maze heatmaps, value heatmaps and psychometric curves, reversal-aligned arm choices,
-  value-change choice probabilities and single sessions, plus the rank proportions and the
-  three value analyses pooled over all of a mouse's drifting problems;
+  value-change choice probabilities, port preference and single sessions, plus the rank
+  proportions and the value analyses and port preference pooled over all of a mouse's drifting
+  problems;
 - trial and block-length summaries over all problems;
 - a problem map and a review table of suspect reversals, as CSV.
 
@@ -18,9 +19,9 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
     figures/open-field/<cohort>/{blocked,drifting}/problem-KK/{reversal-stats,choice-stats,
         single-sessions,long-pokes}/
     figures/open-field/<cohort>/drifting/problem-KK/{value-psychometrics,reversal-aligned-arms,
-        value-change}/
+        value-change,port-preference}/
     figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
-        reversal-aligned-arms,value-change}/
+        reversal-aligned-arms,value-change,port-preference}/
     figures/open-field/<cohort>/trial-block-summaries/all-problems/
     tables/open-field/<cohort>/problem_map.csv
     tables/open-field/<cohort>/suspect_reversals.csv
@@ -111,6 +112,7 @@ DRIFTING_SELECTION = AnalysisSelection(
     run_value_psychometric_analysis=True,
     run_reversal_aligned_arm_analysis=True,
     run_value_change_analysis=True,
+    run_port_preference_analysis=True,
     rank_pooling_modes=(True, False),
     rank_value_bases=("true", "believed"),
 )
