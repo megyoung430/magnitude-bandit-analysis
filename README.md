@@ -213,6 +213,12 @@ report all failures at the end.
   by passing `drifting_selection=DRIFTING_SELECTION.model_copy(update={"run_value_change_analysis":
   False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
   in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).
+- **Port preference** (`run_port_preference_analysis`, drifting problems, `port-preference/`, also
+  pooled over all drifting problems): `P(chosen) / P(best)` per port (one maze per mouse) and for
+  the X and plus ports (mean ± SE across mice). Relative to the problem's initiation port, plus
+  ports share its row or column and X ports lie on its diagonals (from B2 these are the eight
+  neighbours). A mouse offered ports from one category only has that category's ratio of 1 by
+  construction; it is left out of the X vs plus figure, which says how many mice were excluded.
 - **Long pokes and maze heatmaps** (`run_poke_analysis`, every problem, `long-pokes/`): mean
   non-choice long pokes per trial per relative session, and per-mouse maze maps of the pokes after
   the choice and the long pokes after initiation. Green outlines are the problem's choice ports and
@@ -235,9 +241,10 @@ report all failures at the end.
   | `drifting/problem-KK/value-psychometrics/` | value heatmaps and psychometric curves |
   | `drifting/problem-KK/reversal-aligned-arms/` | arm choice probability and magnitude around block changes |
   | `drifting/problem-KK/value-change/` | choice probabilities around value changes |
+  | `drifting/problem-KK/port-preference/` | port preference per port and X vs plus |
   | `drifting/problem-KK/long-pokes/`, `.../single-sessions/` | as for blocked |
   | `drifting/all-drifting-problems/choice-stats/` | rank proportions pooled over the drifting problems |
-  | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change}/` | the three drifting-only analyses pooled over the drifting problems |
+  | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change,port-preference}/` | the four drifting-only analyses pooled over the drifting problems |
   | `trial-block-summaries/all-problems/` | trial and block-length summaries |
 
   Tables go to `tables/open-field/cohort-0N/`, for looking at by hand. Each row names the mouse,

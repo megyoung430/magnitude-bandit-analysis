@@ -245,7 +245,10 @@ def test_a_recording_of_only_port_finding_counts_its_trials():
 
 def test_recording_without_bandit_trials_is_skipped():
     pretraining = pd.DataFrame(
-        [(0.0, "state", None, "wait_init"), (1.0, "variable", "print", '{"num_t_found": 1, "found_ports": false}')],
+        [
+            (0.0, "state", None, "wait_init"),
+            (1.0, "variable", "print", '{"num_t_found": 1, "found_ports": false}'),
+        ],
         columns=["time", "type", "subtype", "content"],
     )
     rec = Recording()

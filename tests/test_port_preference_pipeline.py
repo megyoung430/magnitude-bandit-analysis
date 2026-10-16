@@ -253,8 +253,6 @@ def test_no_exclusion_note_when_every_mouse_is_kept(tmp_path, monkeypatch):
 
 
 def test_a_scope_where_every_mouse_is_excluded_still_draws(tmp_path):
-    result = run_port_preference_analysis(
-        {1: {"m1": plus_only_mouse()}}, tmp_path, scope_label="x"
-    )
+    result = run_port_preference_analysis({1: {"m1": plus_only_mouse()}}, tmp_path, scope_label="x")
     assert result["single_category_mice"] == ["m1"]
     assert (tmp_path / "Port Preference X vs Plus.png").stat().st_size > 0
