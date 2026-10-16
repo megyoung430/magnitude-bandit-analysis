@@ -236,6 +236,9 @@ def test_trial_summary_reports_dropped_trials(tmp_path):
         "session",
         "n_trials",
         "n_port_finding_trials",
+        "n_port_finding_counted",
+        "n_port_finding_dropped",
+        "n_port_finding_open_after_choice_windows",
         "n_trials_counted",
         "n_trials_dropped_no_print",
         "n_trials_dropped_inconsistent",
@@ -265,6 +268,110 @@ def test_summary_reports_port_finding_trials_apart_from_drops(tmp_path):
     assert (row.n_trials, row.n_port_finding_trials, row.n_trials_counted) == (2, 2, 2)
     assert (row.n_trials_dropped_no_print, row.n_trials_dropped_inconsistent) == (0, 0)
     assert result["per_session"]["m1"]["ses-1_date-20260101"].n_port_finding_trials == 2
+
+
+# ---------------------------------------------- port-finding maps
+
+PORT_FINDING_STEMS = (
+    "Maze Heatmaps - Pokes After Choice (Port Finding)",
+    "Maze Heatmaps - Pokes After Initiation (Port Finding)",
+)
+
+
+def port_finding_recording(n_port_finding=2, choices=("A1", "B1")):
+    """Port finding first (as in the raw files), then task trials."""
+    rec = Recording()
+    for i in range(n_port_finding):
+        rec.port_finding_trial("A1", long_before=["C3"], after_choice=["C2"] if i == 0 else ())
+    for choice in choices:
+        full_trial(rec, choice=choice)
+    return rec.to_frame()
+
+
+def port_finding_problem():
+    """m1 has port finding in two of its three sessions, m2 in none."""
+    return {
+        "m1": {
+            "ses-1_date-20260101": imported_session([port_finding_recording(2)], 1, 1),
+            "ses-2_date-20260102": imported_session([recording()], 2, 2),
+            "ses-3_date-20260103": imported_session([port_finding_recording(3)], 3, 3),
+        },
+        "m2": {"ses-7_date-20260107": imported_session([recording()], 7, 7)},
+    }
+
+
+def test_port_finding_maps_are_drawn_only_for_mice_with_port_finding(tmp_path, captured):
+    result = run_poke_analysis(port_finding_problem(), tmp_path)
+    after_choice, after_initiation = captured[2:]
+    assert [ax.get_title() for ax in after_choice.axes if ax.get_title()] == [
+        "m1 (n=5 port-finding trials)"
+    ]
+    assert [ax.get_title() for ax in after_initiation.axes if ax.get_title()] == [
+        "m1 (n=5 port-finding trials)"
+    ]
+    assert {p.name for p in result["files"]} >= {
+        f"{stem}.{ext}" for stem in PORT_FINDING_STEMS for ext in ("png", "pdf")
+    }
+
+
+def test_port_finding_maps_are_written_next_to_the_others(tmp_path):
+    result = run_poke_analysis(port_finding_problem(), tmp_path)
+    assert len(result["files"]) == 10
+    assert all(p.exists() for p in result["files"])
+
+
+def test_port_finding_counts_sum_over_the_sessions_of_the_problem(tmp_path):
+    result = run_poke_analysis(port_finding_problem(), tmp_path)
+    counts = result["port_finding_counts"]
+    assert list(counts["after_initiation"]) == ["m1"] == list(counts["after_choice"])
+    # five trials, each a long poke at C3 then the choice A1
+    assert {p: n for p, n in counts["after_initiation"]["m1"].items() if n} == {"C3": 5, "A1": 5}
+    # the first trial of each session: C2, then every window ends with the initiating B2
+    assert {p: n for p, n in counts["after_choice"]["m1"].items() if n} == {"C2": 2, "B2": 5}
+
+
+def test_task_counts_do_not_change_when_port_finding_is_added(tmp_path):
+    def problem(n_port_finding):
+        frame = port_finding_recording(n_port_finding, choices=("A1", "B1", "C1"))
+        return {"m1": {"ses-1_date-20260101": imported_session([frame])}}
+
+    with_port_finding = run_poke_analysis(problem(4), tmp_path / "a")
+    plain = run_poke_analysis(problem(0), tmp_path / "b")
+    assert with_port_finding["counts"] == plain["counts"]
+    task_columns = ["n_trials", "n_trials_counted", "n_open_after_choice_windows"]
+    assert (with_port_finding["summary"][task_columns] == plain["summary"][task_columns]).all(None)
+
+
+def test_no_port_finding_map_when_no_mouse_has_port_finding(tmp_path, captured):
+    result = run_poke_analysis(problem_data(), tmp_path)
+    assert len(captured) == 2
+    assert result["port_finding_counts"] == {"after_initiation": {}, "after_choice": {}}
+    assert not [p for p in tmp_path.iterdir() if "Port Finding" in p.name]
+    assert len(result["files"]) == 6
+
+
+def test_port_finding_maps_carry_the_same_outlines(tmp_path, captured):
+    previous = {"m1": frozenset({"A1", "C3"}), "m2": None}
+    run_poke_analysis(port_finding_problem(), tmp_path, previous_choice_towers=previous)
+    for fig in captured[2:]:
+        gids = [p.get_gid() for ax in fig.axes for p in ax.patches if p.get_gid()]
+        assert sorted(g for g in gids if g.endswith(":previous")) == [
+            "ring:A1:previous",
+            "ring:C3:previous",
+        ]
+        assert "ring:B2:initiation" in gids
+        assert sum(g.endswith(":current") for g in gids) == 3
+
+
+def test_summary_adds_the_port_finding_counts(tmp_path):
+    result = run_poke_analysis(port_finding_problem(), tmp_path)
+    summary = result["summary"].set_index("session")
+    assert summary.loc["ses-1_date-20260101", "n_port_finding_trials"] == 2
+    assert summary.loc["ses-3_date-20260103", "n_port_finding_counted"] == 3
+    assert summary.loc["ses-2_date-20260102", "n_port_finding_counted"] == 0
+    # the last port-finding trial's window is closed by the first task trial's initiation
+    assert summary["n_port_finding_open_after_choice_windows"].sum() == 0
+    assert summary["n_port_finding_dropped"].sum() == 0
 
 
 # ---------------------------------------------- two problems end to end: previous-problem outlines

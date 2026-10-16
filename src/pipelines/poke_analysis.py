@@ -15,6 +15,9 @@ Figures written to ``out_dir`` (PNG and PDF):
   for each relative session of the problem, bars = mean +/- SE across mice, lines = mice.
 - ``Maze Heatmaps - Pokes After Choice`` and ``Maze Heatmaps - Pokes After Initiation``: one map
   per mouse, all sessions of the problem together.
+- The same two with `` (Port Finding)`` added to the name: the pokes of the port-finding trials
+  of every session of the problem, summed per mouse. A mouse without port-finding trials in the
+  problem has no panel, and a figure with no panel at all is not drawn.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ from src.behavior_analysis.poke_counts import (  # noqa: F401  (re-exported)
     previous_problem_choice_towers,
     problem_choice_ports,
     total_counts,
+    total_port_finding_counts,
 )
 from src.behavior_analysis.poke_tables import cross_check_table
 from src.behavior_analysis.stats import mean_se_n
@@ -51,6 +55,8 @@ from src.behavior_visualization.plot_num_long_pokes import (
 LONG_POKES_STEM = "Long Pokes by Relative Session"
 AFTER_CHOICE_STEM = "Maze Heatmaps - Pokes After Choice"
 AFTER_INITIATION_STEM = "Maze Heatmaps - Pokes After Initiation"
+PORT_FINDING_AFTER_CHOICE_STEM = f"{AFTER_CHOICE_STEM} (Port Finding)"
+PORT_FINDING_AFTER_INITIATION_STEM = f"{AFTER_INITIATION_STEM} (Port Finding)"
 _SCALE_NOTE = "colour scale: 0 to each mouse's own maximum count"
 _JITTER_SEED = 0
 
@@ -149,6 +155,64 @@ def _panel_titles(per_session, kind: str) -> dict[str, str]:
     }
 
 
+def _port_finding_trial_counts(per_session, kind: str) -> dict[str, int]:
+    """Port-finding trials per mouse in the *kind* map (after choice: closed windows only)."""
+
+    def n_trials(counts: SessionPokeCounts) -> int:
+        found = counts.port_finding
+        return found.n_valid - (found.n_open_windows if kind == "after_choice" else 0)
+
+    return {
+        mouse: sum(n_trials(c) for c in by_session.values())
+        for mouse, by_session in per_session.items()
+    }
+
+
+def _port_finding_totals(per_session, kind: str) -> tuple[dict, dict[str, str]]:
+    """``({mouse: per-port totals}, {mouse: panel title})`` of the mice with port-finding trials."""
+    n_trials = _port_finding_trial_counts(per_session, kind)
+    mice = [mouse for mouse, n in n_trials.items() if n > 0]
+    totals = {mouse: total_port_finding_counts(per_session[mouse], kind) for mouse in mice}
+    titles = {mouse: f"{mouse} (n={n_trials[mouse]} port-finding trials)" for mouse in mice}
+    return totals, titles
+
+
+def _draw_port_finding_maps(
+    per_session, out_dir: Path, current: dict, previous: dict | None, initiation: dict
+) -> tuple[dict, list[str]]:
+    """Draw the two port-finding maps that have at least one mouse.
+
+    Returns:
+        ``({kind: {mouse: per-port totals}}, [stems drawn])``; a kind no mouse has port-finding
+        trials for is an empty dict and has no figure.
+    """
+    maps = (
+        ("after_choice", PORT_FINDING_AFTER_CHOICE_STEM, "Pokes after choice (count per port)",
+         "Port-finding pokes after choice (ITI until next initiation)"),
+        ("after_initiation", PORT_FINDING_AFTER_INITIATION_STEM,
+         "Long pokes after initiation (count per port)",
+         "Port-finding long pokes after initiation (up to and including the choice)"),
+    )  # fmt: skip
+    totals_by_kind, drawn = {}, []
+    for kind, stem, colorbar_label, heading in maps:
+        totals, titles = _port_finding_totals(per_session, kind)
+        totals_by_kind[kind] = totals
+        if not totals:
+            continue
+        plot_maze_heatmaps_across_mice(
+            totals,
+            colorbar_label=colorbar_label,
+            current_ports={m: current[m] for m in totals},
+            previous_ports=None if previous is None else {m: previous[m] for m in totals},
+            initiation_port={m: initiation[m] for m in totals},
+            titles=titles,
+            suptitle=f"{heading}\n{_SCALE_NOTE}",
+            save_path=out_dir / stem,
+        )
+        drawn.append(stem)
+    return totals_by_kind, drawn
+
+
 def run_poke_analysis(
     subjects_trials_by_problem: dict,
     out_dir: Path,
@@ -156,7 +220,7 @@ def run_poke_analysis(
     previous_choice_towers: dict | None = None,
     poke_counts: dict | None = None,
 ) -> dict:
-    """Long pokes per relative session and the two maze heatmaps for one problem.
+    """Long pokes per relative session and the maze heatmaps for one problem.
 
     Args:
         subjects_trials_by_problem (dict): The sessions of ONE problem, ``{mouse: {session_key:
@@ -178,13 +242,17 @@ def run_poke_analysis(
         dict: A dict with ``"long_pokes"`` (``"by_session"`` = ``{mouse: {session: mean}}``,
         ``"relative"`` = the same keyed ``rel_ses-NN``, ``"problem_mean_by_mouse"`` and
         ``"across_mice"`` = ``(mean, se, n)`` of those means), ``"counts"`` (``{kind: {mouse:
-        {port: count}}}`` for ``"after_initiation"`` and ``"after_choice"``), ``"per_session"``
+        {port: count}}}`` for ``"after_initiation"`` and ``"after_choice"``, task trials only),
+        ``"port_finding_counts"`` (the same for the port-finding trials, with only the mice that
+        have some; ``{}`` for a kind with none), ``"per_session"``
         (``{mouse: {session: SessionPokeCounts}}``), ``"cross_check"`` (the raw-versus-printed
         long-poke comparison per session), ``"summary"`` (a DataFrame with one row per mouse and
-        session: ``mouse, session, n_trials, n_port_finding_trials, n_trials_counted,
+        session: ``mouse, session, n_trials, n_port_finding_trials, n_port_finding_counted,
+        n_port_finding_dropped, n_port_finding_open_after_choice_windows, n_trials_counted,
         n_trials_dropped_no_print, n_trials_dropped_inconsistent, n_open_after_choice_windows,
         n_long_poke_checked, n_long_poke_agree, parse_error``) and ``"files"`` (the figure paths
-        written, PNG then PDF per figure). No table is written to disk.
+        written, PNG then PDF per figure; the port-finding figures only if drawn). No table is
+        written to disk.
 
     Raises:
         ValueError: If the input is not one problem's ``{mouse: {session: session}}`` with raw
@@ -251,7 +319,10 @@ def run_poke_analysis(
         suptitle=f"Long pokes after initiation (up to and including the choice)\n{_SCALE_NOTE}",
         save_path=out_dir / AFTER_INITIATION_STEM,
     )
-    stems = (LONG_POKES_STEM, AFTER_CHOICE_STEM, AFTER_INITIATION_STEM)
+    port_finding_counts, port_finding_stems = _draw_port_finding_maps(
+        per_session, out_dir, current, previous, initiation_ports
+    )
+    stems = (LONG_POKES_STEM, AFTER_CHOICE_STEM, AFTER_INITIATION_STEM, *port_finding_stems)
     return {
         "long_pokes": {
             "by_session": means,
@@ -260,6 +331,7 @@ def run_poke_analysis(
             "across_mice": mean_se_n(list(problem_means.values())),
         },
         "counts": counts,
+        "port_finding_counts": port_finding_counts,
         "per_session": per_session,
         "cross_check": {
             mouse: {s: c.long_poke_check for s, c in by_session.items()}
