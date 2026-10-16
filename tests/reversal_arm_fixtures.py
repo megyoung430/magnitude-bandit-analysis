@@ -48,6 +48,7 @@ def stamp_windows(windows, *, pre, post):
                     "pre": list(range(100 - len(r["choices_by_tower"]["A"]["pre"]), 100)),
                     "post": list(range(100, 100 + len(r["choices_by_tower"]["A"]["post"]))),
                 },
+                "boundary_source": "blocks",
                 "window_pre": pre,
                 "window_post": post,
                 "pre_start": 100 - len(r["choices_by_tower"]["A"]["pre"]),

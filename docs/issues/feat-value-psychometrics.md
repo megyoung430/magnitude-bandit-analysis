@@ -14,6 +14,8 @@ psychometric curves (vs best value, second value, best - second) in two weightin
 with ties excluded and with ties split. Builds on `get_choice_probs_by_value` and
 `get_believed_value`.
 
+Drifting problems only: the drifting task has block changes, no good or bad reversals. The entry point raises a `ValueError` naming the mouse and session if it is given a counter-format session (good/bad reversal counters).
+
 ## Entry point
 
 ```python

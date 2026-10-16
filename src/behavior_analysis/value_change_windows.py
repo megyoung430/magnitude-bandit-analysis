@@ -10,8 +10,8 @@ the animal could have learned about them.
 The third arm
 -------------
 The task has three arms; the *third* arm is the one with the lowest magnitude (the unrewarded
-arm). It changes only at block changes, which the reversal analyses cover. So here the third
-arm is held fixed:
+arm). It changes only at block changes, which the block-change-aligned analyses cover. So here
+the third arm is held fixed:
 
 - An event whose third arm at t = 0 differs from the third arm at t = -1 is excluded and
   counted (``n_third_arm_changed``).
@@ -31,7 +31,7 @@ Window definition
   reported (``n_events_per_bin``), so thinning is visible.
 - Windows can span the recordings of one session (the task continues the same drifting values
   across a restart, so a value change at a restart is a real event) but never sessions.
-- Changes at a block boundary are reversals, not events.
+- Changes at a block boundary are block changes, not events.
 
 Filters
 -------

@@ -2,17 +2,17 @@
 
 Pipeline (all pure; no files, no plots):
 
-1. :func:`build_windows_with_magnitudes` windows each reversal with ``get_good_reversal_info``
-   (both windows stay inside the block of the reversal) and adds the reward magnitude of
+1. :func:`build_windows_with_magnitudes` windows each block change with ``get_good_reversal_info``
+   (both windows stay inside the block of the block change) and adds the reward magnitude of
    every arm over the same window.
-2. :func:`compute_reversal_aligned_arms` labels the arms of each reversal by the ranking
-   *before* the reversal (``"prev"``) or *after* it (``"new"``), keeps the reversals of one
-   type, and averages one-hot choices and magnitudes per arm label: over reversals within a
+2. :func:`compute_reversal_aligned_arms` labels the arms of each block change by the ranking
+   *before* the block change (``"prev"``) or *after* it (``"new"``), keeps the block changes of one
+   type, and averages one-hot choices and magnitudes per arm label: over block changes within a
    subject, then over subjects.
 
 Windows stay within one block: the pre window starts no earlier than the previous block
-change and the post window ends at the next one (good or bad), so every value of a row belongs
-to the block of its reversal or, before it, to the block it replaced.
+change and the post window ends at the next one, so every value of a row belongs to the block of
+its block change or, before it, to the block it replaced.
 
 Alignment: every row has ``pre + post - skip`` bins. Pre values are right-aligned so the last
 one sits at offset -1; post values start at offset 0
@@ -51,7 +51,7 @@ _SUM_TOLERANCE = 1e-6
 
 
 class EmptySelectionWarning(UserWarning):
-    """No reversal of the requested scheme and type is left, so there is nothing to average."""
+    """No block change of the requested scheme and type is left, so there is nothing to average."""
 
 
 class _Curves(NamedTuple):
@@ -64,17 +64,17 @@ class _Curves(NamedTuple):
 
 @dataclass(frozen=True)
 class ReversalAlignedArms:
-    """Aligned curves of one label scheme and reversal type.
+    """Aligned curves of one label scheme and block change type.
 
     Attributes:
         scheme (str): ``"prev"`` or ``"new"``: whether arms are labelled by their rank before
-            or after the reversal.
+            or after the block change.
         reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``.
         roles (tuple[str, str, str]): Curve names, best to third, e.g.
             ``("prev_best", "prev_second", "prev_third")``.
-        trial_offsets (np.ndarray): Trials from the reversal of each bin, shape ``(n_bins,)``
+        trial_offsets (np.ndarray): Trials from the block change of each bin, shape ``(n_bins,)``
             with ``n_bins = pre + post - skip``. With a skip ``k``, bins after the
-            reversal trial carry offsets ``k + 1`` upward.
+            block change trial carry offsets ``k + 1`` upward.
         choice_mean (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; the mean
             choice probability across subjects (after the moving average).
         choice_se (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; its standard
@@ -86,11 +86,11 @@ class ReversalAlignedArms:
         per_subject_choice (dict[str, dict[str, np.ndarray]]): ``{subject: {role: smoothed mean
             choice probability, shape (n_bins,)}}``.
         num_subjects (int): Subjects the curves average over.
-        num_reversals (int): Reversals the curves average over.
-        counts (SelectionCounts): What the selection kept and why it left reversals out.
-        pre (int): Trials before the reversal in each window.
-        post (int): Trials from the reversal in each window.
-        skip (int): Trials dropped after the reversal trial.
+        num_reversals (int): Block changes the curves average over.
+        counts (SelectionCounts): What the selection kept and why it left block changes out.
+        pre (int): Trials before the block change in each window.
+        post (int): Trials from the block change in each window.
+        skip (int): Trials dropped after the block change trial.
         moving_avg_window (int): Moving-average width used (1 for none).
         moving_avg_mode (str): ``"centered"`` or ``"trailing"``.
     """
@@ -137,7 +137,7 @@ def _check_matches_stored_magnitudes(subject: str, reward_by_tower: dict, revers
     """Raise unless the series gives the before/after magnitudes that the window recorded.
 
     The window and the series must come from the same merge (same sessions, same order);
-    comparing the two values stored with the reversal catches any other pairing.
+    comparing the two values stored with the block change catches any other pairing.
     """
     idx = reversal["reversal_idx"]
     for key, trial in (
@@ -149,7 +149,7 @@ def _check_matches_stored_magnitudes(subject: str, reward_by_tower: dict, revers
         if found != stored:
             raise ValueError(
                 f"{subject}: reward magnitudes at merged trial {trial} do not match the window "
-                f"of the reversal at {idx} ({key}: {stored} vs {found}); the windows and the "
+                f"of the block change at {idx} ({key}: {stored} vs {found}); the windows and the "
                 "sessions must come from the same data."
             )
 
@@ -166,26 +166,26 @@ def _magnitude_windows(reward_by_tower: dict, reversal: dict) -> dict[str, dict[
 
 
 def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict:
-    """Copy of the reversal windows with every arm's reward magnitude over each window.
+    """Copy of the block change windows with every arm's reward magnitude over each window.
 
     The magnitudes come from the same merge of sessions that ``get_good_reversal_info`` uses
     (``get_vars_across_all_sessions``: date-then-number session order, one entry per trial), so
-    they sit on the windows' trial axis. The magnitudes at the reversal trial and the trial
-    before it are checked against the ones stored in each reversal.
+    they sit on the windows' trial axis. The magnitudes at the block change trial and the trial
+    before it are checked against the ones stored in each block change.
 
     Args:
-        reversal_windows (dict): ``{subject: [reversal dict]}`` from ``get_good_reversal_info``.
+        reversal_windows (dict): ``{subject: [block change dict]}`` from ``get_good_reversal_info``.
         subjects_trials (dict): The ``{subject: {session: session dict}}`` the windows were made
             from.
 
     Returns:
-        dict: ``{subject: [reversal dict]}`` where each reversal dict has a new key
+        dict: ``{subject: [block change dict]}`` where each block change dict has a new key
         ``"magnitudes_by_tower"``: ``{tower: {"pre": [...], "post": [...]}}``, the same shape
         as ``"choices_by_tower"``. The input is not modified.
 
     Raises:
         ValueError: If a subject has no sessions, a series is shorter than the window, or the
-            magnitudes do not match those stored in the reversal.
+            magnitudes do not match those stored in the block change.
     """
     _check_subject_has_sessions(reversal_windows, subjects_trials)
     subjects = [s for s, revs in reversal_windows.items() if revs]
@@ -203,20 +203,20 @@ def add_magnitude_windows(reversal_windows: dict, subjects_trials: dict) -> dict
 
 
 def build_windows_with_magnitudes(subjects_trials: dict, *, pre: int, post: int) -> dict:
-    """Reversal windows of one problem, within one block, with magnitude windows.
+    """Block-change windows of one problem, within one block, with magnitude windows.
 
-    Both windows stay inside the block of the reversal (``stop_at_block_changes=True``: the
-    pre window starts at the previous block change, the post window ends at the next one,
-    good or bad), and the first block is not included.
+    Both windows stay inside the block of the block change (``stop_at_block_changes=True``: the
+    pre window starts at the previous block change, the post window ends at the next one),
+    and the first block is not included.
 
     Args:
         subjects_trials (dict): ``{subject: {session: session dict}}`` of one problem.
-        pre (int): Maximum trials before each reversal in the windows.
-        post (int): Maximum trials from each reversal in the windows.
+        pre (int): Maximum trials before each block change in the windows.
+        post (int): Maximum trials from each block change in the windows.
 
     Returns:
-        dict: ``{subject: [reversal dict]}`` as :func:`add_magnitude_windows` returns it, each
-        reversal also recording the ``"window_pre"`` and ``"window_post"`` it was built with
+        dict: ``{subject: [block change dict]}`` as :func:`add_magnitude_windows` returns it, each
+        block change also recording the ``"window_pre"`` and ``"window_post"`` it was built with
         (``"pre_start"`` and ``"post_end"``, the bounds, come from ``get_good_reversal_info``).
         :func:`check_windows_built_with` verifies all of these.
 
@@ -250,26 +250,26 @@ def _check_window_lengths(subject: str, r: dict, pre: int, post: int) -> None:
     ):
         if got != expected:
             raise ValueError(
-                f"{subject}: reversal at {idx} has a {name} window of {got} trials, expected "
+                f"{subject}: block change at {idx} has a {name} window of {got} trials, expected "
                 f"{expected} (the window stays inside its block and at most {pre}/{post} trials)"
             )
 
 
 def check_windows_built_with(windows: dict, *, pre: int, post: int) -> None:
-    """Raise unless every reversal was built with *pre*, *post* by the builder.
+    """Raise unless every block change was built with *pre*, *post* by the builder.
 
     Windows built with a smaller pre or post would be NaN-padded to the requested length and
     look like ordinary data. Each window must also have the length its recorded bounds allow:
-    ``min(pre, idx - pre_start)`` before the reversal and ``min(post, post_end - idx)`` from it.
+    ``min(pre, idx - pre_start)`` before the block change and ``min(post, post_end - idx)`` from it.
 
     Args:
-        windows (dict): ``{subject: [reversal dict]}`` from
+        windows (dict): ``{subject: [block change dict]}`` from
             :func:`build_windows_with_magnitudes`.
         pre (int): The ``pre`` the windows must have been built with.
         post (int): The ``post`` the windows must have been built with.
 
     Raises:
-        ValueError: Naming the first reversal that lacks the recorded settings or magnitude
+        ValueError: Naming the first block change that lacks the recorded settings or magnitude
             windows, was built with other settings, or has a window of the wrong length. The
             message points to :func:`build_windows_with_magnitudes`.
     """
@@ -278,12 +278,12 @@ def check_windows_built_with(windows: dict, *, pre: int, post: int) -> None:
             missing = [k for k in _WINDOW_KEYS if k not in r]
             if missing:
                 raise ValueError(
-                    f"{subject}: reversal at {r.get('reversal_idx')} lacks {missing}; build "
+                    f"{subject}: block change at {r.get('reversal_idx')} lacks {missing}; build "
                     "the windows with build_windows_with_magnitudes"
                 )
             if (r["window_pre"], r["window_post"]) != (pre, post):
                 raise ValueError(
-                    f"{subject}: reversal at {r['reversal_idx']} was windowed with (pre, post) "
+                    f"{subject}: block change at {r['reversal_idx']} was windowed with (pre, post) "
                     f"= {(r['window_pre'], r['window_post'])}, not ({pre}, {post}); rebuild it "
                     "with build_windows_with_magnitudes"
                 )
@@ -336,7 +336,7 @@ def _reversal_rows(reversal: dict, field: str, arms, *, pre: int, post: int, ski
 
 
 def _subject_means(reversals: list[dict], scheme: str, field: str, **window) -> np.ndarray:
-    """``(3, n_bins)`` mean over a subject's reversals of the rows of *field*."""
+    """``(3, n_bins)`` mean over a subject's block changes of the rows of *field*."""
     rows = [
         _reversal_rows(r, field, arm_labels(r, scheme), **window) for r in reversals
     ]  # (n_reversals, 3, n_bins)
@@ -408,30 +408,30 @@ def compute_reversal_aligned_arms(
     moving_avg_window: int = 4,
     moving_avg_mode: str = "centered",
 ) -> ReversalAlignedArms:
-    """Choice probability and reward magnitude of the three arms around reversals.
+    """Choice probability and reward magnitude of the three arms around block changes.
 
     Args:
-        reversal_windows (dict): ``{subject: [reversal dict]}`` from
+        reversal_windows (dict): ``{subject: [block change dict]}`` from
             :func:`build_windows_with_magnitudes` with the same *pre* and *post*. Pooling across
             problems is concatenation per subject (``merge_windows_by_subject``).
-        scheme (str): ``"prev"`` labels arms by their rank before the reversal, ``"new"`` by
+        scheme (str): ``"prev"`` labels arms by their rank before the block change, ``"new"`` by
             their rank after it.
         reversal_type (str): ``"all"``, ``"best_to_third"`` or ``"second_to_third"``; the type
-            is always defined by the prev ranking. Reversals with tied magnitudes are left out
+            is always defined by the prev ranking. Block changes with tied magnitudes are left out
             as :func:`~src.behavior_analysis.reversal_arm_ranks.select_reversals` describes.
             Default ``"all"``.
-        pre (int): Trials before the reversal in each window. Default 10.
-        post (int): Trials from the reversal in each window. Default 30.
+        pre (int): Trials before the block change in each window. Default 10.
+        post (int): Trials from the block change in each window. Default 30.
         skip_n_trials_after_reversal (int): Post trial 0 is kept and the next *k* trials
             dropped. Default 0.
         moving_avg_window (int): Width of the moving average of the per-subject choice
-            probabilities (1 for none), applied separately before and after the reversal.
+            probabilities (1 for none), applied separately before and after the block change.
             Magnitudes are not smoothed. Default 4.
         moving_avg_mode (str): ``"centered"`` or ``"trailing"``; the two give different curves,
             so compare figures only if they use the same mode. Default ``"centered"``.
 
     Returns:
-        ReversalAlignedArms: The aligned curves. With no reversal left, its curves are all NaN
+        ReversalAlignedArms: The aligned curves. With no block change left, its curves are all NaN
         and an :class:`EmptySelectionWarning` is emitted.
 
     Raises:
@@ -458,7 +458,8 @@ def compute_reversal_aligned_arms(
         magnitude = _magnitude_curves(selected, scheme, roles, **window)
     else:
         warnings.warn(
-            f"no reversal left for scheme {scheme!r}, reversal_type {reversal_type!r}: {counts}",
+            f"no block change left for scheme {scheme!r}, reversal_type {reversal_type!r}: "
+            f"{counts}",
             EmptySelectionWarning,
             stacklevel=2,
         )

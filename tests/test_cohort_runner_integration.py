@@ -243,8 +243,8 @@ def test_problems_are_numbered_within_the_task_type_and_stay_separate_in_the_poo
 
 def arm_data():
     return {
-        4: {"m": make_mouse(1, pick=0), "n": make_mouse(1, pick=1)},
-        5: {"m": make_mouse(1, pick=0, first_day=11)},
+        4: {"m": make_mouse(1, pick=0, counters=False), "n": make_mouse(1, pick=1, counters=False)},
+        5: {"m": make_mouse(1, pick=0, first_day=11, counters=False)},
     }
 
 

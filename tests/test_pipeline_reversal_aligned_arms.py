@@ -18,9 +18,14 @@ from src.behavior_analysis.reversal_aligned_arms import (
 )
 from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from tests.plot_capture import capture_figures
-from tests.plot_fixtures import make_mouse
+from tests.plot_fixtures import make_mouse as make_counter_mouse
 
 KWARGS = dict(pre=10, post=6)
+
+
+def make_mouse(*args, **kwargs):
+    """Blocks-only sessions, as the drifting task records them."""
+    return make_counter_mouse(*args, counters=False, **kwargs)
 
 
 @pytest.fixture

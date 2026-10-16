@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.behavior_analysis.reversal_format import check_blocks_only_sessions
 from src.behavior_analysis.value_change_windows import (
     ValueChangeConfig,
     ValueChangeCurves,
@@ -53,6 +54,7 @@ def _check_arguments(
 ) -> None:
     if not subjects_trials_by_problem:
         raise ValueError("no problems given: pass {problem: {subject: {session: ...}}}")
+    check_blocks_only_sessions(subjects_trials_by_problem, "run_value_change_analysis")
     if not modes or not all(isinstance(m, bool) for m in modes):
         raise ValueError(f"truncate_modes must be a non-empty tuple of bools, got {modes!r}")
     check_window(pre, post)
@@ -179,8 +181,9 @@ def run_value_change_analysis(
         ``bin_counts_csv`` (Paths) and ``files`` (every saved figure path).
 
     Raises:
-        ValueError: On empty input, bad ``pre``/``post``/``truncate_modes``, or any error
-            from ``get_value_change_windows``.
+        ValueError: On empty input, a counter-format session (the drifting task has only block
+            changes), bad ``pre``/``post``/``truncate_modes``, or any error from
+            ``get_value_change_windows``.
     """
     _check_arguments(subjects_trials_by_problem, pre, post, truncate_modes)
     out_dir = Path(out_dir)

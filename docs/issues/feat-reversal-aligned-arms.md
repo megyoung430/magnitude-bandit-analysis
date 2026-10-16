@@ -4,16 +4,18 @@ complexity: complex
 status: in review
 ---
 
-# Reversal-aligned arm choice probability with reward magnitudes (prev and new labels)
+# Block-change-aligned arm choice probability with reward magnitudes (prev and new labels)
 
 ## Description
 
 Choice probability of the three arms aligned to a block change, with the mean reward magnitude of the same three arms on a secondary axis. Two labelling schemes, each its own figure set:
 
-- `prev`: arms labelled by their rank before the reversal (best blue `#5DA5DA`, second green `#60BD68`, third grey `#7f7f7f`).
-- `new`: arms labelled by their rank after the reversal (best blue, second green, third black).
+- `prev`: arms labelled by their rank before the block change (best blue `#5DA5DA`, second green `#60BD68`, third grey `#7f7f7f`).
+- `new`: arms labelled by their rank after the block change (best blue, second green, third black).
 
-Each scheme for reversal types `all`, `best_to_third`, `second_to_third`. The type is defined by the prev ranking for both schemes (stated in titles and docs). Windows are computed per problem (`include_first_block=False`), then concatenated per subject for the pooled figures.
+Each scheme for block-change types `all`, `best_to_third`, `second_to_third`. The type is defined by the prev ranking for both schemes (stated in titles and docs). Windows are computed per problem (`include_first_block=False`), then concatenated per subject for the pooled figures.
+
+Drifting problems only: the drifting task has block changes, no good or bad reversals. The entry point raises a `ValueError` naming the mouse and session if it is given a counter-format session (good/bad reversal counters). Prebuilt windows must have `boundary_source == "blocks"`.
 
 ## Entry point
 
