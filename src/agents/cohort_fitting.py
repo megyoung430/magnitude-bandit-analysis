@@ -73,9 +73,30 @@ def _validated_session_arrays(data: dict, choices: list) -> tuple[list, np.ndarr
 def prepare_cohort_sequences(problems, problem_numbers=range(5, 12)):
     """Convert grouped extracted sessions to arrays; return a full session audit.
 
-    Reject a session with any invalid/missing choice or delivered reward rather
-    than silently joining trials across missing learning history. All choices,
-    including zero-reward choices, are retained in otherwise valid sessions.
+    Reject a session with any invalid/missing choice or delivered reward rather than silently
+    joining trials across missing learning history. All choices, including zero-reward choices, are
+    retained in otherwise valid sessions.
+
+    Args:
+        problems (dict): ``{problem: {mouse: {session: session_data}}}``. Each ``session_data`` dict
+            needs ``choice`` (list of chosen tower names, one per completed trial),
+            ``choices_by_tower`` (dict with exactly three tower names as keys), ``reward_pulses``
+            (one delivered-pulse count per choice) and ``choice_towers`` (per trial, the collection
+            of available towers, which must equal the three towers). A problem absent from the dict
+            is skipped.
+        problem_numbers (Iterable[int]): Problems to extract, in this order. Default ``range(5,
+            12)``.
+
+    Returns:
+        tuple[list[dict], pd.DataFrame]: ``(sequences, audit)``. ``sequences`` has one dict per
+            valid session, ordered by *problem_numbers*, then mouse name, then session order, with
+            keys ``mouse`` (str), ``problem`` (int), ``session``, ``towers`` (sorted list of three
+            tower names), ``actions`` (``(n_trials,)`` int array of indices into ``towers``) and
+            ``rewards`` (``(n_trials,)`` float array). ``audit`` has one row per session seen,
+            including rejected ones, with columns ``mouse``, ``problem``, ``session``, ``n_trials``,
+            ``included`` (bool), ``reason`` (rejection message, empty if included), ``reward_min``,
+            ``reward_max`` and ``towers`` (comma-joined; the last three are NaN for rejected
+            sessions).
     """
     sequences, audit = [], []
     for problem in problem_numbers:
@@ -116,7 +137,26 @@ def prepare_cohort_sequences(problems, problem_numbers=range(5, 12)):
 
 
 def sequence_log_probabilities(params, sequence, return_gradient=False):
-    """Pre-choice log probabilities, with Q updated only after observing reward."""
+    """Pre-choice log probabilities, with Q updated only after observing reward.
+
+    The model is Q-learning with softmax choice and a stickiness bonus on the previous arm. Q starts
+    at 0 and there is no previous choice at the session start.
+
+    Args:
+        params (array-like): Three floats ``(learning_rate, beta, alpha)`` in the order of
+            ``PARAMETER_NAMES``; ``alpha`` is the stickiness bonus.
+        sequence (dict): One session as built by ``prepare_cohort_sequences``. Uses ``actions``
+            (``(n_trials,)`` int array of chosen-tower indices into ``towers``), ``rewards``
+            (``(n_trials,)`` float array of delivered reward pulses) and ``towers`` (list of tower
+            names; its length is the number of arms).
+        return_gradient (bool): If True also return the gradient of the summed chosen-arm log
+            probability. Default False.
+
+    Returns:
+        np.ndarray | tuple[np.ndarray, np.ndarray]: ``log_probs``, a ``(n_trials, n_arms)`` array of
+            log probabilities over arms. With ``return_gradient`` a tuple ``(log_probs, gradient)``;
+            ``gradient`` is a ``(3,)`` array in ``PARAMETER_NAMES`` order.
+    """
     learning_rate, beta, alpha = params
     actions, rewards = sequence["actions"], sequence["rewards"]
     n, k = len(actions), len(sequence["towers"])
@@ -152,7 +192,20 @@ def sequence_log_probabilities(params, sequence, return_gradient=False):
 
 
 def multi_session_loss(params, sequences):
-    """Mean trial-weighted cross entropy and analytic gradient; reset per session."""
+    """Mean trial-weighted cross entropy and analytic gradient; reset per session.
+
+    Args:
+        params (array-like): Three floats ``(learning_rate, beta, alpha)``.
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``; each dict needs
+            ``actions``, ``rewards`` and ``towers``.
+
+    Returns:
+        tuple[float, np.ndarray]: ``(loss, gradient)``: the mean negative log likelihood per trial
+            over all sessions, and its ``(3,)`` gradient with respect to ``params``.
+
+    Raises:
+        ValueError: If the sessions contain no trials.
+    """
     total_loss, total_trials = 0.0, 0
     gradient = np.zeros(3)
     for sequence in sequences:
@@ -167,6 +220,27 @@ def multi_session_loss(params, sequences):
 
 
 def fit_mouse_sessions(sequences, bounds=DEFAULT_BOUNDS, n_starts=10, seed=0):
+    """Fit the sticky Q-learning model to a mouse's sessions by multi-start L-BFGS-B.
+
+    Starting points are drawn uniformly inside ``bounds`` (seeded).
+
+    Args:
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``; each dict needs
+            ``actions``, ``rewards`` and ``towers``.
+        bounds (list[tuple[float, float]]): Three ``(low, high)`` pairs in ``PARAMETER_NAMES``
+            order. Default ``DEFAULT_BOUNDS``.
+        n_starts (int): Number of random starts. Default 10.
+        seed (int): Seed of the random generator that draws the starts. Default 0.
+
+    Returns:
+        tuple[dict | None, list[dict]]: ``(best, starts)``. ``starts`` has one dict per start with
+            keys ``start`` (int), ``success`` (bool), ``loss`` (float, or None if not finite),
+            ``parameters`` (list of three floats) and ``message`` (str). ``best`` is the successful
+            start with the lowest loss, or None if no start succeeded.
+
+    Raises:
+        ValueError: If ``n_starts`` < 1.
+    """
     if n_starts < 1:
         raise ValueError("n_starts must be positive.")
     rng = np.random.default_rng(seed)
@@ -512,11 +586,48 @@ def run_problem_cross_validation(
     source_metadata=None,
     model="sticky_rl",
 ):
-    """Seven whole-problem folds per eligible mouse, with resumable saved fits.
+    """One whole-problem fold per requested problem (seven by default) for each eligible mouse, with
+    resumable saved fits.
 
-    Only mice with usable trials in every requested problem are eligible.
-    Training is trial-weighted within each mouse. Validation updates Q from
-    past held-out observations, but never changes the fitted parameters.
+    Only mice with usable trials in every requested problem are eligible. Training is trial-weighted
+    within each mouse. Validation updates Q from past held-out observations, but never changes the
+    fitted parameters. Each fold is saved under ``<output_root>/<identity hash>/``; rerunning with
+    the same inputs reloads finished folds instead of refitting them. Progress is printed for each
+    newly fitted fold.
+
+    Args:
+        sequences (list[dict]): Sessions as built by ``prepare_cohort_sequences``. Sessions from
+            problems outside *problem_numbers* are ignored.
+        output_root (str | Path): Directory that holds one subdirectory per run identity (created if
+            missing).
+        problem_numbers (Iterable[int]): Problems to cross-validate over; each is held out once.
+            Duplicates are dropped and the list is sorted. Default ``range(5, 12)``.
+        bounds (list[tuple]): ``(low, high)`` pairs in the model's parameter order: three for
+            ``"sticky_rl"``, six for ``"best_rl"``, five for ``"released_rl"``. Default
+            ``DEFAULT_BOUNDS`` (the sticky model's).
+        n_starts (int): Random optimiser starts per fold. Default 10.
+        seed (int): Base seed; each fold derives its own from it and the fold name. Default 42.
+        source_metadata (object | None): JSON-compatible description of where the data came from,
+            recorded in the run identity. Default None.
+        model (str): ``"sticky_rl"``, ``"best_rl"`` or ``"released_rl"``. Default ``"sticky_rl"``.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Path]: ``(results, sessions, eligibility,
+            output)``. ``results`` has one row per mouse and held-out problem with columns
+            ``mouse``, ``held_out_problem``, ``training_problems``, ``n_train_trials``,
+            ``n_test_trials``, ``n_train_sessions``, ``n_test_sessions``, ``success``,
+            ``converged_starts``, ``train_cross_entropy``, ``test_cross_entropy``,
+            ``uniform_cross_entropy``, ``improvement_over_uniform``, and per parameter its fitted
+            value and an ``at_bound_<name>`` flag (parameter columns are None when no start
+            converged). ``sessions`` has one row per held-out session with columns ``mouse``,
+            ``held_out_problem``, ``session``, ``n_trials`` and ``cross_entropy``. ``eligibility``
+            has one row per mouse with columns ``mouse``, ``eligible`` (bool) and
+            ``missing_problems`` (comma-joined). ``output`` is the run directory, which also holds
+            per-fold JSON, per-trial prediction CSVs and the three tables as CSV.
+
+    Raises:
+        ValueError: If fewer than two distinct problems are requested, ``model`` is unknown, or the
+            number of ``bounds`` does not match the model.
     """
     spec = _model_spec(model, bounds)
     problem_numbers = sorted(set(problem_numbers))
