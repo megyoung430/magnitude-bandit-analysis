@@ -24,6 +24,9 @@ B1_BEST = {"B1": 4, "B3": 1, "C2": 0}
 B3_BEST = {"B1": 0, "B3": 4, "C2": 1}  # a good reversal from B1_BEST: the best tower changes
 SECOND_SWAPPED = {"B1": 4, "B3": 0, "C2": 1}  # best unchanged: only the two lower arms swap
 
+# What a recording logs in ``run_start`` while it is still finding the ports.
+PORT_FINDING_MAGS = {"B1": 2, "B3": 2, "C2": 2}
+
 COUNTERS = ("blocks", "good", "bad")
 _NAMES = {
     "blocks": ("num_blocks", "tot_num_blocks"),
@@ -32,16 +35,19 @@ _NAMES = {
 }
 
 
-def snapshot(mags, *, problem=5, **counters):
+def snapshot(mags, *, problem=5, found_ports=None, **counters):
     """A ``run_start``/``run_end`` payload.
 
     Args:
         mags (dict | None): ``curr_rew_mag``; ``None`` leaves it out.
         problem (int): ``num_problem``.
+        found_ports (bool | None): ``found_ports``; ``None`` leaves it out.
         **counters: Per-recording and session-total counters, e.g. ``blocks=1, tot_blocks=2``
             or ``good=0, tot_good=3``; a counter that is not given is not logged.
     """
     content = {"num_problem": problem}
+    if found_ports is not None:
+        content["found_ports"] = found_ports
     if mags is not None:
         content["curr_rew_mag"] = mags
     for kind, (per_run, total) in _NAMES.items():
@@ -66,6 +72,16 @@ def trial_print(n, mags, *, choice="B1", **counters):
         if kind in counters:
             content[per_run] = counters[kind]
     return content
+
+
+def port_finding_start(**counters):
+    """The ``run_start`` of a recording that begins by finding the ports."""
+    return snapshot(PORT_FINDING_MAGS, found_ports=False, **counters)
+
+
+def port_finding_prints(n):
+    """*n* port-finding prints: ``num_t_found`` and no ``num_t``."""
+    return [{"num_t_found": i + 1, "found_ports": False} for i in range(n)]
 
 
 def recording(start, trials, end=None, *, start_time=0.0):

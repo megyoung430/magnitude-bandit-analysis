@@ -265,6 +265,10 @@ def is_pretraining(task_name):
     )
 
 
+class UnrecognisedTaskName(ValueError):
+    """A task name that matches neither task type (a pretraining task, for example)."""
+
+
 def classify_task_name(task_name):
     """``"blocked"`` or ``"drifting"`` for a pyControl task name.
 
@@ -278,7 +282,8 @@ def classify_task_name(task_name):
         str: ``"blocked"`` or ``"drifting"``.
 
     Raises:
-        ValueError: If the name is missing, matches neither type, or matches both.
+        ValueError: If the name is missing, matches neither type (:class:`UnrecognisedTaskName`),
+            or matches both.
     """
     if not task_name:
         raise ValueError(
@@ -294,7 +299,7 @@ def classify_task_name(task_name):
         return BLOCKED
     if is_drifting:
         return DRIFTING
-    raise ValueError(
+    raise UnrecognisedTaskName(
         f"unrecognised task name {task_name!r}: expected a name containing "
         f"{' / '.join(BLOCKED_NAME_PARTS)} (blocked) or "
         f"{' / '.join(DRIFTING_NAME_PARTS)} (drifting)"

@@ -112,6 +112,31 @@ def event_matches(kind, before, after, mode):
     raise ValueError(f"unknown event kind {kind!r}; expected 'good', 'bad' or 'block'")
 
 
+def events_match(kind, count, before, after, mode):
+    """Whether the magnitudes show *count* events of *kind* logged at one boundary.
+
+    A single event must show (:func:`event_matches`). Two or more can take the zero arm (or the
+    best tower) away and bring it back, so the two sides of the boundary look unchanged although
+    every event happened; the counter delta says how many there were, and the net result cannot
+    argue against them. Such a group counts as shown.
+
+    Args:
+        kind (str): ``"good"``, ``"bad"`` or ``"block"`` (see :func:`event_matches`).
+        count (int): How many events of *kind* the counters log at the boundary.
+        before (dict | None): ``{tower: magnitude}`` on the last trial before the events.
+        after (dict | None): ``{tower: magnitude}`` on the first trial after them.
+        mode (str | None): ``"drifting"``, ``"blocked"`` or ``None`` if the task is unknown.
+
+    Returns:
+        bool | None: ``None`` if it cannot be told.
+
+    Raises:
+        ValueError: If *kind* is unknown (see :func:`event_matches`).
+    """
+    shown = event_matches(kind, before, after, mode)
+    return True if shown is False and count >= 2 else shown
+
+
 def _delta(before, after):
     """``{kind: after - before}``, ``None`` where either side is not logged."""
     return {

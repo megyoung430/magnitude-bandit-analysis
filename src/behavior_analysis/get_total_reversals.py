@@ -4,7 +4,10 @@ Provides helpers to count total good/bad reversals across sessions per subject,
 retrieve all reversal indices, and identify trials where cumulative reversal
 counters increment.
 """
-from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.get_variables_across_sessions import (
+    count_block_changes,
+    get_vars_across_all_sessions,
+)
 from src.behavior_analysis.reversal_format import check_formats_agree
 from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
 from src.behavior_import.session_order import ordered_session_keys
@@ -15,8 +18,10 @@ def get_total_reversals(subject_sessions):
 
     If any session has ``has_good`` or ``has_bad`` set to ``True``, reads the
     reconciled session totals (including terminal and incoming boundary events),
-    falling back to the final trial counter for legacy extracted data.  Otherwise falls back to summing
-    ``max(blocks) - 1`` across sessions.
+    falling back to the final trial counter for legacy extracted data.  Otherwise counts the block
+    changes the way the merged ``blocks`` show them
+    (:func:`~src.behavior_analysis.get_variables_across_sessions.count_block_changes`): the changes
+    inside each session and the ones logged after its last trial.
 
     Args:
         subject_sessions (dict): ``{session_key: session_dict}`` for a single subject.
@@ -59,18 +64,9 @@ def get_total_reversals(subject_sessions):
             "uncheckable_good_reversals": sum(c["uncheckable"] for c in suspects),
         }
 
-    total = 0
-    for sess in subject_sessions.values():
-        blocks = sess.get("blocks", [])
-        if blocks:
-            try:
-                total += int(max(b for b in blocks if b is not None)) - 1
-            except ValueError:
-                pass
-            except TypeError:
-                pass
-
+    total = sum(count_block_changes(sess) for sess in subject_sessions.values())
     return {"total_reversals": total}
+
 
 def get_all_reversal_indices(subjects_trials):
     """Return per-subject lists of good and bad reversal trial indices.

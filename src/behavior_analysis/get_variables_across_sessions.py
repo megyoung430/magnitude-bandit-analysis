@@ -4,6 +4,33 @@ from src.behavior_import.reconcile_reversals import uncarried_counts
 from src.behavior_import.session_order import ordered_session_keys
 
 
+def count_block_changes(sess):
+    """Block changes of one session as the merged ``blocks`` count them.
+
+    These are the changes inside the session (its last block number minus 1; the block numbers
+    of a session start at 1) and the ones logged after its last trial, which start a block at
+    the next session's first trial unless that trial does not show them
+    (``session_check`` ``"inconsistent"``, see
+    :func:`~src.behavior_import.reconcile_reversals.uncarried_counts`). A change after the very
+    last trial counts although no trial follows it.
+
+    Args:
+        sess (dict): A session dict with ``blocks`` and optionally ``reversal_boundary_events``.
+
+    Returns:
+        int: The block changes inside the session plus the ones that leave it.
+    """
+    blocks = [b for b in sess.get("blocks", []) if b is not None]
+    inside = int(max(blocks)) - 1 if blocks else 0
+    n_trials = len(sess.get("trial", []))
+    leaving = sum(
+        e["count"]
+        for e in sess.get("reversal_boundary_events", [])
+        if e["index"] == n_trials and e.get("session_check") != "inconsistent"
+    )
+    return inside + leaving
+
+
 def get_vars_across_all_sessions(data):
     """Merge aligned trials, carrying terminal reversals into the next session.
 
@@ -79,16 +106,8 @@ def get_vars_across_all_sessions(data):
         # no trial in their own session (within-session additions are extracted).
         block_values, offset = [], 0
         for sess in sessions:
-            blocks = sess.get("blocks", [])
-            block_values.extend(b + offset for b in blocks)
-            if blocks:
-                offset = block_values[-1] - 1
-            n = len(sess.get("trial", []))
-            offset += sum(
-                e["count"]
-                for e in sess.get("reversal_boundary_events", [])
-                if e["index"] == n and e.get("session_check") != "inconsistent"
-            )
+            block_values.extend(b + offset for b in sess.get("blocks", []))
+            offset += count_block_changes(sess)
         result["blocks"] = block_values
         result["trials_in_block"] = compute_merged_num_trials_in_block(block_values)
         merged[subject], unmerged[subject] = result, parts
