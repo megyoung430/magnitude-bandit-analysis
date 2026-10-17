@@ -815,7 +815,9 @@ def aggregate_windows(
     With ``weighting="subject"`` each subject's events are pooled into one probability per t,
     and ``mean``/``se`` are taken across subjects, so every subject counts once. With
     ``weighting="event"`` every event counts once: ``mean`` is the share over all events with
-    a trial at t, whichever subject they come from, and ``se`` is across those events.
+    a trial at t, whichever subject they come from, and ``se`` is across those events. That SE
+    treats events as independent; events of one subject are not, so it is too narrow for
+    inference and is meant for comparing the shape of the curves.
 
     Args:
         events_by_subject (dict): ``{subject: [ValueChangeEvent]}``.
@@ -879,14 +881,16 @@ class ValueChangeCurves(NamedTuple):
             events according to *weighting*.
         se (dict[str, np.ndarray]): ``{label: standard error per t}``, across the same units;
             NaN where fewer than two of them have data.
-        weighting (str): ``"subject"`` (every mouse counts once) or ``"event"`` (every event
-            counts once).
+
         num_subjects (int): Subjects with at least one event.
         num_events (int): Events averaged.
         num_truncated (int): Events whose post labels were truncated.
         n_events_per_bin (np.ndarray): Events with a trial at each t, shape ``(pre + post + 1,)``.
         n_subjects_per_bin (np.ndarray): Subjects with a trial at each t, same shape.
         counts (dict[str, int]): Accounting counts, as in :class:`ValueChangeWindows`.
+        weighting (str): ``"subject"`` (every mouse counts once) or ``"event"`` (every event
+            counts once; the SE then treats events as independent, so it understates the
+            uncertainty).
     """
 
     config: ValueChangeConfig
@@ -898,13 +902,13 @@ class ValueChangeCurves(NamedTuple):
     per_subject_mean: dict[str, dict[str, np.ndarray]]
     mean: dict[str, np.ndarray]
     se: dict[str, np.ndarray]
-    weighting: str
     num_subjects: int
     num_events: int
     num_truncated: int
     n_events_per_bin: np.ndarray
     n_subjects_per_bin: np.ndarray
     counts: dict[str, int]
+    weighting: str = "subject"
 
 
 def summarize_windows(
