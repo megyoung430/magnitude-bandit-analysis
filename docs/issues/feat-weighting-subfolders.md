@@ -23,7 +23,8 @@ Every averaged figure of two analyses comes in two versions, each in its own sub
   - `"subject"`: block changes averaged into a subject curve (choice probabilities smoothed by the
     moving average), then mean and SE across the subject curves.
   - `"event"`: the mean is the moving average of the mean of all block changes' one-hot rows; the SE
-    is across the block changes' rows after the same moving average. Magnitudes are not smoothed;
+    is across the block changes' rows after the same moving average, with each row set back to NaN
+    where that block change had no raw trial (so n counts only block changes with a trial in the bin). Magnitudes are not smoothed;
     their mean and SE are across block changes. The probabilities-sum-to-1 check applies to the
     mean before and after smoothing.
   - `run_reversal_aligned_arm_analysis` computes both. Figures go to `<folder>/mouse-weighted/` and

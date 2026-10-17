@@ -433,14 +433,17 @@ def _event_choice_curves(selected, scheme, roles, offsets, *, smooth, **window) 
     """Mean and SE across block changes of the choice probabilities.
 
     The mean is the smoothed average of all block changes' one-hot rows; the SE is across the
-    block changes' rows after the same smoothing. The subject path also smooths before it
+    block changes' rows after the same smoothing, with each row set back to NaN where that block
+    change has no raw trial (smoothing fills such bins from their neighbours, which would
+    inflate the SE's n and pull its band off the line). The subject path also smooths before it
     takes the SE, so both SEs are of smoothed rows.
     """
     rows = _event_rows(selected, scheme, "choices_by_tower", **window)  # (n_events, 3, n_bins)
     raw = _nan_mean(rows)
     _check_sum_to_one(dict(zip(roles, raw, strict=True)), "mean across block changes")
     mean = _smooth_rows(raw, offsets, smooth)
-    se = nan_standard_error(_smooth_rows(rows, offsets, smooth))
+    smoothed_rows = np.where(np.isnan(rows), np.nan, _smooth_rows(rows, offsets, smooth))
+    se = nan_standard_error(smoothed_rows)
     per_subject = _per_subject_choice(selected, scheme, roles, offsets, smooth=smooth, **window)
     curves = _Curves(
         dict(zip(roles, mean, strict=True)), dict(zip(roles, se, strict=True)), per_subject

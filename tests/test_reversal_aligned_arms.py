@@ -235,6 +235,37 @@ def test_event_weighted_smoothing_is_applied_to_the_mean_and_to_each_block_chang
     np.testing.assert_allclose(result.choice_se["prev_best"], expected_se)
 
 
+def test_event_se_ignores_bins_where_a_block_change_has_no_trial():
+    # The second block change has only two pre trials, so offsets -4 and -3 are empty for it.
+    # Smoothing fills those bins from their neighbours; the SE must not count them.
+    windows = {
+        "m": [
+            make_reversal(["A"] * 4, ["C"] * 3),
+            make_reversal(["B", "B"], ["C"] * 3),
+        ]
+    }
+    result = curves(windows, weighting="event", moving_avg_window=4)
+    se = result.choice_se["prev_best"]
+    assert np.isnan(se[:2]).all()  # one block change has data at -4 and -3
+    assert np.isfinite(se[2:]).all()  # both do at -2 onward
+    # the line is still the smoothed mean of the raw rows, so one mouse matches subject weighting
+    by_mouse = curves(windows, moving_avg_window=4)
+    np.testing.assert_allclose(result.choice_mean["prev_best"], by_mouse.choice_mean["prev_best"])
+    low, high = result.choice_mean["prev_best"] - se, result.choice_mean["prev_best"] + se
+    assert np.isnan(low[:2]).all() and np.isnan(high[:2]).all()
+
+
+def test_event_se_counts_only_block_changes_with_a_trial_in_the_bin_after_smoothing():
+    windows = {
+        "m1": [make_reversal(["A"] * 4, ["C"] * 3)],
+        "m2": [make_reversal(["A", "B"], ["C"] * 3), make_reversal([], ["C"] * 3)],
+    }
+    result = curves(windows, weighting="event", moving_avg_window=4)
+    se = result.choice_se["prev_best"]
+    assert np.isnan(se[:2]).all()  # only m1 has trials at -4, -3
+    assert np.isfinite(se[2:]).all()
+
+
 def test_event_weighting_with_one_block_change_has_nan_se():
     result = curves({"m": [make_reversal(["A"] * 4, ["C"] * 3)]}, weighting="event")
     for role in result.roles:
