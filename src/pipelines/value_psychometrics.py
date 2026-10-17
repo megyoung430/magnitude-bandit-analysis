@@ -52,7 +52,7 @@ def _write_condition(
         plot_per_mouse_heatmaps(tables, label, tie_mode, out_dir / f"Heatmaps {stem} Per Mouse")
     curves_by_mode = {}
     for pool_trials in pooling_modes:
-        curves = psychometric_curves(counts, pool_trials=pool_trials)
+        curves = psychometric_curves(counts, pool_trials=pool_trials, tie_mode=tie_mode)
         name = f"Psychometric Curves {stem} (Pool Trials {pool_trials})"
         plot_psychometric_curves(curves, label, pool_trials, tables.ties, tie_mode, out_dir / name)
         curves_by_mode[pool_trials] = curves

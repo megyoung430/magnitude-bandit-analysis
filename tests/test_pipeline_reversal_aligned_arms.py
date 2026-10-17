@@ -1,6 +1,7 @@
 """Tests for the reversal-aligned arm entry point on synthetic sessions."""
 
 import copy
+from pathlib import Path
 
 import matplotlib
 
@@ -91,8 +92,7 @@ def test_build_windows_with_magnitudes_matches_the_two_steps():
 
 def test_one_problem_gives_pooled_figures_for_every_scheme_and_non_empty_type(tmp_path, real_files):
     result = run(one_problem(), tmp_path)
-    names = sorted(p.name for p in tmp_path.iterdir())
-    expected = [
+    expected = sorted(
         f"{stem(scheme, kind)}.{ext}"
         for scheme, kind in (
             ("prev", "all"),
@@ -101,26 +101,51 @@ def test_one_problem_gives_pooled_figures_for_every_scheme_and_non_empty_type(tm
             ("new", "third_to_best"),
         )
         for ext in ("pdf", "png")
-    ]
-    assert names == sorted(expected)
+    )
+    # the two weightings each have a subfolder with every figure; nothing is at the top level
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["event-weighted", "mouse-weighted"]
+    for folder in ("mouse-weighted", "event-weighted"):
+        assert sorted(p.name for p in (tmp_path / folder).iterdir()) == expected
     assert list(result["results"]) == ["pooled"]
     assert set(result["results"]["pooled"]) == {"prev", "new"}
     assert set(result["results"]["pooled"]["prev"]) == {"all", "best_to_third", "second_to_third"}
     assert set(result["results"]["pooled"]["new"]) == {"all", "third_to_best", "third_to_second"}
-    assert len(result["figure_paths"]) == 8
+    assert len(result["figure_paths"]) == 16
+    assert {p.parent.name for p in result["figure_paths"]} == {"mouse-weighted", "event-weighted"}
+    assert all(p.exists() for p in result["figure_paths"])
 
 
 def test_the_counts_table_is_returned_not_saved_and_says_what_was_empty(tmp_path):
     result = run(one_problem(), tmp_path)
     counts = result["counts"]
-    assert not list(tmp_path.glob("*.csv"))
-    assert len(counts) == 6
+    assert not list(tmp_path.rglob("*.csv"))
+    assert len(counts) == 12
+    assert counts["weighting"].value_counts().to_dict() == {"subject": 6, "event": 6}
+    assert not counts.duplicated(["scope", "label_scheme", "reversal_type", "weighting"]).any()
     row = counts.query("label_scheme == 'prev' and reversal_type == 'best_to_third'").iloc[0]
     assert row["n_reversals"] == 0 and row["n_candidates"] == 2 and row["n_wrong_type"] == 2
     assert pd.isna(row["figure"]) or row["figure"] == ""
     row = counts.query("label_scheme == 'new' and reversal_type == 'all'").iloc[0]
     assert row["n_reversals"] == 2 and row["n_subjects"] == 1
     assert row["figure"] == f"{stem('new', 'all')}.png"
+
+
+def test_event_weighted_results_are_returned_beside_the_mouse_weighted_ones(tmp_path):
+    result = run(two_problems(), tmp_path)
+    assert list(result["event_results"]) == list(result["results"])
+    mouse = result["results"]["pooled"]["prev"]["all"]
+    event = result["event_results"]["pooled"]["prev"]["all"]
+    assert (mouse.weighting, event.weighting) == ("subject", "event")
+    # m has two block changes in problem 4 and 5 pooled, n one: the weightings disagree
+    assert mouse.num_reversals == event.num_reversals
+    assert not np.allclose(mouse.magnitude_mean["prev_best"], event.magnitude_mean["prev_best"])
+
+
+def test_each_figure_title_names_its_weighting(tmp_path, capture):
+    run(one_problem(), tmp_path)
+    titles = {Path(s.path).parent.name: s.figure.axes[0].get_title() for s in capture.saved}
+    assert "across mice" in titles["mouse-weighted"]
+    assert "across block changes, each weighted equally" in titles["event-weighted"]
 
 
 def test_several_problems_add_per_problem_figures_and_pool_per_subject(tmp_path, capture):
@@ -176,7 +201,9 @@ def test_a_subset_of_schemes_and_types(tmp_path, real_files):
     )
     assert list(result["results"]["pooled"]) == ["new"]
     assert list(result["results"]["pooled"]["new"]) == ["all"]
-    assert sorted(p.name for p in tmp_path.glob("*.png")) == [f"{stem('new', 'all')}.png"]
+    assert not list(tmp_path.glob("*.png"))
+    for folder in ("mouse-weighted", "event-weighted"):
+        assert [p.name for p in (tmp_path / folder).glob("*.png")] == [f"{stem('new', 'all')}.png"]
 
 
 def test_a_type_is_made_only_for_the_schemes_that_have_it(tmp_path):
@@ -195,7 +222,7 @@ def test_a_type_is_made_only_for_the_schemes_that_have_it(tmp_path):
 def test_no_out_dir_shows_the_figures_and_writes_nothing(monkeypatch, tmp_path, capture, out_dir):
     monkeypatch.chdir(tmp_path)
     result = run(one_problem(), out_dir)
-    assert len(capture.shown) == 4 and capture.saved == []
+    assert len(capture.shown) == 8 and capture.saved == []
     assert list(tmp_path.iterdir()) == []
     assert result["figure_paths"] == []
 

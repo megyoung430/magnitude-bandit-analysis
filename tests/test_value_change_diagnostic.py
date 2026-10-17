@@ -26,6 +26,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 from matplotlib.collections import PolyCollection  # noqa: E402
 
@@ -34,7 +35,10 @@ from src.behavior_analysis.value_change_diagnostic import (  # noqa: E402
     diagnose_session,
     nearest_event_labels,
 )
-from src.behavior_analysis.value_change_windows import get_value_change_windows  # noqa: E402
+from src.behavior_analysis.value_change_windows import (  # noqa: E402
+    get_value_change_windows,
+    summarize_windows,
+)
 from src.behavior_import.load_trials import ImportedTrials  # noqa: E402
 from src.behavior_visualization.plot_value_change_diagnostic import (  # noqa: E402
     POST_COLOR,
@@ -299,6 +303,8 @@ def test_tree_has_one_png_per_drifting_session_and_an_index(written_tree):
     found = sorted(str(p.relative_to(written_tree)) for p in written_tree.rglob("*") if p.is_file())
     assert found == [
         "index.txt",
+        "mouse_curves_all-drifting-problems.csv",
+        "mouse_curves_problem-01.csv",
         "problem-01/m1/ses-1_date-20260101.png",
         "problem-01/m1/ses-2_date-20260102.png",
         "problem-01/m2/ses-1_date-20260101.png",
@@ -357,3 +363,110 @@ def test_script_requires_cohorts():
 def test_index_entry_uses_the_singular_for_one_event(event_session):
     one = diagnose_session("m", KEY, event_session)[:1]
     assert pipeline.index_entry(KEY, one) == "ses-1_date-20260101: 1 event, t=0 at trial 20"
+
+
+# ---------------------------------------------------------------- the per-mouse curves CSV
+
+
+def read_curves(path):
+    return pd.read_csv(path, keep_default_na=True)
+
+
+def test_each_scope_gets_a_csv_with_both_truncation_modes(written_tree):
+    table = read_curves(written_tree / "mouse_curves_problem-01.csv")
+    assert set(table["scope"]) == {"problem-01"}
+    assert set(table["config"]) == {"best/decrease/rank_swap"}
+    assert list(table["mode"].unique()) == ["untruncated", "truncated_at_rank_swap"]
+    assert list(table.columns[:6]) == ["scope", "config", "mode", "mouse", "n_events", "label"]
+    assert list(table.columns[6:]) == [f"t{t:+d}" for t in range(-5, 16)]
+
+
+def test_csv_lists_only_mice_with_events_and_their_total_events(written_tree):
+    table = read_curves(written_tree / "mouse_curves_problem-01.csv")
+    assert list(table["mouse"].unique()) == ["m1", "mean_across_mice"]
+    assert set(table.loc[table["mouse"] == "m1", "n_events"]) == {3}
+
+
+def test_csv_mean_row_equals_the_figure_curve_of_the_scope(written_tree):
+    table = read_curves(written_tree / "mouse_curves_problem-01.csv")
+    windows = get_value_change_windows(
+        {"m1": {KEY: make_session(EVENT_SCRIPT, EVENT_CHOICES)}},
+        "best", "decrease", "rank_swap", pre=5, post=15, truncate_at_rank_swap=True,
+    )  # fmt: skip
+    curves = summarize_windows(windows)
+    mean = table[
+        (table["mode"] == "truncated_at_rank_swap") & (table["mouse"] == "mean_across_mice")
+    ]
+    for label in curves.labels:
+        got = mean.loc[mean["label"] == label].iloc[0, 6:].to_numpy(dtype=float)
+        np.testing.assert_allclose(got, curves.mean[label], equal_nan=True)
+
+
+def test_one_mouse_mean_row_equals_that_mouses_row(written_tree):
+    table = read_curves(written_tree / "mouse_curves_all-drifting-problems.csv")
+    t_columns = [c for c in table.columns if c.startswith("t")]
+    sub = table[table["mode"] == "untruncated"].set_index(["mouse", "label"])[t_columns]
+    for label in ("prev_best", "prev_second", "third", "n_events_at_t"):
+        pd.testing.assert_series_equal(
+            sub.loc[("m1", label)], sub.loc[("mean_across_mice", label)], check_names=False
+        )
+
+
+def test_pooled_scope_adds_a_mouses_events_across_problems(tmp_path):
+    session = make_session(EVENT_SCRIPT, EVENT_CHOICES)
+    drifting = {1: {"m": {KEY: session}}, 2: {"m": {"ses-2_date-20260102": session}}}
+    pipeline.write_mouse_curves(drifting, tmp_path)
+    pooled = read_curves(tmp_path / "mouse_curves_all-drifting-problems.csv")
+    assert set(pooled.loc[pooled["mouse"] == "m", "n_events"]) == {6}
+    single = read_curves(tmp_path / "mouse_curves_problem-02.csv")
+    assert set(single.loc[single["mouse"] == "m", "n_events"]) == {3}
+
+
+def test_n_events_at_t_in_the_csv_counts_the_events_with_a_trial(written_tree):
+    table = read_curves(written_tree / "mouse_curves_problem-01.csv")
+    row = table[
+        (table["mode"] == "truncated_at_rank_swap")
+        & (table["mouse"] == "m1")
+        & (table["label"] == "n_events_at_t")
+    ].iloc[0]
+    # Truncated at the swap, the three windows reach t+1, t+7 and t+5 (see the event script).
+    assert row["t-1"] == 3 and row["t+1"] == 3 and row["t+2"] == 2 and row["t+6"] == 1
+    assert row["t+8"] == 0
+
+
+def test_index_lists_the_csvs(written_tree):
+    text = (written_tree / "index.txt").read_text()
+    assert "mouse_curves_problem-01.csv" in text
+    assert "mouse_curves_all-drifting-problems.csv" in text
+
+
+def test_csv_mean_rows_equal_the_figure_pipeline_curves_for_both_modes(tmp_path):
+    from src.pipelines.value_change_analysis import run_value_change_analysis
+
+    session = make_session(EVENT_SCRIPT, EVENT_CHOICES)
+    other = make_session(EVENT_SCRIPT[:-4], EVENT_CHOICES[:-4])
+    drifting = {
+        1: {"m": {KEY: session}, "n": {KEY: other}},
+        2: {"m": {"ses-2_date-20260102": session}},
+    }
+    pipeline.write_mouse_curves(drifting, tmp_path)
+    table = read_curves(tmp_path / "mouse_curves_all-drifting-problems.csv")
+    figures = run_value_change_analysis(drifting, tmp_path / "vc")["summaries"]
+    summaries = figures["best/decrease/rank_swap"]
+    t_columns = [c for c in table.columns if c.startswith("t")]
+    for mode in ("untruncated", "truncated_at_rank_swap"):
+        mean = table[(table["mode"] == mode) & (table["mouse"] == "mean_across_mice")]
+        mean = mean.set_index("label")[t_columns]
+        for label, curve in summaries[mode]["mean"].items():
+            np.testing.assert_allclose(mean.loc[label].to_numpy(float), curve, equal_nan=True)
+        np.testing.assert_array_equal(
+            mean.loc["n_events_at_t"].to_numpy(float), summaries[mode]["n_events_per_bin"]
+        )
+
+
+def test_mouse_rows_are_sorted_by_id_with_the_mean_last(tmp_path):
+    session = make_session(EVENT_SCRIPT, EVENT_CHOICES)
+    drifting = {1: {"z": {KEY: session}, "a": {KEY: session}}}
+    pipeline.write_mouse_curves(drifting, tmp_path)
+    table = read_curves(tmp_path / "mouse_curves_problem-01.csv")
+    assert list(table["mouse"].unique()) == ["a", "z", "mean_across_mice"]

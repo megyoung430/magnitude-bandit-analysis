@@ -1,6 +1,7 @@
 """Figure of choice probability and reward magnitude of the three arms around a block change.
 
-Choice probabilities (mean ± SE across subjects) are solid lines on the left axis; the mean
+Choice probabilities (mean ± SE across mice, or across block changes for an event-weighted
+result) are solid lines on the left axis; the mean
 reward magnitude of the same three arms is a dashed step line of the same colour on a
 secondary axis on the right. Two labelling schemes, each with its own two kinds of block change
 (the arm that drops to 0 is the previous best or the previous second, and the previous third
@@ -87,9 +88,16 @@ def figure_stem(result: ReversalAlignedArms, scope: str) -> str:
     return f"{heading} ({SCHEME_FILE_LABELS[result.scheme]}) ({scope})"
 
 
+def _average_text(result: ReversalAlignedArms) -> str:
+    if result.weighting == "event":
+        return "mean ± se across block changes, each weighted equally"
+    return "mean ± se across mice"
+
+
 def _title(result: ReversalAlignedArms, scope: str) -> str:
     left_out = result.counts.tied_labels + result.counts.tied_type
-    detail = f"n={result.num_subjects} subjects, n={result.num_reversals} block changes"
+    mice = "mouse" if result.num_subjects == 1 else "mice"
+    detail = f"n={result.num_subjects} {mice}, n={result.num_reversals} block changes"
     if left_out:
         detail += f", {left_out} left out for tied magnitudes"
     smoothing = (
@@ -98,11 +106,17 @@ def _title(result: ReversalAlignedArms, scope: str) -> str:
         else "no moving average"
     )
     scope_text = f" [{scope}]" if scope else ""
-    return (
+    title = (
         f"{figure_heading(result)}{scope_text}\n"
         f"{SCHEME_DESCRIPTIONS[result.scheme].capitalize()}\n"
-        f"(mean ± se across subjects | {detail})\n{smoothing}"
+        f"({_average_text(result)} | {detail})\n{smoothing}"
     )
+    if result.weighting == "event":
+        # Block changes of one mouse are correlated, so the band understates the uncertainty.
+        title += (
+            "\nSE treats block changes as independent, so it is narrower than the true uncertainty"
+        )
+    return title
 
 
 def _draw_choice_curves(ax: plt.Axes, result: ReversalAlignedArms) -> None:
@@ -162,7 +176,9 @@ def plot_reversal_aligned_arms(
 ) -> tuple[plt.Axes, plt.Axes]:
     """Choice probabilities and reward magnitudes of the three arms around the block change.
 
-    The SE band of a curve is left out where its SE is NaN (fewer than two subjects).
+    The SE band of a curve is left out where its SE is NaN (fewer than two subjects, or fewer
+    than two block changes for an event-weighted result). The title says which weighting was
+    used.
 
     Args:
         result (ReversalAlignedArms): Output of

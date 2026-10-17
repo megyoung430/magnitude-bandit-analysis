@@ -4,14 +4,35 @@
 problems and writes ``<results_root>/figures/value-change-diagnostic/cohort-XX/problem-KK/
 <mouse>/<session>.png`` plus an ``index.txt`` listing every session's events. Sessions without
 events get a figure too, marked as such.
+
+It also writes ``mouse_curves_<scope>.csv`` for each drifting problem (``problem-KK``) and for
+all of them pooled (``all-drifting-problems``): the per-mouse choice probabilities whose mean
+the mouse-weighted value-change figure plots, for the same events, window and both truncation
+modes (see :func:`src.behavior_analysis.value_change_mouse_curves.mouse_curves_table`).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
-from src.behavior_analysis.value_change_diagnostic import EventDiagnostic, diagnose_session
+from src.behavior_analysis.value_change_diagnostic import (
+    DIRECTION,
+    POST,
+    PRE,
+    RANK,
+    RANK_FILTER,
+    EventDiagnostic,
+    diagnose_session,
+)
+from src.behavior_analysis.value_change_mouse_curves import mouse_curves_table
+from src.behavior_analysis.value_change_windows import (
+    ValueChangeConfig,
+    ValueChangeWindows,
+    summarize_windows,
+    truncate_windows_at_rank_swap,
+)
 from src.behavior_import.load_trials import load_trials_with_log
 from src.behavior_import.session_order import ordered_session_keys
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
@@ -19,7 +40,13 @@ from src.behavior_visualization.plot_value_change_diagnostic import (
     NO_EVENTS_TEXT,
     plot_value_change_diagnostic,
 )
-from src.pipelines.cohort_analysis import DEFAULT_RESULTS_ROOT, cohort_name, cohort_raw_dir
+from src.pipelines.cohort_analysis import (
+    DEFAULT_RESULTS_ROOT,
+    POOLED_DRIFTING_FOLDER,
+    cohort_name,
+    cohort_raw_dir,
+)
+from src.pipelines.value_change_analysis import pooled_windows
 from src.settings import get_settings
 
 DIAGNOSTIC_FOLDER = "value-change-diagnostic"
@@ -42,13 +69,16 @@ def index_entry(session_key: str, diagnostics: list[EventDiagnostic]) -> str:
     return f"{session_key}: {len(diagnostics)} events, t=0 at trials {trials}"
 
 
-def format_index(cohort: str, entries: Mapping[tuple[int, str], list[str]]) -> str:
-    """The text of ``index.txt``: sessions grouped by problem and mouse.
+def format_index(
+    cohort: str, entries: Mapping[tuple[int, str], list[str]], csv_names: Sequence[str] = ()
+) -> str:
+    """The text of ``index.txt``: sessions grouped by problem and mouse, then the CSV files.
 
     Args:
         cohort (str): Cohort folder name, for the heading.
         entries (Mapping[tuple[int, str], list[str]]): ``{(problem, mouse): [index_entry]}`` in
             the order to print.
+        csv_names (Sequence[str]): File names of the per-mouse curve CSVs to list. Default none.
     """
     lines = [f"{cohort}: best-decrease rank-swap events per drifting session", ""]
     for problem in sorted({problem for problem, _ in entries}):
@@ -57,6 +87,9 @@ def format_index(cohort: str, entries: Mapping[tuple[int, str], list[str]]) -> s
             if p == problem:
                 lines.append(f"  {mouse}")
                 lines.extend(f"    {entry}" for entry in mouse_entries)
+    if csv_names:
+        lines += ["", "per-mouse choice probabilities behind the mouse-weighted plot (both modes)"]
+        lines += [f"  {name}" for name in csv_names]
     return "\n".join(lines) + "\n"
 
 
@@ -72,8 +105,55 @@ def _write_session(mouse: str, key: str, session: Mapping, path: Path) -> list[E
     return diagnostics
 
 
+def scope_windows(problems: Mapping[int, Mapping]) -> ValueChangeWindows:
+    """Untruncated best-decrease rank-swap events of *problems*, merged per mouse.
+
+    Uses the value-change figures' own pooling, window and configuration, so the CSV and the
+    figures cannot drift apart.
+
+    Args:
+        problems (Mapping[int, Mapping]): ``{k: {mouse: {session_key: session}}}``.
+    """
+    return pooled_windows(problems, ValueChangeConfig(RANK, DIRECTION, RANK_FILTER), PRE, POST)
+
+
+def scope_mouse_curves(scope: str, problems: Mapping[int, Mapping]) -> pd.DataFrame:
+    """The per-mouse curve table of *problems* for both truncation modes, full window first."""
+    full = scope_windows(problems)
+    tables = [
+        mouse_curves_table(summarize_windows(windows), scope=scope)
+        for windows in (full, truncate_windows_at_rank_swap(full))
+    ]
+    return pd.concat(tables, ignore_index=True)
+
+
+def mouse_curves_path(cohort_dir: Path, scope: str) -> Path:
+    """``<cohort_dir>/mouse_curves_<scope>.csv``."""
+    return cohort_dir / f"mouse_curves_{scope}.csv"
+
+
+def write_mouse_curves(drifting: Mapping[int, Mapping], cohort_dir: Path) -> list[Path]:
+    """Write one per-mouse curves CSV per drifting problem and one for all of them pooled.
+
+    Args:
+        drifting (Mapping[int, Mapping]): ``{k: {mouse: {session_key: session}}}``.
+        cohort_dir (Path): The cohort's output folder (must exist).
+
+    Returns:
+        list[Path]: The CSVs, the problems in order and the pooled one last.
+    """
+    scopes = {f"problem-{k:02d}": {k: drifting[k]} for k in sorted(drifting)}
+    scopes[POOLED_DRIFTING_FOLDER] = dict(drifting)
+    paths = []
+    for scope, problems in scopes.items():
+        path = mouse_curves_path(cohort_dir, scope)
+        scope_mouse_curves(scope, problems).to_csv(path, index=False)
+        paths.append(path)
+    return paths
+
+
 def write_cohort_diagnostics(drifting: Mapping[int, Mapping], cohort_dir: Path) -> str:
-    """Write every session's figure under *cohort_dir*; return the index text.
+    """Write the session figures and per-mouse curve CSVs under *cohort_dir*; return the index.
 
     Args:
         drifting (Mapping[int, Mapping]): ``{k: {mouse: {session_key: session}}}``, the drifting
@@ -93,7 +173,8 @@ def write_cohort_diagnostics(drifting: Mapping[int, Mapping], cohort_dir: Path) 
                 path = session_figure_path(cohort_dir, k, mouse, key)
                 diagnostics = _write_session(mouse, key, sessions[key], path)
                 entries.setdefault((k, mouse), []).append(index_entry(key, diagnostics))
-    return format_index(cohort_dir.name, entries)
+    csv_names = [path.name for path in write_mouse_curves(drifting, cohort_dir)]
+    return format_index(cohort_dir.name, entries, csv_names)
 
 
 def run_cohort_diagnostic(

@@ -16,6 +16,8 @@ import pandas as pd
 
 from src.behavior_analysis.reversal_format import check_blocks_only_sessions
 from src.behavior_analysis.value_change_windows import (
+    DEFAULT_POST,
+    DEFAULT_PRE,
     ValueChangeConfig,
     ValueChangeCurves,
     ValueChangeWindows,
@@ -24,6 +26,7 @@ from src.behavior_analysis.value_change_windows import (
     describe_value_change,
     get_value_change_windows,
     merge_value_change_windows,
+    mode_name,
     summarize_windows,
     truncate_windows_at_rank_swap,
     value_change_configs,
@@ -31,10 +34,7 @@ from src.behavior_analysis.value_change_windows import (
 from src.behavior_visualization.plot_value_change_choice_probs import (
     plot_value_change_choice_probs,
 )
-
-
-def _mode_name(truncated: bool) -> str:
-    return "truncated_at_rank_swap" if truncated else "untruncated"
+from src.pipelines.weighting_folders import EVENT_WEIGHTED_FOLDER, MOUSE_WEIGHTED_FOLDER
 
 
 def _figure_stem(config: ValueChangeConfig, truncated: bool) -> str:
@@ -52,7 +52,7 @@ def _check_arguments(
     check_window(pre, post)
 
 
-def _pooled_windows(
+def pooled_windows(
     subjects_trials_by_problem: Mapping, config: ValueChangeConfig, pre: int, post: int
 ) -> ValueChangeWindows:
     """Untruncated events of *config*, found per problem and merged per mouse."""
@@ -92,14 +92,12 @@ def _plot_curves(curves: ValueChangeCurves, base: Path, show_individual_mice: bo
     return [base.with_name(f"{base.name}.png"), base.with_name(f"{base.name}.pdf")]
 
 
-EVENT_WEIGHTED_FOLDER = "event-weighted"
-
-
 def _mode_summary(windows: ValueChangeWindows, out_dir: Path, show_individual_mice: bool) -> dict:
     """Aggregate, summarise and (if there are events) plot one configuration and mode.
 
-    The mouse-weighted figure goes in *out_dir*; the event-weighted one, with the same name,
-    in ``out_dir / EVENT_WEIGHTED_FOLDER``. Its mean and SE are under ``event_weighted``.
+    The mouse-weighted figure goes in ``out_dir / MOUSE_WEIGHTED_FOLDER``; the event-weighted
+    one, with the same name, in ``out_dir / EVENT_WEIGHTED_FOLDER``. Its mean and SE are under
+    ``event_weighted``.
     """
     curves = summarize_windows(windows)
     by_event = summarize_windows(windows, weighting="event")
@@ -107,7 +105,9 @@ def _mode_summary(windows: ValueChangeWindows, out_dir: Path, show_individual_mi
     summary["event_weighted"] = {"mean": by_event.mean, "se": by_event.se}
     if curves.num_events > 0:
         stem = _figure_stem(windows.config, windows.truncate_at_rank_swap)
-        summary["files"] = _plot_curves(curves, out_dir / stem, show_individual_mice)
+        summary["files"] = _plot_curves(
+            curves, out_dir / MOUSE_WEIGHTED_FOLDER / stem, show_individual_mice
+        )
         summary["files"] += _plot_curves(
             by_event, out_dir / EVENT_WEIGHTED_FOLDER / stem, show_individual_mice
         )
@@ -154,8 +154,8 @@ def run_value_change_analysis(
     subjects_trials_by_problem: Mapping[object, Mapping[str, Mapping[str, Mapping]]],
     out_dir: str | Path,
     *,
-    pre: int = 5,
-    post: int = 15,
+    pre: int = DEFAULT_PRE,
+    post: int = DEFAULT_POST,
     truncate_modes: tuple[bool, ...] = (False, True),
     show_individual_mice: bool = False,
 ) -> dict:
@@ -163,10 +163,11 @@ def run_value_change_analysis(
 
     Writes, under *out_dir*, ``Choice Probabilities Around <rank>-Value <Increases|Decreases>
     (<filter>, <mode>).png/.pdf`` for each configuration with at least one event and each mode
-    (``Full Window`` or ``Truncated at Swap``): mean and SE across mice, each mouse weighted
-    equally. The same figures with every event weighted equally (mean and SE across events)
-    go in ``out_dir / "event-weighted"``. Only figures are written; the contamination
-    and per-bin tables are returned for the caller to save.
+    (``Full Window`` or ``Truncated at Swap``), in ``out_dir / "mouse-weighted"``: mean and SE
+    across mice, each mouse weighted equally. The same figures with every event weighted equally
+    (mean and SE across events) go in ``out_dir / "event-weighted"``; nothing is written at the
+    top level of *out_dir*. Only figures are written; the contamination and per-bin tables are
+    returned for the caller to save.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session}}}``.
@@ -199,16 +200,16 @@ def run_value_change_analysis(
     out_dir.mkdir(parents=True, exist_ok=True)
     summaries, contamination, rows, bin_rows, files = {}, {}, [], [], []
     for config in value_change_configs():
-        pooled = _pooled_windows(subjects_trials_by_problem, config, pre, post)
+        pooled = pooled_windows(subjects_trials_by_problem, config, pre, post)
         rows.append(_contamination_row(pooled))
         contamination[config.label] = contamination_summary(pooled.events)
         summaries[config.label] = {}
         for truncated in truncate_modes:
             windows = truncate_windows_at_rank_swap(pooled) if truncated else pooled
             summary = _mode_summary(windows, out_dir, show_individual_mice)
-            summaries[config.label][_mode_name(truncated)] = summary
+            summaries[config.label][mode_name(truncated)] = summary
             files += summary["files"]
-            bin_rows += _bin_count_rows(config, _mode_name(truncated), summary)
+            bin_rows += _bin_count_rows(config, mode_name(truncated), summary)
     return {
         "summaries": summaries,
         "contamination": contamination,
