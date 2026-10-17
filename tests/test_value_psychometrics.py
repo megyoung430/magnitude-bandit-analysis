@@ -48,25 +48,25 @@ def best_val_point(curves, choice, x):
 
 
 def test_pooled_weighting_pools_trials_across_cells_sharing_an_x_value():
-    curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=True)
+    curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=True, tie_mode="split")
     assert best_val_point(curves, "best", 4) == pytest.approx(0.1)  # 10 / 100
     assert best_val_point(curves, "second", 4) == pytest.approx(0.9)
 
 
 def test_unpooled_weighting_averages_cell_probabilities_equally():
-    curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=False)
+    curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=False, tie_mode="split")
     assert best_val_point(curves, "best", 4) == pytest.approx(0.5)  # mean of 1.0 and 0.0
     assert best_val_point(curves, "second", 4) == pytest.approx(0.5)
 
 
 def test_x_values_without_trials_are_nan_not_zero():
     for pool in (True, False):
-        curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=pool)
+        curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=pool, tie_mode="split")
         assert np.isnan(best_val_point(curves, "best", 2))
 
 
 def test_axes_are_best_value_second_value_and_their_difference():
-    curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=True)
+    curves = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=True, tie_mode="split")
     assert list(curves["best"]["best_val"].x) == BEST_VALS
     assert list(curves["best"]["second_val"].x) == SECOND_VALS
     assert list(curves["best"]["diff"].x) == [0, 1, 2, 3]
@@ -74,21 +74,51 @@ def test_axes_are_best_value_second_value_and_their_difference():
 
 def test_difference_curve_pools_the_cells_with_that_difference():
     cells = {(4, 3): (10, 10, 0), (3, 2): (10, 0, 10), (2, 1): (20, 10, 10), (3, 3): (4, 2, 2)}
-    curves = psychometric_curves({"m1": counts_for(cells)}, pool_trials=True)
+    curves = psychometric_curves({"m1": counts_for(cells)}, pool_trials=True, tie_mode="split")
     diff = curves["best"]["diff"]
     by_diff = dict(zip(diff.x, diff.mean, strict=True))
     assert by_diff[1] == pytest.approx(20 / 40)
     assert by_diff[0] == pytest.approx(0.5)  # ties are kept, as on the value axes
     assert np.isnan(by_diff[3])
-    unpooled = psychometric_curves({"m1": counts_for(cells)}, pool_trials=False)
+    unpooled = psychometric_curves({"m1": counts_for(cells)}, pool_trials=False, tie_mode="split")
     by_diff = dict(zip(diff.x, unpooled["best"]["diff"].mean, strict=True))
     assert by_diff[1] == pytest.approx((1.0 + 0.0 + 0.5) / 3)
+
+
+def test_difference_axis_has_no_zero_when_ties_are_excluded():
+    counts = {"m1": counts_for({(4, 3): (10, 10, 0), (3, 1): (10, 5, 5)})}
+    for pool in (True, False):
+        curves = psychometric_curves(counts, pool_trials=pool, tie_mode="exclude")
+        for choice in ("best", "second"):
+            diff = curves[choice]["diff"]
+            assert list(diff.x) == [1, 2, 3]
+            assert diff.per_mouse.shape == (1, 3) and diff.n_trials.shape == (3,)
+        assert list(curves["best"]["best_val"].x) == BEST_VALS
+        assert list(curves["best"]["second_val"].x) == SECOND_VALS
+
+
+def test_difference_axis_keeps_zero_when_ties_are_split():
+    counts = {"m1": counts_for({(3, 3): (4, 2, 2)})}
+    diff = psychometric_curves(counts, pool_trials=True, tie_mode="split")["best"]["diff"]
+    assert list(diff.x) == [0, 1, 2, 3]
+    assert diff.mean[0] == pytest.approx(0.5)
+
+
+def test_trials_in_a_tied_cell_when_ties_are_excluded_raise():
+    counts = {"m1": counts_for({(3, 3): (4, 2, 2)})}
+    with pytest.raises(ValueError, match="tie"):
+        psychometric_curves(counts, pool_trials=True, tie_mode="exclude")
+
+
+def test_unknown_tie_mode_raises():
+    with pytest.raises(ValueError, match="tie_mode"):
+        psychometric_curves({}, pool_trials=True, tie_mode="drop")
 
 
 def test_cell_with_best_below_second_and_trials_raises():
     counts = counts_for({(2, 3): (5, 1, 1)})
     with pytest.raises(ValueError, match="best.*second"):
-        psychometric_curves({"m1": counts}, pool_trials=True)
+        psychometric_curves({"m1": counts}, pool_trials=True, tie_mode="split")
 
 
 # --- mice are the replicates ---------------------------------------------------------------
@@ -102,7 +132,7 @@ def test_mean_and_se_are_taken_across_mice_whatever_the_weighting():
     }
     expected = np.array([0.8, 0.4, 0.2])
     for pool in (True, False):
-        curve = psychometric_curves(mice, pool_trials=pool)["best"]["best_val"]
+        curve = psychometric_curves(mice, pool_trials=pool, tie_mode="split")["best"]["best_val"]
         i = list(curve.x).index(4)
         assert curve.mean[i] == pytest.approx(expected.mean())
         assert curve.se[i] == pytest.approx(expected.std(ddof=1) / np.sqrt(3))
@@ -112,14 +142,16 @@ def test_mean_and_se_are_taken_across_mice_whatever_the_weighting():
 
 
 def test_se_is_nan_with_a_single_mouse_and_mean_is_still_drawn():
-    curve = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=True)["best"]["best_val"]
+    curve = psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=True, tie_mode="split")[
+        "best"
+    ]["best_val"]
     i = list(curve.x).index(4)
     assert np.isnan(curve.se[i]) and not np.isnan(curve.mean[i])
 
 
 def test_mice_missing_an_x_value_are_left_out_of_that_mean_and_n():
     mice = {"m1": counts_for({(4, 1): (10, 5, 0)}), "m2": counts_for({(3, 1): (10, 5, 0)})}
-    curve = psychometric_curves(mice, pool_trials=True)["best"]["best_val"]
+    curve = psychometric_curves(mice, pool_trials=True, tie_mode="split")["best"]["best_val"]
     assert list(curve.n_mice) == [0, 1, 1]
     assert np.isnan(curve.se).all()
 
@@ -128,8 +160,8 @@ def test_no_warnings_when_every_mouse_is_empty_at_some_x():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         for pool in (True, False):
-            psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=pool)
-            psychometric_curves({}, pool_trials=pool)
+            psychometric_curves({"m1": counts_for(UNEVEN)}, pool_trials=pool, tie_mode="split")
+            psychometric_curves({}, pool_trials=pool, tie_mode="split")
 
 
 # --- heatmap tables ------------------------------------------------------------------------
@@ -195,7 +227,7 @@ def test_pipeline_recovers_known_choice_probabilities_in_both_weightings():
         assert tables.p_second.loc[b, s] == pytest.approx(1 - p, abs=0.03)
     # every cell has equal trial counts, so the two weightings agree with the cell average
     for pool in (True, False):
-        curve = psychometric_curves(counts, pool_trials=pool)["best"]["diff"]
+        curve = psychometric_curves(counts, pool_trials=pool, tie_mode="split")["best"]["diff"]
         by_diff = dict(zip(curve.x, curve.mean, strict=True))
         assert by_diff[1] == pytest.approx(np.mean([0.6, 0.65, 0.7]), abs=0.03)
         assert by_diff[3] == pytest.approx(0.9, abs=0.03)

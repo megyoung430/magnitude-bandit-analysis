@@ -136,7 +136,7 @@ def test_per_mouse_heatmap_layout(monkeypatch):
 
 
 def draw_panel(counts, pool_trials=True, axis="best_val"):
-    curves = psychometric_curves(counts, pool_trials=pool_trials)
+    curves = psychometric_curves(counts, pool_trials=pool_trials, tie_mode="split")
     _, ax = plt.subplots()
     plot_psychometric_panel(curves["best"][axis], curves["second"][axis], "Value of Best", ax=ax)
     return ax
@@ -168,7 +168,7 @@ def test_mean_annotations_are_inside_the_axes_even_at_the_extremes():
 
 
 def test_curves_figure_has_three_panels_and_is_saved(tmp_path):
-    curves = psychometric_curves(two_mice(), pool_trials=False)
+    curves = psychometric_curves(two_mice(), pool_trials=False, tie_mode="split")
     base = tmp_path / "Psychometric Curves (True Value) (Pool Trials False)"
     plot_psychometric_curves(curves, "True", False, TIES, "split", save_path=base)
     assert base.with_suffix(".png").exists() and base.with_suffix(".pdf").exists()
@@ -179,7 +179,7 @@ def test_curves_figure_panels_and_title(monkeypatch):
 
     seen = {}
     monkeypatch.setattr(module, "save_or_show", lambda fig, path: seen.update(fig=fig))
-    curves = psychometric_curves(two_mice(), pool_trials=True)
+    curves = psychometric_curves(two_mice(), pool_trials=True, tie_mode="split")
     plot_psychometric_curves(curves, "Believed", True, TIES, "split")
     fig = seen["fig"]
     assert [a.get_xlabel() for a in fig.axes] == [
@@ -191,8 +191,56 @@ def test_curves_figure_panels_and_title(monkeypatch):
     assert "Believed" in title and "pooled" in title and "2 mice" in title
 
 
+def curve_panels(tie_mode):
+    """The three axes of a psychometric figure drawn from two mice without tied trials."""
+    from src.behavior_visualization import plot_value_psychometrics as module
+
+    curves = psychometric_curves(two_mice(), pool_trials=True, tie_mode=tie_mode)
+    captured = {}
+    original = module.save_or_show
+    module.save_or_show = lambda fig, path: captured.update(fig=fig)
+    try:
+        plot_psychometric_curves(curves, "True", True, TIES, tie_mode)
+    finally:
+        module.save_or_show = original
+    return captured["fig"].axes
+
+
+def relative_padding(ax):
+    """Padding left and right of the first and last tick, as a fraction of the tick range."""
+    ticks = ax.get_xticks()
+    low, high = ax.get_xlim()
+    span = ticks[-1] - ticks[0]
+    return (ticks[0] - low) / span, (high - ticks[-1]) / span
+
+
+def test_ties_excluded_panels_have_the_same_ticks_and_padding():
+    best, second, diff = curve_panels("exclude")
+    assert list(diff.get_xticks()) == [1, 2, 3]
+    assert len(best.get_xticks()) == len(second.get_xticks()) == len(diff.get_xticks()) == 3
+    paddings = [relative_padding(ax) for ax in (best, second, diff)]
+    assert paddings[1] == pytest.approx(paddings[0])
+    assert paddings[2] == pytest.approx(paddings[0])
+    assert paddings[0][0] == pytest.approx(paddings[0][1]) and paddings[0][0] > 0
+
+
+def test_ties_split_difference_panel_includes_zero_with_the_same_relative_padding():
+    best, _, diff = curve_panels("split")
+    assert list(diff.get_xticks()) == [0, 1, 2, 3]
+    assert relative_padding(diff) == pytest.approx(relative_padding(best))
+
+
+def test_limits_do_not_depend_on_which_end_points_have_data():
+    # a missing last point must not shrink the axis (NaN is ignored by autoscaling)
+    only_low = {"m1": counts_for({(3, 2): (10, 6, 4)})}
+    curves = psychometric_curves(only_low, pool_trials=True, tie_mode="exclude")
+    _, ax = plt.subplots()
+    plot_psychometric_panel(curves["best"]["diff"], curves["second"]["diff"], "d", ax=ax)
+    assert relative_padding(ax) == pytest.approx(relative_padding(curve_panels("exclude")[0]))
+
+
 def test_no_mice_still_draws_empty_panels():
-    curves = psychometric_curves({}, pool_trials=True)
+    curves = psychometric_curves({}, pool_trials=True, tie_mode="split")
     _, ax = plt.subplots()
     plot_psychometric_panel(curves["best"]["diff"], curves["second"]["diff"], "x", ax=ax)
     assert np.isnan(curves["best"]["diff"].mean).all()
@@ -282,7 +330,7 @@ def test_every_figure_prints_the_tie_totals_and_the_mode(monkeypatch, tie_mode, 
     counts = two_mice()
     counts["m1"].ties.update(TIES)
     tables = heatmap_tables(counts)
-    curves = psychometric_curves(counts, pool_trials=True)
+    curves = psychometric_curves(counts, pool_trials=True, tie_mode=tie_mode)
     drawers = [
         lambda: plot_overall_heatmaps(tables, "True", tie_mode),
         lambda: plot_per_mouse_heatmaps(tables, "True", tie_mode),
@@ -313,7 +361,7 @@ def test_one_mouse_is_not_pluralised(monkeypatch):
     seen = capture_figure(monkeypatch)
     plot_overall_heatmaps(heatmap_tables({"m1": counts_for(CELLS)}), "True", "split")
     assert "1 mouse " in seen["fig"]._suptitle.get_text()
-    curves = psychometric_curves({"m1": counts_for(CELLS)}, pool_trials=True)
+    curves = psychometric_curves({"m1": counts_for(CELLS)}, pool_trials=True, tie_mode="split")
     plot_psychometric_curves(curves, "True", True, TIES, "split")
     assert seen["fig"]._suptitle.get_text().endswith("1 mouse")
 
@@ -367,7 +415,7 @@ def panel_span(fig):
 @pytest.mark.parametrize("which", ["overall", "per_mouse", "curves"])
 def test_title_and_footer_are_centred_over_the_panels(monkeypatch, which):
     tables = heatmap_tables(two_mice())
-    curves = psychometric_curves(two_mice(), pool_trials=True)
+    curves = psychometric_curves(two_mice(), pool_trials=True, tie_mode="split")
     draw = {
         "overall": lambda: plot_overall_heatmaps(tables, "True", "split"),
         "per_mouse": lambda: plot_per_mouse_heatmaps(tables, "True", "split"),
