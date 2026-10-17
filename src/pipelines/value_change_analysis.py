@@ -31,6 +31,7 @@ from src.behavior_analysis.value_change_windows import (
 from src.behavior_visualization.plot_value_change_choice_probs import (
     plot_value_change_choice_probs,
 )
+from src.pipelines.weighting_folders import EVENT_WEIGHTED_FOLDER, MOUSE_WEIGHTED_FOLDER
 
 
 def _mode_name(truncated: bool) -> str:
@@ -92,14 +93,12 @@ def _plot_curves(curves: ValueChangeCurves, base: Path, show_individual_mice: bo
     return [base.with_name(f"{base.name}.png"), base.with_name(f"{base.name}.pdf")]
 
 
-EVENT_WEIGHTED_FOLDER = "event-weighted"
-
-
 def _mode_summary(windows: ValueChangeWindows, out_dir: Path, show_individual_mice: bool) -> dict:
     """Aggregate, summarise and (if there are events) plot one configuration and mode.
 
-    The mouse-weighted figure goes in *out_dir*; the event-weighted one, with the same name,
-    in ``out_dir / EVENT_WEIGHTED_FOLDER``. Its mean and SE are under ``event_weighted``.
+    The mouse-weighted figure goes in ``out_dir / MOUSE_WEIGHTED_FOLDER``; the event-weighted
+    one, with the same name, in ``out_dir / EVENT_WEIGHTED_FOLDER``. Its mean and SE are under
+    ``event_weighted``.
     """
     curves = summarize_windows(windows)
     by_event = summarize_windows(windows, weighting="event")
@@ -107,7 +106,9 @@ def _mode_summary(windows: ValueChangeWindows, out_dir: Path, show_individual_mi
     summary["event_weighted"] = {"mean": by_event.mean, "se": by_event.se}
     if curves.num_events > 0:
         stem = _figure_stem(windows.config, windows.truncate_at_rank_swap)
-        summary["files"] = _plot_curves(curves, out_dir / stem, show_individual_mice)
+        summary["files"] = _plot_curves(
+            curves, out_dir / MOUSE_WEIGHTED_FOLDER / stem, show_individual_mice
+        )
         summary["files"] += _plot_curves(
             by_event, out_dir / EVENT_WEIGHTED_FOLDER / stem, show_individual_mice
         )
@@ -163,10 +164,11 @@ def run_value_change_analysis(
 
     Writes, under *out_dir*, ``Choice Probabilities Around <rank>-Value <Increases|Decreases>
     (<filter>, <mode>).png/.pdf`` for each configuration with at least one event and each mode
-    (``Full Window`` or ``Truncated at Swap``): mean and SE across mice, each mouse weighted
-    equally. The same figures with every event weighted equally (mean and SE across events)
-    go in ``out_dir / "event-weighted"``. Only figures are written; the contamination
-    and per-bin tables are returned for the caller to save.
+    (``Full Window`` or ``Truncated at Swap``), in ``out_dir / "mouse-weighted"``: mean and SE
+    across mice, each mouse weighted equally. The same figures with every event weighted equally
+    (mean and SE across events) go in ``out_dir / "event-weighted"``; nothing is written at the
+    top level of *out_dir*. Only figures are written; the contamination and per-bin tables are
+    returned for the caller to save.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session}}}``.

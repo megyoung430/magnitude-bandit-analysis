@@ -377,7 +377,7 @@ def _check_sum_to_one(means: dict[str, np.ndarray], where: str) -> None:
 
 
 def _event_rows(selected: dict, scheme: str, field: str, **window) -> np.ndarray:
-    """``(n_events, 3, n_bins)`` rows of *field* for every selected block change of every subject."""
+    """``(n_events, 3, n_bins)`` rows of *field* for every selected block change."""
     return np.stack(
         [
             _reversal_rows(r, field, arm_labels(r, scheme), **window)
