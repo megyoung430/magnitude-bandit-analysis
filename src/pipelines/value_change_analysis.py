@@ -16,6 +16,8 @@ import pandas as pd
 
 from src.behavior_analysis.reversal_format import check_blocks_only_sessions
 from src.behavior_analysis.value_change_windows import (
+    DEFAULT_POST,
+    DEFAULT_PRE,
     ValueChangeConfig,
     ValueChangeCurves,
     ValueChangeWindows,
@@ -24,6 +26,7 @@ from src.behavior_analysis.value_change_windows import (
     describe_value_change,
     get_value_change_windows,
     merge_value_change_windows,
+    mode_name,
     summarize_windows,
     truncate_windows_at_rank_swap,
     value_change_configs,
@@ -32,10 +35,6 @@ from src.behavior_visualization.plot_value_change_choice_probs import (
     plot_value_change_choice_probs,
 )
 from src.pipelines.weighting_folders import EVENT_WEIGHTED_FOLDER, MOUSE_WEIGHTED_FOLDER
-
-
-def _mode_name(truncated: bool) -> str:
-    return "truncated_at_rank_swap" if truncated else "untruncated"
 
 
 def _figure_stem(config: ValueChangeConfig, truncated: bool) -> str:
@@ -53,7 +52,7 @@ def _check_arguments(
     check_window(pre, post)
 
 
-def _pooled_windows(
+def pooled_windows(
     subjects_trials_by_problem: Mapping, config: ValueChangeConfig, pre: int, post: int
 ) -> ValueChangeWindows:
     """Untruncated events of *config*, found per problem and merged per mouse."""
@@ -155,8 +154,8 @@ def run_value_change_analysis(
     subjects_trials_by_problem: Mapping[object, Mapping[str, Mapping[str, Mapping]]],
     out_dir: str | Path,
     *,
-    pre: int = 5,
-    post: int = 15,
+    pre: int = DEFAULT_PRE,
+    post: int = DEFAULT_POST,
     truncate_modes: tuple[bool, ...] = (False, True),
     show_individual_mice: bool = False,
 ) -> dict:
@@ -201,16 +200,16 @@ def run_value_change_analysis(
     out_dir.mkdir(parents=True, exist_ok=True)
     summaries, contamination, rows, bin_rows, files = {}, {}, [], [], []
     for config in value_change_configs():
-        pooled = _pooled_windows(subjects_trials_by_problem, config, pre, post)
+        pooled = pooled_windows(subjects_trials_by_problem, config, pre, post)
         rows.append(_contamination_row(pooled))
         contamination[config.label] = contamination_summary(pooled.events)
         summaries[config.label] = {}
         for truncated in truncate_modes:
             windows = truncate_windows_at_rank_swap(pooled) if truncated else pooled
             summary = _mode_summary(windows, out_dir, show_individual_mice)
-            summaries[config.label][_mode_name(truncated)] = summary
+            summaries[config.label][mode_name(truncated)] = summary
             files += summary["files"]
-            bin_rows += _bin_count_rows(config, _mode_name(truncated), summary)
+            bin_rows += _bin_count_rows(config, mode_name(truncated), summary)
     return {
         "summaries": summaries,
         "contamination": contamination,

@@ -11,6 +11,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, NamedTuple
 
 from src.behavior_analysis.value_change_windows import (
+    DEFAULT_POST,
+    DEFAULT_PRE,
     ValueChangeEvent,
     get_value_change_windows,
     swap_label_arms,
@@ -18,8 +20,8 @@ from src.behavior_analysis.value_change_windows import (
 from src.behavior_import.extract_trials import merge_trial_variables
 
 # The window of the cohort pipeline's value-change figures (``run_value_change_analysis``).
-PRE = 5
-POST = 15
+PRE = DEFAULT_PRE
+POST = DEFAULT_POST
 RANK, DIRECTION, RANK_FILTER = "best", "decrease", "rank_swap"
 
 
