@@ -264,7 +264,7 @@ def test_the_title_names_the_analysis_the_type_and_the_labelling(scheme, reversa
     assert lines[0].startswith(heading)
     assert lines[1] == labelling.capitalize()
     n_block_changes = 4 if reversal_type == "all" else 2
-    assert f"n=1 subjects, n={n_block_changes} block changes" in lines[2]
+    assert f"n=1 mouse, n={n_block_changes} block changes" in lines[2]
 
 
 def test_the_pipeline_names_each_figure_after_its_title_and_writes_no_csv(tmp_path, capture):

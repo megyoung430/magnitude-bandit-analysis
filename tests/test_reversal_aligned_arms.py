@@ -17,7 +17,7 @@ from src.behavior_analysis.reversal_aligned_arms import (
     check_windows_built_with,
     compute_reversal_aligned_arms,
 )
-from src.behavior_analysis.reversal_alignment import align_window_values
+from src.behavior_analysis.reversal_alignment import align_window_values, smooth_pre_post
 from src.behavior_analysis.stats import nan_standard_error
 from tests.plot_fixtures import make_mouse, make_session, session_key
 from tests.reversal_arm_fixtures import make_reversal, stamp_windows
@@ -161,6 +161,101 @@ def test_counts_are_reported_with_the_result():
     result = curves(windows)
     assert result.num_subjects == 2 and result.num_reversals == 2
     assert result.counts.selected == 2 and result.counts.tied_labels == 0
+
+
+# ------------------------------------------------------------------ event weighting
+
+
+def unequal_mice():
+    """m1 has three block changes, m2 one; the mice differ in the arm chosen and the magnitudes."""
+    return {
+        "m1": [make_reversal(["A"] * 4, ["C"] * 3) for _ in range(3)],
+        "m2": [make_reversal(["B"] * 4, ["C"] * 3, pre_scale=2.0)],
+    }
+
+
+def test_event_weighting_counts_every_block_change_once():
+    by_mouse = curves(unequal_mice())
+    by_event = curves(unequal_mice(), weighting="event")
+    assert by_mouse.weighting == "subject" and by_event.weighting == "event"
+    # prev_best before the change: mice give (1 + 0) / 2; block changes give 3 of 4.
+    np.testing.assert_allclose(by_mouse.choice_mean["prev_best"][:4], 0.5)
+    np.testing.assert_allclose(by_event.choice_mean["prev_best"][:4], 0.75)
+    np.testing.assert_allclose(by_event.choice_mean["prev_second"][:4], 0.25)
+    # magnitudes: mice give (3 + 6) / 2; block changes give (3 + 3 + 3 + 6) / 4.
+    np.testing.assert_allclose(by_mouse.magnitude_mean["prev_best"][:4], 4.5)
+    np.testing.assert_allclose(by_event.magnitude_mean["prev_best"][:4], 3.75)
+
+
+def test_event_weighted_se_is_across_block_changes():
+    by_event = curves(unequal_mice(), weighting="event")
+    # values 1, 1, 1, 0 -> sd 0.5, n 4 -> se 0.25; magnitudes 3, 3, 3, 6 -> sd 1.5 -> se 0.75
+    np.testing.assert_allclose(by_event.choice_se["prev_best"][:4], 0.25)
+    np.testing.assert_allclose(by_event.magnitude_se["prev_best"][:4], 0.75)
+    # post bins: all four chose C
+    np.testing.assert_allclose(by_event.choice_se["prev_third"][4:], 0.0)
+
+
+def test_event_weighting_equals_subject_weighting_for_one_mouse():
+    one = {"m": [make_reversal(["A", "B", "A", "A"], ["C", "A", "C"]) for _ in range(2)]}
+    one["m"].append(make_reversal(["B", "B"], ["C", "C", "A"]))
+    for window in (1, 3):
+        by_mouse = curves(one, moving_avg_window=window)
+        by_event = curves(one, moving_avg_window=window, weighting="event")
+        for role in by_mouse.roles:
+            np.testing.assert_allclose(by_mouse.choice_mean[role], by_event.choice_mean[role])
+            np.testing.assert_allclose(by_mouse.magnitude_mean[role], by_event.magnitude_mean[role])
+
+
+def test_event_weighted_probabilities_sum_to_one_with_and_without_smoothing():
+    windows = unequal_mice()
+    windows["m2"].append(make_reversal(["A", "C"], ["B", "A"]))  # short windows leave NaN
+    for window in (1, 3):
+        result = curves(windows, weighting="event", moving_avg_window=window, scheme="new")
+        total = sum(result.choice_mean[r] for r in result.roles)
+        np.testing.assert_allclose(total[np.isfinite(total)], 1.0)
+        assert np.isfinite(total).any()
+
+
+def test_event_weighted_smoothing_is_applied_to_the_mean_and_to_each_block_change():
+    windows = {"m1": [make_reversal(["A", "B", "A", "B"], ["C", "A", "C"])]}
+    windows["m2"] = [make_reversal(["A", "A", "B", "B"], ["C", "C", "A"])]
+    result = curves(windows, weighting="event", moving_avg_window=3)
+    rows = np.array(
+        [
+            [1, 0, 1, 0, 0, 1, 0],
+            [1, 1, 0, 0, 0, 0, 1],
+        ],
+        dtype=float,
+    )  # prev_best one-hot rows of the two block changes
+    pre = np.array([True] * 4 + [False] * 3)
+    smooth_row = lambda y: smooth_pre_post(y, pre, 3, "centered")  # noqa: E731
+    np.testing.assert_allclose(result.choice_mean["prev_best"], smooth_row(rows.mean(axis=0)))
+    expected_se = nan_standard_error(np.vstack([smooth_row(r) for r in rows]))
+    np.testing.assert_allclose(result.choice_se["prev_best"], expected_se)
+
+
+def test_event_weighting_with_one_block_change_has_nan_se():
+    result = curves({"m": [make_reversal(["A"] * 4, ["C"] * 3)]}, weighting="event")
+    for role in result.roles:
+        assert np.isnan(result.choice_se[role]).all()
+        assert np.isnan(result.magnitude_se[role]).all()
+
+
+def test_event_weighting_still_checks_the_probabilities_sum_to_one():
+    bad = make_reversal(["A"] * 4, ["C"] * 3)
+    bad["choices_by_tower"]["B"]["pre"] = [1.0] * 4
+    with pytest.raises(ValueError, match="sum to 1"):
+        curves({"m": [bad]}, weighting="event")
+
+
+def test_an_unknown_weighting_raises():
+    with pytest.raises(ValueError, match="weighting"):
+        curves({"m": [make_reversal(["A"] * 4, ["C"] * 3)]}, weighting="mouse")
+
+
+def test_the_default_weighting_is_by_subject():
+    assert curves({"m": [make_reversal(["A"] * 4, ["C"] * 3)]}).weighting == "subject"
 
 
 # ------------------------------------------------------------------------- ties

@@ -7,8 +7,10 @@ Pipeline (all pure; no files, no plots):
    every arm over the same window.
 2. :func:`compute_reversal_aligned_arms` labels the arms of each block change by the ranking
    *before* the block change (``"prev"``) or *after* it (``"new"``), keeps the block changes of one
-   type, and averages one-hot choices and magnitudes per arm label: over block changes within a
-   subject, then over subjects.
+   type, and averages one-hot choices and magnitudes per arm label. With ``weighting="subject"``
+   that is over block changes within a subject, then over subjects (every subject counts once);
+   with ``weighting="event"`` it is over all block changes at once (every block change counts
+   once).
 
 Windows stay within one block: the pre window starts no earlier than the previous block
 change and the post window ends at the next one, so every value of a row belongs to the block of
@@ -48,6 +50,7 @@ from src.behavior_analysis.reversal_arm_ranks import (
 from src.behavior_analysis.stats import nan_standard_error
 
 MOVING_AVG_MODES = ("centered", "trailing")
+WEIGHTINGS = ("subject", "event")
 _SUM_TOLERANCE = 1e-6
 
 
@@ -56,7 +59,7 @@ class EmptySelectionWarning(UserWarning):
 
 
 class _Curves(NamedTuple):
-    """Mean and SE over subjects for each role, plus the per-subject means."""
+    """Mean and SE for each role (across subjects or block changes), plus the per-subject means."""
 
     mean: dict[str, np.ndarray]
     se: dict[str, np.ndarray]
@@ -78,14 +81,16 @@ class ReversalAlignedArms:
         trial_offsets (np.ndarray): Trials from the block change of each bin, shape ``(n_bins,)``
             with ``n_bins = pre + post - skip``. With a skip ``k``, bins after the
             block change trial carry offsets ``k + 1`` upward.
+        weighting (str): ``"subject"`` (mean and SE across subjects) or ``"event"`` (across
+            block changes).
         choice_mean (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; the mean
-            choice probability across subjects (after the moving average).
+            choice probability across subjects or block changes (after the moving average).
         choice_se (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; its standard
-            error across subjects (NaN where fewer than two subjects have data).
+            error across subjects or block changes (NaN where fewer than two have data).
         magnitude_mean (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; mean reward
             magnitude of the arm with that label (not smoothed).
         magnitude_se (dict[str, np.ndarray]): ``{role: array of shape (n_bins,)}``; its standard
-            error across subjects.
+            error across subjects or block changes.
         per_subject_choice (dict[str, dict[str, np.ndarray]]): ``{subject: {role: smoothed mean
             choice probability, shape (n_bins,)}}``.
         num_subjects (int): Subjects the curves average over.
@@ -101,6 +106,7 @@ class ReversalAlignedArms:
     scheme: str
     reversal_type: str
     roles: tuple[str, str, str]
+    weighting: str
     trial_offsets: np.ndarray
     choice_mean: dict[str, np.ndarray]
     choice_se: dict[str, np.ndarray]
@@ -310,6 +316,19 @@ def check_moving_avg_window(moving_avg_window) -> None:
         raise ValueError(f"moving_avg_window must be a positive integer, got {moving_avg_window!r}")
 
 
+def check_weighting(weighting) -> None:
+    """Raise ``ValueError`` unless *weighting* is ``"subject"`` or ``"event"``.
+
+    Args:
+        weighting (str): How the curves are averaged.
+
+    Raises:
+        ValueError: For any other value.
+    """
+    if weighting not in WEIGHTINGS:
+        raise ValueError(f"weighting must be one of {WEIGHTINGS}, got {weighting!r}")
+
+
 # ---------------------------------------------------------------------------
 # Averaging
 # ---------------------------------------------------------------------------
@@ -357,6 +376,17 @@ def _check_sum_to_one(means: dict[str, np.ndarray], where: str) -> None:
         )
 
 
+def _event_rows(selected: dict, scheme: str, field: str, **window) -> np.ndarray:
+    """``(n_events, 3, n_bins)`` rows of *field* for every selected block change of every subject."""
+    return np.stack(
+        [
+            _reversal_rows(r, field, arm_labels(r, scheme), **window)
+            for reversals in selected.values()
+            for r in reversals
+        ]
+    )
+
+
 def _across_subjects(per_subject: dict[str, dict[str, np.ndarray]], roles) -> _Curves:
     mean, se = {}, {}
     for role in roles:
@@ -370,20 +400,60 @@ def _nan_curves(roles, n_bins: int) -> _Curves:
     return _Curves(nan, {r: a.copy() for r, a in nan.items()}, {})
 
 
-def _choice_curves(selected, scheme, roles, offsets, *, smooth, **window) -> _Curves:
+def _smooth_rows(rows: np.ndarray, offsets: np.ndarray, smooth: dict) -> np.ndarray:
+    """*rows* (``(..., n_bins)``) with the moving average applied along the last axis.
+
+    Smoothing runs separately before and after the block change, so no value crosses it.
+    """
+    flat = rows.reshape(-1, rows.shape[-1])
+    out = [smooth_pre_post(y, offsets < 0, smooth["window"], smooth["mode"]) for y in flat]
+    return np.array(out).reshape(rows.shape)
+
+
+def _per_subject_choice(selected, scheme, roles, offsets, *, smooth, **window) -> dict:
+    """``{subject: {role: smoothed mean choice probability}}``, each subject's mean checked."""
     per_subject = {}
     for subject, reversals in selected.items():
-        raw = dict(
-            zip(roles, _subject_means(reversals, scheme, "choices_by_tower", **window), strict=True)
-        )
-        _check_sum_to_one(raw, f"subject {subject}")
-        per_subject[subject] = {
-            role: smooth_pre_post(y, offsets < 0, smooth["window"], smooth["mode"])
-            for role, y in raw.items()
-        }
+        raw = _subject_means(reversals, scheme, "choices_by_tower", **window)
+        _check_sum_to_one(dict(zip(roles, raw, strict=True)), f"subject {subject}")
+        smoothed = _smooth_rows(raw, offsets, smooth)
+        per_subject[subject] = dict(zip(roles, smoothed, strict=True))
+    return per_subject
+
+
+def _choice_curves(selected, scheme, roles, offsets, *, smooth, **window) -> _Curves:
+    """Mean and SE across subjects of each subject's smoothed mean choice probability."""
+    per_subject = _per_subject_choice(selected, scheme, roles, offsets, smooth=smooth, **window)
     curves = _across_subjects(per_subject, roles)
     _check_sum_to_one(curves.mean, "mean across subjects after smoothing")
     return curves
+
+
+def _event_choice_curves(selected, scheme, roles, offsets, *, smooth, **window) -> _Curves:
+    """Mean and SE across block changes of the choice probabilities.
+
+    The mean is the smoothed average of all block changes' one-hot rows; the SE is across the
+    block changes' rows after the same smoothing. The subject path also smooths before it
+    takes the SE, so both SEs are of smoothed rows.
+    """
+    rows = _event_rows(selected, scheme, "choices_by_tower", **window)  # (n_events, 3, n_bins)
+    raw = _nan_mean(rows)
+    _check_sum_to_one(dict(zip(roles, raw, strict=True)), "mean across block changes")
+    mean = _smooth_rows(raw, offsets, smooth)
+    se = nan_standard_error(_smooth_rows(rows, offsets, smooth))
+    per_subject = _per_subject_choice(selected, scheme, roles, offsets, smooth=smooth, **window)
+    curves = _Curves(
+        dict(zip(roles, mean, strict=True)), dict(zip(roles, se, strict=True)), per_subject
+    )
+    _check_sum_to_one(curves.mean, "mean across block changes after smoothing")
+    return curves
+
+
+def _event_magnitude_curves(selected, scheme, roles, **window) -> _Curves:
+    """Mean and SE across block changes of the (unsmoothed) reward magnitudes."""
+    rows = _event_rows(selected, scheme, "magnitudes_by_tower", **window)
+    mean, se = _nan_mean(rows), nan_standard_error(rows)
+    return _Curves(dict(zip(roles, mean, strict=True)), dict(zip(roles, se, strict=True)), {})
 
 
 def _magnitude_curves(selected, scheme, roles, **window) -> _Curves:
@@ -410,8 +480,19 @@ def compute_reversal_aligned_arms(
     skip_n_trials_after_reversal: int = 0,
     moving_avg_window: int = 4,
     moving_avg_mode: str = "centered",
+    weighting: str = "subject",
 ) -> ReversalAlignedArms:
     """Choice probability and reward magnitude of the three arms around block changes.
+
+    With ``weighting="subject"`` each subject's block changes are averaged into one curve
+    (choice probabilities smoothed by the moving average) and the mean and SE are taken across
+    the subjects' curves, so every subject counts once. With ``weighting="event"`` every block
+    change counts once: the mean choice probability is the moving average of the mean of all
+    block changes' one-hot rows, and the SE is across the block changes' rows after the same
+    moving average (as the subject SE is across smoothed subject curves). Magnitudes are not
+    smoothed; their mean and SE are across all block changes. The event SE treats block changes
+    as independent, which block changes of one subject are not, so it is narrower than the
+    real uncertainty.
 
     Args:
         reversal_windows (dict): ``{subject: [block change dict]}`` from
@@ -434,13 +515,15 @@ def compute_reversal_aligned_arms(
             Magnitudes are not smoothed. Default 4.
         moving_avg_mode (str): ``"centered"`` or ``"trailing"``; the two give different curves,
             so compare figures only if they use the same mode. Default ``"centered"``.
+        weighting (str): ``"subject"`` (mean and SE across subjects) or ``"event"`` (across
+            block changes). Default ``"subject"``.
 
     Returns:
         ReversalAlignedArms: The aligned curves. With no block change left, its curves are all NaN
         and an :class:`EmptySelectionWarning` is emitted.
 
     Raises:
-        ValueError: For an unknown scheme or mode, a type the scheme does not have, a
+        ValueError: For an unknown scheme, mode or weighting, a type the scheme does not have, a
             *moving_avg_window* that is not a positive int, windows not built by the builder
             with this *pre*/*post*, a first-block record, or choice probabilities that do not
             sum to 1.
@@ -448,6 +531,7 @@ def compute_reversal_aligned_arms(
     check_scheme_type(scheme, reversal_type)
     check_moving_avg_window(moving_avg_window)
     check_windows_built_with(reversal_windows, pre=pre, post=post)
+    check_weighting(weighting)
     if moving_avg_mode not in MOVING_AVG_MODES:
         raise ValueError(
             f"moving_avg_mode must be one of {MOVING_AVG_MODES}, got {moving_avg_mode!r}"
@@ -458,7 +542,10 @@ def compute_reversal_aligned_arms(
     selected, counts = select_reversals(reversal_windows, scheme, reversal_type)
     window = dict(pre=pre, post=post, skip=skip)
     smooth = {"window": moving_avg_window, "mode": moving_avg_mode}
-    if selected:
+    if selected and weighting == "event":
+        choice = _event_choice_curves(selected, scheme, roles, offsets, smooth=smooth, **window)
+        magnitude = _event_magnitude_curves(selected, scheme, roles, **window)
+    elif selected:
         choice = _choice_curves(selected, scheme, roles, offsets, smooth=smooth, **window)
         magnitude = _magnitude_curves(selected, scheme, roles, **window)
     else:
@@ -473,6 +560,7 @@ def compute_reversal_aligned_arms(
         scheme=scheme,
         reversal_type=reversal_type,
         roles=roles,
+        weighting=weighting,
         trial_offsets=offsets,
         choice_mean=choice.mean,
         choice_se=choice.se,
