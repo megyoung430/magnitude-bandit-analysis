@@ -23,6 +23,8 @@ from src.behavior_analysis.get_believed_value import TIE_CATEGORIES
 from src.behavior_analysis.get_choice_probs_by_value import (
     BEST_VALS,
     SECOND_VALS,
+    TIE_EXCLUDE,
+    TIE_MODES,
     MouseCounts,
     choice_probs_from_counts,
     init_matrix,
@@ -100,15 +102,44 @@ def _membership(x_values: list, x_of_cell) -> np.ndarray:
     return np.array([[float(x_of_cell(b, s) == x) for b, s in _CELLS] for x in x_values])
 
 
-_MEMBERSHIP = {
-    "best_val": (BEST_VALS, _membership(BEST_VALS, lambda b, s: b)),
-    "second_val": (SECOND_VALS, _membership(SECOND_VALS, lambda b, s: s)),
-    "diff": (_DIFFS, _membership(_DIFFS, lambda b, s: b - s)),
+_X_OF_CELL = {
+    "best_val": lambda b, s: b,
+    "second_val": lambda b, s: s,
+    "diff": lambda b, s: b - s,
 }
 
 
-def _check_no_impossible_cell(counts: MouseCounts, subject: str) -> None:
-    """Raise if a mouse has trials in the cell with best below second."""
+def _x_values(x_axis: str, tie_mode: str) -> list[int]:
+    """The x values that can occur on *x_axis*.
+
+    Excluding ties removes every best == second trial, so a difference of 0 never occurs and
+    is not an x value; splitting ties keeps it.
+    """
+    values = {"best_val": BEST_VALS, "second_val": SECOND_VALS, "diff": _DIFFS}[x_axis]
+    if x_axis == "diff" and tie_mode == TIE_EXCLUDE:
+        return [x for x in values if x != 0]
+    return values
+
+
+def _check_tie_mode(tie_mode: str) -> None:
+    """Raise ValueError unless *tie_mode* is one of ``TIE_MODES``."""
+    if tie_mode not in TIE_MODES:
+        raise ValueError(f"tie_mode must be one of {TIE_MODES}, got {tie_mode!r}")
+
+
+def _check_no_impossible_cell(counts: MouseCounts, subject: str, tie_mode: str) -> None:
+    """Raise if a mouse has trials in a cell that cannot occur.
+
+    Those are the cell with best below second and, when ties are excluded, the cells with
+    best equal to second.
+    """
+    if tie_mode == TIE_EXCLUDE:
+        tied = [(b, s) for b, s in _CELLS if b == s and counts.denom.loc[b, s] > 0]
+        if tied:
+            raise ValueError(
+                f"{subject}: trials with best equal to second value in cells {tied}, "
+                "but ties are excluded; the counts were made with another tie mode"
+            )
     if counts.denom.loc[2, 3] > 0:
         raise ValueError(
             f"{subject}: {counts.denom.loc[2, 3]:g} trials have best value 2 below second "
@@ -141,15 +172,21 @@ def _mouse_values(
 
 
 def _curve(
-    counts_by_mouse: dict[str, MouseCounts], choice: str, x_axis: str, *, pool_trials: bool
+    counts_by_mouse: dict[str, MouseCounts],
+    choice: str,
+    x_axis: str,
+    *,
+    pool_trials: bool,
+    tie_mode: str,
 ) -> Curve:
     """The :class:`Curve` of *choice* ("best"/"second") against *x_axis*."""
-    x_values, member = _MEMBERSHIP[x_axis]
+    x_values = _x_values(x_axis, tie_mode)
+    member = _membership(x_values, _X_OF_CELL[x_axis])
     mice = sorted(counts_by_mouse)
     values, trials = [], []
     for subject in mice:
         counts = counts_by_mouse[subject]
-        _check_no_impossible_cell(counts, subject)
+        _check_no_impossible_cell(counts, subject, tie_mode)
         numerator = getattr(counts, f"num_{choice}").to_numpy(dtype=float).ravel()
         denom = counts.denom.to_numpy(dtype=float).ravel()
         values.append(_mouse_values(member, numerator, denom, pool_trials=pool_trials))
@@ -169,29 +206,36 @@ def _curve(
 
 
 def psychometric_curves(
-    counts_by_mouse: dict[str, MouseCounts], *, pool_trials: bool
+    counts_by_mouse: dict[str, MouseCounts], *, pool_trials: bool, tie_mode: str
 ) -> dict[str, dict[str, Curve]]:
     """P(best) and P(second) against best value, second value and best - second value.
 
-    The three x axes use the same trials: every cell with best >= second (ties, where best
-    equals second, are on the difference axis at 0 as well as on both value axes).
+    The three x axes use the same trials: every cell with best >= second. Tied trials (best
+    equal to second) are on the difference axis at 0 when ties are split; when ties are
+    excluded there are none, so the difference axis has only the differences 1, 2 and 3.
 
     Args:
         counts_by_mouse (dict[str, MouseCounts]): Output of ``count_choice_probs``.
         pool_trials (bool): Within each mouse, pool trials across the cells sharing an x
             (``True``) or average the cell probabilities equally (``False``). Mice are the
             replicates for the mean and standard error either way.
+        tie_mode (str): The tie mode *counts_by_mouse* was made with: ``"exclude"`` (the
+            difference axis has no x = 0) or ``"split"`` (it does).
 
     Returns:
         dict[str, dict[str, Curve]]: ``curves[choice][x_axis]`` for choice in
         ``("best", "second")`` and x_axis in ``("best_val", "second_val", "diff")``.
 
     Raises:
-        ValueError: If a mouse has trials in the impossible cell best 2 / second 3.
+        ValueError: If *tie_mode* is unknown, a mouse has trials in the impossible cell
+            best 2 / second 3, or ties are excluded and a mouse has trials with best equal to
+            second.
     """
+    _check_tie_mode(tie_mode)
     return {
         choice: {
-            axis: _curve(counts_by_mouse, choice, axis, pool_trials=pool_trials) for axis in X_AXES
+            axis: _curve(counts_by_mouse, choice, axis, pool_trials=pool_trials, tie_mode=tie_mode)
+            for axis in X_AXES
         }
         for choice in CHOICES
     }
