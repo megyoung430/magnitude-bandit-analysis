@@ -10,6 +10,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import warnings
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -272,9 +273,11 @@ def test_the_pipeline_names_each_figure_after_its_title_and_writes_no_csv(tmp_pa
         {1: data()}, tmp_path, pre=4, post=6, moving_avg_window=1
     )
     expected = sorted(f"{stem}.png" for (_, _, stem) in EXPECTED.values())
-    assert sorted(n for n in capture.saved_names() if n.endswith(".png")) == expected
-    assert not list(tmp_path.glob("*.csv"))
-    assert len(result["counts"]) == 6
+    for folder in ("mouse-weighted", "event-weighted"):
+        saved = [Path(s.path) for s in capture.saved if Path(s.path).parent.name == folder]
+        assert sorted(p.name for p in saved if p.name.endswith(".png")) == expected
+    assert not list(tmp_path.rglob("*.csv"))
+    assert len(result["counts"]) == 12
     assert (result["counts"]["n_reversals"] > 0).all()
 
 
