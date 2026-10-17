@@ -84,24 +84,51 @@ class SkippedRecording:
     reason: str
 
 
-def _trains_align(ppd_pulses_ms: np.ndarray, tsv_pulses_s: np.ndarray) -> bool:
-    """Whether the ``.ppd`` pulse train genuinely aligns with the pyControl one.
+def _check_candidate(
+    ppd_pulses_ms: np.ndarray, tsv_pulses_s: np.ndarray
+) -> tuple[bool, str | None]:
+    """Whether the ``.ppd`` pulse train genuinely aligns with one pyControl train, and why not.
 
     The aligner can accept a chance fit of a short train, so the alignment must also pair at
     least ``MIN_FRACTION_MATCHED`` of the pulses with a median interval error under
     ``MAX_MEDIAN_DISCREPANCY_MS``.
+
+    Returns:
+        tuple[bool, str | None]: (aligned, error). A ValueError from the aligner (a malformed
+        candidate train, e.g. repeated times) makes only this candidate a non-match and its
+        message is returned as *error*; an ordinary non-match has error None.
     """
     if len(tsv_pulses_s) < min_pulses_required():
-        return False
+        return False, None
     try:
         aligner = align_to_pycontrol(ppd_pulses_ms, tsv_pulses_s, units_ms=1)
     except RsyncError:  # no match is the expected answer for an unrelated TSV
-        return False
+        return False, None
+    except ValueError as error:  # malformed candidate: reject it alone, keep the reason
+        return False, str(error)
     quality = sync_quality(aligner)
-    return (
+    aligned = (
         quality["fraction_matched"] >= MIN_FRACTION_MATCHED
         and quality["median_abs_interval_discrepancy_ms"] <= MAX_MEDIAN_DISCREPANCY_MS
     )
+    return aligned, None
+
+
+def _match_candidates(
+    ppd_pulses_ms: np.ndarray, tsv_pulse_lists: Sequence[np.ndarray]
+) -> tuple[int | None, dict[int, str]]:
+    """(index of the single matching candidate or None, error message per rejected candidate)."""
+    matches: list[int] = []
+    errors: dict[int, str] = {}
+    for i, pulses in enumerate(tsv_pulse_lists):
+        aligned, error = _check_candidate(ppd_pulses_ms, pulses)
+        if aligned:
+            matches.append(i)
+        if error is not None:
+            errors[i] = error
+    if len(matches) > 1:
+        raise ValueError(f"the .ppd pulses match more than one .tsv (candidates {matches}).")
+    return (matches[0] if matches else None), errors
 
 
 def match_ppd_to_tsv(
@@ -121,19 +148,15 @@ def match_ppd_to_tsv(
         int | None: Position in *tsv_pulse_lists* of the matching file, or None if the
         ``.ppd`` has too few pulses or no file matches. A candidate counts as matching only
         if the aligner accepts it, at least half of the shorter train's pulses are paired, and
-        the median interval error is under 50 ms.
+        the median interval error is under 50 ms. A malformed candidate (the aligner raises
+        ValueError) is a non-match for that candidate only.
 
     Raises:
         ValueError: If more than one file matches, which means the pairing is ambiguous.
     """
     if len(ppd_pulses_ms) < max(min_pulses, min_pulses_required()):
         return None
-    matches = [
-        i for i, pulses in enumerate(tsv_pulse_lists) if _trains_align(ppd_pulses_ms, pulses)
-    ]
-    if len(matches) > 1:
-        raise ValueError(f"the .ppd pulses match more than one .tsv (candidates {matches}).")
-    return matches[0] if matches else None
+    return _match_candidates(ppd_pulses_ms, tsv_pulse_lists)[0]
 
 
 def read_tsv_sync_pulses(tsv_path: Path) -> np.ndarray:
@@ -211,9 +234,13 @@ def _load_one(
     if not tsv_pulses:
         return SkippedRecording(ppd_path, "the session has no .tsv file.")
     tsv_paths = list(tsv_pulses)
-    index = match_ppd_to_tsv(ppd_pulses_ms, [tsv_pulses[p] for p in tsv_paths], min_pulses)
+    index, errors = _match_candidates(ppd_pulses_ms, [tsv_pulses[p] for p in tsv_paths])
     if index is None:
-        return SkippedRecording(ppd_path, "no .tsv in the session has a matching rsync train.")
+        reason = "no .tsv in the session has a matching rsync train."
+        if errors:
+            detail = "; ".join(f"{tsv_paths[i].name}: {msg}" for i, msg in errors.items())
+            reason += f" Rejected as malformed: {detail}"
+        return SkippedRecording(ppd_path, reason)
     tsv_path = tsv_paths[index]
     sample_times, aligner = photometry_sample_times(data, tsv_pulses[tsv_path])
     return _build_recording(session, ppd_path, tsv_path, data, sample_times, sync_quality(aligner))

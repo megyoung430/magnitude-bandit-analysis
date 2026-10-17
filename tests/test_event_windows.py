@@ -6,6 +6,7 @@ import pytest
 from src.photometry_analysis.event_windows import (
     complete_window_mask,
     extract_event_windows,
+    gap_spans,
     random_event_times,
     relative_time_grid,
     sync_coverage,
@@ -114,5 +115,65 @@ def test_random_times_all_give_complete_windows_and_are_reproducible():
 
 
 def test_random_times_reject_coverage_shorter_than_window():
-    with pytest.raises(ValueError, match="shorter than"):
+    with pytest.raises(ValueError, match="no room"):
         random_event_times(np.random.default_rng(0), 3, (0.0, 2.0), (-1.0, 2.0))
+
+
+def make_gapped_trace():
+    """The ramp with NaN sample times from 140 s to 160 s: a gap inside the sync coverage."""
+    time, values = make_trace()
+    time[(time >= 140.0) & (time < 160.0)] = np.nan
+    values = np.where(np.isnan(time), 0.0, time)
+    return time, values
+
+
+def test_gap_spans_report_the_nan_stretch_inside_coverage_only():
+    time, _ = make_gapped_trace()
+    ((start, stop),) = gap_spans(time)
+    # bounded by the last finite sample before and the first after the gap
+    assert start == pytest.approx(139.9) and stop == pytest.approx(160.0)
+
+
+def test_extract_rejects_windows_overlapping_a_gap_and_keeps_those_away_from_it():
+    time, values = make_gapped_trace()
+    window = (-1.0, 2.0)
+    # 150 is inside the gap; 138.5 and 159.5 have a window reaching into it (138.5+2 > 139.9;
+    # 159.5-1 < 160); 130 and 170 are clear of it
+    events = np.array([130.0, 138.5, 150.0, 159.5, 170.0])
+    rel, trials, keep = extract_event_windows(time, values, events, window, FS)
+    np.testing.assert_array_equal(keep, [True, False, False, False, True])
+    np.testing.assert_allclose(trials, events[keep, None] + rel[None, :])
+
+
+def test_a_window_can_touch_the_gap_edge_samples():
+    time, values = make_gapped_trace()
+    # window (-1, 2) after 139.9 - 2 = 137.9 ends exactly on the last sample before the gap
+    _, _, keep = extract_event_windows(time, values, np.array([137.9, 161.0]), (-1.0, 2.0), FS)
+    assert keep.all()
+
+
+def test_random_times_avoid_the_gap_and_stay_inside_coverage():
+    time, _ = make_gapped_trace()
+    window = (-1.0, 2.0)
+    coverage = sync_coverage(time)
+    times = random_event_times(
+        np.random.default_rng(1), 2000, coverage, window, gaps=gap_spans(time)
+    )
+    assert complete_window_mask(times, coverage, window, gaps=gap_spans(time)).all()
+    # both sides of the gap are sampled
+    assert (times < 139.9).any() and (times > 160.0).any()
+
+
+def test_random_times_stay_inside_the_event_span():
+    coverage = (105.0, 194.9)
+    times = random_event_times(
+        np.random.default_rng(2), 1000, coverage, (-1.0, 2.0), event_span=(120.0, 130.0)
+    )
+    assert times.min() >= 120.0 and times.max() <= 130.0
+
+
+def test_random_times_raise_when_the_event_span_leaves_no_room():
+    with pytest.raises(ValueError, match="no room"):
+        random_event_times(
+            np.random.default_rng(0), 3, (105.0, 194.9), (-1.0, 2.0), event_span=(300.0, 310.0)
+        )
