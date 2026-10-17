@@ -26,8 +26,8 @@ in the notebook before real data is touched.
 3. Pipeline A, the primer's order: LED-off subtraction, optional median filter, zero-phase low-pass, double-exponential bleaching, control regression, ΔF/F and session z; every stage plotted for one recording.
 4. Pipeline B, the nLightG2 paper: same steps to ΔF/F, then trial baseline subtraction, trial z-score, 80-point `movmean`, mean ± SEM, peak and AUC. Implemented from the methods excerpt adapted in Meg's earlier notebook (the paper's Methods could not be retrieved); marked in the notebook for checking.
 5. Written comparison with a computed table (session SD against pre-event SD, between-trial baseline spread, smoothing lead).
-6. QC suite: acquisition, denoising, bleaching, movement and connection jumps, spectral/transient SNR, evoked SNR; flags with configurable thresholds (flag, never exclude).
-7. Outcome-aligned responses per mouse (rewarded at `reward_onset`, unrewarded at `no_reward_cue_onset`), both pipelines.
+6. QC suite (specificity = uncorrected sensor SNR minus control SNR, flag below 1 dB; evoked SNR ranked by absolute z): acquisition, denoising, bleaching, movement and connection jumps, spectral/transient SNR, evoked SNR; flags with configurable thresholds (flag, never exclude).
+7. Outcome-aligned responses per mouse (rewarded at `reward_onset`, unrewarded at `no_reward_cue_onset`), both pipelines; 7b control-channel responses (signal before correction, control, fitted control contribution, corrected) with peak-ratio table.
 8. Trial-matched random-time control (200 seeded draws), both pipelines; 8b evoked SNR and the per-mouse ranking.
 9. Summary and open questions.
 
@@ -48,7 +48,9 @@ in the notebook before real data is touched.
 - Pipeline B should be checked against the paper's Methods.
 - Whether to correct the 6-ms offset of the no-reward cue (494 ms measured against 500 ms logged; below one 7.7-ms sample).
 - Whether the time-locked deflection at the outcome, similar in both conditions in many mice, is physiological or task-locked (light, sound, pump).
-- Sensor specificity (corrected sensor minus control, in dB) is negative in nearly all recordings.
+- Uncorrected specificity (sensor SNR minus control SNR, before regression) is near 0 dB for most mice: slow fluctuations are as strong in the control.
+- A sharp peak or dip at t = 0 for both outcomes in several mice, present in the control channel too (section 7b); and small corrected ΔF/F (about 0.05-0.1 %, arithmetic verified in section 3).
+- 405 nm as the isosbestic point of nLightG2 is not verified.
 
 ## Results change
 
