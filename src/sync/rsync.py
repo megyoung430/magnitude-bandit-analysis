@@ -23,6 +23,11 @@ class RsyncWarning(UserWarning):
 _NO_MATCH_MESSAGE = "No match found between inter-pulse interval sequences."
 
 
+def min_pulses_required(chunk_size: int = 5) -> int:
+    """Fewest pulses a train may hold for the aligner to form two chunks from it."""
+    return 2 * chunk_size + 1
+
+
 def _as_pulse_times(pulse_times, name: str, min_pulses: int) -> np.ndarray:
     """Return *pulse_times* as a float array after checking it can be aligned.
 
@@ -236,7 +241,7 @@ class RsyncAligner:
         """
         if int(chunk_size) != chunk_size or chunk_size < 1:
             raise ValueError(f"chunk_size must be a positive integer, got {chunk_size!r}.")
-        min_pulses = 2 * chunk_size + 1
+        min_pulses = min_pulses_required(chunk_size)
         pulse_times_A = _as_pulse_times(pulse_times_A, "A", min_pulses)
         pulse_times_B = _as_pulse_times(pulse_times_B, "B", min_pulses)
         if units_A == "auto" or units_B == "auto":

@@ -3,7 +3,13 @@
 import numpy as np
 import pytest
 
-from src.sync.rsync import Rsync_aligner, RsyncAligner, RsyncError, RsyncWarning
+from src.sync.rsync import (
+    Rsync_aligner,
+    RsyncAligner,
+    RsyncError,
+    RsyncWarning,
+    min_pulses_required,
+)
 from tests.sync_fixtures import kept_pulse_indices, simulate_pulses
 
 SEED = 7
@@ -142,3 +148,13 @@ def test_invalid_inputs_raise_value_error(kwargs, message):
     args = {"pulse_times_A": pulses_A, "pulse_times_B": pulses_B, **kwargs}
     with pytest.raises(ValueError, match=message):
         RsyncAligner(**args)
+
+
+@pytest.mark.filterwarnings("ignore::src.sync.rsync.RsyncWarning")
+def test_shortest_alignable_train_is_the_one_the_aligner_accepts():
+    assert min_pulses_required() == 11
+    assert min_pulses_required(chunk_size=3) == 7
+    pulses_A, pulses_B = _train(n_pulse=50)
+    RsyncAligner(pulses_A[:11], pulses_B, raise_exception=False)  # long enough to try
+    with pytest.raises(ValueError, match="at least 11"):
+        RsyncAligner(pulses_A[:10], pulses_B)

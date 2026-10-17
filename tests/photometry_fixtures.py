@@ -14,7 +14,7 @@ ADC_MAX_VALUE = 1 << 15
 def pulse_trace(n_samples: int, pulse_samples, width: int = 3) -> np.ndarray:
     """Digital trace that rises at each of *pulse_samples* and stays high for *width* samples."""
     trace = np.zeros(n_samples, dtype=int)
-    for sample in pulse_samples:
+    for sample in np.asarray(pulse_samples).astype(int):
         trace[sample : sample + width] = 1
     return trace
 
