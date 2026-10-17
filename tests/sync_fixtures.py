@@ -56,3 +56,32 @@ def simulate_pulses(
         pulse_times_A = pulse_times_A[keep_A] + 2e5 * restarted
         pulse_times_B = pulse_times_B[keep_B]
     return pulse_times_A, pulse_times_B
+
+
+def sample_clock_pulses(
+    rng: np.random.Generator,
+    n_pulse: int = 60,
+    sampling_rate: float = 130.0,
+    clock_offset_s: float = 12.3,
+    jitter_ms: float = 0.2,
+) -> tuple[np.ndarray, np.ndarray]:
+    """One pulse train as a sampled recorder and as pyControl timestamp it.
+
+    The recorder (a photometry system) sees each pulse at the sample where it began, in ms
+    from the start of its recording. pyControl sees the same pulses in seconds on its own
+    clock, which started *clock_offset_s* earlier, with *jitter_ms* of timestamp noise.
+
+    Args:
+        rng (np.random.Generator): Source of randomness.
+        n_pulse (int): Number of pulses.
+        sampling_rate (float): Samples per second of the recorder.
+        clock_offset_s (float): pyControl time at which the recorder's first sample was taken.
+        jitter_ms (float): Standard deviation of pyControl's timestamp noise (ms).
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: Pulse times on the recorder (ms) and on pyControl (s).
+    """
+    sample_index = np.cumsum(rng.integers(13, 247, size=n_pulse))  # 0.1 to 1.9 s apart
+    recorder_ms = sample_index * 1000 / sampling_rate
+    pycontrol_s = clock_offset_s + recorder_ms / 1000 + rng.normal(0, jitter_ms / 1000, n_pulse)
+    return recorder_ms, pycontrol_s
