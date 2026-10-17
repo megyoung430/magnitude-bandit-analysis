@@ -27,8 +27,16 @@ Section 7e of `scripts/photometry/cohort_photometry_preprocessing.ipynb` splits 
 
 0 pulses is aligned to the no-reward cue and 1-4 pulses to reward onset (different events). Reward size is confounded with
 arm, value and time at the port (4 pulses take about 0.9 s longer). The 2- and 3-pulse lines come from `RT_177_N` and
-`RT_177_LR` only, so group-figure lines average different mice (dashed, mice named). Trials of a session are not independent.
+`RT_177_LR` only. In the group and RT_176_L figures a line is solid when every mouse of the group has at least
+`MIN_TRIALS_PER_PULSE` usable trials in the category, and dashed otherwise (mice named in the legend): Group 2's 1-pulse line is
+dashed too (`RT_65_LR` has 2 usable trials, so 4 of 5 mice), as are its 2- and 3-pulse lines. Dashed lines average different
+mice from the solid ones. Y-limits come from the solid lines only; dashed lines may extend past the axes. Trials of a session
+are not independent.
 
 ## Results change
 
 None for existing analyses; new outputs only (git-ignored).
+
+`PULSE_PHASES` must be a subset of `PHASES` and the trials come from the same event table as section 7, so section 7e is a
+subset of section 7. Pulse colours run from teal (1 pulse) to dark blue (4 pulses), 0 pulses in red.
+Dropped categories are reported for every data set the threshold is applied to (signal and control per-mouse, signal group).
