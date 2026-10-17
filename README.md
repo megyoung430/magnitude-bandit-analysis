@@ -163,7 +163,7 @@ folder without any bump. Finished results always stay readable in the old folder
 | `src/pipelines/` | End-to-end analysis pipelines as functions with typed settings (`open_field.py`: every standard open-field figure, per problem; `cohort_analysis.py`: the whole suite for a cohort, split by blocked/drifting task type). Scripts and notebooks call these rather than copying or exec-ing script code. |
 | `src/task_simulations/` | Synthetic bandit sessions (GP-driven and Markov-chain reward dynamics) for comparing real behavior against simulated agents. |
 | `scripts/individual_analyses/` | Standalone scripts, one per analysis/plot type — thin wrappers around `src/`. |
-| `scripts/full_pipelines/` | Entry points for full cohort runs (`run_cohorts.py` calls `src/pipelines/cohort_analysis.py`; `run_open_field_analysis.py` calls `src/pipelines/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
+| `scripts/full_pipelines/` | Entry points for full cohort runs (`run_cohorts.py` calls `src/pipelines/cohort_analysis.py`; `run_all_drifting_problems.py` calls `src/pipelines/all_cohorts_drifting.py`; `run_open_field_analysis.py` calls `src/pipelines/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
 | `scripts/to_integrate/` | Exploratory notebooks not yet folded into `src/`. |
 
 ## Getting started
@@ -283,6 +283,30 @@ report all failures at the end.
   previous folder layout (`cohort-0N/problem-NN/`) and the old `... by Average` rank-proportion
   files next to the new ones, so start from a clean `results/figures` folder. The
   across-blocks rank-proportion figure now has its own y tick labels.
+
+### Pooling drifting problems across cohorts
+
+```bash
+uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4
+```
+
+makes the figures of `drifting/all-drifting-problems/` (`choice-stats`, `value-psychometrics`,
+`reversal-aligned-arms`, `value-change`, `port-preference`) from the drifting problems of the
+listed cohorts together (`--no-cache` re-imports the raw files). They go to
+`results/figures/open-field/all-cohorts/<same subfolders>/`, with `cohorts.txt` there naming the
+cohorts pooled, the mice per cohort and the time of the run; the diagnostic tables
+(`reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`) go
+to `results/tables/open-field/all-cohorts/`. A rerun replaces those five folders and tables, so
+the files always match `cohorts.txt`; the titles say "all drifting problems, cohorts 1, 3, 4".
+
+- Problems stay separate: each is keyed `(cohort, drifting problem number)`, beliefs reset at each
+  problem, and windows and events never cross a problem boundary.
+- Mouse ids must be unique across cohorts; a mouse in two cohorts stops the run with an error
+  naming it. A cohort without drifting problems also stops it.
+- There are no per-mouse figures (the "Per Mouse" value heatmaps and port-preference mazes are in
+  the cohort folders) and no legends naming mice; the per-mouse lines are still drawn, and the
+  legends for curve types (P(best), P(second), ...) stay. The code is
+  `src/pipelines/all_cohorts_drifting.py`.
 
 ### Reversals at session boundaries
 

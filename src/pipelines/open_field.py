@@ -688,6 +688,9 @@ def run_drifting_value_analyses(
     *,
     arm_scope_label: str,
     previous_choice_towers: dict | None = None,
+    x_vs_plus: bool | None = None,
+    per_mouse_figures: bool = True,
+    mouse_legends: bool = True,
 ) -> dict:
     """The selected drifting-only analyses over *problems*, each in a subfolder of *out_dir*.
 
@@ -706,6 +709,13 @@ def run_drifting_value_analyses(
         previous_choice_towers (dict | None): ``{mouse: choice ports of the mouse's previous
             problem, or None}`` for the red outlines of the port-preference heatmaps of one
             problem. Default None: no red outlines (as for the pool).
+        x_vs_plus (bool | None): Draw the port-preference X versus plus figure. Default
+            ``None``: only when *arm_scope_label* is ``POOLED_DRIFTING_LABEL``, because a single
+            problem's three ports usually lie in one category. Keyword-only.
+        per_mouse_figures (bool): Draw the figures with one panel per mouse (the per-mouse
+            value heatmaps and port-preference mazes). Default ``True``. Keyword-only.
+        mouse_legends (bool): Name the mice in the legend of the port-preference X versus plus
+            figure; the lines are drawn either way. Default ``True``. Keyword-only.
 
     Returns:
         dict[str, pd.DataFrame]: The figures are written under *out_dir*. The diagnostic tables
@@ -716,7 +726,11 @@ def run_drifting_value_analyses(
     out_dir = Path(out_dir)
     tables = {}
     if selection.run_value_psychometric_analysis:
-        run_value_psychometric_analysis(problems, out_dir / VALUE_PSYCHOMETRICS_FOLDER)
+        run_value_psychometric_analysis(
+            problems,
+            out_dir / VALUE_PSYCHOMETRICS_FOLDER,
+            per_mouse_heatmaps=per_mouse_figures,
+        )
     if selection.run_reversal_aligned_arm_analysis:
         arms = run_reversal_aligned_arm_analysis(
             pooled_arm_windows(problems),
@@ -736,7 +750,9 @@ def run_drifting_value_analyses(
             out_dir / PORT_PREFERENCE_FOLDER,
             scope_label=arm_scope_label,
             previous_choice_towers=previous_choice_towers,
-            x_vs_plus=arm_scope_label == POOLED_DRIFTING_LABEL,
+            x_vs_plus=arm_scope_label == POOLED_DRIFTING_LABEL if x_vs_plus is None else x_vs_plus,
+            per_mouse_heatmap=per_mouse_figures,
+            mouse_legend=mouse_legends,
         )
     return tables
 

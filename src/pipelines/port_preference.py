@@ -64,6 +64,8 @@ def run_port_preference_analysis(
     scope_label: str,
     previous_choice_towers: dict | None = None,
     x_vs_plus: bool = True,
+    per_mouse_heatmap: bool = True,
+    mouse_legend: bool = True,
 ) -> dict:
     """How much each port, and X versus plus ports, is chosen relative to how often it is best.
 
@@ -81,7 +83,7 @@ def run_port_preference_analysis(
 
     - ``Port Preference X vs Plus``: bars of mean ± SE across mice, one line per mouse;
     - ``Port Preference Per Mouse``: one 3 x 3 maze per mouse coloured by the port ratios
-      (log2 scale centred on 1, grey where undefined).
+      (log2 scale centred on 1, grey where undefined); not with ``per_mouse_heatmap=False``.
 
     Pass all drifting problems for the across-problem figures, or one problem for that
     problem's own figures.
@@ -100,6 +102,9 @@ def run_port_preference_analysis(
             ports usually all lie in one category, so the cohort runner draws it only for the
             pool of all drifting problems. Default True. The category ratios are returned
             either way.
+        per_mouse_heatmap (bool): Draw ``Port Preference Per Mouse``. Default True.
+        mouse_legend (bool): Name the mice in the legend of ``Port Preference X vs Plus``
+            (their lines are drawn either way). Default True.
 
     Returns:
         dict: ``"counts"`` (the :class:`PortCounts` per mouse and problem), ``"port_ratios"``
@@ -143,15 +148,17 @@ def run_port_preference_analysis(
             summary,
             scope_label=scope_label,
             n_excluded=len(single_category_mice),
+            mouse_legend=mouse_legend,
             save_path=out_dir / CATEGORY_FIGURE,
         )
-    plot_port_ratio_heatmaps(
-        port_ratios,
-        scope_label=scope_label,
-        save_path=out_dir / HEATMAP_FIGURE,
-        initiation_ports=_initiation_ports(counts.by_port),
-        **_problem_outlines(subjects_trials_by_problem, previous_choice_towers),
-    )
+    if per_mouse_heatmap:
+        plot_port_ratio_heatmaps(
+            port_ratios,
+            scope_label=scope_label,
+            save_path=out_dir / HEATMAP_FIGURE,
+            initiation_ports=_initiation_ports(counts.by_port),
+            **_problem_outlines(subjects_trials_by_problem, previous_choice_towers),
+        )
     return {
         "counts": counts,
         "port_ratios": port_ratios,

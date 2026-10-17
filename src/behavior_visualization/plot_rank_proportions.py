@@ -70,6 +70,7 @@ def plot_rank_proportions(
     average_by_mouse=True,
     average_by_block=False,
     pool_trials_within_subject=False,
+    mouse_legend=True,
 ):
     """Dispatcher that creates one or more rank-proportion figures.
 
@@ -101,6 +102,8 @@ def plot_rank_proportions(
             average-across-mice panel weight each mouse's blocks by trial count
             (pooled proportions) instead of averaging the block proportions.
             The by-block grid ignores it. Default False.
+        mouse_legend (bool): Name the mice in the legend of the across-mice figure; their lines
+            are drawn either way. Default True.
 
     Returns:
         None
@@ -123,6 +126,7 @@ def plot_rank_proportions(
             average_across_mice_pvalues=average_across_mice_pvalues,
             save_path=_view_path(save_path, "by Average Across Mice"),
             pool_trials_within_subject=pool_trials_within_subject,
+            mouse_legend=mouse_legend,
         )
     if average_by_block:
         plot_rank_proportions_average_by_block(
@@ -230,6 +234,7 @@ def plot_average_across_mice(
     *,
     pvalues: dict | None = None,
     pool_trials_within_subject: bool = False,
+    mouse_legend: bool = True,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
     """Bars (mean ± SE across mice) with one coloured line per mouse.
@@ -243,6 +248,8 @@ def plot_average_across_mice(
         pool_trials_within_subject (bool): Each mouse's value is its pooled proportion
             (weighted by trial count) instead of the mean of its block proportions.
             Default False.
+        mouse_legend (bool): List the mice by name in a legend; the lines are drawn either way.
+            Default True.
         ax (plt.Axes | None): Axes to draw into; a new 6.5 x 5.5 inch figure is created if
             None. Default None.
 
@@ -274,7 +281,8 @@ def plot_average_across_mice(
     ]
     title = "Pooled Trials Within Mouse" if pool_trials_within_subject else "Average Across Mice"
     _style_axis(ax, title, 14, show_ylabel=True)
-    ax.legend(handles=handles, fontsize=10, loc="upper right")
+    if mouse_legend:
+        ax.legend(handles=handles, fontsize=10, loc="upper right")
     return ax
 
 
@@ -491,6 +499,7 @@ def plot_rank_proportions_average_by_mouse(
     average_across_mice_pvalues=None,
     save_path=None,
     pool_trials_within_subject=False,
+    mouse_legend=True,
 ):
     """Single-panel figure of :func:`plot_average_across_mice`.
 
@@ -506,6 +515,8 @@ def plot_rank_proportions_average_by_mouse(
             the figure is shown interactively. Default None.
         pool_trials_within_subject (bool): Use each mouse's pooled proportion (weighted by
             trial count); the panel is then titled "Pooled Trials Within Mouse". Default False.
+        mouse_legend (bool): Name the mice in a legend; their lines are drawn either way.
+            Default True.
 
     Returns:
         None
@@ -515,6 +526,7 @@ def plot_rank_proportions_average_by_mouse(
         rank_counts_by_good_reversal,
         pvalues=average_across_mice_pvalues,
         pool_trials_within_subject=pool_trials_within_subject,
+        mouse_legend=mouse_legend,
         ax=ax,
     )
     fig.tight_layout()
