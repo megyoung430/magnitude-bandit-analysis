@@ -11,6 +11,7 @@ from src.photometry_import.recordings import (
     match_ppd_to_tsv,
 )
 from src.photometry_import.sessions import find_photometry_sessions
+from src.sync.pycontrol_time import align_to_pycontrol, sync_quality
 from tests.photometry_fixtures import (
     SAMPLING_RATE,
     VOLTS_PER_DIVISION,
@@ -278,3 +279,28 @@ def test_tsv_pulses_can_be_supplied_instead_of_read(tmp_path):
     session = dataclasses.replace(session, tsv_paths=(tsv,))
     (rec,), _ = load_photometry_recordings(session, tsv_pulses_s={tsv: tsv_s})
     assert rec.tsv_path == tsv
+
+
+# --- chance fits are not matches ----------------------------------------------------------
+
+
+def test_a_ppd_sharing_only_a_few_pulses_with_a_long_tsv_is_not_a_match():
+    # The aligner accepts this pair on the strength of its one genuinely shared chunk, but the
+    # other pulses of the .ppd have no partner.
+    ppd_full, tsv_s = _pulses(1, n_pulse=232)
+    tail = ppd_full[7] + np.cumsum(np.random.default_rng(100).uniform(100, 1900, 17))
+    ppd_ms = np.r_[ppd_full[:8], tail]
+    aligner = align_to_pycontrol(ppd_ms, tsv_s, units_ms=1)
+    assert sync_quality(aligner)["fraction_matched"] < 0.5
+    assert match_ppd_to_tsv(ppd_ms, [tsv_s]) is None
+
+
+def test_a_ppd_whose_intervals_disagree_with_the_tsv_is_not_a_match():
+    rng = np.random.default_rng(4)
+    tsv_ms = np.cumsum(rng.uniform(1000, 5000, 60))
+    interval_errors = rng.normal(0, 120, 60)  # ms of disagreement per interval
+    ppd_ms = np.cumsum(np.diff(tsv_ms, prepend=0.0) + interval_errors)
+    tsv_s = 10.0 + tsv_ms / 1000
+    aligner = align_to_pycontrol(ppd_ms, tsv_s, units_ms=1)  # the aligner alone accepts it
+    assert sync_quality(aligner)["median_abs_interval_discrepancy_ms"] > 50
+    assert match_ppd_to_tsv(ppd_ms, [tsv_s]) is None

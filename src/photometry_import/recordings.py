@@ -25,6 +25,11 @@ from src.sync.pycontrol_time import (
 from src.sync.rsync import RsyncError, min_pulses_required
 
 DEFAULT_MIN_PULSES = 20
+# A true match pairs nearly every pulse of the shorter train, with interval errors of the order
+# of one sample period (about 8 ms at 130 Hz). A chance fit of a short train inside a long
+# unrelated one pairs few pulses and is off by hundreds of ms, so both limits reject it.
+MIN_FRACTION_MATCHED = 0.5
+MAX_MEDIAN_DISCREPANCY_MS = 50.0
 
 
 @dataclass(frozen=True, eq=False)
@@ -80,14 +85,23 @@ class SkippedRecording:
 
 
 def _trains_align(ppd_pulses_ms: np.ndarray, tsv_pulses_s: np.ndarray) -> bool:
-    """Whether the ``.ppd`` pulse train aligns with the pyControl one."""
+    """Whether the ``.ppd`` pulse train genuinely aligns with the pyControl one.
+
+    The aligner can accept a chance fit of a short train, so the alignment must also pair at
+    least ``MIN_FRACTION_MATCHED`` of the pulses with a median interval error under
+    ``MAX_MEDIAN_DISCREPANCY_MS``.
+    """
     if len(tsv_pulses_s) < min_pulses_required():
         return False
     try:
-        align_to_pycontrol(ppd_pulses_ms, tsv_pulses_s, units_ms=1)
+        aligner = align_to_pycontrol(ppd_pulses_ms, tsv_pulses_s, units_ms=1)
     except RsyncError:  # no match is the expected answer for an unrelated TSV
         return False
-    return True
+    quality = sync_quality(aligner)
+    return (
+        quality["fraction_matched"] >= MIN_FRACTION_MATCHED
+        and quality["median_abs_interval_discrepancy_ms"] <= MAX_MEDIAN_DISCREPANCY_MS
+    )
 
 
 def match_ppd_to_tsv(
@@ -105,7 +119,9 @@ def match_ppd_to_tsv(
 
     Returns:
         int | None: Position in *tsv_pulse_lists* of the matching file, or None if the
-        ``.ppd`` has too few pulses or no file matches.
+        ``.ppd`` has too few pulses or no file matches. A candidate counts as matching only
+        if the aligner accepts it, at least half of the shorter train's pulses are paired, and
+        the median interval error is under 50 ms.
 
     Raises:
         ValueError: If more than one file matches, which means the pairing is ambiguous.
