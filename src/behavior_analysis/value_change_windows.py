@@ -404,6 +404,26 @@ def _standard_label(magnitudes: dict, choice: Any, third: Any) -> str | tuple[st
     return "best" if choice == pair[0] else "second"
 
 
+def swap_label_arms(magnitudes: dict) -> dict[str, Any]:
+    """The arm behind each rank-swap label, from the magnitudes of trial i - 1.
+
+    Args:
+        magnitudes (dict): ``{arm: magnitude}`` of the three arms.
+
+    Returns:
+        dict[str, Any]: ``{"prev_best": arm, "prev_second": arm, "third": arm}``.
+
+    Raises:
+        ValueError: If the lowest magnitude or the best and second-best magnitudes tie, so the
+            labels are not determined (such an event is never a rank-swap event).
+    """
+    third = _third_arm(magnitudes)
+    pair = None if third is None else _ranked_pair(magnitudes, third)
+    if pair is None:
+        raise ValueError(f"ranks are tied, so swap labels are undetermined: {magnitudes}")
+    return dict(zip(SWAP_LABELS, (*pair, third), strict=True))
+
+
 def _swap_label(choice: Any, pair: tuple[Any, Any], arms: dict) -> str | None:
     """``prev_best``/``prev_second``/``third`` for the chosen arm, ``None`` without a choice."""
     if choice is None or choice == "":
