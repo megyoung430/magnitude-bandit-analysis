@@ -115,6 +115,14 @@ def test_title_says_mean_only_for_one_mouse_and_has_no_stray_bracket():
     plt.close("all")
 
 
+def test_event_weighted_title_says_across_events():
+    w = get_value_change_windows(two_mice(), "best", "increase", "all", pre=5, post=15)
+    title = plot_value_change_panel(summarize_windows(w, weighting="event")).get_title()
+    assert "(mean ± se across events, each event weighted equally |" in title
+    assert "n=2 mice" in title and "n=4 events" in title
+    plt.close("all")
+
+
 def test_filter_and_mode_are_in_the_heading_for_a_swap_configuration():
     swap = {"m1": {key(1): session(recording(script(40, BASE, {10: mag(4, 6, 1)})))}}
     curves = curves_for(
@@ -218,9 +226,19 @@ def no_figures(monkeypatch):
 
 def test_entry_writes_only_figures_to_the_folder(full_run):
     out_dir, result = full_run
-    assert set(out_dir.iterdir()) == expected_files(out_dir)
-    assert set(result["files"]) == expected_files(out_dir)
+    weighted = out_dir / "event-weighted"
+    assert set(out_dir.iterdir()) == expected_files(out_dir) | {weighted}
+    assert set(weighted.iterdir()) == expected_files(weighted)
+    assert set(result["files"]) == expected_files(out_dir) | expected_files(weighted)
     assert plt.get_fignums() == []
+
+
+def test_entry_returns_event_weighted_curves(full_run):
+    _, result = full_run
+    s = result["summaries"]["best/increase/all"]["untruncated"]
+    # one mouse: weighting by event or by mouse gives the same mean
+    for label, mean in s["event_weighted"]["mean"].items():
+        np.testing.assert_allclose(mean, s["mean"][label])
 
 
 def test_entry_returns_the_contamination_table(full_run):

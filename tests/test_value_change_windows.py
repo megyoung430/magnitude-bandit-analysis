@@ -440,6 +440,46 @@ def test_se_counts_only_subjects_with_data_and_is_nan_for_one():
     assert np.isnan(one["se"]["best"]).all()
 
 
+def test_event_weighting_counts_every_event_once():
+    std = ("best", "second", "third")
+    # mouse a: three events, all best; mouse b: one event, second
+    a = [ev(["best"], ["best", "best"], "a") for _ in range(3)]
+    b = [ev(["second"], ["second", None], "b")]
+    _, _, by_mouse = aggregate_windows({"a": a, "b": b}, 1, 1, std)
+    _, per_subject, by_event = aggregate_windows({"a": a, "b": b}, 1, 1, std, weighting="event")
+    np.testing.assert_allclose(by_mouse["mean"]["best"], [0.5, 0.5, 1.0])
+    np.testing.assert_allclose(by_event["mean"]["best"], [0.75, 0.75, 1.0])
+    np.testing.assert_allclose(by_event["mean"]["second"], [0.25, 0.25, 0.0])
+    se = np.std([1, 1, 1, 0], ddof=1) / 2
+    assert by_event["se"]["best"][0] == pytest.approx(se)
+    assert by_event["se"]["best"][2] == 0.0  # three events, all best
+    assert by_event["weighting"] == "event" and by_mouse["weighting"] == "subject"
+    # per-mouse curves and counts do not depend on the weighting
+    np.testing.assert_allclose(per_subject["b"]["second"], [1.0, 1.0, np.nan])
+    np.testing.assert_array_equal(by_event["n_events_per_bin"], by_mouse["n_events_per_bin"])
+
+
+def test_event_weighting_splits_a_tied_entry_like_subject_weighting():
+    labels = ("prev_best", "prev_second", "third")
+    e = ev([("prev_best", "prev_second")], ["third", "third"])
+    _, _, across = aggregate_windows({"m": [e]}, 1, 1, labels, weighting="event")
+    assert across["mean"]["prev_best"][0] == 0.5 and across["mean"]["prev_second"][0] == 0.5
+
+
+def test_event_weighting_with_no_events_is_nan():
+    _, _, across = aggregate_windows(
+        {"m": []}, 1, 1, ("best", "second", "third"), weighting="event"
+    )
+    assert np.isnan(across["mean"]["best"]).all() and np.isnan(across["se"]["best"]).all()
+
+
+def test_unknown_weighting_raises():
+    with pytest.raises(ValueError, match="weighting"):
+        aggregate_windows(
+            {"m": [ev(["best"], ["best", "best"])]}, 1, 1, ("best",), weighting="mice"
+        )
+
+
 def test_time_points_without_data_are_nan_and_do_not_warn(recwarn):
     std = ("best", "second", "third")
     _, per_subject, across = aggregate_windows(
