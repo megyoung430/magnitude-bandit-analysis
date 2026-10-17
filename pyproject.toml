@@ -65,3 +65,5 @@ select = ["E", "F", "W", "I", "B"]
 [tool.ruff.lint.per-file-ignores]
 # Vendored upstream importer, kept as released so it can be diffed against pyPhotometry.
 "src/photometry_import/pyphotometry.py" = ["B905"]
+# Docstrings and explanatory strings in the photometry notebook run past 100 columns.
+"scripts/photometry/*.ipynb" = ["E501"]
