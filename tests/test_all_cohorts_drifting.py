@@ -309,7 +309,12 @@ def captured(imported, tmp_path_factory):
 
 
 def named_figures(capture):
-    return {Path(s.path).name: s.figure for s in capture.saved}
+    """Saved figures by file name; the event-weighted copies (same names) are left out."""
+    return {
+        Path(s.path).name: s.figure
+        for s in capture.saved
+        if Path(s.path).parent.name != "event-weighted"
+    }
 
 
 def test_no_legend_names_a_mouse(captured):

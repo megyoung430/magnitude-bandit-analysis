@@ -440,6 +440,56 @@ def test_se_counts_only_subjects_with_data_and_is_nan_for_one():
     assert np.isnan(one["se"]["best"]).all()
 
 
+def test_event_weighting_counts_every_event_once():
+    std = ("best", "second", "third")
+    # mouse a: three events, all best; mouse b: one event, second
+    a = [ev(["best"], ["best", "best"], "a") for _ in range(3)]
+    b = [ev(["second"], ["second", None], "b")]
+    _, _, by_mouse = aggregate_windows({"a": a, "b": b}, 1, 1, std)
+    _, per_subject, by_event = aggregate_windows({"a": a, "b": b}, 1, 1, std, weighting="event")
+    np.testing.assert_allclose(by_mouse["mean"]["best"], [0.5, 0.5, 1.0])
+    np.testing.assert_allclose(by_event["mean"]["best"], [0.75, 0.75, 1.0])
+    np.testing.assert_allclose(by_event["mean"]["second"], [0.25, 0.25, 0.0])
+    se = np.std([1, 1, 1, 0], ddof=1) / 2
+    assert by_event["se"]["best"][0] == pytest.approx(se)
+    assert by_event["se"]["best"][2] == 0.0  # three events, all best
+    assert by_event["weighting"] == "event" and by_mouse["weighting"] == "subject"
+    # per-mouse curves and counts do not depend on the weighting
+    np.testing.assert_allclose(per_subject["b"]["second"], [1.0, 1.0, np.nan])
+    np.testing.assert_array_equal(by_event["n_events_per_bin"], by_mouse["n_events_per_bin"])
+
+
+def test_event_weighting_splits_ties_and_skips_missing_trials_across_mice():
+    labels = ("prev_best", "prev_second", "third")
+    tie = ("prev_best", "prev_second")
+    # mouse a: two events (a tie, and a missing trial at t=-1); mouse b: one prev_best event
+    a = [ev([tie], ["third", "third"], "a"), ev([None], ["third", "third"], "a")]
+    b = [ev(["prev_best"], ["prev_best", None], "b")]
+    _, _, by_event = aggregate_windows({"a": a, "b": b}, 1, 1, labels, weighting="event")
+    _, _, by_mouse = aggregate_windows({"a": a, "b": b}, 1, 1, labels)
+    # t=-1: two valid events (tie, prev_best) -> prev_best 0.75; mice: (0.5 + 1) / 2 also 0.75
+    assert by_event["mean"]["prev_best"][0] == pytest.approx(0.75)
+    # t=0: three events (third, third, prev_best) vs mice (1 and 0)
+    assert by_event["mean"]["third"][1] == pytest.approx(2 / 3)
+    assert by_mouse["mean"]["third"][1] == pytest.approx(0.5)
+    # t=1: only mouse a's two events
+    assert by_event["mean"]["third"][2] == 1.0
+
+
+def test_event_weighting_with_no_events_is_nan():
+    _, _, across = aggregate_windows(
+        {"m": []}, 1, 1, ("best", "second", "third"), weighting="event"
+    )
+    assert np.isnan(across["mean"]["best"]).all() and np.isnan(across["se"]["best"]).all()
+
+
+def test_unknown_weighting_raises():
+    with pytest.raises(ValueError, match="weighting"):
+        aggregate_windows(
+            {"m": [ev(["best"], ["best", "best"])]}, 1, 1, ("best",), weighting="mice"
+        )
+
+
 def test_time_points_without_data_are_nan_and_do_not_warn(recwarn):
     std = ("best", "second", "third")
     _, per_subject, across = aggregate_windows(

@@ -25,6 +25,12 @@ def mouse_sessions(n_sessions=2, rotate=0):
     return {key(i + 1): session(recording(rms)) for i in range(n_sessions)}
 
 
+def always_a_mouse(n_sessions):
+    """Like mouse_sessions, but the animal always chooses A (the best arm after the increase)."""
+    rms = script(60, BASE, {10: mag(5, 2, 1), 14: mag(1, 2, 0)})
+    return {key(i + 1): session(recording(rms, choices=["A"] * 60)) for i in range(n_sessions)}
+
+
 def two_mice(n_sessions=2):
     return {"m1": mouse_sessions(n_sessions), "m2": mouse_sessions(n_sessions)}
 
@@ -112,6 +118,14 @@ def test_title_says_mean_only_for_one_mouse_and_has_no_stray_bracket():
     assert "(mean ± se across mice" in two
     assert not one.endswith("))") and not two.endswith("))")
     assert "n=1 mouse," in one and "n=2 mice," in two
+    plt.close("all")
+
+
+def test_event_weighted_title_says_across_events():
+    w = get_value_change_windows(two_mice(), "best", "increase", "all", pre=5, post=15)
+    title = plot_value_change_panel(summarize_windows(w, weighting="event")).get_title()
+    assert "(mean ± se across events, each event weighted equally |" in title
+    assert "n=2 mice" in title and "n=4 events" in title
     plt.close("all")
 
 
@@ -218,9 +232,33 @@ def no_figures(monkeypatch):
 
 def test_entry_writes_only_figures_to_the_folder(full_run):
     out_dir, result = full_run
-    assert set(out_dir.iterdir()) == expected_files(out_dir)
-    assert set(result["files"]) == expected_files(out_dir)
+    weighted = out_dir / "event-weighted"
+    assert set(out_dir.iterdir()) == expected_files(out_dir) | {weighted}
+    assert set(weighted.iterdir()) == expected_files(weighted)
+    assert set(result["files"]) == expected_files(out_dir) | expected_files(weighted)
     assert plt.get_fignums() == []
+
+
+def test_entry_returns_event_weighted_curves(full_run):
+    _, result = full_run
+    s = result["summaries"]["best/increase/all"]["untruncated"]
+    # one mouse: weighting by event or by mouse gives the same mean
+    for label, mean in s["event_weighted"]["mean"].items():
+        np.testing.assert_allclose(mean, s["mean"][label])
+
+
+def test_entry_event_weighted_summary_weights_events(no_figures, tmp_path):
+    # m1 has one session of events, m2 two: the weightings must differ where they disagree
+    data = {1: {"m1": mouse_sessions(1), "m2": always_a_mouse(2)}}
+    s = run_value_change_analysis(data, tmp_path)["summaries"]["best/increase/all"]
+    s = s["untruncated"]
+    w = get_value_change_windows(data[1], "best", "increase", "all", pre=5, post=15)
+    by_event = summarize_windows(w, weighting="event")
+    assert by_event.weighting == "event"
+    for label in w.labels:
+        np.testing.assert_allclose(s["event_weighted"]["mean"][label], by_event.mean[label])
+        np.testing.assert_allclose(s["mean"][label], summarize_windows(w).mean[label])
+    assert not np.allclose(s["event_weighted"]["mean"]["best"], s["mean"]["best"], equal_nan=True)
 
 
 def test_entry_returns_the_contamination_table(full_run):

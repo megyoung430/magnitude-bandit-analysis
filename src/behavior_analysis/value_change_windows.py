@@ -769,13 +769,55 @@ def _nan_mean(stack: np.ndarray) -> np.ndarray:
     return np.divide(total, n_valid, out=np.full(n_valid.shape, np.nan), where=n_valid > 0)
 
 
+WEIGHTINGS = ("subject", "event")
+
+
+def _subject_weighted(
+    per_subject: dict[str, dict[str, np.ndarray]], labels: tuple[str, ...], shape: tuple
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Mean and SE across subjects of the per-subject probabilities."""
+    mean, se = {}, {}
+    for label in labels:
+        stack = np.vstack([m[label] for m in per_subject.values()]) if per_subject else None
+        mean[label] = _nan_mean(stack) if stack is not None else np.full(shape, np.nan)
+        se[label] = nan_standard_error(stack) if stack is not None else np.full(shape, np.nan)
+    return mean, se
+
+
+def _event_weighted(
+    events_by_subject: Mapping[str, list[ValueChangeEvent]],
+    pre: int,
+    post: int,
+    labels: tuple[str, ...],
+    shape: tuple,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """Mean and SE across all events, every event counting once whatever its subject."""
+    events = [e for evs in events_by_subject.values() for e in evs]
+    if not events:
+        empty = {label: np.full(shape, np.nan) for label in labels}
+        return empty, dict(empty)
+    stack = np.stack([_event_matrix(e, pre, post, labels) for e in events])  # event, t, label
+    mean = {label: _nan_mean(stack[:, :, k]) for k, label in enumerate(labels)}
+    se = {label: nan_standard_error(stack[:, :, k]) for k, label in enumerate(labels)}
+    return mean, se
+
+
 def aggregate_windows(
     events_by_subject: Mapping[str, list[ValueChangeEvent]],
     pre: int,
     post: int,
     labels: tuple[str, ...],
+    *,
+    weighting: str = "subject",
 ) -> tuple[np.ndarray, dict[str, dict[str, np.ndarray]], dict]:
-    """Per-subject choice probabilities, then mean and SE across subjects.
+    """Per-subject choice probabilities, then mean and SE across subjects or across events.
+
+    With ``weighting="subject"`` each subject's events are pooled into one probability per t,
+    and ``mean``/``se`` are taken across subjects, so every subject counts once. With
+    ``weighting="event"`` every event counts once: ``mean`` is the share over all events with
+    a trial at t, whichever subject they come from, and ``se`` is across those events. That SE
+    treats events as independent; events of one subject are not, so it is too narrow for
+    inference and is meant for comparing the shape of the curves.
 
     Args:
         events_by_subject (dict): ``{subject: [ValueChangeEvent]}``.
@@ -783,32 +825,37 @@ def aggregate_windows(
         post (int): Trials after the event trial.
         labels (tuple[str]): The label set (explicit, from the filter); every label in an
             event must be in it.
+        weighting (str): ``"subject"`` (default) or ``"event"``; see above.
 
     Returns:
         tuple: ``(x, per_subject_means, across)``. ``x`` is ``-pre .. post``;
         ``per_subject_means`` is ``{subject: {label: array}}``; ``across`` has ``mean`` and
-        ``se`` (``{label: array}``; SE is NaN where fewer than two subjects have data),
+        ``se`` (``{label: array}``; SE is NaN where fewer than two subjects, or with
+        ``weighting="event"`` two events, have data), ``weighting``,
         ``num_subjects``, ``num_events``, ``num_truncated`` and, per t, ``n_events_per_bin``
         and ``n_subjects_per_bin`` (events and subjects with a trial at that t).
 
     Raises:
-        ValueError: If an event's window has the wrong length or a label outside *labels*.
+        ValueError: If an event's window has the wrong length, a label outside *labels*, or
+            *weighting* is not ``"subject"`` or ``"event"``.
     """
+    if weighting not in WEIGHTINGS:
+        raise ValueError(f"weighting must be one of {WEIGHTINGS}, got {weighting!r}")
     x = np.arange(-pre, post + 1, dtype=float)
     per_subject, n_valid = {}, {}
     for subject, events in events_by_subject.items():
         if events:
             per_subject[subject], n_valid[subject] = _subject_means(events, pre, post, labels)
-    mean, se = {}, {}
-    for label in labels:
-        stack = np.vstack([m[label] for m in per_subject.values()]) if per_subject else None
-        mean[label] = _nan_mean(stack) if stack is not None else np.full(x.shape, np.nan)
-        se[label] = nan_standard_error(stack) if stack is not None else np.full(x.shape, np.nan)
+    if weighting == "event":
+        mean, se = _event_weighted(events_by_subject, pre, post, labels, x.shape)
+    else:
+        mean, se = _subject_weighted(per_subject, labels, x.shape)
     counts = np.vstack(list(n_valid.values())) if n_valid else np.zeros((1, x.size), dtype=int)
     all_events = [e for events in events_by_subject.values() for e in events]
     across = {
         "mean": mean,
         "se": se,
+        "weighting": weighting,
         "num_subjects": len(per_subject),
         "num_events": len(all_events),
         "num_truncated": sum(e.truncated for e in all_events),
@@ -830,15 +877,20 @@ class ValueChangeCurves(NamedTuple):
         labels (tuple[str, ...]): The label set of the curves.
         per_subject_mean (dict[str, dict[str, np.ndarray]]): ``{subject: {label: choice
             probability per t}}``.
-        mean (dict[str, np.ndarray]): ``{label: mean across subjects per t}``.
-        se (dict[str, np.ndarray]): ``{label: standard error across subjects per t}``; NaN
-            where fewer than two subjects have data.
+        mean (dict[str, np.ndarray]): ``{label: mean per t}``, across subjects or across
+            events according to *weighting*.
+        se (dict[str, np.ndarray]): ``{label: standard error per t}``, across the same units;
+            NaN where fewer than two of them have data.
+
         num_subjects (int): Subjects with at least one event.
         num_events (int): Events averaged.
         num_truncated (int): Events whose post labels were truncated.
         n_events_per_bin (np.ndarray): Events with a trial at each t, shape ``(pre + post + 1,)``.
         n_subjects_per_bin (np.ndarray): Subjects with a trial at each t, same shape.
         counts (dict[str, int]): Accounting counts, as in :class:`ValueChangeWindows`.
+        weighting (str): ``"subject"`` (every mouse counts once) or ``"event"`` (every event
+            counts once; the SE then treats events as independent, so it understates the
+            uncertainty).
     """
 
     config: ValueChangeConfig
@@ -856,19 +908,27 @@ class ValueChangeCurves(NamedTuple):
     n_events_per_bin: np.ndarray
     n_subjects_per_bin: np.ndarray
     counts: dict[str, int]
+    weighting: str = "subject"
 
 
-def summarize_windows(windows: ValueChangeWindows) -> ValueChangeCurves:
+def summarize_windows(
+    windows: ValueChangeWindows, *, weighting: str = "subject"
+) -> ValueChangeCurves:
     """Aggregate *windows* into curves with the label set of its filter.
 
     Args:
         windows (ValueChangeWindows): Events of one configuration.
+        weighting (str): ``"subject"`` (default; mean and SE across mice) or ``"event"``
+            (mean and SE across events), as in :func:`aggregate_windows`.
 
     Returns:
-        ValueChangeCurves: x axis, per-subject and across-subject mean and SE, event counts.
+        ValueChangeCurves: x axis, per-subject curves, mean and SE, event counts.
+
+    Raises:
+        ValueError: If *weighting* is not ``"subject"`` or ``"event"``.
     """
     x, per_subject, across = aggregate_windows(
-        windows.events, windows.pre, windows.post, windows.labels
+        windows.events, windows.pre, windows.post, windows.labels, weighting=weighting
     )
     return ValueChangeCurves(
         config=windows.config,
@@ -880,6 +940,7 @@ def summarize_windows(windows: ValueChangeWindows) -> ValueChangeCurves:
         per_subject_mean=per_subject,
         mean=across["mean"],
         se=across["se"],
+        weighting=weighting,
         num_subjects=across["num_subjects"],
         num_events=across["num_events"],
         num_truncated=across["num_truncated"],

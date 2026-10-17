@@ -39,12 +39,20 @@ def _title(curves: ValueChangeCurves) -> str:
     events = f"n={curves.num_events} events"
     if curves.truncate_at_rank_swap:
         events += f", {curves.num_truncated} truncated at swap"
-    average = "mean ± se" if curves.num_subjects >= 2 else "mean"
     mice = "mouse" if curves.num_subjects == 1 else "mice"
-    return (
+    if curves.weighting == "event":
+        average = "mean ± se" if curves.num_events >= 2 else "mean"
+        across = "across events, each event weighted equally"
+    else:
+        average = "mean ± se" if curves.num_subjects >= 2 else "mean"
+        across = "across mice"
+    title = (
         f"Choice Probabilities Around {heading}\n"
-        f"({average} across mice | n={curves.num_subjects} {mice}, {events})"
+        f"({average} {across} | n={curves.num_subjects} {mice}, {events})"
     )
+    if curves.weighting == "event" and curves.num_events >= 2:
+        title += "\nSE treats events as independent, so it is narrower than the true uncertainty"
+    return title
 
 
 def _draw_label(ax: plt.Axes, curves: ValueChangeCurves, label: str, individual: bool) -> None:
