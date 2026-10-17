@@ -218,7 +218,9 @@ report all failures at the end.
   [--no-cache]`): one PNG per drifting session in `figures/value-change-diagnostic/cohort-XX/problem-KK/<mouse>/`,
   showing the session's magnitudes and choices with each best-decrease rank-swap event's counted pre and post
   windows shaded, the choices coloured by label and the arm behind each label written underneath; `index.txt`
-  lists every session's events.
+  lists every session's events. It also writes `mouse_curves_<scope>.csv` (`problem-KK`, `all-drifting-problems`):
+  each mouse's event count, `prev_best`/`prev_second`/`third` choice probabilities and events per t (both truncation
+  modes), with a `mean_across_mice` row equal to the mouse-weighted value-change curve.
 - **Port preference** (`run_port_preference_analysis`, drifting problems, `port-preference/`, also
   pooled over all drifting problems): `P(chosen) / P(best)` per port (one maze per mouse) and for
   the X and plus ports (mean ± SE across mice). Relative to the problem's initiation port, plus

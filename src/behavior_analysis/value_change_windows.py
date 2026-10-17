@@ -92,6 +92,9 @@ DIRECTIONS = ("increase", "decrease")
 RANK_FILTERS = ("all", "rank_preserving", "rank_swap")
 STANDARD_LABELS = ("best", "second", "third")
 SWAP_LABELS = ("prev_best", "prev_second", "third")
+# The window of the value-change figures; every default below and in the pipelines uses these.
+DEFAULT_PRE = 5
+DEFAULT_POST = 15
 # A rank swap needs the arm that held the rank to move in the direction while being passed, so
 # these two combinations cannot occur.
 N_ARMS = 3
@@ -153,6 +156,11 @@ def describe_value_change(config: ValueChangeConfig, truncated: bool) -> str:
     mode = "Truncated at Swap" if truncated else "Full Window"
     rank, direction = _RANK_WORDS[config.rank], _DIRECTION_WORDS[config.direction]
     return f"{rank} {direction} ({_FILTER_WORDS[config.rank_filter]}, {mode})"
+
+
+def mode_name(truncated: bool) -> str:
+    """Truncation mode as named in summaries and tables."""
+    return "truncated_at_rank_swap" if truncated else "untruncated"
 
 
 class ValueChangeEvent(NamedTuple):
@@ -623,8 +631,8 @@ def get_value_change_windows(
     direction: str,
     rank_filter: str = "all",
     *,
-    pre: int = 5,
-    post: int = 15,
+    pre: int = DEFAULT_PRE,
+    post: int = DEFAULT_POST,
     truncate_at_rank_swap: bool = False,
 ) -> ValueChangeWindows:
     """Events where the true magnitude at the *rank* position changed, with choice windows.

@@ -9,7 +9,7 @@ mean across mice, so the plotted curve can be checked by eye. Pure: no file acce
 import numpy as np
 import pandas as pd
 
-from src.behavior_analysis.value_change_windows import ValueChangeCurves
+from src.behavior_analysis.value_change_windows import ValueChangeCurves, mode_name
 
 MEAN_ROW = "mean_across_mice"
 N_EVENTS_LABEL = "n_events_at_t"
@@ -19,11 +19,6 @@ METADATA_COLUMNS = ("scope", "config", "mode", "mouse", "n_events", "label")
 def t_column_name(t: float) -> str:
     """Signed column name of trial offset *t*, e.g. ``"t-5"``, ``"t+0"``, ``"t+15"``."""
     return f"t{int(t):+d}"
-
-
-def mode_name(truncated: bool) -> str:
-    """The truncation mode as written in the table's ``mode`` column."""
-    return "truncated_at_rank_swap" if truncated else "untruncated"
 
 
 def _rows_of_mouse(
@@ -53,8 +48,9 @@ def mouse_curves_table(curves: ValueChangeCurves, *, scope: str) -> pd.DataFrame
 
     For each mouse the rows are its choice probability per label (the array that enters the
     mouse-weighted mean), then ``n_events_at_t``: how many of its events have a trial at each t.
-    A probability is NaN where no event has a trial. The final rows hold the mean across mice,
-    equal to what the mouse-weighted figure plots, and the events summed over mice per t.
+    Mice are sorted by id. A probability is NaN where no event has a trial. The final rows hold
+    the mean across mice, equal to what the mouse-weighted figure plots, and the events summed
+    over mice per t.
 
     Args:
         curves (ValueChangeCurves): Mouse-weighted curves from ``summarize_windows``.
@@ -72,7 +68,7 @@ def mouse_curves_table(curves: ValueChangeCurves, *, scope: str) -> pd.DataFrame
     t_columns = [t_column_name(t) for t in curves.x]
     columns = [*METADATA_COLUMNS, *t_columns]
     rows = []
-    for mouse, probabilities in curves.per_subject_mean.items():
+    for mouse, probabilities in sorted(curves.per_subject_mean.items()):
         rows += _rows_of_mouse(
             mouse,
             curves.per_subject_total_events[mouse],

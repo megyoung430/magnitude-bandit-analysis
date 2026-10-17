@@ -28,9 +28,8 @@ from src.behavior_analysis.value_change_diagnostic import (
 )
 from src.behavior_analysis.value_change_mouse_curves import mouse_curves_table
 from src.behavior_analysis.value_change_windows import (
+    ValueChangeConfig,
     ValueChangeWindows,
-    get_value_change_windows,
-    merge_value_change_windows,
     summarize_windows,
     truncate_windows_at_rank_swap,
 )
@@ -47,6 +46,7 @@ from src.pipelines.cohort_analysis import (
     cohort_name,
     cohort_raw_dir,
 )
+from src.pipelines.value_change_analysis import pooled_windows
 from src.settings import get_settings
 
 DIAGNOSTIC_FOLDER = "value-change-diagnostic"
@@ -108,17 +108,13 @@ def _write_session(mouse: str, key: str, session: Mapping, path: Path) -> list[E
 def scope_windows(problems: Mapping[int, Mapping]) -> ValueChangeWindows:
     """Untruncated best-decrease rank-swap events of *problems*, merged per mouse.
 
-    The window and configuration are those of the diagnostic figures and the value-change
-    figures; a mouse's events are pooled across the problems.
+    Uses the value-change figures' own pooling, window and configuration, so the CSV and the
+    figures cannot drift apart.
 
     Args:
         problems (Mapping[int, Mapping]): ``{k: {mouse: {session_key: session}}}``.
     """
-    per_problem = [
-        get_value_change_windows(problems[k], RANK, DIRECTION, RANK_FILTER, pre=PRE, post=POST)
-        for k in sorted(problems)
-    ]
-    return merge_value_change_windows(per_problem)
+    return pooled_windows(problems, ValueChangeConfig(RANK, DIRECTION, RANK_FILTER), PRE, POST)
 
 
 def scope_mouse_curves(scope: str, problems: Mapping[int, Mapping]) -> pd.DataFrame:

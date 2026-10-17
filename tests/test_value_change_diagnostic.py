@@ -438,3 +438,35 @@ def test_index_lists_the_csvs(written_tree):
     text = (written_tree / "index.txt").read_text()
     assert "mouse_curves_problem-01.csv" in text
     assert "mouse_curves_all-drifting-problems.csv" in text
+
+
+def test_csv_mean_rows_equal_the_figure_pipeline_curves_for_both_modes(tmp_path):
+    from src.pipelines.value_change_analysis import run_value_change_analysis
+
+    session = make_session(EVENT_SCRIPT, EVENT_CHOICES)
+    other = make_session(EVENT_SCRIPT[:-4], EVENT_CHOICES[:-4])
+    drifting = {
+        1: {"m": {KEY: session}, "n": {KEY: other}},
+        2: {"m": {"ses-2_date-20260102": session}},
+    }
+    pipeline.write_mouse_curves(drifting, tmp_path)
+    table = read_curves(tmp_path / "mouse_curves_all-drifting-problems.csv")
+    figures = run_value_change_analysis(drifting, tmp_path / "vc")["summaries"]
+    summaries = figures["best/decrease/rank_swap"]
+    t_columns = [c for c in table.columns if c.startswith("t")]
+    for mode in ("untruncated", "truncated_at_rank_swap"):
+        mean = table[(table["mode"] == mode) & (table["mouse"] == "mean_across_mice")]
+        mean = mean.set_index("label")[t_columns]
+        for label, curve in summaries[mode]["mean"].items():
+            np.testing.assert_allclose(mean.loc[label].to_numpy(float), curve, equal_nan=True)
+        np.testing.assert_array_equal(
+            mean.loc["n_events_at_t"].to_numpy(float), summaries[mode]["n_events_per_bin"]
+        )
+
+
+def test_mouse_rows_are_sorted_by_id_with_the_mean_last(tmp_path):
+    session = make_session(EVENT_SCRIPT, EVENT_CHOICES)
+    drifting = {1: {"z": {KEY: session}, "a": {KEY: session}}}
+    pipeline.write_mouse_curves(drifting, tmp_path)
+    table = read_curves(tmp_path / "mouse_curves_problem-01.csv")
+    assert list(table["mouse"].unique()) == ["a", "z", "mean_across_mice"]
