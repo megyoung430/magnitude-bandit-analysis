@@ -232,10 +232,11 @@ def no_figures(monkeypatch):
 
 def test_entry_writes_only_figures_to_the_folder(full_run):
     out_dir, result = full_run
-    weighted = out_dir / "event-weighted"
-    assert set(out_dir.iterdir()) == expected_files(out_dir) | {weighted}
-    assert set(weighted.iterdir()) == expected_files(weighted)
-    assert set(result["files"]) == expected_files(out_dir) | expected_files(weighted)
+    by_mouse, by_event = out_dir / "mouse-weighted", out_dir / "event-weighted"
+    assert set(out_dir.iterdir()) == {by_mouse, by_event}  # nothing at the top level
+    assert set(by_mouse.iterdir()) == expected_files(by_mouse)
+    assert set(by_event.iterdir()) == expected_files(by_event)
+    assert set(result["files"]) == expected_files(by_mouse) | expected_files(by_event)
     assert plt.get_fignums() == []
 
 
@@ -323,8 +324,9 @@ def test_entry_refuses_a_contamination_table_that_disagrees_with_the_counts(
 
 def test_entry_truncate_modes_select_the_figures(tmp_path):
     run_value_change_analysis({1: {"m1": swap_rich_mouse()}}, tmp_path, truncate_modes=(True,))
-    names = {p.name for p in tmp_path.glob("*.png")}
-    assert len(names) == 10 and all("Truncated at Swap" in n for n in names)
+    for folder in ("mouse-weighted", "event-weighted"):
+        names = {p.name for p in (tmp_path / folder).glob("*.png")}
+        assert len(names) == 10 and all("Truncated at Swap" in n for n in names)
 
 
 def test_entry_pools_problems_per_mouse(tmp_path, no_figures):

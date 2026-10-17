@@ -218,7 +218,11 @@ def test_figures_go_to_all_cohorts_with_the_subfolders_of_all_drifting_problems(
     assert folders == SUBFOLDERS
     assert {p.name for p in figures.iterdir() if p.is_file()} == {"cohorts.txt"}
     for folder in SUBFOLDERS:
-        assert any((figures / folder).glob("*.png")), folder
+        assert any((figures / folder).rglob("*.png")), folder
+    for folder in ("reversal-aligned-arms", "value-change"):
+        assert not list((figures / folder).glob("*.png")), folder
+        for weighting in ("mouse-weighted", "event-weighted"):
+            assert list((figures / folder / weighting).glob("*.png")), (folder, weighting)
 
 
 def test_the_diagnostic_tables_go_to_the_all_cohorts_table_folder(written):

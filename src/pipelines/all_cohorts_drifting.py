@@ -6,6 +6,8 @@ cohorts together, in one folder that belongs to no cohort::
 
     figures/open-field/all-cohorts/{choice-stats,value-psychometrics,reversal-aligned-arms,
         value-change,port-preference}/
+    figures/open-field/all-cohorts/{reversal-aligned-arms,value-change}/{mouse-weighted,
+        event-weighted}/   (their figures; nothing at the top level of those two folders)
     figures/open-field/all-cohorts/cohorts.txt
     tables/open-field/all-cohorts/{reversal_aligned_arms_counts,value_change_events,
         value_change_bin_counts}.csv

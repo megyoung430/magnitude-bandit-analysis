@@ -14,6 +14,7 @@ import pandas as pd
 from src.behavior_analysis.merge_across_problems import merge_windows_by_subject
 from src.behavior_analysis.reversal_aligned_arms import (
     MOVING_AVG_MODES,
+    WEIGHTINGS,
     ReversalAlignedArms,
     build_windows_with_magnitudes,
     check_moving_avg_window,
@@ -33,6 +34,7 @@ from src.behavior_visualization.plot_reversal_aligned_arms import (
     figure_stem,
     save_reversal_aligned_arms,
 )
+from src.pipelines.weighting_folders import WEIGHTING_FOLDERS
 
 POOLED = "pooled"
 _ANALYSIS = "run_reversal_aligned_arm_analysis"
@@ -119,6 +121,7 @@ def _counts_row(scope: str, result: ReversalAlignedArms, figure: str) -> dict:
         "scope": scope,
         "label_scheme": result.scheme,
         "reversal_type": result.reversal_type,
+        "weighting": result.weighting,
         "n_subjects": result.num_subjects,
         "n_reversals": result.num_reversals,
         "n_candidates": c.candidates,
@@ -134,14 +137,15 @@ def _draw(
 ) -> list[Path]:
     """Save (or show, without *out_dir*) the figure of a result; its PNG and PDF paths.
 
-    A result with no block changes has no figure.
+    The figure goes in the subfolder of the result's weighting. A result with no block changes
+    has no figure.
     """
     if not result.num_reversals:
         return []
     if out_dir is None:
         save_reversal_aligned_arms(result, None, scope=title_scope)
         return []
-    base = out_dir / figure_stem(result, scope)
+    base = out_dir / WEIGHTING_FOLDERS[result.weighting] / figure_stem(result, scope)
     save_reversal_aligned_arms(result, base, scope=title_scope)
     return [Path(f"{base}.png"), Path(f"{base}.pdf")]
 
@@ -161,7 +165,11 @@ def run_reversal_aligned_arm_analysis(
 ) -> dict:
     """Figures of arm choice probability and reward magnitude around block changes.
 
-    One figure per scope, label scheme and block change type. Scopes: ``"pooled"`` (all problems,
+    One figure per scope, label scheme, block change type and weighting. The mouse-weighted
+    figure (each mouse's block changes averaged into one curve, then mean and SE across mice)
+    goes in ``<out_dir>/mouse-weighted/``; the event-weighted one (every block change counts
+    once, mean and SE across block changes) with the same name in ``<out_dir>/event-weighted/``.
+    Nothing is written at the top level of *out_dir*. Scopes: ``"pooled"`` (all problems,
     block changes concatenated per subject) and, if more than one problem is given, each problem
     (``"problem-04"``). At a drifting block change the previous best or the previous second arm
     drops to 0 and the previous third arm is rewarded again; each scheme splits by that:
@@ -176,10 +184,10 @@ def run_reversal_aligned_arm_analysis(
             problem; or ``{problem: {subject: [block change dict]}}`` already built with
             :func:`~src.behavior_analysis.reversal_aligned_arms.build_windows_with_magnitudes`
             and the same *pre* and *post*. A single problem is a one-entry dict.
-        out_dir (str | Path | None): Folder for the figures (created if missing), named like
-            their titles, e.g. ``Choice Probabilities Around Block Changes (Prev Best to Third)
-            (Arms Labelled by Rank Before) (pooled).png/.pdf``. ``None`` or ``""`` shows the
-            figures and writes nothing.
+        out_dir (str | Path | None): Folder for the two weighting subfolders (created if
+            missing); figures are named like their titles, e.g. ``Choice Probabilities Around
+            Block Changes (Prev Best to Third) (Arms Labelled by Rank Before) (pooled).png/.pdf``.
+            ``None`` or ``""`` shows the figures of both weightings and writes nothing.
         pre (int): Trials before the block change in each window. Default 10. Keyword-only.
         post (int): Trials from the block change on in each window. Default 30. Keyword-only.
         moving_avg_window (int): Moving-average width for the choice probabilities (positive
@@ -200,12 +208,14 @@ def run_reversal_aligned_arm_analysis(
             Default ``None``. Keyword-only.
 
     Returns:
-        dict: ``{"results": {scope: {scheme: {type: ReversalAlignedArms}}}, "counts": DataFrame
-        with one row per scope, scheme and type (``scope``, ``label_scheme``, ``reversal_type``,
-        ``n_subjects``, ``n_reversals``, ``n_candidates``, ``n_tied_labels``, ``n_tied_type``,
-        ``n_wrong_type`` and the ``figure`` file name, empty for no figure), "figure_paths":
-        [Path, ...], "windows_by_problem": {problem: windows}}``. The counts are returned, not
-        written. A combination with no block change left makes no figure and raises an
+        dict: ``{"results": {scope: {scheme: {type: ReversalAlignedArms}}}, "event_results":
+        the same with every block change weighted equally, "counts": DataFrame with one row per
+        scope, scheme, type and weighting (``scope``, ``label_scheme``, ``reversal_type``,
+        ``weighting`` ("subject" or "event"), ``n_subjects``, ``n_reversals``, ``n_candidates``,
+        ``n_tied_labels``, ``n_tied_type``, ``n_wrong_type`` and the ``figure`` file name,
+        empty for no figure), "figure_paths": [Path, ...] (both weightings),
+        "windows_by_problem": {problem: windows}}``. The counts are returned, not written. A
+        combination with no block change left makes no figure and raises an
         ``EmptySelectionWarning``.
 
     Raises:
@@ -222,21 +232,25 @@ def run_reversal_aligned_arm_analysis(
         moving_avg_window=moving_avg_window,
         moving_avg_mode=moving_avg_mode,
     )
-    results, rows, figure_paths = {}, [], []
+    results = {weighting: {} for weighting in WEIGHTINGS}
+    rows, figure_paths = [], []
     for scope, windows in _scopes(windows_by_problem).items():
-        results[scope] = {scheme: {} for scheme in label_schemes}
+        title_scope = scope_label if scope == POOLED and scope_label else scope
+        for weighting in WEIGHTINGS:
+            results[weighting][scope] = {scheme: {} for scheme in label_schemes}
         for scheme in label_schemes:
             for kind in _types_for(scheme, reversal_types):
-                result = compute_reversal_aligned_arms(
-                    windows, scheme=scheme, reversal_type=kind, **settings
-                )
-                results[scope][scheme][kind] = result
-                title_scope = scope_label if scope == POOLED and scope_label else scope
-                paths = _draw(result, scope, out_dir, title_scope)
-                figure_paths += paths
-                rows.append(_counts_row(scope, result, paths[0].name if paths else ""))
+                for weighting in WEIGHTINGS:
+                    result = compute_reversal_aligned_arms(
+                        windows, scheme=scheme, reversal_type=kind, weighting=weighting, **settings
+                    )
+                    results[weighting][scope][scheme][kind] = result
+                    paths = _draw(result, scope, out_dir, title_scope)
+                    figure_paths += paths
+                    rows.append(_counts_row(scope, result, paths[0].name if paths else ""))
     return {
-        "results": results,
+        "results": results["subject"],
+        "event_results": results["event"],
         "counts": pd.DataFrame(rows),
         "figure_paths": figure_paths,
         "windows_by_problem": windows_by_problem,
