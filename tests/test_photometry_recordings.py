@@ -99,6 +99,14 @@ def test_match_raises_when_two_tsvs_align():
         match_ppd_to_tsv(ppd_ms, [tsv_s, tsv_s + 1000.0])
 
 
+def test_match_treats_a_malformed_candidate_as_no_match_for_that_candidate_only():
+    ppd_ms, tsv_s = _pulses(1)
+    malformed = tsv_s.copy()
+    malformed[10] = malformed[9]  # a repeated time: not strictly increasing
+    assert match_ppd_to_tsv(ppd_ms, [malformed, tsv_s]) == 1
+    assert match_ppd_to_tsv(ppd_ms, [malformed]) is None
+
+
 # --- load_photometry_recordings -----------------------------------------------------------
 
 
@@ -182,6 +190,21 @@ def test_a_ppd_matching_no_tsv_is_skipped_with_a_reason(tmp_path):
     assert recordings == []
     assert [s.ppd_path for s in skipped] == [ppd]
     assert "no .tsv" in skipped[0].reason
+
+
+def test_the_skip_reason_names_a_candidate_that_raised(tmp_path):
+    folder = _folder(tmp_path)
+    ppd_ms, tsv_s = _pulses(1)
+    _add_ppd(folder, "a.ppd", ppd_ms)
+    malformed = tsv_s.copy()
+    malformed[10] = malformed[9]
+    _add_tsv(folder, "bad.tsv", malformed)
+
+    recordings, skipped = _load(tmp_path)
+
+    assert recordings == []
+    assert "bad.tsv" in skipped[0].reason
+    assert "strictly increasing" in skipped[0].reason
 
 
 def test_a_session_without_a_tsv_skips_every_ppd(tmp_path):

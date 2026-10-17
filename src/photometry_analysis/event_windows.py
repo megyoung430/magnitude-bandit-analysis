@@ -1,10 +1,14 @@
 """Cut event-aligned windows out of a photometry trace on pyControl time.
 
 Every function is pure. A trace comes with the pyControl time of each sample, which is NaN
-before the first and after the last matched sync pulse (see ``PhotometryRecording``). A window
-is used only if it lies completely inside the span between those pulses, so no window is
-padded or extrapolated.
+before the first and after the last matched sync pulse (see ``PhotometryRecording``), and may be
+NaN for a stretch in between (a gap in the sync). A window is used only if it lies completely
+inside the span between the first and last pulse AND does not overlap any such gap, so no window
+is padded, extrapolated or interpolated across missing time. Random control times obey the same
+rule.
 """
+
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -47,22 +51,54 @@ def sync_coverage(time: np.ndarray) -> tuple[float, float]:
     return float(finite[0]), float(finite[-1])
 
 
+GAP_TOLERANCE = 1e-9  # s; absorbs float rounding when a window ends exactly on a gap edge
+
+
+def gap_spans(time: np.ndarray) -> list[tuple[float, float]]:
+    """Stretches of NaN sample time inside the sync coverage.
+
+    Args:
+        time (np.ndarray): pyControl time (s) of each sample, NaN outside the sync pulses.
+
+    Returns:
+        list[tuple[float, float]]: For each gap, ``(last finite time before, first finite time
+        after)`` (s). Time inside such a span is unknown, so no window may overlap it. Empty
+        if the finite samples are contiguous.
+    """
+    time = np.asarray(time, dtype=float)
+    finite_idx = np.flatnonzero(np.isfinite(time))
+    if len(finite_idx) == 0:
+        return []
+    jumps = np.flatnonzero(np.diff(finite_idx) > 1)
+    return [(float(time[finite_idx[j]]), float(time[finite_idx[j + 1]])) for j in jumps]
+
+
 def complete_window_mask(
-    event_times: np.ndarray, coverage: tuple[float, float], window: tuple[float, float]
+    event_times: np.ndarray,
+    coverage: tuple[float, float],
+    window: tuple[float, float],
+    gaps: Sequence[tuple[float, float]] = (),
 ) -> np.ndarray:
-    """Which events have their whole window inside *coverage*.
+    """Which events have their whole window inside *coverage* and clear of every gap.
 
     Args:
         event_times (np.ndarray): Event times (s).
         coverage (tuple[float, float]): ``(first, last)`` time covered (s).
         window (tuple[float, float]): ``(start, stop)`` relative to each event (s).
+        gaps (Sequence[tuple[float, float]]): NaN-time spans inside the coverage, from
+            :func:`gap_spans`. Default none.
 
     Returns:
-        np.ndarray: Boolean mask, True where ``event + start >= first`` and
-        ``event + stop <= last``.
+        np.ndarray: Boolean mask, True where ``event + start >= first``, ``event + stop <=
+        last``, and the window does not overlap any gap (touching a gap's edge sample is fine).
     """
     event_times = np.asarray(event_times, dtype=float)
-    return (event_times + window[0] >= coverage[0]) & (event_times + window[1] <= coverage[1])
+    start, stop = event_times + window[0], event_times + window[1]
+    mask = (start >= coverage[0]) & (stop <= coverage[1])
+    for gap_start, gap_stop in gaps:
+        overlaps = (stop > gap_start + GAP_TOLERANCE) & (start < gap_stop - GAP_TOLERANCE)
+        mask &= ~overlaps
+    return mask
 
 
 def extract_event_windows(
@@ -73,6 +109,9 @@ def extract_event_windows(
     fs: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Interpolate *values* onto a common grid around each event with a complete window.
+
+    Interpolation uses only samples with a finite time, and only for windows that lie inside
+    the coverage and clear of every NaN-time gap, so ``np.interp`` never clamps or bridges.
 
     Args:
         time (np.ndarray): pyControl time (s) of each sample, NaN outside the sync pulses.
@@ -97,7 +136,7 @@ def extract_event_windows(
     if not np.isfinite(event_times).all():
         raise ValueError("event times must be finite.")
     grid = relative_time_grid(window, fs)
-    keep = complete_window_mask(event_times, sync_coverage(time), window)
+    keep = complete_window_mask(event_times, sync_coverage(time), window, gap_spans(time))
     covered = np.isfinite(time)
     queries = event_times[keep, None] + grid[None, :]
     trials = np.interp(queries.ravel(), time[covered], values[covered]).reshape(queries.shape)
@@ -106,27 +145,63 @@ def extract_event_windows(
     return grid, trials, keep
 
 
+def _allowed_intervals(
+    low: float, high: float, forbidden: Sequence[tuple[float, float]]
+) -> list[tuple[float, float]]:
+    """``[low, high]`` minus the *forbidden* intervals, as a sorted list of non-empty pieces."""
+    pieces = [(low, high)]
+    for f_low, f_high in forbidden:
+        remaining = []
+        for p_low, p_high in pieces:
+            if f_high <= p_low or f_low >= p_high:
+                remaining.append((p_low, p_high))
+                continue
+            if f_low > p_low:
+                remaining.append((p_low, f_low))
+            if f_high < p_high:
+                remaining.append((f_high, p_high))
+        pieces = remaining
+    return [(a, b) for a, b in pieces if b > a]
+
+
 def random_event_times(
     rng: np.random.Generator,
     n_events: int,
     coverage: tuple[float, float],
     window: tuple[float, float],
+    gaps: Sequence[tuple[float, float]] = (),
+    event_span: tuple[float, float] | None = None,
 ) -> np.ndarray:
-    """Event times drawn uniformly over the span where a whole window fits in *coverage*.
+    """Event times drawn uniformly where a whole window fits, clear of gaps.
 
     Args:
         rng (np.random.Generator): Source of randomness, so draws are reproducible.
         n_events (int): How many times to draw.
         coverage (tuple[float, float]): ``(first, last)`` time covered (s).
         window (tuple[float, float]): ``(start, stop)`` relative to each event (s).
+        gaps (Sequence[tuple[float, float]]): NaN-time spans inside the coverage, from
+            :func:`gap_spans`; no drawn window overlaps one. Default none.
+        event_span (tuple[float, float] | None): Also confine the drawn times themselves to
+            this ``(first, last)`` span (s), e.g. the task period. Default None, meaning the
+            whole coverage.
 
     Returns:
-        np.ndarray: ``n_events`` times (s), each with a complete window.
+        np.ndarray: ``n_events`` times (s), each of which passes :func:`complete_window_mask`.
 
     Raises:
-        ValueError: If the covered span is shorter than the window.
+        ValueError: If no time is left once the coverage, event span and gaps are applied.
     """
     low, high = coverage[0] - window[0], coverage[1] - window[1]
-    if high <= low:
-        raise ValueError(f"coverage {coverage} is shorter than the window {window}.")
-    return rng.uniform(low, high, size=n_events)
+    if event_span is not None:
+        low, high = max(low, event_span[0]), min(high, event_span[1])
+    forbidden = [(g0 - window[1], g1 - window[0]) for g0, g1 in gaps]
+    pieces = _allowed_intervals(low, high, forbidden)
+    if not pieces:
+        raise ValueError(
+            f"no room for a window {window} in coverage {coverage} "
+            f"(event span {event_span}, gaps {list(gaps)})."
+        )
+    lengths = np.array([b - a for a, b in pieces])
+    chosen = rng.choice(len(pieces), size=n_events, p=lengths / lengths.sum())
+    lows = np.array([a for a, _ in pieces])[chosen]
+    return lows + rng.uniform(size=n_events) * lengths[chosen]
