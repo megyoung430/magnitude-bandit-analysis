@@ -12,6 +12,8 @@ dependencies = [
     "matplotlib>=3.10.6",
     "pydantic-settings>=2.11",
     "joblib>=1.5",
+    "scikit-learn>=1.9.1",
+    "packaging>=26.3",
 ]
 
 [project.optional-dependencies]
