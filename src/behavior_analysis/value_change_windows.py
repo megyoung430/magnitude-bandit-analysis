@@ -833,7 +833,9 @@ def aggregate_windows(
         ``se`` (``{label: array}``; SE is NaN where fewer than two subjects, or with
         ``weighting="event"`` two events, have data), ``weighting``,
         ``num_subjects``, ``num_events``, ``num_truncated`` and, per t, ``n_events_per_bin``
-        and ``n_subjects_per_bin`` (events and subjects with a trial at that t).
+        and ``n_subjects_per_bin`` (events and subjects with a trial at that t),
+        ``per_subject_n_events`` (``{subject: array}``, each subject's events with a trial at
+        each t) and ``per_subject_total_events`` (``{subject: int}``).
 
     Raises:
         ValueError: If an event's window has the wrong length, a label outside *labels*, or
@@ -861,6 +863,8 @@ def aggregate_windows(
         "num_truncated": sum(e.truncated for e in all_events),
         "n_events_per_bin": counts.sum(axis=0),
         "n_subjects_per_bin": (counts > 0).sum(axis=0),
+        "per_subject_n_events": n_valid,
+        "per_subject_total_events": {s: len(events_by_subject[s]) for s in per_subject},
     }
     return x, per_subject, across
 
@@ -891,6 +895,9 @@ class ValueChangeCurves(NamedTuple):
         weighting (str): ``"subject"`` (every mouse counts once) or ``"event"`` (every event
             counts once; the SE then treats events as independent, so it understates the
             uncertainty).
+        per_subject_n_events (dict[str, np.ndarray]): ``{subject: events with a trial at each
+            t}``, the denominators of ``per_subject_mean``; shape ``(pre + post + 1,)``.
+        per_subject_total_events (dict[str, int]): ``{subject: number of events}``.
     """
 
     config: ValueChangeConfig
@@ -909,6 +916,8 @@ class ValueChangeCurves(NamedTuple):
     n_subjects_per_bin: np.ndarray
     counts: dict[str, int]
     weighting: str = "subject"
+    per_subject_n_events: dict[str, np.ndarray] | None = None
+    per_subject_total_events: dict[str, int] | None = None
 
 
 def summarize_windows(
@@ -947,6 +956,8 @@ def summarize_windows(
         n_events_per_bin=across["n_events_per_bin"],
         n_subjects_per_bin=across["n_subjects_per_bin"],
         counts=dict(windows.counts),
+        per_subject_n_events=across["per_subject_n_events"],
+        per_subject_total_events=across["per_subject_total_events"],
     )
 
 
