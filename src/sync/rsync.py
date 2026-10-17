@@ -122,6 +122,12 @@ def _classify_chunks(
 
     Raises:
         ValueError: If a log error is not finite, which would misalign the labels.
+
+    Note:
+        Deliberate difference from the upstream rsync (``rsync_orig.py``), which silently drops
+        non-finite log errors before fitting. Dropping them shortens the array, so the returned
+        labels no longer line up with the chunks they are applied to; we fail loudly instead
+        (zero errors are already replaced by the smallest nonzero one above).
     """
     chunk_mse = np.hstack([min_mse, second_mse])
     # An exact match has zero error, which has no logarithm; use the smallest nonzero error.
