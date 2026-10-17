@@ -214,11 +214,19 @@ report all failures at the end.
   by passing `drifting_selection=DRIFTING_SELECTION.model_copy(update={"run_value_change_analysis":
   False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
   in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).
+  The reversal-aligned-arms and value-change figures each come in two versions, in the
+  subfolders `mouse-weighted/` (each mouse's events pooled into one curve, mean ± SE across mice)
+  and `event-weighted/` (every event counts once, mean ± SE across events; the SE treats events
+  as independent, which events of one mouse are not, so it is narrower than the real
+  uncertainty). Nothing is written at the top level of those two folders. The
+  `reversal_aligned_arms_counts` table has a `weighting` column (`subject` or `event`).
 - **Value-change diagnostic** (`scripts/individual_analyses/plot_value_change_diagnostic.py --cohorts 1 3
   [--no-cache]`): one PNG per drifting session in `figures/value-change-diagnostic/cohort-XX/problem-KK/<mouse>/`,
   showing the session's magnitudes and choices with each best-decrease rank-swap event's counted pre and post
   windows shaded, the choices coloured by label and the arm behind each label written underneath; `index.txt`
-  lists every session's events.
+  lists every session's events. It also writes `mouse_curves_<scope>.csv` (`problem-KK`, `all-drifting-problems`):
+  each mouse's event count, `prev_best`/`prev_second`/`third` choice probabilities and events per t (both truncation
+  modes), with a `mean_across_mice` row equal to the mouse-weighted value-change curve.
 - **Port preference** (`run_port_preference_analysis`, drifting problems, `port-preference/`, also
   pooled over all drifting problems): `P(chosen) / P(best)` per port (one maze per mouse) and for
   the X and plus ports (mean ± SE across mice). Relative to the problem's initiation port, plus

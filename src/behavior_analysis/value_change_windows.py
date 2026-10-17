@@ -92,6 +92,9 @@ DIRECTIONS = ("increase", "decrease")
 RANK_FILTERS = ("all", "rank_preserving", "rank_swap")
 STANDARD_LABELS = ("best", "second", "third")
 SWAP_LABELS = ("prev_best", "prev_second", "third")
+# The window of the value-change figures; every default below and in the pipelines uses these.
+DEFAULT_PRE = 5
+DEFAULT_POST = 15
 # A rank swap needs the arm that held the rank to move in the direction while being passed, so
 # these two combinations cannot occur.
 N_ARMS = 3
@@ -153,6 +156,11 @@ def describe_value_change(config: ValueChangeConfig, truncated: bool) -> str:
     mode = "Truncated at Swap" if truncated else "Full Window"
     rank, direction = _RANK_WORDS[config.rank], _DIRECTION_WORDS[config.direction]
     return f"{rank} {direction} ({_FILTER_WORDS[config.rank_filter]}, {mode})"
+
+
+def mode_name(truncated: bool) -> str:
+    """Truncation mode as named in summaries and tables."""
+    return "truncated_at_rank_swap" if truncated else "untruncated"
 
 
 class ValueChangeEvent(NamedTuple):
@@ -623,8 +631,8 @@ def get_value_change_windows(
     direction: str,
     rank_filter: str = "all",
     *,
-    pre: int = 5,
-    post: int = 15,
+    pre: int = DEFAULT_PRE,
+    post: int = DEFAULT_POST,
     truncate_at_rank_swap: bool = False,
 ) -> ValueChangeWindows:
     """Events where the true magnitude at the *rank* position changed, with choice windows.
@@ -833,7 +841,9 @@ def aggregate_windows(
         ``se`` (``{label: array}``; SE is NaN where fewer than two subjects, or with
         ``weighting="event"`` two events, have data), ``weighting``,
         ``num_subjects``, ``num_events``, ``num_truncated`` and, per t, ``n_events_per_bin``
-        and ``n_subjects_per_bin`` (events and subjects with a trial at that t).
+        and ``n_subjects_per_bin`` (events and subjects with a trial at that t),
+        ``per_subject_n_events`` (``{subject: array}``, each subject's events with a trial at
+        each t) and ``per_subject_total_events`` (``{subject: int}``).
 
     Raises:
         ValueError: If an event's window has the wrong length, a label outside *labels*, or
@@ -861,6 +871,8 @@ def aggregate_windows(
         "num_truncated": sum(e.truncated for e in all_events),
         "n_events_per_bin": counts.sum(axis=0),
         "n_subjects_per_bin": (counts > 0).sum(axis=0),
+        "per_subject_n_events": n_valid,
+        "per_subject_total_events": {s: len(events_by_subject[s]) for s in per_subject},
     }
     return x, per_subject, across
 
@@ -891,6 +903,9 @@ class ValueChangeCurves(NamedTuple):
         weighting (str): ``"subject"`` (every mouse counts once) or ``"event"`` (every event
             counts once; the SE then treats events as independent, so it understates the
             uncertainty).
+        per_subject_n_events (dict[str, np.ndarray]): ``{subject: events with a trial at each
+            t}``, the denominators of ``per_subject_mean``; shape ``(pre + post + 1,)``.
+        per_subject_total_events (dict[str, int]): ``{subject: number of events}``.
     """
 
     config: ValueChangeConfig
@@ -909,6 +924,8 @@ class ValueChangeCurves(NamedTuple):
     n_subjects_per_bin: np.ndarray
     counts: dict[str, int]
     weighting: str = "subject"
+    per_subject_n_events: dict[str, np.ndarray] | None = None
+    per_subject_total_events: dict[str, int] | None = None
 
 
 def summarize_windows(
@@ -947,6 +964,8 @@ def summarize_windows(
         n_events_per_bin=across["n_events_per_bin"],
         n_subjects_per_bin=across["n_subjects_per_bin"],
         counts=dict(windows.counts),
+        per_subject_n_events=across["per_subject_n_events"],
+        per_subject_total_events=across["per_subject_total_events"],
     )
 
 

@@ -42,6 +42,10 @@ _LABEL_PAD = 0.05
 _TITLE_MARGIN = 0.4
 _FOOTER_MARGIN = 0.45
 
+# Empty space left and right of the first and last tick, as a fraction of the tick range, so
+# every panel is framed alike whatever its ticks are.
+_X_PADDING = 0.1
+
 PANELS = (
     ("best_val", "Value of Best"),
     ("second_val", "Value of Second"),
@@ -428,6 +432,10 @@ def plot_psychometric_panel(
         ax.set_title(xlabel, fontsize=14)
         ax.set_ylim(0, 1)
         ax.set_xticks(curve_best.x)
+        # Set explicitly: autoscaling ignores NaN points, so the limits would otherwise move
+        # with whichever end points have data.
+        pad = _X_PADDING * float(np.ptp(curve_best.x))
+        ax.set_xlim(curve_best.x[0] - pad, curve_best.x[-1] + pad)
         ax.legend(fontsize=10)
         despine(ax)
     return ax

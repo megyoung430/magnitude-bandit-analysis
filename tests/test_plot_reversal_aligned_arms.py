@@ -20,7 +20,7 @@ from tests.plot_capture import capture_figures
 from tests.reversal_arm_fixtures import make_reversal, stamp_windows
 
 
-def result_for(scheme, subjects=2, reversal_type="all", moving_avg_window=1):
+def result_for(scheme, subjects=2, reversal_type="all", moving_avg_window=1, weighting="subject"):
     windows = {
         f"m{i}": [make_reversal(["A", "A", "B", "A"] if i else ["A"] * 4, ["C", "C", "A"])]
         for i in range(subjects)
@@ -32,6 +32,7 @@ def result_for(scheme, subjects=2, reversal_type="all", moving_avg_window=1):
         pre=4,
         post=3,
         moving_avg_window=moving_avg_window,
+        weighting=weighting,
     )
 
 
@@ -83,15 +84,44 @@ def test_the_title_says_what_is_plotted_how_arms_are_labelled_and_how_many():
         title = ax.get_title()
         assert title.startswith("Choice Probabilities Around Block Changes (All) [pooled]\n")
         assert f"Arms labelled by rank {words.split()[0]} the block change" in title
-        assert "n=2 subjects, n=2 block changes" in title
+        assert "n=2 mice, n=2 block changes" in title
+        assert "mean ± se across mice" in title
+        assert "each weighted equally" not in title
+        assert "independent" not in title
         assert "moving average over 4 trials (centered)" in title
+
+
+def test_the_event_weighted_title_says_block_changes_count_equally_and_that_the_se_is_optimistic():
+    ax, _ = plot_reversal_aligned_arms(result_for("prev", weighting="event"), scope="pooled")
+    title = ax.get_title()
+    assert "mean ± se across block changes, each weighted equally" in title
+    assert "across mice" not in title
+    assert "n=2 mice, n=2 block changes" in title
+    assert "SE treats block changes as independent" in title.splitlines()[-1]
+
+
+def test_a_single_mouse_is_called_a_mouse():
+    ax, _ = plot_reversal_aligned_arms(result_for("prev", subjects=1))
+    assert "n=1 mouse, n=1 block changes" in ax.get_title()
+
+
+def test_the_event_weighted_se_band_is_drawn_for_two_block_changes_of_one_mouse():
+    windows = {"m": [make_reversal(["A"] * 4, ["C"] * 3), make_reversal(["B"] * 4, ["C"] * 3)]}
+    result = compute_reversal_aligned_arms(
+        stamp_windows(windows, pre=4, post=3),
+        scheme="prev",
+        pre=4,
+        post=3,
+        moving_avg_window=1,
+        weighting="event",
+    )
+    ax, _ = plot_reversal_aligned_arms(result)
+    assert [c for c in ax.collections if isinstance(c, PolyCollection)]
 
 
 def test_the_heading_names_the_block_change_kind_of_each_scheme():
     prev = result_for("prev", reversal_type="best_to_third")
-    assert (
-        figure_heading(prev) == "Choice Probabilities Around Block Changes (Prev Best to Third)"
-    )
+    assert figure_heading(prev) == "Choice Probabilities Around Block Changes (Prev Best to Third)"
     new = result_for("new", reversal_type="third_to_second")
     assert figure_heading(new).endswith("(New Second from Third)")
     assert figure_stem(new, "problem-04") == (
