@@ -254,9 +254,12 @@ report all failures at the end.
   (`... (All Events, Symmetric ±6 Trials).png`): windows of 6 trials before to 6 after the change,
   keeping only events whose whole window is intact (no block or third-arm change, session edge,
   best-arm change before the event, or missing choice), so every time point averages the same
-  events. It has no rank-swap truncation. Switch it off or change N with
+  events. A block or best arm that starts exactly at t = -N still counts as complete, and a
+  best/second tie in the pre window counts as a best-arm change. It has no rank-swap truncation. Switch it off or change N with
   `run_value_change_analysis(..., symmetric_window=None | N)`. The events kept and dropped per
-  configuration, by reason, are in `value_change_symmetric_exclusions.csv`; the symmetric mode
+  configuration are in `value_change_symmetric_exclusions.csv`: `n_excluded_*` count each event
+  once, by its first cause (block/third arm, session edge, best arm, other), and `n_with_*` count
+  the events having each cause, which overlap; the symmetric mode
   (`symmetric_6`) is also in `value_change_bin_counts.csv`.
 - **Value-change diagnostic** (`scripts/individual_analyses/plot_value_change_diagnostic.py --cohorts 1 3
   [--no-cache]`): one PNG per drifting session in `figures/value-change-diagnostic/cohort-XX/problem-KK/<mouse>/`,

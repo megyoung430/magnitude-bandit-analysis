@@ -43,8 +43,9 @@ it has one), the task type and the problem (number within the type, and overall)
 - ``no_trial_sessions.csv``: files and recordings the importer skipped, and sessions without
   trials (one row per session, listing its files), with the reason;
 - ``no_second_best.csv``: blocks in which more than one arm is at 0;
-- ``poke_trial_summary.csv``, ``reversal_aligned_arms_counts.csv``, ``value_change_events.csv``
-  ``value_change_bin_counts.csv`` and ``value_change_symmetric_exclusions.csv``: the diagnostics the analyses return, over all problems
+- ``poke_trial_summary.csv``, ``reversal_aligned_arms_counts.csv``, ``value_change_events.csv``,
+  ``value_change_bin_counts.csv`` and ``value_change_symmetric_exclusions.csv``: the
+  diagnostics the analyses return, over all problems
   (the pooled drifting analyses repeat the per-problem ones and add none);
 - ``warnings_log.csv``: every distinct Python warning of the latest run (that run only, also
   after a partial one), with the mouse, session, task type and problem its text names. It is

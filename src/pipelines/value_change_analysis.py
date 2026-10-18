@@ -14,12 +14,14 @@ events whose whole ``-N .. +N`` window is intact (see
 """
 
 from collections.abc import Mapping
+from numbers import Integral
 from pathlib import Path
 
 import pandas as pd
 
 from src.behavior_analysis.reversal_format import check_blocks_only_sessions
 from src.behavior_analysis.value_change_symmetric import (
+    ANY_CAUSE_KEYS,
     EXCLUSION_KEYS,
     select_symmetric_windows,
 )
@@ -48,21 +50,28 @@ DEFAULT_SYMMETRIC_WINDOW = 6
 
 
 def _figure_stem(windows: ValueChangeWindows) -> str:
+    """File name (without extension) of the figure of *windows*, e.g. ``Choice Probabilities
+    Around Best-Value Decreases (Rank Swap, Symmetric ±6 Trials)``."""
     symmetric_window = windows.pre if windows.symmetric else None
     heading = describe_value_change(windows.config, windows.truncate_at_rank_swap, symmetric_window)
     return f"Choice Probabilities Around {heading}"
 
 
 def _symmetric_mode_name(symmetric_window: int) -> str:
+    """Mode name of the symmetric version in summaries and tables, e.g. ``symmetric_6``."""
     return f"symmetric_{symmetric_window}"
 
 
 def _check_symmetric_window(symmetric_window: int | None) -> None:
+    """Raise ValueError unless *symmetric_window* is None or an integer >= 1 (a bool is not).
+
+    Any ``numbers.Integral`` is accepted, so a NumPy integer works.
+    """
     if symmetric_window is None:
         return
     if (
         isinstance(symmetric_window, bool)
-        or not isinstance(symmetric_window, int)
+        or not isinstance(symmetric_window, Integral)
         or symmetric_window < 1
     ):
         raise ValueError(
@@ -192,7 +201,7 @@ def _exclusion_row(config: ValueChangeConfig, symmetric_window: int, exclusions:
         "n_events_before": exclusions["n_events_before"],
         "n_events_kept": exclusions["n_events_kept"],
         "n_excluded": exclusions["n_events_before"] - exclusions["n_events_kept"],
-        **{key: exclusions[key] for key in EXCLUSION_KEYS},
+        **{key: exclusions[key] for key in EXCLUSION_KEYS + ANY_CAUSE_KEYS},
     }
 
 
@@ -222,7 +231,9 @@ def run_value_change_analysis(
     block or third-arm change, session edge, best-arm change before the event or missing
     choice), so every time point averages the same events. The x axis runs -N .. +N. There is no
     rank-swap truncation in the symmetric version: blanking post trials would break the
-    symmetry. It is independent of *pre* and *post*.
+    symmetry. It is independent of *pre* and *post*. In its summary ``n_events`` and
+    ``counts["n_events"]`` are the events kept, and ``counts["n_events_before_exclusion"]`` those
+    found.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session}}}``.
@@ -247,8 +258,9 @@ def run_value_change_analysis(
         ``bin_counts_table`` (DataFrame, per configuration, mode and time point ``t``: how many
         events and mice have a trial there, so thinning is visible; the mode ``symmetric_N`` has
         the same count at every t), ``symmetric_exclusions_table`` (DataFrame, one row per
-        configuration: events before, kept and excluded in total and by reason; empty without a
-        symmetric window) and ``files`` (every saved figure path).
+        configuration: events before, kept and excluded in total and by reason, each excluded
+        event once (``n_excluded_*``), and the events having each cause, which can overlap
+        (``n_with_*``); empty without a symmetric window) and ``files`` (every saved figure path).
 
     Raises:
         ValueError: On empty input, a counter-format session (the drifting task has only block
@@ -256,6 +268,7 @@ def run_value_change_analysis(
             from ``get_value_change_windows``.
     """
     _check_arguments(subjects_trials_by_problem, pre, post, truncate_modes, symmetric_window)
+    symmetric_window = None if symmetric_window is None else int(symmetric_window)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     summaries, contamination, rows, bin_rows, exclusion_rows, files = {}, {}, [], [], [], []
