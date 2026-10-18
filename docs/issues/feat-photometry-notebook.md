@@ -8,7 +8,7 @@ status: in review
 
 `scripts/photometry/cohort_photometry_preprocessing.ipynb` takes the cohort-04 fibre-photometry recordings
 (nLightG2 in prelimbic cortex, `2EX_1EM_pulsed`, 130 Hz) from `.ppd` files to outcome-aligned responses, with
-quality control at every step. It replaces the two earlier exploratory notebooks. It is committed without outputs.
+quality control at every step. It replaces the two earlier exploratory notebooks. It is committed without outputs (clear them before committing).
 
 ## Where the code lives
 
@@ -29,7 +29,7 @@ in the notebook before real data is touched.
 6. QC suite (specificity = uncorrected sensor SNR minus control SNR, flag below 1 dB): acquisition, denoising, bleaching, movement and connection jumps, spectral/transient SNR; flags with configurable thresholds (flag, never exclude). Evoked SNR is in section 8.
 7. Outcome-aligned responses per mouse (rewarded at `reward_onset`, unrewarded at `no_reward_cue_onset`), both pipelines, for the signal and for the 405-nm control processed in parallel without motion correction (each control figure on the y-limits of the matching signal figure, and again on its own limits); 7b control-channel responses (signal before correction, control, fitted control contribution, corrected) with peak-ratio table; 7c sensitivity of pipeline B (and A) to the pre-outcome window and the smoothing length, with trial counts per window; 7d group comparisons (Group 1 = `RT_176_*`, `RT_64_*`; Group 2 = `RT_177_*`, `RT_65_*`; mean ± SEM across mice of each mouse's trial mean, and `RT_176_L` alone against Group 2), each for the signal and the control.
 8. Evoked SNR (d′) and the per-mouse ranking by median |d′|.
-9. Summary and open questions.
+9. Summary and open questions. The summary text holds only method facts and the open questions; the run-dependent numbers (counts, sync, specificity, 7b ratios, 7c and 7d responses, ranking agreement) are printed by a code cell from the notebook's own tables, so they follow the data and the settings.
 
 ## Defaults and why
 
@@ -37,8 +37,8 @@ in the notebook before real data is touched.
 - Window −5 to +10 s; only windows completely inside the sync coverage and clear of sync gaps.
 - Low-pass 10 Hz (top of the primer's 2-10 Hz range; nLightG2 is not known to be faster); median filter off (a one-sample glitch seen in the example hits both channels and is removed by the control regression).
 - Bleaching: Meg's double-exponential parameterisation and bounds, fitted to every 13th sample (about 40x faster than a full-rate fit; agreement within 1% checked on synthetic data). Subtract, then divide by the fit for ΔF/F.
-- Pipeline B follows the paper and the code: `exp2` bleaching fit (falls back to the bounded fit with a constant, loudly, if it fails: 1 of 34 channel fits, the control of one recording; the cause is this notebook's own amplitude-ratio rule, which MATLAB's `fit` does not have, and the notebook reports the rejected curve's RMSE against the bounded fit's), fit window from MATLAB's sample 100 (Python index 99) to 30 s before the end, trial z from the motion-corrected signal, per-trial ΔF/F without baseline subtraction. The 20-s post-outcome mask of the motion fit is off (`motion_mask_s = 0`): outcomes come about every 10 s, so 20 s would remove a median of 74 % of the fit window (16 % at 2 s, 38 % at 5 s, 63 % at 10 s). The code's 40-Hz causal low-pass is not used; the paper's 10 Hz is, zero-phase. The moving mean is applied to windows padded by its half-width and then cropped, so no plotted sample is smoothed with a shortened window.
-- Pre-outcome windows `PRE_WINDOWS_S` = 2, 5, 10, 15 s (15 s = the paper's z baseline) and smoothing `SMOOTHING_POINTS` = 1, 10, 40, 80 (seconds at 130 Hz printed next to each). The main figures use a 5-s window (`DEFAULT_PRE_WINDOW`: a 15-s window contains another outcome in 85 % of rewarded trials) and 80 points for pipeline B (`DEFAULT_SMOOTHING`; the paper's rate for the 80 points is not stated), none for pipeline A in sections 7-8 (`DEFAULT_SMOOTHING_A`); the group figures smooth both pipelines by `DEFAULT_SMOOTHING`.
+- Pipeline B follows the paper and the code: `exp2` bleaching fit (falls back to the bounded fit with a constant, loudly, if it fails: in the first run 1 of 34 channel fits, the control of one recording; the cause is this notebook's own amplitude-ratio rule, which MATLAB's `fit` does not have, and the notebook reports the rejected curve's RMSE against the bounded fit's), fit window from MATLAB's sample 100 (Python index 99) to 30 s before the end, trial z from the motion-corrected signal, per-trial ΔF/F without baseline subtraction. The 20-s post-outcome mask of the motion fit is off (`motion_mask_s = 0`): outcomes come about every 10 s, so 20 s would remove most of the fit window (first run: median 74 %; 16 % at 2 s, 38 % at 5 s, 63 % at 10 s). The code's 40-Hz causal low-pass is not used; the paper's 10 Hz is, zero-phase. The moving mean is applied to windows padded by its half-width and then cropped, so no plotted sample is smoothed with a shortened window.
+- Pre-outcome windows `PRE_WINDOWS_S` = 2, 5, 10, 15 s (15 s = the paper's z baseline) and smoothing `SMOOTHING_POINTS` = 1, 10, 20, 40, 80 (seconds at 130 Hz printed next to each). The main figures use a 5-s window (`DEFAULT_PRE_WINDOW`: in the first run a 15-s window contained another outcome in 85 % of rewarded trials) and 20 points for pipeline B (`DEFAULT_SMOOTHING`; the paper's 80 points are kept in `SMOOTHING_POINTS` for comparison, at a sampling rate the paper does not state), none for pipeline A in sections 7-8 (`DEFAULT_SMOOTHING_A`); the group figures smooth both pipelines by `DEFAULT_SMOOTHING`.
 - Transient detection uses prominence above 5 robust SDs: with 3, noise ripples were counted as transients in the synthetic check.
 - Per-recording preprocessing is cached with `joblib.Memory` under `<cache_dir>/photometry`, keyed on file path, size, mtime and the parameter dict, so a changed parameter or file recomputes only what it affects. Pipeline B's whole-trace step is cached the same way (keyed also on `B_PREPROCESSING`). Run time about 2.5 minutes with a warm cache.
 - QC thresholds are unvalidated starting points.
@@ -47,10 +47,10 @@ in the notebook before real data is touched.
 
 - Channel wiring (`analog_1` = 470 nm signal, `analog_2` = 405 nm control) is assumed, not confirmed.
 - The sampling rate behind the paper's 80-point moving mean is not stated; the code's low-pass is 40 Hz and causal against the paper's 10 Hz; the post-outcome mask and the 15-s baseline do not fit a task with outcomes every 10 s, so the defaults here are ours.
-- Whether to correct the 6-ms offset of the no-reward cue (494 ms measured against 500 ms logged; below one 7.7-ms sample).
+- Whether to correct the 6-ms offset of the no-reward cue (first run: 494 ms measured against 500 ms logged; below one 7.7-ms sample).
 - Whether the time-locked deflection at the outcome, similar in both conditions in many mice, is physiological or task-locked (light, sound, pump).
-- Uncorrected specificity (sensor SNR minus control SNR, before regression) is near 0 dB for most mice: slow fluctuations are as strong in the control.
-- A sharp peak or dip at t = 0 for both outcomes in several mice, present in the control channel too (section 7b); and small corrected ΔF/F (about 0.05-0.1 %, arithmetic verified in section 3).
+- Uncorrected specificity (sensor SNR minus control SNR, before regression) was near 0 dB for most mice in the first run: slow fluctuations are as strong in the control.
+- A sharp peak or dip at t = 0 for both outcomes in several mice, present in the control channel too (section 7b); and small corrected ΔF/F (about 0.05-0.1 % in the first run, arithmetic verified in section 3).
 - 405 nm as the isosbestic point of nLightG2 is not verified.
 
 ## Results change
