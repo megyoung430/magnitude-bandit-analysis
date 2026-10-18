@@ -179,9 +179,7 @@ def select_recent_sessions(
         for problem in problems_of[mouse][key]:
             by_problem.setdefault(problem, []).append((mouse, key))
     ordered_problems = sorted(by_problem, key=lambda p: (_TASK_TYPE_ORDER[p[0]], p[1]))
-    criterion = (
-        f"last {last_sessions} session(s) per mouse" if since is None else f"since {since}"
-    )
+    criterion = f"last {last_sessions} session(s) per mouse" if since is None else f"since {since}"
     return SessionSelection(
         criterion,
         frozenset(by_problem),
@@ -226,6 +224,31 @@ def _sessions_by_mouse(pairs: list[SessionPair]) -> str:
     for mouse, key in pairs:
         by_mouse.setdefault(mouse, []).append(key)
     return "; ".join(f"{mouse}: {', '.join(keys)}" for mouse, keys in by_mouse.items())
+
+
+def describe_written(
+    cohort: str, rerun: frozenset, pooled_ran: bool, tables: dict[str, pd.DataFrame]
+) -> str:
+    """What a finished partial run of *cohort* wrote.
+
+    Args:
+        cohort (str): Cohort folder name, e.g. ``"cohort-04"``.
+        rerun (frozenset): ``(task_type, k)`` of the regenerated problems.
+        pooled_ran (bool): Whether the pooled drifting analyses were regenerated.
+        tables (dict): ``{name: table}`` written after the problems ran (diagnostics, log).
+
+    Returns:
+        str: A one-paragraph summary of the figure folders and tables written.
+    """
+    ordered = sorted(rerun, key=lambda p: (_TASK_TYPE_ORDER[p[0]], p[1]))
+    problems = ", ".join(f"{task_type}/problem-{k:02d}" for task_type, k in ordered)
+    pooled = "regenerated" if pooled_ran else "not regenerated"
+    rows = ", ".join(f"{name} ({len(table)} rows)" for name, table in tables.items())
+    return (
+        f"[DONE] {cohort} partial run wrote figures for {problems}; "
+        f"{DRIFTING}/all-drifting-problems {pooled}; trial-block-summaries/all-problems and "
+        f"the review tables rewritten; tables: {rows}"
+    )
 
 
 # ---------------------------------------------------------------------------
