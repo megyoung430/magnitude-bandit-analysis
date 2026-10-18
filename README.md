@@ -186,6 +186,36 @@ is read from `<BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N`. 
 the first cohort that fails and names it; add `--continue-on-error` to run the others and
 report all failures at the end.
 
+- **Redoing only what recent sessions changed.** After a few new sessions the whole suite need
+  not be rerun:
+
+  ```bash
+  uv run python scripts/full_pipelines/run_cohorts.py --cohorts 4 --last-sessions 4
+  uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 4 --since 2026-10-16
+  uv run python scripts/full_pipelines/run_cohorts.py --cohorts 4 --last-sessions 4 --dry-run
+  ```
+
+  `--last-sessions N` takes each mouse's N most recent sessions (by session number and date; a
+  mouse with fewer contributes all it has), `--since YYYY-MM-DD` the sessions dated on or after
+  that day; give one of them. `--last-sessions` takes each mouse's last N sessions however old
+  they are, so a mouse that stopped weeks ago has its final problem regenerated every time; use
+  `--since` for "what is new since I last ran". A problem folder holds every mouse that ran the problem, so every
+  problem containing a selected session is regenerated whole; the other problem folders are left
+  untouched. `drifting/all-drifting-problems/` is regenerated (from all drifting problems) only
+  if a selected problem is drifting. The review tables and `trial-block-summaries/` are always
+  rewritten. In `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`,
+  `value_change_events.csv` and `value_change_bin_counts.csv` the rows of the regenerated problems
+  replace the earlier ones and the rows of other problems are kept (matched on `task_type` and
+  `problem_in_type`); if such a table is missing, a warning says that only the new rows were
+  written and the table is partial. `warnings_log.csv` covers the latest run only. The run
+  prints the plan first (problems, pooled scopes and the sessions behind each) and a summary of
+  what it wrote at the end; `--dry-run` prints the plan and writes no results or tables (the import cache may be filled). A bad N, a date that
+  is not `YYYY-MM-DD`, or a selection matching no session stops with an error (which lists the
+  mice and dates that exist); with several cohorts, one without a matching session is skipped
+  with a `[SKIP]` line, and the run stops with an error only if none matches. Problem numbers
+  come from the full cohort, so a session that starts a new problem makes that problem's number
+  new, while folders and rows of problems that no longer exist under that number stay on disk:
+  do a full run after renumbering. A run without either option is the full run, unchanged.
 - **Task type** comes from each session's pyControl task name (last path component, case
   insensitive): `blocked` or `structured` is blocked, `drifting` is drifting. Pretraining is
   skipped first; a missing name, any other name, or a name matching both stops the run with an

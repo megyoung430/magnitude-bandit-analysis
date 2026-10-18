@@ -46,9 +46,19 @@ it has one), the task type and the problem (number within the type, and overall)
 - ``poke_trial_summary.csv``, ``reversal_aligned_arms_counts.csv``, ``value_change_events.csv``
   and ``value_change_bin_counts.csv``: the diagnostics the analyses return, over all problems
   (the pooled drifting analyses repeat the per-problem ones and add none);
-- ``warnings_log.csv``: every distinct Python warning of the run, with the mouse, session, task
-  type and problem its text names. It is written even when the run fails, and every table is
-  always written (header only when empty).
+- ``warnings_log.csv``: every distinct Python warning of the latest run (that run only, also
+  after a partial one), with the mouse, session, task type and problem its text names. It is
+  written even when the run fails, and every table is always written (header only when empty).
+
+Partial runs: ``run_cohort(..., only_problems={("drifting", 2)})``, or
+:func:`run_cohort_incremental` / :func:`run_cohorts` with ``last_sessions=N`` or
+``since="YYYY-MM-DD"``, regenerate only the problems that contain the selected sessions (a
+problem folder holds every mouse that ran it) and leave the other figure folders alone. The pooled
+``all-drifting-problems/`` analyses are redone only when a selected problem is drifting; the
+review tables and ``trial-block-summaries/`` cover the cohort and are always rewritten. In the
+four stacked diagnostic tables the rows of the regenerated problems replace the earlier ones and
+the other rows stay; if a table is missing, a warning says that only the new rows were written.
+``warnings_log.csv`` lists only the warnings of the latest run, partial or not.
 
 The maze heatmaps outline the choice ports of the problem the mouse ran immediately before, in
 the overall problem order and whatever its task type, so drifting problem 1 is outlined with
@@ -56,7 +66,7 @@ the ports of the last blocked problem.
 """
 
 import warnings
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
@@ -102,6 +112,15 @@ from src.behavior_import.task_types import (
 from src.behavior_import.warning_records import record_warnings
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
+from src.pipelines.incremental import (
+    NoSessionsSelectedError,
+    SessionSelection,
+    check_selection_options,
+    describe_plan,
+    describe_written,
+    merge_diagnostic_tables,
+    select_recent_sessions,
+)
 from src.pipelines.open_field import (
     POOLED_DRIFTING_LABEL,
     VALUE_BASIS_LABELS,
@@ -118,6 +137,10 @@ EXPERIMENT_FOLDER = "3x3_field_magnitude_bandit"
 DEFAULT_RESULTS_ROOT = REPO_ROOT / "results"
 REVERSAL_TRIAL_WINDOW = 100  # trials per bin of the trial-based reversal-rate plots
 POOLED_DRIFTING_FOLDER = "all-drifting-problems"
+PARTIAL_TABLE_WARNING = (
+    "{name}.csv: no earlier table with task_type and problem_in_type columns to merge into, so "
+    "only the rows of the regenerated problems {problems} were written; the table is partial"
+)
 NO_IMPORT_LOG_WARNING = (
     "trials were passed in without an import_log, so what the import skipped or flagged is "
     "unknown: no_trial_sessions.csv is not written, suspect_sessions.csv has no problem "
@@ -462,6 +485,70 @@ def _write_tables(tables: dict[str, pd.DataFrame], directory: Path) -> None:
         table.to_csv(directory / f"{name}.csv", index=False)
 
 
+def read_existing_tables(directory: Path, names) -> dict[str, pd.DataFrame | None]:
+    """``{name: table}`` read from ``<name>.csv`` in *directory*; ``None`` for a missing file.
+
+    Args:
+        directory (Path): Folder holding the CSVs.
+        names (Iterable[str]): Table names, without ``.csv``.
+
+    Returns:
+        dict[str, pd.DataFrame | None]: The table of each name, or ``None`` if its file does not
+        exist or has no content at all (not even a header).
+    """
+    tables: dict[str, pd.DataFrame | None] = {}
+    for name in names:
+        path = Path(directory) / f"{name}.csv"
+        try:
+            tables[name] = pd.read_csv(path)
+        except (FileNotFoundError, pd.errors.EmptyDataError):
+            tables[name] = None
+    return tables
+
+
+def merge_with_earlier_run(new: dict, tables_dir: Path, rerun: frozenset) -> dict:
+    """Diagnostic tables of a partial run merged into those the earlier run left on disk.
+
+    Args:
+        new (dict): ``{name: rows of the regenerated problems}`` from ``stack_diagnostics``.
+        tables_dir (Path): Folder with the earlier run's CSVs.
+        rerun (frozenset): ``(task_type, k)`` of the regenerated problems.
+
+    Returns:
+        dict[str, pd.DataFrame]: The tables to write: the rows of the regenerated problems
+        replaced, all others kept. A table with no usable earlier file holds only the new rows,
+        and a warning says it is partial.
+    """
+    existing = read_existing_tables(tables_dir, new)
+    merged, partial = merge_diagnostic_tables(new, existing, rerun)
+    for name in partial:
+        warnings.warn(PARTIAL_TABLE_WARNING.format(name=name, problems=sorted(rerun)), stacklevel=2)
+    return merged
+
+
+def check_only_problems(only_problems: Collection[tuple[str, int]], grouped: dict) -> frozenset:
+    """*only_problems* as a frozenset, after checking that each is a problem of the cohort.
+
+    Args:
+        only_problems (Collection[tuple[str, int]]): ``(task_type, k)`` to regenerate.
+        grouped (dict): ``{(task_type, k): {mouse: sessions}}`` of the cohort.
+
+    Returns:
+        frozenset[tuple[str, int]]: The same problems.
+
+    Raises:
+        ValueError: If it is empty (use ``None`` for every problem), or names a problem that
+            *grouped* does not have.
+    """
+    wanted = frozenset(only_problems)
+    if not wanted:
+        raise ValueError("only_problems is empty: no problems to run (None runs every problem)")
+    unknown = sorted(wanted - set(grouped))
+    if unknown:
+        raise ValueError(f"only_problems names problems the cohort does not have: {unknown}")
+    return wanted
+
+
 def import_review_tables(
     grouped: dict, problem_map: pd.DataFrame, index: ProblemIndex, log: ImportLog | None
 ) -> dict[str, pd.DataFrame]:
@@ -548,8 +635,16 @@ def run_cohort(
     use_cache: bool = True,
     trials_by_problem: dict | None = None,
     import_log: ImportLog | None = None,
+    only_problems: Collection[tuple[str, int]] | None = None,
 ) -> CohortResult:
-    """Run the whole analysis suite for one cohort; see the module docstring for the outputs.
+    """Run the analysis suite for one cohort; see the module docstring for the outputs.
+
+    With *only_problems* the run is partial: the figures of those problems are regenerated and
+    the rest of ``figures/`` is left as it is. The pooled drifting analyses (which use every
+    drifting problem) run only if a regenerated problem is drifting; the review tables and the
+    trial and block-length summaries cover the whole cohort and are always rewritten; each
+    stacked diagnostic table keeps the rows of the other problems from the earlier run (see
+    :func:`merge_with_earlier_run`). ``warnings_log.csv`` lists only this run's warnings.
 
     Args:
         cohort_id (int): 1 for ``cohort-01``, and so on.
@@ -574,13 +669,19 @@ def run_cohort(
             says that ``no_trial_sessions.csv`` is not written and ``suspect_sessions.csv`` has
             no numbering rows. Ignored when the cohort is loaded. Default ``None``.
             Keyword-only.
+        only_problems (Collection[tuple[str, int]] | None): ``(task_type, k)`` of the problems
+            to regenerate (``k`` the number within the type, as in ``problem_map.csv``). Default
+            ``None``: every problem. Keyword-only.
 
     Returns:
         CohortResult: The problem map, suspect-reversal table, per-problem rank results,
-        pooled drifting rank results and the other review tables.
+        pooled drifting rank results and the other review tables. In a partial run
+        ``rank_results`` holds only the regenerated problems and ``pooled_drifting_ranks`` is
+        empty when the pooled analyses were skipped; the diagnostic tables are the merged ones.
 
     Raises:
-        ValueError: If the cohort has no problems, or a session's task name is not recognised.
+        ValueError: If the cohort has no problems, a session's task name is not recognised, or
+            *only_problems* is empty or names a problem the cohort does not have.
     """
     cohort = cohort_name(cohort_id)
     log = import_log
@@ -599,6 +700,7 @@ def run_cohort(
     grouped = regroup_by_task_type(trials_by_problem, numbering)
     problem_map = problem_map_table(trials_by_problem, numbering)
     index = ProblemIndex.from_cohort(trials_by_problem, problem_map)
+    rerun = None if only_problems is None else check_only_problems(only_problems, grouped)
     previous_ports = _previous_ports_by_problem(trials_by_problem, grouped, selections)
     figures, tables = _figures_dir(results_root, cohort), _tables_dir(results_root, cohort)
 
@@ -615,6 +717,8 @@ def run_cohort(
 
             rank_results, diagnostics = {}, {}
             for (task_type, k), subjects_trials in grouped.items():
+                if rerun is not None and (task_type, k) not in rerun:
+                    continue
                 selection = selection_for_task_type(
                     task_type, blocked_selection, drifting_selection
                 )
@@ -634,8 +738,8 @@ def run_cohort(
                 )
 
             drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
-            pooled = {}
-            if drifting:
+            pooled, pooled_ran = {}, False
+            if drifting and (rerun is None or any(kind == DRIFTING for kind, _ in rerun)):
                 pooled = pooled_drifting_rank_results(
                     drifting,
                     drifting_selection.rank_value_bases,
@@ -646,8 +750,10 @@ def run_cohort(
                 run_drifting_value_analyses(
                     drifting, pooled_dir, drifting_selection, arm_scope_label=POOLED_DRIFTING_LABEL
                 )
+                pooled_ran = True
             else:
-                print(f"[INFO] {cohort}: no drifting problems; skipping pooled drifting ranks.")
+                why = "no drifting problems" if not drifting else "no drifting problem selected"
+                print(f"[INFO] {cohort}: {why}; skipping pooled drifting ranks.")
 
             session_table, block_table = build_trial_block_tables(
                 trials_by_problem, subject_numbers_from_sessions(trials_by_problem)
@@ -658,8 +764,12 @@ def run_cohort(
                 figures / "trial-block-summaries" / "all-problems",
                 show=False,
             )
-        # the diagnostics are complete only once every problem has run
-        diagnostic_tables = stack_diagnostics(diagnostics, problem_map)
+            # stacking needs every selected problem to have run. It stays inside the warnings
+            # block because merging a partial run can warn, and that warning belongs in the log
+            # (stacking itself raises no warnings, so a full run is unaffected).
+            diagnostic_tables = stack_diagnostics(diagnostics, problem_map)
+            if rerun is not None:
+                diagnostic_tables = merge_with_earlier_run(diagnostic_tables, tables, rerun)
     finally:
         # a run that fails is the one whose warnings are needed most
         late_tables = {
@@ -667,40 +777,192 @@ def run_cohort(
             "warnings_log": run_warnings_log(log, run_warnings, index),
         }
         _write_tables(late_tables, tables)
+    if rerun is not None:
+        print(describe_written(cohort, rerun, pooled_ran, late_tables))
     return CohortResult(
         problem_map, suspects, rank_results, pooled, {**review_tables, **late_tables}
     )
 
 
-def run_cohorts(cohort_ids, *, continue_on_error: bool = False, **settings) -> dict:
+def plan_cohort_incremental(
+    cohort_id: int,
+    *,
+    last_sessions: int | None = None,
+    since: str | None = None,
+    data_root: Path | None = None,
+    use_cache: bool = True,
+    trials_by_problem: dict | None = None,
+) -> SessionSelection:
+    """The sessions and problems a partial run of one cohort would regenerate.
+
+    Writes no results or tables (the import cache may be filled).
+
+    Args:
+        cohort_id (int): 1 for ``cohort-01``, and so on.
+        last_sessions (int | None): Each mouse's N most recent sessions; see
+            :func:`~src.pipelines.incremental.select_recent_sessions`. Keyword-only.
+        since (str | None): Sessions dated on or after this ``YYYY-MM-DD`` date. Keyword-only.
+        data_root (Path | None): As for :func:`run_cohort`. Keyword-only.
+        use_cache (bool): As for :func:`run_cohort`. Keyword-only.
+        trials_by_problem (dict | None): Already-loaded trials, to skip the load. Keyword-only.
+
+    Returns:
+        SessionSelection: The selected sessions and the problems that contain them.
+
+    Raises:
+        ValueError: As :func:`~src.pipelines.incremental.select_recent_sessions`, or if the
+            cohort has no problems.
+        NoSessionsSelectedError: If no session matches.
+    """
+    if trials_by_problem is None:
+        trials_by_problem, _ = load_cohort(cohort_id, data_root, use_cache)
+    if not trials_by_problem:
+        raise ValueError(f"No problems found for {cohort_name(cohort_id)}")
+    grouped = regroup_by_task_type(trials_by_problem, number_within_task_type(trials_by_problem))
+    return select_recent_sessions(grouped, last_sessions=last_sessions, since=since)
+
+
+def run_cohort_incremental(
+    cohort_id: int,
+    *,
+    last_sessions: int | None = None,
+    since: str | None = None,
+    data_root: Path | None = None,
+    use_cache: bool = True,
+    trials_by_problem: dict | None = None,
+    import_log: ImportLog | None = None,
+    **settings,
+) -> CohortResult:
+    """Regenerate only what the recent sessions of a cohort change.
+
+    Selects the sessions (each mouse's last N, or those since a date), prints which problems
+    and pooled scopes will be regenerated and why, then runs :func:`run_cohort` for those
+    problems alone (its ``only_problems``). The selection is made on the data the run uses,
+    so the import happens once.
+
+    Args:
+        cohort_id (int): 1 for ``cohort-01``, and so on.
+        last_sessions (int | None): Each mouse's N most recent sessions. Exactly one of this and
+            *since* is required. Keyword-only.
+        since (str | None): Sessions dated on or after this ``YYYY-MM-DD`` date. Keyword-only.
+        data_root (Path | None): As for :func:`run_cohort`. Keyword-only.
+        use_cache (bool): As for :func:`run_cohort`. Keyword-only.
+        trials_by_problem (dict | None): Already-loaded trials, to skip the load. Keyword-only.
+        import_log (ImportLog | None): The log of *trials_by_problem*; ignored when the cohort
+            is loaded here. Keyword-only.
+        **settings: The remaining keyword arguments of :func:`run_cohort` (``results_root``,
+            selections, ...).
+
+    Returns:
+        CohortResult: As :func:`run_cohort` returns for a partial run.
+
+    Raises:
+        ValueError: As :func:`plan_cohort_incremental`.
+        NoSessionsSelectedError: If no session matches; nothing is written.
+    """
+    log = import_log
+    if trials_by_problem is None:
+        trials_by_problem, log = load_cohort(cohort_id, data_root, use_cache)
+    selection = plan_cohort_incremental(
+        cohort_id, last_sessions=last_sessions, since=since, trials_by_problem=trials_by_problem
+    )
+    print(f"[PLAN] {describe_plan(cohort_name(cohort_id), selection)}")
+    return run_cohort(
+        cohort_id,
+        use_cache=use_cache,
+        trials_by_problem=trials_by_problem,
+        import_log=log,
+        only_problems=selection.problems,
+        **settings,
+    )
+
+
+def _run_one_cohort(cohort_id: int, last_sessions, since, dry_run: bool, settings: dict):
+    """One cohort of :func:`run_cohorts`: full, partial or dry-run; the result or ``None``."""
+    if dry_run:
+        plan = plan_cohort_incremental(
+            cohort_id,
+            last_sessions=last_sessions,
+            since=since,
+            data_root=settings.get("data_root"),
+            use_cache=settings.get("use_cache", True),
+        )
+        print(f"[PLAN] dry run, nothing written. {describe_plan(cohort_name(cohort_id), plan)}")
+        return None
+    if last_sessions is not None or since is not None:
+        return run_cohort_incremental(
+            cohort_id, last_sessions=last_sessions, since=since, **settings
+        )
+    return run_cohort(cohort_id, **settings)
+
+
+def run_cohorts(
+    cohort_ids,
+    *,
+    continue_on_error: bool = False,
+    last_sessions: int | None = None,
+    since: str | None = None,
+    dry_run: bool = False,
+    **settings,
+) -> dict:
     """:func:`run_cohort` for each id; ``settings`` are passed on to every cohort.
 
     By default the first failing cohort stops the run. With ``continue_on_error`` the other
     cohorts still run, and the failures are raised together at the end.
 
+    With *last_sessions* or *since* every cohort runs :func:`run_cohort_incremental`. A cohort
+    with no matching session is skipped with a ``[SKIP]`` line (a date recent for one cohort
+    may not reach another), but if no cohort matches at all the run raises.
+
     Args:
         cohort_ids (Iterable[int]): Cohort numbers to run, in order.
         continue_on_error (bool): Keep going after a failing cohort. Default ``False``.
             Keyword-only.
+        last_sessions (int | None): Partial run on each mouse's N most recent sessions.
+            Default ``None``. Keyword-only.
+        since (str | None): Partial run on the sessions dated on or after this ``YYYY-MM-DD``
+            date. Default ``None``. Keyword-only.
+        dry_run (bool): Print the plan of the partial run (problems, pooled scopes, sessions)
+            and write no results or tables (the import cache may be filled). Needs
+            *last_sessions* or *since*. Default ``False``. Keyword-only.
         **settings: Keyword arguments of :func:`run_cohort` (``data_root``, ``results_root``,
             selections, ...), applied to every cohort.
 
     Returns:
-        dict[int, CohortResult]: ``{cohort_id: CohortResult}``.
+        dict[int, CohortResult]: ``{cohort_id: CohortResult}``; empty for a dry run.
 
     Raises:
-        RuntimeError: Naming each cohort that failed and why.
+        ValueError: For *dry_run* without a selection, or invalid selection options (checked
+            before any cohort is loaded).
+        RuntimeError: Naming each cohort that failed and why and, for a partial run, that no
+            cohort has a matching session (both are reported when both happen).
     """
-    results, failures = {}, {}
+    if dry_run and last_sessions is None and since is None:
+        raise ValueError("dry_run needs last_sessions or since: a full run has no plan to print")
+    if last_sessions is not None or since is not None:
+        check_selection_options(last_sessions, since)
+    results, failures, unmatched, planned = {}, {}, {}, 0
     for cohort_id in cohort_ids:
         try:
-            results[cohort_id] = run_cohort(cohort_id, **settings)
+            result = _run_one_cohort(cohort_id, last_sessions, since, dry_run, settings)
+            if dry_run:
+                planned += 1
+            else:
+                results[cohort_id] = result
+        except NoSessionsSelectedError as err:
+            unmatched[cohort_id] = f"{cohort_name(cohort_id)}: {err}"
+            print(f"[SKIP] {unmatched[cohort_id]}")
         except Exception as err:  # re-raised below with the cohort named, never dropped
             message = f"{cohort_name(cohort_id)} failed: {type(err).__name__}: {err}"
             if not continue_on_error:
                 raise RuntimeError(message) from err
             print(f"[ERROR] {message}")
             failures[cohort_id] = message
+    problems = list(failures.values())
+    if unmatched and not (results or planned):
+        problems.append("no cohort has a matching session:\n" + "\n".join(unmatched.values()))
     if failures:
-        raise RuntimeError(f"{len(failures)} cohort(s) failed:\n" + "\n".join(failures.values()))
+        problems.insert(0, f"{len(failures)} cohort(s) failed:")
+    if problems:
+        raise RuntimeError("\n".join(problems))
     return results
