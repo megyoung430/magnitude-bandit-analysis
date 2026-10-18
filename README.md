@@ -197,7 +197,9 @@ report all failures at the end.
 
   `--last-sessions N` takes each mouse's N most recent sessions (by session number and date; a
   mouse with fewer contributes all it has), `--since YYYY-MM-DD` the sessions dated on or after
-  that day; give one of them. A problem folder holds every mouse that ran the problem, so every
+  that day; give one of them. `--last-sessions` takes each mouse's last N sessions however old
+  they are, so a mouse that stopped weeks ago has its final problem regenerated every time; use
+  `--since` for "what is new since I last ran". A problem folder holds every mouse that ran the problem, so every
   problem containing a selected session is regenerated whole; the other problem folders are left
   untouched. `drifting/all-drifting-problems/` is regenerated (from all drifting problems) only
   if a selected problem is drifting. The review tables and `trial-block-summaries/` are always
@@ -207,7 +209,7 @@ report all failures at the end.
   `problem_in_type`); if such a table is missing, a warning says that only the new rows were
   written and the table is partial. `warnings_log.csv` covers the latest run only. The run
   prints the plan first (problems, pooled scopes and the sessions behind each) and a summary of
-  what it wrote at the end; `--dry-run` prints the plan and writes nothing. A bad N, a date that
+  what it wrote at the end; `--dry-run` prints the plan and writes no results or tables (the import cache may be filled). A bad N, a date that
   is not `YYYY-MM-DD`, or a selection matching no session stops with an error (which lists the
   mice and dates that exist); with several cohorts, one without a matching session is skipped
   with a `[SKIP]` line, and the run stops with an error only if none matches. Problem numbers

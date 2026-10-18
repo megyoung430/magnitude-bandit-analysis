@@ -115,6 +115,7 @@ from src.behavior_visualization.plot_trial_block_summary import plot_trial_block
 from src.pipelines.incremental import (
     NoSessionsSelectedError,
     SessionSelection,
+    check_selection_options,
     describe_plan,
     describe_written,
     merge_diagnostic_tables,
@@ -525,8 +526,15 @@ def merge_with_earlier_run(new: dict, tables_dir: Path, rerun: frozenset) -> dic
     return merged
 
 
-def check_only_problems(only_problems, grouped: dict) -> frozenset:
+def check_only_problems(only_problems: Collection[tuple[str, int]], grouped: dict) -> frozenset:
     """*only_problems* as a frozenset, after checking that each is a problem of the cohort.
+
+    Args:
+        only_problems (Collection[tuple[str, int]]): ``(task_type, k)`` to regenerate.
+        grouped (dict): ``{(task_type, k): {mouse: sessions}}`` of the cohort.
+
+    Returns:
+        frozenset[tuple[str, int]]: The same problems.
 
     Raises:
         ValueError: If it is empty (use ``None`` for every problem), or names a problem that
@@ -730,7 +738,7 @@ def run_cohort(
                 )
 
             drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}
-            pooled = {}
+            pooled, pooled_ran = {}, False
             if drifting and (rerun is None or any(kind == DRIFTING for kind, _ in rerun)):
                 pooled = pooled_drifting_rank_results(
                     drifting,
@@ -742,6 +750,7 @@ def run_cohort(
                 run_drifting_value_analyses(
                     drifting, pooled_dir, drifting_selection, arm_scope_label=POOLED_DRIFTING_LABEL
                 )
+                pooled_ran = True
             else:
                 why = "no drifting problems" if not drifting else "no drifting problem selected"
                 print(f"[INFO] {cohort}: {why}; skipping pooled drifting ranks.")
@@ -755,7 +764,9 @@ def run_cohort(
                 figures / "trial-block-summaries" / "all-problems",
                 show=False,
             )
-            # the diagnostics are complete only once every problem has run
+            # stacking needs every selected problem to have run. It stays inside the warnings
+            # block because merging a partial run can warn, and that warning belongs in the log
+            # (stacking itself raises no warnings, so a full run is unaffected).
             diagnostic_tables = stack_diagnostics(diagnostics, problem_map)
             if rerun is not None:
                 diagnostic_tables = merge_with_earlier_run(diagnostic_tables, tables, rerun)
@@ -767,7 +778,7 @@ def run_cohort(
         }
         _write_tables(late_tables, tables)
     if rerun is not None:
-        print(describe_written(cohort, rerun, bool(pooled), late_tables))
+        print(describe_written(cohort, rerun, pooled_ran, late_tables))
     return CohortResult(
         problem_map, suspects, rank_results, pooled, {**review_tables, **late_tables}
     )
@@ -782,7 +793,9 @@ def plan_cohort_incremental(
     use_cache: bool = True,
     trials_by_problem: dict | None = None,
 ) -> SessionSelection:
-    """The sessions and problems a partial run of one cohort would regenerate; writes nothing.
+    """The sessions and problems a partial run of one cohort would regenerate.
+
+    Writes no results or tables (the import cache may be filled).
 
     Args:
         cohort_id (int): 1 for ``cohort-01``, and so on.
@@ -910,8 +923,8 @@ def run_cohorts(
         since (str | None): Partial run on the sessions dated on or after this ``YYYY-MM-DD``
             date. Default ``None``. Keyword-only.
         dry_run (bool): Print the plan of the partial run (problems, pooled scopes, sessions)
-            and write nothing. Needs *last_sessions* or *since*. Default ``False``.
-            Keyword-only.
+            and write no results or tables (the import cache may be filled). Needs
+            *last_sessions* or *since*. Default ``False``. Keyword-only.
         **settings: Keyword arguments of :func:`run_cohort` (``data_root``, ``results_root``,
             selections, ...), applied to every cohort.
 
@@ -919,12 +932,15 @@ def run_cohorts(
         dict[int, CohortResult]: ``{cohort_id: CohortResult}``; empty for a dry run.
 
     Raises:
-        ValueError: For *dry_run* without a selection.
-        RuntimeError: Naming each cohort that failed and why, or, for a partial run, that no
-            cohort has a matching session.
+        ValueError: For *dry_run* without a selection, or invalid selection options (checked
+            before any cohort is loaded).
+        RuntimeError: Naming each cohort that failed and why and, for a partial run, that no
+            cohort has a matching session (both are reported when both happen).
     """
     if dry_run and last_sessions is None and since is None:
         raise ValueError("dry_run needs last_sessions or since: a full run has no plan to print")
+    if last_sessions is not None or since is not None:
+        check_selection_options(last_sessions, since)
     results, failures, unmatched, planned = {}, {}, {}, 0
     for cohort_id in cohort_ids:
         try:
@@ -942,8 +958,11 @@ def run_cohorts(
                 raise RuntimeError(message) from err
             print(f"[ERROR] {message}")
             failures[cohort_id] = message
+    problems = list(failures.values())
     if unmatched and not (results or planned):
-        raise RuntimeError("no cohort has a matching session:\n" + "\n".join(unmatched.values()))
+        problems.append("no cohort has a matching session:\n" + "\n".join(unmatched.values()))
     if failures:
-        raise RuntimeError(f"{len(failures)} cohort(s) failed:\n" + "\n".join(failures.values()))
+        problems.insert(0, f"{len(failures)} cohort(s) failed:")
+    if problems:
+        raise RuntimeError("\n".join(problems))
     return results

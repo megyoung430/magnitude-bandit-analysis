@@ -22,6 +22,7 @@ from src.pipelines.cohort_analysis import run_cohort, run_cohort_incremental, ru
 from src.pipelines.incremental import NoSessionsSelectedError
 from tests.cohort_fixtures import blocked_then_two_drifting
 from tests.test_cohort_runner_integration import (
+    STUB_RESULTS,
     calls,
     close_figures,
     cohort_dir,
@@ -287,3 +288,87 @@ def test_a_full_run_is_unchanged_by_the_incremental_options(
         "drifting/problem-01",
         "drifting/problem-02",
     ]
+
+
+# --- failures and validation in run_cohorts -------------------------------------------------
+
+
+def test_a_crashed_cohort_is_reported_together_with_the_no_match_error(
+    tmp_path, monkeypatch, calls, cohort_extras
+):
+    def load(cohort_id, data_root, use_cache):
+        if cohort_id == 1:
+            raise OSError("raw folder unreadable")
+        return {1: blocked_then_two_drifting()[1]}, None
+
+    monkeypatch.setattr(cohort_analysis, "load_cohort", load)
+    with pytest.raises(RuntimeError) as err:
+        run_cohorts([1, 2], results_root=tmp_path, since="2027-01-01", continue_on_error=True)
+    assert "cohort-01 failed" in str(err.value) and "raw folder unreadable" in str(err.value)
+    assert "cohort-02" in str(err.value) and "2027-01-01" in str(err.value)
+
+
+@pytest.mark.parametrize(
+    "options, match",
+    [
+        ({"last_sessions": 0}, "last_sessions"),
+        ({"since": "16/10/2026"}, "YYYY-MM-DD"),
+        ({"last_sessions": 2, "since": "2026-10-16"}, "exactly one"),
+    ],
+)
+def test_bad_selection_options_are_rejected_before_any_cohort_is_loaded(
+    options, match, tmp_path, monkeypatch
+):
+    def load(*args):
+        raise AssertionError("a cohort was loaded")
+
+    monkeypatch.setattr(cohort_analysis, "load_cohort", load)
+    with pytest.raises(ValueError, match=match):
+        run_cohorts([1, 2], results_root=tmp_path, **options)
+    with pytest.raises(ValueError, match=match):
+        run_cohorts([1, 2], results_root=tmp_path, dry_run=True, **options)
+
+
+# --- the summary, and partial tables equal the full run's ------------------------------------
+
+
+@pytest.fixture
+def rows_in_every_table(monkeypatch):
+    """Give the stubbed value analyses non-empty diagnostics, so their tables have rows."""
+    monkeypatch.setitem(
+        STUB_RESULTS, "run_reversal_aligned_arm_analysis", {"counts": pd.DataFrame({"n": [1, 2]})}
+    )
+    monkeypatch.setitem(
+        STUB_RESULTS,
+        "run_value_change_analysis",
+        {
+            "contamination_table": pd.DataFrame({"event": [1]}),
+            "bin_counts_table": pd.DataFrame({"bin": [3, 4, 5]}),
+        },
+    )
+
+
+def table_bytes(tables_dir):
+    return {name: (tables_dir / f"{name}.csv").read_bytes() for name in DIAGNOSTICS}
+
+
+def test_partial_run_tables_equal_the_full_run_tables_and_a_repeat_changes_nothing(
+    tmp_path, rows_in_every_table, earlier_full_run
+):
+    full = table_bytes(earlier_full_run)
+    assert all(len(pd.read_csv(earlier_full_run / f"{n}.csv")) for n in DIAGNOSTICS)
+    for _ in range(2):
+        rerun(tmp_path, {DRIFTING_2})
+        assert table_bytes(earlier_full_run) == full
+    rerun(tmp_path, {BLOCKED_1, DRIFTING_1})
+    assert table_bytes(earlier_full_run) == full
+
+
+def test_the_summary_says_the_pooled_analyses_were_regenerated_even_without_rank_results(
+    tmp_path, earlier_full_run, capsys
+):
+    # cohort_extras stubs the pooled rank results to {}; the value analyses still wrote the pool
+    rerun(tmp_path, {DRIFTING_2})
+    assert "all-drifting-problems regenerated" in capsys.readouterr().out
+    rerun(tmp_path, {BLOCKED_1})
+    assert "all-drifting-problems not regenerated" in capsys.readouterr().out

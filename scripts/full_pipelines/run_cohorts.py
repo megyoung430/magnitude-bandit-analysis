@@ -17,8 +17,13 @@ dated on or after that day (use one of them). The problems containing those sess
 figures regenerated, plus the pooled all-drifting-problems analyses if one of them is drifting.
 The review tables and trial-block summaries are always rewritten, the stacked diagnostic tables
 keep the rows of the other problems, and warnings_log.csv covers only this run. --dry-run prints
-the plan (problems, pooled scopes, sessions) and writes nothing. A cohort with no matching
-session is skipped; if no cohort matches the run stops with an error.
+the plan (problems, pooled scopes, sessions) and writes no results or tables (the import cache
+may be filled). A cohort with no matching session is skipped; if no cohort matches the run stops
+with an error.
+
+--last-sessions picks each mouse's last N sessions however old they are, so a mouse that stopped
+weeks ago has its final problem regenerated every time; use --since for "what is new since I
+last ran".
 
 Raw data is read from <BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N. Figures
 go to results/figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/ and tables to
@@ -77,7 +82,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="print what --last-sessions or --since would regenerate, and write nothing",
+        help=(
+            "print what --last-sessions or --since would regenerate and write no results or "
+            "tables (the import cache may be filled)"
+        ),
     )
     args = parser.parse_args(argv)
     if args.dry_run and args.last_sessions is None and args.since is None:

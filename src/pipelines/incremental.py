@@ -101,13 +101,30 @@ def _problems_of_sessions(grouped: dict) -> dict[str, dict[str, list[Problem]]]:
     return found
 
 
-def _check_mode(last_sessions, since) -> None:
+def check_selection_options(last_sessions: int | None, since: str | None) -> None:
+    """Raise unless exactly one valid selection option is given.
+
+    Called once before any cohort is loaded, so a typo fails at once instead of after an import.
+
+    Args:
+        last_sessions (int | None): Sessions per mouse; must be an integer of 1 or more.
+        since (str | None): A ``YYYY-MM-DD`` date.
+
+    Returns:
+        None: Returns nothing when the options are valid.
+
+    Raises:
+        ValueError: If not exactly one option is given, *last_sessions* is not an integer of 1
+            or more, or *since* is not a real ``YYYY-MM-DD`` date.
+    """
     if (last_sessions is None) == (since is None):
         raise ValueError("give exactly one of last_sessions and since")
     if last_sessions is not None and (
         isinstance(last_sessions, bool) or not isinstance(last_sessions, int) or last_sessions < 1
     ):
         raise ValueError(f"last_sessions must be an integer of 1 or more, got {last_sessions!r}")
+    if since is not None:
+        parse_since(since)
 
 
 def _describe_existing(sessions_by_mouse: dict[str, list[str]]) -> str:
@@ -125,7 +142,24 @@ def _iso(yyyymmdd: int) -> str:
     return f"{text[:4]}-{text[4:6]}-{text[6:]}"
 
 
-def _pick(mouse: str, ordered: list[str], last_sessions, cutoff) -> list[str]:
+def _pick(
+    mouse: str, ordered: list[str], last_sessions: int | None, cutoff: int | None
+) -> list[str]:
+    """The selected sessions of one mouse.
+
+    Args:
+        mouse (str): Mouse id, named in the error message.
+        ordered (list[str]): The mouse's session keys, oldest first.
+        last_sessions (int | None): Keep this many of the newest; ``None`` to select by *cutoff*.
+        cutoff (int | None): Keep sessions dated on or after this ``YYYYMMDD`` int; used only
+            when *last_sessions* is ``None``.
+
+    Returns:
+        list[str]: The kept keys, oldest first.
+
+    Raises:
+        ValueError: With a *cutoff*, if a key has no date.
+    """
     if last_sessions is not None:
         return ordered[-last_sessions:]
     undated = [k for k in ordered if session_date(k) is None]
@@ -158,7 +192,7 @@ def select_recent_sessions(
         NoSessionsSelectedError: If no session matches; the message lists every mouse with its
             number of sessions and date range.
     """
-    _check_mode(last_sessions, since)
+    check_selection_options(last_sessions, since)
     cutoff = parse_since(since) if since is not None else None
     problems_of = _problems_of_sessions(grouped)
 
