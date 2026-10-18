@@ -10,7 +10,7 @@ cohorts together, in one folder that belongs to no cohort::
         event-weighted}/   (their figures; nothing at the top level of those two folders)
     figures/open-field/all-cohorts/cohorts.txt
     tables/open-field/all-cohorts/{reversal_aligned_arms_counts,value_change_events,
-        value_change_bin_counts}.csv
+        value_change_bin_counts,value_change_symmetric_exclusions}.csv
 
 Problems stay separate: each cohort's drifting problems are keyed ``(cohort id, number within
 the type)``, so problem 1 of cohort 1 and problem 1 of cohort 3 are two problems, and every
@@ -58,7 +58,12 @@ FIGURE_FOLDERS = (
     VALUE_CHANGE_FOLDER,
     PORT_PREFERENCE_FOLDER,
 )
-TABLE_NAMES = ("reversal_aligned_arms_counts", "value_change_events", "value_change_bin_counts")
+TABLE_NAMES = (
+    "reversal_aligned_arms_counts",
+    "value_change_events",
+    "value_change_bin_counts",
+    "value_change_symmetric_exclusions",
+)
 
 
 class PooledCohorts(NamedTuple):
@@ -234,7 +239,7 @@ def run_all_cohorts_drifting(
     """Run the all-drifting-problems analyses over the drifting problems of several cohorts.
 
     See the module docstring for the outputs. Anything an earlier run left in the five figure
-    folders and three tables of the output is removed first, so the files always belong to the
+    folders and four tables of the output is removed first, so the files always belong to the
     cohorts named in ``cohorts.txt``.
 
     Args:

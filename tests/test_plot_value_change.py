@@ -174,7 +174,7 @@ def test_wrapper_saves_png_and_pdf_and_closes(tmp_path):
 # ------------------------------------------------------------------ entry point
 
 
-def expected_files(out_dir, modes=("Full Window", "Truncated at Swap")):
+def expected_files(out_dir, modes=("Full Window", "Truncated at Swap", "Symmetric ±6 Trials")):
     return {
         out_dir / f"Choice Probabilities Around {c} ({f}, {m}).{ext}"
         for c, f in (
@@ -277,7 +277,7 @@ def test_entry_returns_the_contamination_table(full_run):
 def test_entry_summaries_report_counts_per_config_and_mode(full_run):
     _, result = full_run
     s = result["summaries"]["best/decrease/rank_swap"]
-    assert set(s) == {"untruncated", "truncated_at_rank_swap"}
+    assert set(s) == {"untruncated", "truncated_at_rank_swap", "symmetric_6"}
     assert s["untruncated"]["n_events"] == s["truncated_at_rank_swap"]["n_events"] == 1
     assert s["untruncated"]["counts"]["n_third_arm_changed"] == 0
     assert s["untruncated"]["n_truncated"] == 0
@@ -323,7 +323,9 @@ def test_entry_refuses_a_contamination_table_that_disagrees_with_the_counts(
 
 
 def test_entry_truncate_modes_select_the_figures(tmp_path):
-    run_value_change_analysis({1: {"m1": swap_rich_mouse()}}, tmp_path, truncate_modes=(True,))
+    run_value_change_analysis(
+        {1: {"m1": swap_rich_mouse()}}, tmp_path, truncate_modes=(True,), symmetric_window=None
+    )
     for folder in ("mouse-weighted", "event-weighted"):
         names = {p.name for p in (tmp_path / folder).glob("*.png")}
         assert len(names) == 10 and all("Truncated at Swap" in n for n in names)

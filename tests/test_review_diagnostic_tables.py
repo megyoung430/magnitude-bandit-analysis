@@ -19,12 +19,13 @@ def frames(**by_name):
     return by_name
 
 
-def test_the_four_kinds_are_the_ones_the_entry_points_return():
+def test_the_five_kinds_are_the_ones_the_entry_points_return():
     assert DIAGNOSTIC_TABLES == (
         "poke_trial_summary",
         "reversal_aligned_arms_counts",
         "value_change_events",
         "value_change_bin_counts",
+        "value_change_symmetric_exclusions",
     )
 
 

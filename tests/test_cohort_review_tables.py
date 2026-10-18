@@ -29,6 +29,7 @@ TABLE_FILES = {
     "reversal_aligned_arms_counts",
     "value_change_events",
     "value_change_bin_counts",
+    "value_change_symmetric_exclusions",
     "warnings_log",
 }
 
@@ -49,6 +50,7 @@ def stubbed(monkeypatch):
             diagnostics["reversal_aligned_arms_counts"] = pd.DataFrame({"scope": ["pooled"]})
             diagnostics["value_change_events"] = pd.DataFrame({"config": ["best"]})
             diagnostics["value_change_bin_counts"] = pd.DataFrame({"t": [0]})
+            diagnostics["value_change_symmetric_exclusions"] = pd.DataFrame({"config": ["best"]})
         return {}
 
     monkeypatch.setattr(cohort_analysis, "run_problem", run_problem)

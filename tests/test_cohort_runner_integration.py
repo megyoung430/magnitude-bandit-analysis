@@ -57,6 +57,7 @@ STUB_RESULTS = {
     "run_value_change_analysis": {
         "contamination_table": pd.DataFrame(),
         "bin_counts_table": pd.DataFrame(),
+        "symmetric_exclusions_table": pd.DataFrame(),
     },
 }
 FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change", "port-preference")
