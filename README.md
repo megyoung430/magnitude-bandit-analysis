@@ -204,7 +204,7 @@ report all failures at the end.
   untouched. `drifting/all-drifting-problems/` is regenerated (from all drifting problems) only
   if a selected problem is drifting. The review tables and `trial-block-summaries/` are always
   rewritten. In `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`,
-  `value_change_events.csv` and `value_change_bin_counts.csv` the rows of the regenerated problems
+  `value_change_events.csv`, `value_change_bin_counts.csv` and `value_change_symmetric_exclusions.csv` the rows of the regenerated problems
   replace the earlier ones and the rows of other problems are kept (matched on `task_type` and
   `problem_in_type`); if such a table is missing, a warning says that only the new rows were
   written and the table is partial. `warnings_log.csv` covers the latest run only. The run
