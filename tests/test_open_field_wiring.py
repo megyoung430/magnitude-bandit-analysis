@@ -53,7 +53,11 @@ def test_the_poke_summary_is_collected_as_a_diagnostic(monkeypatch):
 
 
 def test_the_value_tables_of_a_drifting_problem_are_collected_as_diagnostics(monkeypatch):
-    tables = {"value_change_events": "E", "value_change_bin_counts": "B"}
+    tables = {
+        "value_change_events": "E",
+        "value_change_bin_counts": "B",
+        "value_change_symmetric_exclusions": "X",
+    }
     monkeypatch.setattr(pipeline, "run_drifting_value_analyses", lambda *a, **k: tables)
     diagnostics = {}
     run(only(run_value_change_analysis=True), "drifting", diagnostics=diagnostics)
@@ -68,7 +72,11 @@ def test_each_value_analysis_returns_its_diagnostic_tables(monkeypatch):
     monkeypatch.setattr(
         pipeline,
         "run_value_change_analysis",
-        lambda *a, **k: {"contamination_table": "EVENTS", "bin_counts_table": "BINS"},
+        lambda *a, **k: {
+            "contamination_table": "EVENTS",
+            "bin_counts_table": "BINS",
+            "symmetric_exclusions_table": "EXCLUSIONS",
+        },
     )
     selection = only(run_reversal_aligned_arm_analysis=True, run_value_change_analysis=True)
     tables = run_drifting_value_analyses({1: {}}, Path("out"), selection, arm_scope_label="x")
@@ -76,4 +84,5 @@ def test_each_value_analysis_returns_its_diagnostic_tables(monkeypatch):
         "reversal_aligned_arms_counts": "ARMS",
         "value_change_events": "EVENTS",
         "value_change_bin_counts": "BINS",
+        "value_change_symmetric_exclusions": "EXCLUSIONS",
     }

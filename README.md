@@ -204,7 +204,7 @@ report all failures at the end.
   untouched. `drifting/all-drifting-problems/` is regenerated (from all drifting problems) only
   if a selected problem is drifting. The review tables and `trial-block-summaries/` are always
   rewritten. In `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`,
-  `value_change_events.csv` and `value_change_bin_counts.csv` the rows of the regenerated problems
+  `value_change_events.csv`, `value_change_bin_counts.csv` and `value_change_symmetric_exclusions.csv` the rows of the regenerated problems
   replace the earlier ones and the rows of other problems are kept (matched on `task_type` and
   `problem_in_type`); if such a table is missing, a warning says that only the new rows were
   written and the table is partial. `warnings_log.csv` covers the latest run only. The run
@@ -250,6 +250,17 @@ report all failures at the end.
   as independent, which events of one mouse are not, so it is narrower than the real
   uncertainty). Nothing is written at the top level of those two folders. The
   `reversal_aligned_arms_counts` table has a `weighting` column (`subject` or `event`).
+  Each value-change configuration also gets a **symmetric** version in the same two folders
+  (`... (All Events, Symmetric ±6 Trials).png`): windows of 6 trials before to 6 after the change,
+  keeping only events whose whole window is intact (no block or third-arm change, session edge,
+  best-arm change before the event, or missing choice), so every time point averages the same
+  events. A block or best arm that starts exactly at t = -N still counts as complete, and a
+  best/second tie in the pre window counts as a best-arm change. It has no rank-swap truncation. Switch it off or change N with
+  `run_value_change_analysis(..., symmetric_window=None | N)`. The events kept and dropped per
+  configuration are in `value_change_symmetric_exclusions.csv`: `n_excluded_*` count each event
+  once, by its first cause (block/third arm, session edge, best arm, other), and `n_with_*` count
+  the events having each cause, which overlap; the symmetric mode
+  (`symmetric_6`) is also in `value_change_bin_counts.csv`.
 - **Value-change diagnostic** (`scripts/individual_analyses/plot_value_change_diagnostic.py --cohorts 1 3
   [--no-cache]`): one PNG per drifting session in `figures/value-change-diagnostic/cohort-XX/problem-KK/<mouse>/`,
   showing the session's magnitudes and choices with each best-decrease rank-swap event's counted pre and post
@@ -316,7 +327,7 @@ report all failures at the end.
   | `suspect_starting_reward_mags.csv` | session (within a problem) whose starting magnitudes differ from the previous session's end, compared with the problem's previous session that has trials (last trial against first trial), with `likely_cause`, most to least likely (`starting_magnitudes.CAUSES`); a total that goes down is a task restart (`RESET`); a missing tower on either side is "cannot compare" |
   | `no_trial_sessions.csv` | file or recording the importer skipped, or session with no trials (one row per session, `files` lists its files), with `kind` and `reason` |
   | `no_second_best.csv` | block with more than one arm at 0, with the only rewarded arm |
-  | `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv` | diagnostics of the analyses, stacked over problems with `task_type`, `problem_in_type` (and `overall_problem` where a mouse is named) |
+  | `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`, `value_change_symmetric_exclusions.csv` | diagnostics of the analyses, stacked over problems with `task_type`, `problem_in_type` (and `overall_problem` where a mouse is named) |
   | `warnings_log.csv` | distinct Python warning of the run that the console shows (`n_times`), with the mouse, session, task type and problem its text names; written even when the run fails, and always with every table (header only when empty) |
 
   In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
@@ -338,8 +349,8 @@ makes the figures of `drifting/all-drifting-problems/` (`choice-stats`, `value-p
 listed cohorts together (`--no-cache` re-imports the raw files). They go to
 `results/figures/open-field/all-cohorts/<same subfolders>/`, with `cohorts.txt` there naming the
 cohorts pooled, the mice per cohort and the time of the run; the diagnostic tables
-(`reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`) go
-to `results/tables/open-field/all-cohorts/`. A rerun replaces those five folders and tables, so
+(`reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`, `value_change_symmetric_exclusions.csv`) go
+to `results/tables/open-field/all-cohorts/`. A rerun replaces those five folders and four tables, so
 the files always match `cohorts.txt`; the titles say "all drifting problems, cohorts 1, 3, 4".
 
 - Problems stay separate: each is keyed `(cohort, drifting problem number)`, beliefs reset at each

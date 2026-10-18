@@ -38,6 +38,11 @@ Window definition
   trials where the other arm was best, and mice still favour the arm that was best a few
   trials earlier.
 
+Each event also records every reason its full ``-pre .. +post`` window is incomplete
+(``incomplete_causes``), found by scanning the whole window rather than stopping at the nearest
+cut, so a caller can keep only events with complete windows (see
+:mod:`src.behavior_analysis.value_change_symmetric`).
+
 Filters
 -------
 With the third arm fixed, the other two arms are the best and the second-best arm, and a
@@ -100,6 +105,11 @@ DEFAULT_POST = 15
 N_ARMS = 3
 _IMPOSSIBLE_SWAPS = frozenset({("best", "increase"), ("second", "decrease")})
 _REQUIRED_VARIABLES = ("reward_magnitudes", "choice", "blocks")
+# Reasons an event's window is incomplete (``ValueChangeEvent.incomplete_causes``).
+CAUSE_BLOCK_OR_THIRD_ARM = "block_or_third_arm_change"
+CAUSE_SESSION_EDGE = "session_edge"
+CAUSE_BEST_ARM = "best_arm_change"
+CAUSE_NO_CHOICE = "no_choice"
 COUNT_KEYS = (
     "n_changes",
     "n_third_arm_changed",
@@ -143,17 +153,30 @@ _FILTER_WORDS = {
 }
 
 
-def describe_value_change(config: ValueChangeConfig, truncated: bool) -> str:
-    """Readable name of a configuration and truncation mode, for figure titles and file names.
+def describe_value_change(
+    config: ValueChangeConfig, truncated: bool, symmetric_window: int | None = None
+) -> str:
+    """Readable name of a configuration and window mode, for figure titles and file names.
 
     Args:
         config (ValueChangeConfig): The rank, direction and event filter.
         truncated (bool): Whether the post windows are cut at the first rank swap.
+        symmetric_window (int | None): N of a symmetric ``-N .. +N`` complete-window figure, or
+            None for the regular full window. Default None. A symmetric figure is never truncated.
 
     Returns:
-        str: E.g. ``"Best-Value Decreases (Rank Swap, Truncated at Swap)"``.
+        str: E.g. ``"Best-Value Decreases (Rank Swap, Truncated at Swap)"`` or
+        ``"Best-Value Decreases (Rank Swap, Symmetric ±6 Trials)"``.
+
+    Raises:
+        ValueError: If both *truncated* and *symmetric_window* are given.
     """
-    mode = "Truncated at Swap" if truncated else "Full Window"
+    if symmetric_window is not None and truncated:
+        raise ValueError("a symmetric window cannot be truncated at the rank swap")
+    if symmetric_window is not None:
+        mode = f"Symmetric ±{symmetric_window} Trials"
+    else:
+        mode = "Truncated at Swap" if truncated else "Full Window"
     rank, direction = _RANK_WORDS[config.rank], _DIRECTION_WORDS[config.direction]
     return f"{rank} {direction} ({_FILTER_WORDS[config.rank_filter]}, {mode})"
 
@@ -184,6 +207,14 @@ class ValueChangeEvent(NamedTuple):
         truncation_reference_tied (bool): Whether the best and second-best arms were tied at
             t = 0, so the window could not be truncated at a swap.
         truncated (bool): Whether the post labels were cut at a rank swap. Default False.
+        incomplete_causes (frozenset[str] | None): Every reason the full ``-pre .. +post``
+            window is incomplete (empty if it is complete): ``"block_or_third_arm_change"`` (a
+            trial of another block, or whose third arm differs or is undetermined, e.g. tied or
+            missing magnitudes), ``"session_edge"`` (a trial before the first or after the last
+            of the session), ``"best_arm_change"`` (a pre-window trial whose best arm differs
+            from that of t = -1, a best/second tie counting as a different state) and
+            ``"no_choice"`` (a trial of the event's block and third arm without a choice).
+            ``None``: not recorded (an event built by hand). Default None.
     """
 
     subject: str
@@ -195,6 +226,7 @@ class ValueChangeEvent(NamedTuple):
     rank_swap_offset: int | None
     truncation_reference_tied: bool
     truncated: bool = False
+    incomplete_causes: frozenset[str] | None = None
 
 
 class ValueChangeWindows(NamedTuple):
@@ -209,6 +241,10 @@ class ValueChangeWindows(NamedTuple):
         counts (dict[str, int]): Accounting counts, with the keys of ``COUNT_KEYS``
             (``n_changes``, ``n_third_arm_changed``, ``n_tie_skipped``, ``n_filtered_out``,
             ``n_events``, ``n_sessions_without_trials``, ``n_missing_magnitude_trials``).
+            In symmetric windows ``n_events`` is the number kept and
+            ``n_events_before_exclusion`` (an extra key) the number found.
+        symmetric (bool): Whether only events with a complete ``-pre .. +post`` window are kept
+            (``pre == post``). Default False.
     """
 
     config: ValueChangeConfig
@@ -217,6 +253,7 @@ class ValueChangeWindows(NamedTuple):
     truncate_at_rank_swap: bool
     events: dict[str, list[ValueChangeEvent]]
     counts: dict[str, int]
+    symmetric: bool = False
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -483,6 +520,29 @@ def _stable_best_run(trials: _SessionTrials, i: int, limit: int) -> int:
     return run
 
 
+def _window_causes(trials: _SessionTrials, i: int, pre: int, post: int) -> frozenset[str]:
+    """Every reason the ``-pre .. +post`` window of event *i* is incomplete (see ``CAUSE_*``).
+
+    Scans the whole window, so causes on the same side of t = 0 are all found. A trial counts
+    as part of the window only if it is in the session, in the event's block and has the
+    event's third arm; the best-arm and no-choice checks apply to such trials only.
+    """
+    reference = _best_arm(trials.magnitudes[i - 1], trials.thirds[i])
+    causes = set()
+    for offset in range(-pre, post + 1):
+        j = i + offset
+        if not 0 <= j < len(trials.blocks):
+            causes.add(CAUSE_SESSION_EDGE)
+        elif trials.blocks[j] != trials.blocks[i] or trials.thirds[j] != trials.thirds[i]:
+            causes.add(CAUSE_BLOCK_OR_THIRD_ARM)
+        else:
+            if trials.choices[j] is None or trials.choices[j] == "":
+                causes.add(CAUSE_NO_CHOICE)
+            if offset < 0 and _best_arm(trials.magnitudes[j], trials.thirds[i]) != reference:
+                causes.add(CAUSE_BEST_ARM)
+    return frozenset(causes)
+
+
 def _later_changes(
     trials: _SessionTrials, i: int, post_run: int, pair: tuple[Any, Any] | None
 ) -> tuple[bool, int | None]:
@@ -544,6 +604,7 @@ def _build_event(
         contaminated=contaminated,
         rank_swap_offset=swap_offset,
         truncation_reference_tied=pair_at_event is None,
+        incomplete_causes=_window_causes(trials, i, pre, post),
     )
 
 
@@ -713,10 +774,13 @@ def merge_value_change_windows(windows_list: list[ValueChangeWindows]) -> ValueC
     if not windows_list:
         raise ValueError("no windows to merge")
     first = windows_list[0]
-    settings = (first.config, first.pre, first.post, first.truncate_at_rank_swap)
+    settings = (first.config, first.pre, first.post, first.truncate_at_rank_swap, first.symmetric)
     for w in windows_list:
-        if (w.config, w.pre, w.post, w.truncate_at_rank_swap) != settings:
-            raise ValueError(f"cannot merge windows with different settings: {settings} vs {w[:4]}")
+        w_settings = (w.config, w.pre, w.post, w.truncate_at_rank_swap, w.symmetric)
+        if w_settings != settings:
+            raise ValueError(
+                f"cannot merge windows with different settings: {settings} vs {w_settings}"
+            )
     events = merge_windows_by_subject(dict(enumerate(w.events for w in windows_list)))
     counts = {k: sum(w.counts[k] for w in windows_list) for k in COUNT_KEYS}
     return first._replace(events=events, counts=counts)
@@ -906,6 +970,8 @@ class ValueChangeCurves(NamedTuple):
         per_subject_n_events (dict[str, np.ndarray]): ``{subject: events with a trial at each
             t}``, the denominators of ``per_subject_mean``; shape ``(pre + post + 1,)``.
         per_subject_total_events (dict[str, int]): ``{subject: number of events}``.
+        symmetric (bool): Whether only events with a complete ``-pre .. +post`` window are
+            averaged. Default False.
     """
 
     config: ValueChangeConfig
@@ -926,6 +992,7 @@ class ValueChangeCurves(NamedTuple):
     weighting: str = "subject"
     per_subject_n_events: dict[str, np.ndarray] | None = None
     per_subject_total_events: dict[str, int] | None = None
+    symmetric: bool = False
 
 
 def summarize_windows(
@@ -966,6 +1033,7 @@ def summarize_windows(
         counts=dict(windows.counts),
         per_subject_n_events=across["per_subject_n_events"],
         per_subject_total_events=across["per_subject_total_events"],
+        symmetric=windows.symmetric,
     )
 
 

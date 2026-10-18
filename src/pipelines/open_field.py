@@ -720,7 +720,8 @@ def run_drifting_value_analyses(
     Returns:
         dict[str, pd.DataFrame]: The figures are written under *out_dir*. The diagnostic tables
         the analyses return, for the analyses that ran: ``"reversal_aligned_arms_counts"`` and
-        ``"value_change_events"`` / ``"value_change_bin_counts"`` (see
+        ``"value_change_events"`` / ``"value_change_bin_counts"`` /
+        ``"value_change_symmetric_exclusions"`` (see
         :mod:`src.behavior_analysis.diagnostic_tables`).
     """
     out_dir = Path(out_dir)
@@ -744,6 +745,7 @@ def run_drifting_value_analyses(
         value_change = run_value_change_analysis(problems, out_dir / VALUE_CHANGE_FOLDER)
         tables["value_change_events"] = value_change["contamination_table"]
         tables["value_change_bin_counts"] = value_change["bin_counts_table"]
+        tables["value_change_symmetric_exclusions"] = value_change["symmetric_exclusions_table"]
     if selection.run_port_preference_analysis:
         run_port_preference_analysis(
             problems,

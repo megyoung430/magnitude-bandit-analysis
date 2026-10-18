@@ -36,6 +36,7 @@ DIAGNOSTICS = (
     "reversal_aligned_arms_counts",
     "value_change_events",
     "value_change_bin_counts",
+    "value_change_symmetric_exclusions",
 )
 
 
@@ -344,6 +345,7 @@ def rows_in_every_table(monkeypatch):
         {
             "contamination_table": pd.DataFrame({"event": [1]}),
             "bin_counts_table": pd.DataFrame({"bin": [3, 4, 5]}),
+            "symmetric_exclusions_table": pd.DataFrame({"n_events": [6]}),
         },
     )
 

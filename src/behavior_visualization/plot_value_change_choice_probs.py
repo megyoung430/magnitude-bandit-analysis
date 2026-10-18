@@ -35,10 +35,13 @@ Y_LABEL = "Choice Probability"
 
 
 def _title(curves: ValueChangeCurves) -> str:
-    heading = describe_value_change(curves.config, curves.truncate_at_rank_swap)
+    symmetric_window = curves.pre if curves.symmetric else None
+    heading = describe_value_change(curves.config, curves.truncate_at_rank_swap, symmetric_window)
     events = f"n={curves.num_events} events"
     if curves.truncate_at_rank_swap:
         events += f", {curves.num_truncated} truncated at swap"
+    if curves.symmetric:
+        events += ", complete windows only"
     mice = "mouse" if curves.num_subjects == 1 else "mice"
     if curves.weighting == "event":
         average = "mean ± se" if curves.num_events >= 2 else "mean"

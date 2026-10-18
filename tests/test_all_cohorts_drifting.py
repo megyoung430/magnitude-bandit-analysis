@@ -51,7 +51,12 @@ SUBFOLDERS = {
 MICE_A, MICE_B = ("a1", "a2", "a3"), ("b1", "b2")
 ALL_MICE = {*MICE_A, *MICE_B}
 RUN_AT = datetime(2026, 10, 16, 12, 30, 5)
-TABLES = {"reversal_aligned_arms_counts", "value_change_events", "value_change_bin_counts"}
+TABLES = {
+    "reversal_aligned_arms_counts",
+    "value_change_events",
+    "value_change_bin_counts",
+    "value_change_symmetric_exclusions",
+}
 
 
 @pytest.fixture(autouse=True)
