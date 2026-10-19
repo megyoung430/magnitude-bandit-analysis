@@ -264,6 +264,7 @@ def test_summary_reports_port_finding_trials_apart_from_drops(tmp_path):
     data = {"m1": {"ses-1_date-20260101": imported_session([rec.to_frame()], 1, 1)}}
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # port finding is not a drop and must not warn
+        warnings.filterwarnings("ignore", message=".*port-finding check flagged")  # two trials
         result = run_poke_analysis(data, tmp_path)
     (row,) = result["summary"].itertuples()
     assert (row.n_trials, row.n_port_finding_trials, row.n_trials_counted) == (2, 2, 2)
