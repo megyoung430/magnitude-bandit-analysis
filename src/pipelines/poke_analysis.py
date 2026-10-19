@@ -123,11 +123,12 @@ def _with_port_finding_sessions(per_session: Mapping, found: Mapping) -> dict:
     return merged
 
 
-def _warn_on_short_port_finding(check) -> None:
-    for row in check[check["below_expected_min"]].itertuples():
+def _warn_on_flagged_port_finding(check) -> None:
+    for row in check[check["flagged"]].itertuples():
         warnings.warn(
-            f"{row.mouse}: {row.n_port_finding_trials} port-finding trials, below the expected "
-            f"minimum of {row.expected_min_port_finding_trials:g} ({row.flag_reason})",
+            f"{row.mouse}: port-finding check flagged, {row.n_port_finding_trials} port-finding "
+            f"trials (expected minimum {row.expected_min_port_finding_trials:g}): "
+            f"{row.flag_reason}",
             UserWarning,
             stacklevel=3,
         )
@@ -330,9 +331,10 @@ def run_poke_analysis(
         the reason (the long-poke means, which come from the imported trials, still include it).
         Disagreements between the raw long pokes and the printed ``long_pokes`` lists raise a
         ``UserWarning`` and are listed in the cross-check table. The last trial of each recording
-        has no following initiation, so it is left out of the after-choice map. A mouse with
-        fewer port-finding trials than the task needs to finish port finding raises a
-        ``UserWarning`` and is flagged in ``"port_finding_check"``; the run goes on.
+        has no following initiation, so it is left out of the after-choice map. A flagged
+        port-finding check (fewer trials than the task needs, counts carried in from an
+        earlier session, or variables set by hand) raises a ``UserWarning`` and is flagged in
+        ``"port_finding_check"``; the run goes on.
     """
     _validate_problem(subjects_trials_by_problem)
     found = _validate_port_finding_sessions(port_finding_sessions, subjects_trials_by_problem)
@@ -352,7 +354,7 @@ def run_poke_analysis(
     check = port_finding_check_table(
         {mouse: {**subjects_trials_by_problem[mouse], **found.get(mouse, {})} for mouse in mice}
     )
-    _warn_on_short_port_finding(check)
+    _warn_on_flagged_port_finding(check)
     counts = {
         kind: {mouse: total_counts(per_session[mouse], kind) for mouse in mice}
         for kind in ("after_initiation", "after_choice")

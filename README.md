@@ -308,12 +308,14 @@ report all failures at the end.
   counted trial is traceable.
   **Port-finding check** (`port_finding_check.csv`, one row per problem and mouse with
   port-finding trials): `n_port_finding_trials` (printed `num_t_found` trials over the problem's
-  sessions, port-finding-only ones included), `n_ports`, `found_t_thresh` (from the first
-  session's `run_start`) and `expected_min_port_finding_trials` = `n_ports x found_t_thresh`.
-  `below_expected_min` flags a row under the minimum (a warning, never an error), and
-  `flag_reason` names what the recordings show: `found_port_counts` already non-zero at the start
-  of the first session (port finding began in a session that is missing from the data) and a
-  `user_set` of `found_port_counts` (the counts were set by hand). Every session's raw events are parsed once for both. A session whose raw events cannot
+  sessions, port-finding-only ones included), `n_ports`, `found_t_thresh` (the latest value
+  set by hand before port finding ended, else the first session's `run_start`) and
+  `expected_min_port_finding_trials` = `n_ports x found_t_thresh`. `below_expected_min` marks a
+  row under the minimum. `flagged` is true (with a warning, never an error) whatever the total
+  when the first session with port finding starts with non-zero `found_port_counts` (listed in
+  `carried_in_counts`: port finding began in a session that is missing from the data or not
+  assigned, see the warnings) or when a `user_set` sets `found_port_counts`, `found_t_thresh` or
+  `found_ports` by hand; `flag_reason` names the causes. Every session's raw events are parsed once for both. A session whose raw events cannot
   be read as trials warns and is drawn without maps (and noted in the `parse_error` column of the returned `summary`); parsed
   trials that disagree with the imported trials stop the run with a `PokeAlignmentError`.
 - **Outputs** (under `results/`, which is git-ignored), for cohort `cohort-0N`:

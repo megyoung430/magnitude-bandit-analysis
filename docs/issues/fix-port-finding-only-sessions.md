@@ -41,9 +41,16 @@ finished) and ses-64 (13 more, then bandit trials); problem 3 showed n=13 instea
 - The check counts printed `num_t_found` trials (timeouts have no print and do not advance the
   found counts), unlike the map titles, which count trials with usable pokes. It is a separate
   stacked table, `port_finding_check.csv`, because it is per mouse and problem, not per session.
-- `found_t_thresh` and `n_ports` come from the first session of the problem with port finding
-  (ports: the union of the choice ports of the sessions with port finding). Unlogged threshold:
-  minimum NaN, not flagged, said in `flag_reason`.
+- `n_ports` is the union of the choice ports of the sessions with port finding;
+  `found_t_thresh` is the latest value set by hand (`user_set`) before the last port-finding
+  print of its recording, else the first such session's `run_start` value. Unlogged threshold:
+  minimum NaN, not flagged for that, said in `flag_reason`.
+- `flagged` is true whatever the total when the first session with port finding starts with
+  non-zero `found_port_counts` (port finding began in a missing or unassigned session; the
+  counts are in `carried_in_counts`) or when `found_port_counts`, `found_t_thresh` or
+  `found_ports` were set by hand. A session without a readable `run_start` raises.
+- A port-finding-only session is not assigned when another port-finding-only session on other
+  towers lies between it and the bandit session; pretraining sessions are never kept.
 - The import cache key hashes `src/behavior_import`, so the changed import output invalidates old
   caches without a manual version bump.
 

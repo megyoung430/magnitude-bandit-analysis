@@ -136,6 +136,54 @@ def test_the_lookup_follows_the_session_not_the_problem_key():
     assert port_finding_sessions_for_problem(assignment, regrouped) == found
 
 
+def test_another_port_finding_session_with_other_towers_in_between_blocks_the_assignment():
+    by_problem = trials(p1={"m1": {"ses-3_date-20260103": bandit(B)}})
+    found = {
+        "m1": {
+            "ses-1_date-20260101": only_port_finding(B),
+            "ses-2_date-20260102": only_port_finding(A),
+        }
+    }
+    with pytest.warns(UserWarning, match=r"m1 ses-1_date-20260101.*ses-2_date-20260102"):
+        assignment = assign_port_finding_sessions(by_problem, found)
+    assert [u.session for u in assignment.unassigned] == [
+        "ses-1_date-20260101",
+        "ses-2_date-20260102",
+    ]
+    assert port_finding_sessions_for_problem(assignment, by_problem[1]) == {}
+
+
+def test_a_port_finding_session_in_between_with_the_same_towers_does_not_block():
+    by_problem = trials(p1={"m1": {"ses-3_date-20260103": bandit(B)}})
+    found = {
+        "m1": {
+            "ses-1_date-20260101": only_port_finding(B),
+            "ses-2_date-20260102": only_port_finding(B),
+        }
+    }
+    assignment = assign_port_finding_sessions(by_problem, found)
+    assert assignment.unassigned == []
+
+
+def test_sessions_on_the_same_date_are_ordered_by_session_number():
+    # ses-62 (bandit) and ses-63 (port finding only) share a date; ses-64 follows on a later one
+    by_problem = trials(
+        p1={"m1": {"ses-62_date-20260925": bandit(A)}},
+        p2={"m1": {"ses-64_date-20260928": bandit(B)}},
+    )
+    found = {"m1": {"ses-63_date-20260925": only_port_finding(B)}}
+    assignment = assign_port_finding_sessions(by_problem, found)
+    assert port_finding_sessions_for_problem(assignment, by_problem[2]) == found
+    assert port_finding_sessions_for_problem(assignment, by_problem[1]) == {}
+
+
+def test_the_segments_of_a_split_session_are_ordered_by_part():
+    by_problem = trials(p1={"m1": {"ses-5_date-20260105_part-02": bandit(B)}})
+    found = {"m1": {"ses-5_date-20260105_part-01": only_port_finding(B)}}
+    assignment = assign_port_finding_sessions(by_problem, found)
+    assert port_finding_sessions_for_problem(assignment, by_problem[1]) == found
+
+
 def test_nothing_to_assign_gives_an_empty_assignment_without_warnings():
     by_problem = trials(p1={"m1": {"ses-1_date-20260101": bandit(A)}})
     with warnings.catch_warnings():

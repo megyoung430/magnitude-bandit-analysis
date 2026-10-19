@@ -87,7 +87,7 @@ def test_the_sessions_of_the_log_reach_the_port_finding_maps_of_their_problem(
 
 def test_the_check_table_is_written_with_the_problem_and_mouse(tmp_path, stubbed):
     log = log_with("m1", EARLIER, port_finding_only(PROBLEMS[1][1], n_trials=5))
-    with pytest.warns(UserWarning, match="below the expected minimum"):
+    with pytest.warns(UserWarning, match="port-finding check flagged"):
         run_cohort(
             1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting(), import_log=log
         )
@@ -102,7 +102,7 @@ def test_the_check_table_is_written_with_the_problem_and_mouse(tmp_path, stubbed
     assert row["n_port_finding_trials"] == 5 and row["below_expected_min"]
     folder = tmp_path / "tables" / "open-field" / "cohort-01"
     warnings_log = pd.read_csv(folder / "warnings_log.csv")
-    assert warnings_log["message"].str.contains("below the expected minimum").any()
+    assert warnings_log["message"].str.contains("port-finding check flagged").any()
 
 
 def test_a_session_with_other_towers_is_not_used_and_warns(tmp_path, cohort_dir, stubbed):
@@ -117,9 +117,7 @@ def test_a_session_with_other_towers_is_not_used_and_warns(tmp_path, cohort_dir,
 
 def test_a_run_without_port_finding_only_sessions_is_unchanged(tmp_path, stubbed):
     def summary_of(root, **kwargs):
-        run_cohort(
-            1, results_root=root, trials_by_problem=blocked_then_two_drifting(), **kwargs
-        )
+        run_cohort(1, results_root=root, trials_by_problem=blocked_then_two_drifting(), **kwargs)
         return tables(root)["poke_trial_summary"]
 
     with pytest.warns(UserWarning, match="without an import_log"):
@@ -150,3 +148,19 @@ def test_the_incremental_run_uses_the_log_for_the_problems_it_regenerates(tmp_pa
         import_log=log,
     )
     assert tables(tmp_path)["poke_trial_summary"]["port_finding_only"].sum() == 1
+
+
+def test_the_incremental_run_with_a_port_finding_only_session_as_the_latest_warns_and_runs(
+    tmp_path, stubbed
+):
+    # the newest session of m1 is port finding only: no later session can take its trials yet
+    log = log_with("m1", "ses-9_date-20260109", port_finding_only(PROBLEMS[3][1]))
+    with pytest.warns(UserWarning, match=r"m1 ses-9_date-20260109.*no later session"):
+        run_cohort_incremental(
+            1,
+            last_sessions=1,
+            results_root=tmp_path,
+            trials_by_problem=blocked_then_two_drifting(),
+            import_log=log,
+        )
+    assert not tables(tmp_path)["poke_trial_summary"]["port_finding_only"].any()

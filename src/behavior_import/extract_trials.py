@@ -25,6 +25,7 @@ from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
     SessionFacts,
     assign_problems,
     describe_flag,
+    is_pretraining,
     normalize_tower_token,
     permutation_invariant_signature,
     session_sort_key,
@@ -1168,9 +1169,12 @@ def port_finding_only_record(session_data):
         :attr:`~src.behavior_import.import_log.ImportLog.port_finding_sessions`) if the session
         has no bandit trials and at least one recording prints port-finding trials, all others
         printing nothing. ``None`` otherwise, including a session with a recording of other
-        prints, which is not port finding.
+        prints and a pretraining session.
     """
+    # A pretraining task can print num_t_found too; it is not the bandit task's port finding.
     if session_data.get("trial_info") or "df" not in session_data:
+        return None
+    if is_pretraining(session_data.get("task_name")):
         return None
     frames = session_data["df"]
     frames = frames if isinstance(frames, list) else [frames]

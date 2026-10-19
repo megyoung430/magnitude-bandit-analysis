@@ -83,6 +83,23 @@ def _mismatch(record: Mapping, later_key: str, later: Mapping) -> str | None:
     return None
 
 
+def _blocker(
+    key: str, later_key: str, order: list[str], found: Mapping[str, Mapping]
+) -> str | None:
+    """A port-finding-only session between *key* and *later_key* on other towers, else ``None``.
+
+    Port finding of other towers in between means the mouse moved on and *key* was never finished
+    on the towers of *later_key*.
+    """
+    record = found[key]
+    between = order[order.index(key) + 1 : order.index(later_key)]
+    for other in (k for k in between if k in found):
+        same_towers = frozenset(found[other]["choice_towers"]) == frozenset(record["choice_towers"])
+        if not same_towers or _initiation(found[other]) != _initiation(record):
+            return other
+    return None
+
+
 def _assign_mouse(
     mouse: str, bandit: Mapping[str, Mapping], found: Mapping[str, Mapping]
 ) -> tuple[dict[str, str], list[UnassignedPortFinding]]:
@@ -101,11 +118,16 @@ def _assign_mouse(
     targets, unassigned = {}, []
     for key in (k for k in order if k in found):
         record, later_key = found[key], next_of[key]
-        reason = (
-            "there is no later session with bandit trials"
-            if later_key is None
-            else _mismatch(record, later_key, bandit[later_key])
-        )
+        if later_key is None:
+            reason = "there is no later session with bandit trials"
+        else:
+            blocker = _blocker(key, later_key, order, found)
+            reason = _mismatch(record, later_key, bandit[later_key]) or (
+                None
+                if blocker is None
+                else f"another port-finding-only session, {blocker}, with other towers lies "
+                f"between it and {later_key}"
+            )
         if reason is None:
             targets[key] = later_key
         else:

@@ -125,5 +125,39 @@ def test_the_kept_sessions_survive_a_cached_load(tmp_path):
     cached = load_trials_with_log(root, cache_dir=cache, classify_task_types=True)
     for imported in (fresh, cached):
         record = imported.log.port_finding_sessions["M1"]["ses-1_date-20260101"]
-        assert len(record["df"]) > 0
-    assert cached.log == fresh.log  # frames are not part of the log's equality
+        assert record["choice_towers"] == frozenset(LAYOUT_A)
+        assert record["initiation_tower"] == "B2"
+        assert not record["df"].empty
+    fresh_record = fresh.log.port_finding_sessions["M1"]["ses-1_date-20260101"]
+    cached_record = cached.log.port_finding_sessions["M1"]["ses-1_date-20260101"]
+    pd.testing.assert_frame_equal(cached_record["df"], fresh_record["df"])
+    assert cached.log == fresh.log  # the log's equality leaves the recordings out
+
+
+def test_a_pretraining_session_is_not_kept_even_if_it_prints_port_finding(tmp_path):
+    write_prints(
+        session_dir(tmp_path),
+        "M1-2026-01-01-090000.tsv",
+        [port_finding_print(1)],
+        run_start=run_start_for(LAYOUT_A),
+        task_name="Meg\\pretraining_1",
+    )
+    write_bandit_session(tmp_path, 2)
+    _, log = load(tmp_path)
+    assert log.port_finding_sessions == {}
+
+
+def test_recordings_with_other_towers_are_kept_as_separate_segments(tmp_path):
+    folder = session_dir(tmp_path)
+    for name, towers in (
+        ("M1-2026-01-01-090000.tsv", LAYOUT_A),
+        ("M1-2026-01-01-100000.tsv", LAYOUT_B),
+    ):
+        write_prints(folder, name, [port_finding_print(1, towers)], run_start=run_start_for(towers))
+    write_bandit_session(tmp_path, 2, LAYOUT_B)
+    _, log = load(tmp_path)
+    kept = log.port_finding_sessions["M1"]
+    assert {key: record["choice_towers"] for key, record in kept.items()} == {
+        "ses-1_date-20260101_part-01": frozenset(LAYOUT_A),
+        "ses-1_date-20260101_part-02": frozenset(LAYOUT_B),
+    }
