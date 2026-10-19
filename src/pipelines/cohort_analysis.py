@@ -43,10 +43,13 @@ it has one), the task type and the problem (number within the type, and overall)
 - ``no_trial_sessions.csv``: files and recordings the importer skipped, and sessions without
   trials (one row per session, listing its files), with the reason;
 - ``no_second_best.csv``: blocks in which more than one arm is at 0;
-- ``poke_trial_summary.csv``, ``reversal_aligned_arms_counts.csv``, ``value_change_events.csv``,
-  ``value_change_bin_counts.csv`` and ``value_change_symmetric_exclusions.csv``: the
-  diagnostics the analyses return, over all problems
-  (the pooled drifting analyses repeat the per-problem ones and add none);
+- ``poke_trial_summary.csv``, ``port_finding_check.csv``, ``reversal_aligned_arms_counts.csv``,
+  ``value_change_events.csv``, ``value_change_bin_counts.csv`` and
+  ``value_change_symmetric_exclusions.csv``: the diagnostics the analyses return, over all
+  problems (the pooled drifting analyses repeat the per-problem ones and add none).
+  ``poke_trial_summary.csv`` has a row for every port-finding-only session whose trials the
+  port-finding maps count (``port_finding_only`` true), and ``port_finding_check.csv`` flags a
+  mouse and problem with fewer port-finding trials than ``n_ports x found_t_thresh``;
 - ``warnings_log.csv``: every distinct Python warning of the latest run (that run only, also
   after a partial one), with the mouse, session, task type and problem its text names. It is
   written even when the run fails, and every table is always written (header only when empty).
@@ -57,9 +60,14 @@ Partial runs: ``run_cohort(..., only_problems={("drifting", 2)})``, or
 problem folder holds every mouse that ran it) and leave the other figure folders alone. The pooled
 ``all-drifting-problems/`` analyses are redone only when a selected problem is drifting; the
 review tables and ``trial-block-summaries/`` cover the cohort and are always rewritten. In the
-four stacked diagnostic tables the rows of the regenerated problems replace the earlier ones and
+stacked diagnostic tables the rows of the regenerated problems replace the earlier ones and
 the other rows stay; if a table is missing, a warning says that only the new rows were written.
 ``warnings_log.csv`` lists only the warnings of the latest run, partial or not.
+
+Port finding can span sessions. A session that holds only port finding has no bandit trials, so
+it is not part of any problem, but its port-finding trials belong to the problem of the mouse's
+next session with bandit trials when that session has the same towers; the port-finding maps of
+that problem count them (the import log carries these sessions; without a log there are none).
 
 The maze heatmaps outline the choice ports of the problem the mouse ran immediately before, in
 the overall problem order and whatever its task type, so drifting problem 1 is outlined with
@@ -84,6 +92,10 @@ from src.behavior_analysis.no_trial_sessions import no_trial_sessions_table
 from src.behavior_analysis.poke_counts import (
     previous_choice_towers_for_problem,
     previous_problem_choice_towers,
+)
+from src.behavior_analysis.port_finding_sessions import (
+    assign_port_finding_sessions,
+    port_finding_sessions_for_problem,
 )
 from src.behavior_analysis.review_context import ProblemIndex
 from src.behavior_analysis.starting_magnitudes import starting_magnitudes_table
@@ -145,8 +157,8 @@ PARTIAL_TABLE_WARNING = (
 NO_IMPORT_LOG_WARNING = (
     "trials were passed in without an import_log, so what the import skipped or flagged is "
     "unknown: no_trial_sessions.csv is not written, suspect_sessions.csv has no problem "
-    "numbering rows, and suspect_starting_reward_mags.csv cannot name a session without "
-    "trials as a cause"
+    "numbering rows, suspect_starting_reward_mags.csv cannot name a session without "
+    "trials as a cause, and port-finding-only sessions are missing from the port-finding maps"
 )
 
 BLOCKED_SELECTION = AnalysisSelection(
@@ -711,6 +723,9 @@ def run_cohort(
         with each_reversal_warning_once(), record_warnings() as run_warnings:
             if log is None:
                 warnings.warn(NO_IMPORT_LOG_WARNING, stacklevel=2)
+            port_finding = assign_port_finding_sessions(
+                trials_by_problem, log.port_finding_sessions if log else {}
+            )
             review_tables = import_review_tables(grouped, problem_map, index, log)
             _write_tables(review_tables, tables)
             suspects = suspect_table_with_task_types(grouped, problem_map)
@@ -736,6 +751,9 @@ def run_cohort(
                     task_type=task_type,
                     previous_choice_towers=previous_ports.get((task_type, k)),
                     diagnostics=diagnostics.setdefault((task_type, k), {}),
+                    port_finding_sessions=port_finding_sessions_for_problem(
+                        port_finding, subjects_trials
+                    ),
                 )
 
             drifting = {k: subs for (kind, k), subs in grouped.items() if kind == DRIFTING}

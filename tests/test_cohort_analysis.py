@@ -75,7 +75,11 @@ def sections(monkeypatch):
     here have no raw events (``tests/test_cohort_runner_integration.py`` runs them).
     """
     seen = []
-    monkeypatch.setattr(pipeline, "run_poke_analysis", lambda *a, **k: {"summary": pd.DataFrame()})
+    monkeypatch.setattr(
+        pipeline,
+        "run_poke_analysis",
+        lambda *a, **k: {"summary": pd.DataFrame(), "port_finding_check": pd.DataFrame()},
+    )
     monkeypatch.setattr(pipeline, "mouse_poke_counts", lambda *a, **k: {})
     for name in ("run_drifting_value_analyses",):
         monkeypatch.setattr(pipeline, name, lambda *a, **k: {})

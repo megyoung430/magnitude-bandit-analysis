@@ -203,7 +203,7 @@ report all failures at the end.
   problem containing a selected session is regenerated whole; the other problem folders are left
   untouched. `drifting/all-drifting-problems/` is regenerated (from all drifting problems) only
   if a selected problem is drifting. The review tables and `trial-block-summaries/` are always
-  rewritten. In `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`,
+  rewritten. In `poke_trial_summary.csv`, `port_finding_check.csv`, `reversal_aligned_arms_counts.csv`,
   `value_change_events.csv`, `value_change_bin_counts.csv` and `value_change_symmetric_exclusions.csv` the rows of the regenerated problems
   replace the earlier ones and the rows of other problems are kept (matched on `task_type` and
   `problem_in_type`); if such a table is missing, a warning says that only the new rows were
@@ -291,7 +291,29 @@ report all failures at the end.
   Initiation (Port Finding)`, count the same two kinds of pokes in the port-finding trials, summed
   over every session of the problem that has some; a mouse without port-finding trials in the
   problem has no panel, and the figure is not drawn when no mouse has any (the single-session
-  figures do not show them). Port-finding trials are never in the task-trial maps. Every session's raw events are parsed once for both. A session whose raw events cannot
+  figures do not show them). Port-finding trials are never in the task-trial maps.
+  **Port finding can span sessions**: a mouse that does not finish starts the next session in
+  port finding again, and the task remembers the ports already found. A session that holds only
+  port finding has no bandit trials, so the importer skips it (kind `only_port_finding` in
+  `no_trial_sessions.csv`; it stays out of `trials_by_problem` and every task analysis) but keeps
+  its raw recordings in `ImportLog.port_finding_sessions` (`{mouse: {session: record}}`, cached
+  with the import). `assign_port_finding_sessions` gives each one to the problem of the mouse's
+  next session with bandit trials if that session has the same choice towers (the `c_tows` of
+  the port-finding prints) and initiation tower; several in a row before one problem all go to
+  it. One with other towers, or without a later session, is not used: a warning (also in
+  `warnings_log.csv`) names the mouse, session and towers. The port-finding maps and their
+  panel titles of the problem count the assigned sessions' trials; the task maps, titles and
+  long-pokes means do not change. `poke_trial_summary.csv` has a row for each such session
+  (`port_finding_only` true, `n_trials` 0, the `n_port_finding_*` columns filled), so every
+  counted trial is traceable.
+  **Port-finding check** (`port_finding_check.csv`, one row per problem and mouse with
+  port-finding trials): `n_port_finding_trials` (printed `num_t_found` trials over the problem's
+  sessions, port-finding-only ones included), `n_ports`, `found_t_thresh` (from the first
+  session's `run_start`) and `expected_min_port_finding_trials` = `n_ports x found_t_thresh`.
+  `below_expected_min` flags a row under the minimum (a warning, never an error), and
+  `flag_reason` names what the recordings show: `found_port_counts` already non-zero at the start
+  of the first session (port finding began in a session that is missing from the data) and a
+  `user_set` of `found_port_counts` (the counts were set by hand). Every session's raw events are parsed once for both. A session whose raw events cannot
   be read as trials warns and is drawn without maps (and noted in the `parse_error` column of the returned `summary`); parsed
   trials that disagree with the imported trials stop the run with a `PokeAlignmentError`.
 - **Outputs** (under `results/`, which is git-ignored), for cohort `cohort-0N`:
@@ -325,9 +347,10 @@ report all failures at the end.
   | `suspect_reversals.csv` | good reversal or block change the analyses drop |
   | `suspect_sessions.csv` | problem-numbering flag (`suspected_settings_error`, `review_settings`, `provisional`, `port_finding`, `pretraining`, `no_choice_towers`) with a `reason`; or configuration setting that changed within a session (`run_start vs run_end`) or between recordings (`run_end vs next run_start`); keys are `suspect_sessions.SETTINGS_KEYS`; `found_ports` False to True in a problem's first session is not listed; a recording without `run_start` or `run_end` gets one "not checked: no run_end" row instead |
   | `suspect_starting_reward_mags.csv` | session (within a problem) whose starting magnitudes differ from the previous session's end, compared with the problem's previous session that has trials (last trial against first trial), with `likely_cause`, most to least likely (`starting_magnitudes.CAUSES`); a total that goes down is a task restart (`RESET`); a missing tower on either side is "cannot compare" |
-  | `no_trial_sessions.csv` | file or recording the importer skipped, or session with no trials (one row per session, `files` lists its files), with `kind` and `reason` |
+  | `no_trial_sessions.csv` | file or recording the importer skipped, or session with no trials (one row per session, `files` lists its files), with `kind` and `reason`; a session of kind `only_port_finding` is skipped for the task analyses but its port-finding trials are used in the port-finding poke maps |
   | `no_second_best.csv` | block with more than one arm at 0, with the only rewarded arm |
-  | `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`, `value_change_symmetric_exclusions.csv` | diagnostics of the analyses, stacked over problems with `task_type`, `problem_in_type` (and `overall_problem` where a mouse is named) |
+  | `port_finding_check.csv` | mouse and problem with port-finding trials: trials against `n_ports x found_t_thresh`, `below_expected_min` and `flag_reason` (see the long-pokes bullet) |
+  | `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`, `value_change_symmetric_exclusions.csv` | diagnostics of the analyses, stacked over problems with `task_type`, `problem_in_type` (and `overall_problem` where a mouse is named); `poke_trial_summary.csv` has one row per mouse and session, port-finding-only sessions included (`port_finding_only`) |
   | `warnings_log.csv` | distinct Python warning of the run that the console shows (`n_times`), with the mouse, session, task type and problem its text names; written even when the run fails, and always with every table (header only when empty) |
 
   In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole

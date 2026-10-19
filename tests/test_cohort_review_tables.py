@@ -26,6 +26,7 @@ TABLE_FILES = {
     "no_trial_sessions",
     "no_second_best",
     "poke_trial_summary",
+    "port_finding_check",
     "reversal_aligned_arms_counts",
     "value_change_events",
     "value_change_bin_counts",

@@ -5,16 +5,18 @@ the figure folders. The cohort runner collects them per problem; :func:`stack_di
 one table per kind, with the problem each row came from:
 
 - ``poke_trial_summary``: ``run_poke_analysis``'s ``summary``, one row per mouse and session;
+- ``port_finding_check``: its ``port_finding_check``, one row per mouse with port-finding
+  trials, against the minimum ``n_ports x found_t_thresh``;
 - ``reversal_aligned_arms_counts``: ``run_reversal_aligned_arm_analysis``'s ``counts``;
 - ``value_change_events``: ``run_value_change_analysis``'s ``contamination_table``;
 - ``value_change_bin_counts``: its ``bin_counts_table``;
 - ``value_change_symmetric_exclusions``: its ``symmetric_exclusions_table``.
 
 Each row gets ``task_type`` and ``problem_in_type`` in front. A table with a ``mouse`` column
-(the poke summary) also gets that mouse's ``overall_problem``, which differs between mice; the
+(the poke tables) also gets that mouse's ``overall_problem``, which differs between mice; the
 others pool mice, so they carry no overall number.
 
-All five kinds are always returned. A kind that no problem returned (the value analyses of a
+All six kinds are always returned. A kind that no problem returned (the value analyses of a
 cohort without drifting problems) has only its leading columns, so that writing it replaces a
 file left by an earlier run instead of leaving it to look current.
 """
@@ -23,6 +25,7 @@ import pandas as pd
 
 DIAGNOSTIC_TABLES = (
     "poke_trial_summary",
+    "port_finding_check",
     "reversal_aligned_arms_counts",
     "value_change_events",
     "value_change_bin_counts",
@@ -32,6 +35,7 @@ DIAGNOSTIC_TABLES = (
 
 _LEADING_COLUMNS = {
     "poke_trial_summary": ("task_type", "problem_in_type", "overall_problem", "mouse"),
+    "port_finding_check": ("task_type", "problem_in_type", "overall_problem", "mouse"),
     "reversal_aligned_arms_counts": ("task_type", "problem_in_type"),
     "value_change_events": ("task_type", "problem_in_type"),
     "value_change_bin_counts": ("task_type", "problem_in_type"),

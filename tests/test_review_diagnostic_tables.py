@@ -19,9 +19,10 @@ def frames(**by_name):
     return by_name
 
 
-def test_the_five_kinds_are_the_ones_the_entry_points_return():
+def test_the_six_kinds_are_the_ones_the_entry_points_return():
     assert DIAGNOSTIC_TABLES == (
         "poke_trial_summary",
+        "port_finding_check",
         "reversal_aligned_arms_counts",
         "value_change_events",
         "value_change_bin_counts",
@@ -59,9 +60,11 @@ def test_a_kind_no_problem_returned_has_only_its_leading_columns():
     stacked = stack_diagnostics({("blocked", 1): {"poke_trial_summary": other}}, PROBLEM_MAP)
     assert set(stacked) == set(DIAGNOSTIC_TABLES)
     assert stacked["poke_trial_summary"]["x"].tolist() == [1]
-    for kind in DIAGNOSTIC_TABLES[1:]:
+    for kind in DIAGNOSTIC_TABLES[2:]:
         assert stacked[kind].empty
         assert list(stacked[kind].columns) == ["task_type", "problem_in_type"]
+    mouse_columns = ["task_type", "problem_in_type", "overall_problem", "mouse"]
+    assert list(stacked["port_finding_check"].columns) == mouse_columns
 
 
 def test_an_empty_table_keeps_its_columns():

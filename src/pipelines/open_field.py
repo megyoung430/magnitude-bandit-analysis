@@ -33,6 +33,10 @@ from src.behavior_analysis.get_rank_counts_by_good_reversal import (
 from src.behavior_analysis.get_total_reversals import get_reversal_indices_by_kind
 from src.behavior_analysis.merge_across_problems import merge_windows_by_subject
 from src.behavior_analysis.poke_counts import mouse_poke_counts
+from src.behavior_analysis.port_finding_sessions import (
+    PortFindingAssignment,
+    port_finding_sessions_for_problem,
+)
 from src.behavior_analysis.reversal_aligned_arms import build_windows_with_magnitudes
 from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
 from src.behavior_analysis.split_good_reversals_by_best_change import (
@@ -777,6 +781,7 @@ def run_problem(
     task_type: str | None = None,
     previous_choice_towers: dict | None = None,
     diagnostics: dict | None = None,
+    port_finding_sessions: dict | None = None,
 ) -> dict:
     """Run the selected analyses for one problem; returns rank-proportion results.
 
@@ -804,9 +809,14 @@ def run_problem(
         previous_choice_towers (dict | None): ``{mouse: previous-problem choice ports or None}``
             for the maze outlines. Default ``None``: no outlines.
         diagnostics (dict | None): If given, receives the diagnostic tables of the analyses that
-            ran, as ``{kind: DataFrame}`` (``"poke_trial_summary"`` and those of
-            :func:`run_drifting_value_analyses`; see
+            ran, as ``{kind: DataFrame}`` (``"poke_trial_summary"``, ``"port_finding_check"``
+            and those of :func:`run_drifting_value_analyses`; see
             :mod:`src.behavior_analysis.diagnostic_tables`). Default ``None``. Keyword-only.
+        port_finding_sessions (dict | None): ``{mouse: {session_key: record}}`` of the
+            port-finding-only sessions that belong to this problem (see
+            :func:`~src.behavior_analysis.port_finding_sessions.port_finding_sessions_for_problem`);
+            the poke analysis counts their trials in its port-finding maps. Default ``None``:
+            none. Keyword-only.
 
     Returns:
         dict: The rank-proportion results of :func:`run_rank_proportion_analysis`: ``{}`` if
@@ -872,9 +882,11 @@ def run_problem(
             out / LONG_POKES_FOLDER,
             previous_choice_towers=previous_choice_towers,
             poke_counts=parsed,
+            port_finding_sessions=port_finding_sessions,
         )
         if diagnostics is not None:
             diagnostics["poke_trial_summary"] = poke["summary"]
+            diagnostics["port_finding_check"] = poke["port_finding_check"]
     if selection.run_single_session_analysis:
         print(f"Problem {problem_number}: single sessions")
         run_single_session_analysis(
@@ -886,12 +898,22 @@ def run_problem(
     return rank_results
 
 
-def run_open_field_analysis(subjects_trials_by_problem: dict, **kwargs) -> dict:
+def run_open_field_analysis(
+    subjects_trials_by_problem: dict,
+    *,
+    port_finding_assignment: PortFindingAssignment | None = None,
+    **kwargs,
+) -> dict:
     """:func:`run_problem` for every problem; returns ``{problem: rank results}``.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session_dict}}}``.
             Problems run in sorted order.
+        port_finding_assignment (PortFindingAssignment | None): Where the port-finding-only
+            sessions of the import log go (see
+            :func:`~src.behavior_analysis.port_finding_sessions.assign_port_finding_sessions`);
+            each problem's poke analysis counts the ones assigned to it. Default ``None``: none.
+            Keyword-only.
         **kwargs: Passed to :func:`run_problem` for every problem; ``task``, ``cohort`` and
             ``output_root`` are required.
 
@@ -899,6 +921,15 @@ def run_open_field_analysis(subjects_trials_by_problem: dict, **kwargs) -> dict:
         dict: ``{problem: rank_results}``, each as returned by :func:`run_problem`.
     """
     return {
-        problem: run_problem(problem, trials, **kwargs)
+        problem: run_problem(
+            problem,
+            trials,
+            port_finding_sessions=(
+                None
+                if port_finding_assignment is None
+                else port_finding_sessions_for_problem(port_finding_assignment, trials)
+            ),
+            **kwargs,
+        )
         for problem, trials in sorted(subjects_trials_by_problem.items())
     }
