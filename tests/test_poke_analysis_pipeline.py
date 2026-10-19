@@ -234,6 +234,7 @@ def test_trial_summary_reports_dropped_trials(tmp_path):
     assert list(summary.columns) == [
         "mouse",
         "session",
+        "port_finding_only",
         "n_trials",
         "n_port_finding_trials",
         "n_port_finding_counted",
