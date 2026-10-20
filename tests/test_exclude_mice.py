@@ -1,17 +1,21 @@
 """Dropping mice from the drifting problems before they are pooled (no files, no plotting)."""
 
+import argparse
 from datetime import datetime
 
 import pandas as pd
 import pytest
 
 from src.behavior_analysis.exclude_mice import (
+    ExcludedMiceError,
     check_mouse_ids,
     exclude_mice_from_problems,
     exclude_mice_from_table,
     excluded_mice_description,
     excluded_scope_text,
     excluded_set_name,
+    optional_mouse_ids,
+    parse_mouse_id,
 )
 
 # {problem: {mouse: sessions}}; the sessions are opaque to the helper
@@ -112,3 +116,24 @@ def test_a_table_loses_the_rows_of_the_excluded_mice():
 def test_a_table_without_a_mouse_column_raises():
     with pytest.raises(ValueError, match="mouse"):
         exclude_mice_from_table(pd.DataFrame({"x": [1]}), ["a"])
+
+
+# --- errors and the command-line type -------------------------------------------------------
+
+
+def test_the_errors_have_their_own_type_for_the_scripts_to_catch():
+    with pytest.raises(ExcludedMiceError):
+        exclude_mice_from_problems(PROBLEMS, ["MY_9_Z"])
+    with pytest.raises(ExcludedMiceError):
+        check_mouse_ids([])
+
+
+def test_an_argparse_type_accepts_a_plain_id_and_rejects_others():
+    assert parse_mouse_id("MY_175_N") == "MY_175_N"
+    with pytest.raises(argparse.ArgumentTypeError, match="not a mouse id"):
+        parse_mouse_id("../x")
+
+
+def test_optional_ids_pass_none_through_and_read_a_generator_once():
+    assert optional_mouse_ids(None) is None
+    assert optional_mouse_ids(m for m in ["b", "a", "b"]) == ("a", "b")

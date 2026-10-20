@@ -6,11 +6,17 @@ change, ...) sees the same reduced set without any of them knowing about exclusi
 remaining functions name the extra output set (folder, figure scope, description file).
 """
 
+import argparse
 import re
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 
 import pandas as pd
+
+
+class ExcludedMiceError(ValueError):
+    """The mice to exclude are unusable: none, badly named, not in the data, or all of them."""
+
 
 # Mouse ids become part of a folder name, so only plain name characters are accepted.
 _MOUSE_ID = re.compile(r"[A-Za-z0-9_.-]+")
@@ -26,18 +32,42 @@ def check_mouse_ids(mice: Iterable[str]) -> tuple[str, ...]:
         tuple[str, ...]: The distinct ids in sorted order.
 
     Raises:
-        ValueError: If there are none, or an id is not a string of letters, digits, ``_``, ``.``
-            and ``-`` (a path separator in an id would write outside the results folder).
+        ExcludedMiceError: If there are none, or an id is not a string of letters, digits, ``_``,
+            ``.`` and ``-`` (a path separator in an id would write outside the results folder).
     """
     ids = list(mice)
     if not ids:
-        raise ValueError("no mice given to exclude; name at least one mouse id")
+        raise ExcludedMiceError("no mice given to exclude; name at least one mouse id")
     for mouse in ids:
         if not isinstance(mouse, str) or not _MOUSE_ID.fullmatch(mouse) or mouse in (".", ".."):
-            raise ValueError(
+            raise ExcludedMiceError(
                 f"{mouse!r} is not a mouse id: use letters, digits, '_', '.' and '-' only"
             )
     return tuple(sorted(set(ids)))
+
+
+def optional_mouse_ids(mice: Iterable[str] | None) -> tuple[str, ...] | None:
+    """:func:`check_mouse_ids` of *mice*, or ``None`` for ``None``.
+
+    Entry points call this once on what they are given, so a generator is read once and the
+    rest of the code passes a tuple around.
+
+    Raises:
+        ExcludedMiceError: As :func:`check_mouse_ids`.
+    """
+    return None if mice is None else check_mouse_ids(mice)
+
+
+def parse_mouse_id(text: str) -> str:
+    """*text* as a mouse id, for ``argparse`` (``type=parse_mouse_id``).
+
+    Raises:
+        argparse.ArgumentTypeError: Naming what is wrong with *text*.
+    """
+    try:
+        return check_mouse_ids([text])[0]
+    except ExcludedMiceError as err:
+        raise argparse.ArgumentTypeError(str(err)) from err
 
 
 def exclude_mice_from_problems(problems: Mapping, mice: Iterable[str]) -> dict:
@@ -53,7 +83,7 @@ def exclude_mice_from_problems(problems: Mapping, mice: Iterable[str]) -> dict:
         *problems*. The input is not modified.
 
     Raises:
-        ValueError: If *mice* is empty or has an invalid id, a named mouse is in none of the
+        ExcludedMiceError: If *mice* is empty or has an invalid id, a named mouse is in none of the
             problems (the message lists the mice that are, since a typo is the likely cause),
             or no mouse is left.
     """
@@ -61,7 +91,7 @@ def exclude_mice_from_problems(problems: Mapping, mice: Iterable[str]) -> dict:
     present = sorted({m for subjects in problems.values() for m in subjects})
     unknown = sorted(excluded - set(present))
     if unknown:
-        raise ValueError(
+        raise ExcludedMiceError(
             f"cannot exclude {', '.join(unknown)}: not among the mice of the drifting problems "
             f"({', '.join(present) or 'none'})"
         )
@@ -71,7 +101,7 @@ def exclude_mice_from_problems(problems: Mapping, mice: Iterable[str]) -> dict:
     }
     kept = {problem: subjects for problem, subjects in kept.items() if subjects}
     if not kept:
-        raise ValueError(
+        raise ExcludedMiceError(
             f"no mice left after excluding {', '.join(sorted(excluded))}: "
             f"the drifting problems have only {', '.join(present)}"
         )
