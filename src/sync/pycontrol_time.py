@@ -99,6 +99,25 @@ def photometry_sample_times(
     return to_pycontrol_time(recording["time"], aligner), aligner
 
 
+def imaging_frame_times(
+    frame_s: np.ndarray, daq_rsync_s: np.ndarray, pycontrol_pulses_s: np.ndarray
+) -> tuple[np.ndarray, RsyncAligner]:
+    """pyControl time of every imaging frame.
+
+    Args:
+        frame_s (np.ndarray): Start of each frame (s, acquisition DAQ clock), e.g. from
+            ``src.funcimg_import.daq_sync.load_daq_sync``.
+        daq_rsync_s (np.ndarray): Rsync pulses on the same DAQ clock (s).
+        pycontrol_pulses_s (np.ndarray): pyControl rsync times (s).
+
+    Returns:
+        tuple[np.ndarray, RsyncAligner]: pyControl time (s) of each frame, NaN before the
+        first and after the last matched pulse, and the aligner used.
+    """
+    aligner = align_to_pycontrol(daq_rsync_s, pycontrol_pulses_s, units_ms=1000)
+    return to_pycontrol_time(frame_s, aligner), aligner
+
+
 def _rising_edge_times(gpio_df: pd.DataFrame, sync_column: str) -> np.ndarray:
     """Camera timestamps (ns) of the frames where *sync_column* goes from 0 to 1."""
     for column in (sync_column, "Timestamp"):
