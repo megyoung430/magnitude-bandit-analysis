@@ -18,21 +18,13 @@ all-cohorts-without-<mice>/ next to all-cohorts/, every figure marked "without <
 
 import argparse
 
-from src.behavior_analysis.exclude_mice import check_mouse_ids
+from src.behavior_analysis.exclude_mice import ExcludedMiceError, parse_mouse_id
 from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
 from src.pipelines.cohort_analysis import DEFAULT_RESULTS_ROOT, DRIFTING_SELECTION
 
 RESULTS_ROOT = DEFAULT_RESULTS_ROOT
 # Which drifting analyses run; copy with model_copy(update={"<switch>": False}) to turn one off.
 DRIFTING = DRIFTING_SELECTION
-
-
-def _mouse_id(text: str) -> str:
-    """*text* as a mouse id, or an argparse error naming what is wrong with it."""
-    try:
-        return check_mouse_ids([text])[0]
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(str(err)) from err
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -44,7 +36,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--exclude-mice",
         nargs="+",
-        type=_mouse_id,
+        type=parse_mouse_id,
         metavar="MOUSE",
         help="also write the pool without these mice into all-cohorts-without-<mice>/",
     )
@@ -53,13 +45,17 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> None:
     args = parse_args(argv)
-    run_all_cohorts_drifting(
-        args.cohorts,
-        results_root=RESULTS_ROOT,
-        drifting_selection=DRIFTING,
-        use_cache=not args.no_cache,
-        exclude_mice=args.exclude_mice,
-    )
+    try:
+        run_all_cohorts_drifting(
+            args.cohorts,
+            results_root=RESULTS_ROOT,
+            drifting_selection=DRIFTING,
+            use_cache=not args.no_cache,
+            exclude_mice=args.exclude_mice,
+        )
+    except ExcludedMiceError as err:
+        # a wrong mouse name is a usage error: one line, no traceback
+        raise SystemExit(f"error: {err}") from None
 
 
 if __name__ == "__main__":

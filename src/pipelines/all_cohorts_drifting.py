@@ -45,12 +45,12 @@ from typing import NamedTuple
 import pandas as pd
 
 from src.behavior_analysis.exclude_mice import (
-    check_mouse_ids,
     exclude_mice_from_problems,
     exclude_mice_from_table,
     excluded_mice_description,
     excluded_scope_text,
     excluded_set_name,
+    optional_mouse_ids,
 )
 from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
 from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table, with_cohort
@@ -314,7 +314,6 @@ def _mice_by_cohort(problems: dict) -> dict:
 
 def _write_pool(
     problems: dict,
-    imported: dict,
     sessions: pd.DataFrame,
     *,
     ids: list[int],
@@ -332,7 +331,6 @@ def _write_pool(
 
     Args:
         problems (dict): ``{(cohort id, k): {mouse: sessions}}`` to pool.
-        imported (dict): ``{cohort id: trials}``, for the cohorts' names in the figures.
         sessions (pd.DataFrame): The stacked sessions-per-problem table of the problems' mice.
         ids (list[int]): The cohorts named in the titles.
         figures_dir (Path): Folder that receives the figures.
@@ -379,9 +377,9 @@ def _write_pool(
     figures_dir.mkdir(parents=True, exist_ok=True)
     (figures_dir / COHORTS_FILE).write_text(cohorts_description(mice_by_cohort, run_at))
     if excluded:
-        (figures_dir / EXCLUDED_MICE_FILE).write_text(
-            excluded_mice_description(cohorts_phrase(ids), excluded, run_at)
-        )
+        description = excluded_mice_description(cohorts_phrase(ids), excluded, run_at)
+        for folder in (figures_dir, tables_dir):
+            (folder / EXCLUDED_MICE_FILE).write_text(description)
     return AllCohortsResult(figures_dir, tables_dir, mice_by_cohort, rank_results, tables)
 
 
@@ -438,7 +436,7 @@ def run_all_cohorts_drifting(
         raise ValueError("drifting_selection.rank_value_bases must name the value bases to pool")
     imported, logs = _inputs_for_cohorts(ids, trials_by_cohort, import_logs, data_root, use_cache)
     pooled = pool_cohorts({c: drifting_problems(trials) for c, trials in imported.items()})
-    excluded = check_mouse_ids(exclude_mice) if exclude_mice is not None else ()
+    excluded = optional_mouse_ids(exclude_mice) or ()  # a tuple, so a generator is read once
     problems_without = exclude_mice_from_problems(pooled.problems, excluded) if excluded else {}
     run_at = run_at or datetime.now()
     sessions = _sessions_per_problem(imported, logs)
@@ -447,7 +445,6 @@ def run_all_cohorts_drifting(
 
     plain = _write_pool(
         pooled.problems,
-        imported,
         sessions,
         ids=ids,
         figures_dir=folders["figures"],
@@ -460,7 +457,6 @@ def run_all_cohorts_drifting(
     name = excluded_set_name(ALL_COHORTS_FOLDER, excluded)
     without = _write_pool(
         problems_without,
-        imported,
         exclude_mice_from_table(sessions, excluded),
         ids=ids,
         figures_dir=root / "figures" / TASK / name,

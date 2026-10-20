@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
+from src.behavior_analysis.exclude_mice import ExcludedMiceError
 from src.behavior_visualization.plot_helpers import current_figure_banner
 from src.pipelines import all_cohorts_drifting as pipeline
 from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
@@ -193,3 +194,69 @@ def test_the_script_hands_the_mice_to_the_pipeline(script, monkeypatch):
     assert seen["exclude_mice"] == ["a1", "b2"]
     script.main(["--cohorts", "1"])
     assert seen["exclude_mice"] is None
+
+
+def test_excluded_mice_txt_is_in_the_table_folder_too(plain_and_extra):
+    _, extra, _ = plain_and_extra
+    text = (under(extra, "tables", WITHOUT) / "excluded_mice.txt").read_text()
+    assert "a1" in text and "b2" in text and "2026-10-16 12:30:05" in text
+
+
+def test_a_rerun_clears_the_extra_folders_it_owns(imported, tmp_path):
+    kwargs = dict(
+        results_root=tmp_path, trials_by_cohort=imported, run_at=RUN_AT, exclude_mice=["a1", "b2"]
+    )
+    run_all_cohorts_drifting([1, 3], **kwargs)
+    stale_figure = under(tmp_path, "figures", WITHOUT) / "value-change" / "left over.png"
+    stale_table = under(tmp_path, "tables", WITHOUT) / "sessions_per_problem.csv"
+    stale_figure.write_text("x")
+    stale_table.write_text("mouse\nstale\n")
+    run_all_cohorts_drifting([1, 3], **kwargs)
+    assert not stale_figure.exists()
+    assert set(pd.read_csv(stale_table)["mouse"]) == {"a2", "a3", "b1"}
+
+
+def test_every_figure_the_pooled_path_saves_for_the_extra_set_carries_the_banner(
+    imported, tmp_path, monkeypatch
+):
+    saved = []
+    real = plt.Figure.savefig
+
+    def spy(self, path, *args, **kwargs):
+        saved.append((str(path), [t.get_text() for t in self.texts]))
+        return real(self, path, *args, **kwargs)
+
+    monkeypatch.setattr(plt.Figure, "savefig", spy)
+    run_all_cohorts_drifting(
+        [1, 3],
+        results_root=tmp_path,
+        trials_by_cohort=imported,
+        run_at=RUN_AT,
+        exclude_mice=["a1", "b2"],
+    )
+    extra = [texts for path, texts in saved if f"/{WITHOUT}/" in path]
+    plain = [texts for path, texts in saved if f"/{WITHOUT}/" not in path]
+    assert extra and plain
+    assert all("without a1, b2" in texts for texts in extra)
+    assert not any("without a1, b2" in texts for texts in plain)
+
+
+def test_a_generator_of_mice_is_read_once(imported, tmp_path):
+    result = run_all_cohorts_drifting(
+        [1, 3],
+        results_root=tmp_path,
+        trials_by_cohort=imported,
+        run_at=RUN_AT,
+        exclude_mice=(m for m in ["a1", "b2"]),
+    )
+    assert result.without.figures_dir.name == WITHOUT
+
+
+def test_the_script_prints_a_bad_name_on_one_line(script, monkeypatch):
+    def fail(cohorts, **kw):
+        raise ExcludedMiceError("cannot exclude zz: not among the mice (a1)")
+
+    monkeypatch.setattr(script, "run_all_cohorts_drifting", fail)
+    with pytest.raises(SystemExit) as stop:
+        script.main(["--cohorts", "1", "--exclude-mice", "zz"])
+    assert "zz" in str(stop.value.code)
