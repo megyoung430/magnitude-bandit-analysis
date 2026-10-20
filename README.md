@@ -197,17 +197,21 @@ report all failures at the end.
 
   `--pooled-only` writes the pooled figures (with `sessions-per-problem/`) and the review tables
   and leaves the problem folders, `trial-block-summaries/` and the stacked diagnostic tables as
-  they are; it cannot be combined with `--last-sessions`/`--since`. `--exclude-mice` writes a
+  they are; `warnings_log.csv` is rewritten with this run's warnings only; it cannot be combined
+  with `--last-sessions`/`--since`. `--exclude-mice` writes a
   second set, `drifting/all-drifting-problems-without-MY_175_N-MY_66_LL/` (sorted ids, same
   subfolders), next to the normal one, which is unchanged. Every figure in it is marked
   "without MY_175_N, MY_66_LL"; its tables are in
   `tables/open-field/cohort-03/all-drifting-problems-without-MY_175_N-MY_66_LL/` (not in the
   stacked diagnostic tables), and `excluded_mice.txt` in both folders lists the excluded mice and
-  the run time. The option also works with a full run and with `--last-sessions`/`--since` (the
+  the run time. Both folders are emptied before the analyses are rewritten; the extra set's
+  `sessions-per-problem/` figure and table are redrawn on every run of a cohort with drifting
+  problems, like the normal one. The option also works with a full run and with `--last-sessions`/`--since` (the
   extra set is regenerated whenever the pooled set is). Names are checked against the cohort's
   drifting mice before anything is written: a mouse that is not there, or a list that leaves no
-  mouse, stops the run with an error listing the mice that exist. With several cohorts every
-  cohort must hold all the named mice, so pass the cohort that has them.
+  mouse, stops the run with a one-line error listing the mice that exist. With several cohorts
+  every cohort is checked first and must hold all the named mice, so pass the cohort that has
+  them.
   `run_all_drifting_problems.py --exclude-mice ...` does the same across cohorts into
   `all-cohorts-without-<mice>/`.
 

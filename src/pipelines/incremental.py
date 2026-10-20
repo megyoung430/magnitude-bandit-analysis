@@ -253,11 +253,15 @@ def describe_plan(cohort: str, selection: SessionSelection, extra_set: str | Non
     else:
         lines.append(f"  {DRIFTING}/all-drifting-problems: skipped (no drifting problem selected)")
         if extra_set:
-            lines.append(f"  {DRIFTING}/{extra_set}: skipped (no drifting problem selected)")
+            lines.append(
+                f"  {DRIFTING}/{extra_set}: analyses skipped (no drifting problem selected); "
+                "its sessions-per-problem is still redrawn"
+            )
     lines.append(
         "  always regenerated: review tables, trial-block-summaries/all-problems, "
-        "drifting/all-drifting-problems/sessions-per-problem; the diagnostic tables keep the "
-        "rows of the other problems"
+        "drifting/all-drifting-problems/sessions-per-problem"
+        + (f" and {DRIFTING}/{extra_set}/sessions-per-problem" if extra_set else "")
+        + "; the diagnostic tables keep the rows of the other problems"
     )
     return "\n".join(lines)
 

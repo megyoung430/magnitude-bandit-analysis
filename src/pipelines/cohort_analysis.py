@@ -82,6 +82,7 @@ the overall problem order and whatever its task type, so drifting problem 1 is o
 the ports of the last blocked problem.
 """
 
+import shutil
 import warnings
 from collections.abc import Collection, Iterable, Iterator
 from contextlib import contextmanager
@@ -93,12 +94,13 @@ import pandas as pd
 
 from src.behavior_analysis.diagnostic_tables import stack_diagnostics
 from src.behavior_analysis.exclude_mice import (
-    check_mouse_ids,
+    ExcludedMiceError,
     exclude_mice_from_problems,
     exclude_mice_from_table,
     excluded_mice_description,
     excluded_scope_text,
     excluded_set_name,
+    optional_mouse_ids,
 )
 from src.behavior_analysis.get_diagnostic_p_value import pvalue_paired_t_best_vs_second_vs_third
 from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
@@ -682,9 +684,10 @@ def checked_exclusion(drifting: dict, exclude_mice: Iterable[str] | None) -> tup
         ValueError: As :func:`~src.behavior_analysis.exclude_mice.exclude_mice_from_problems`
             (also for an empty list).
     """
-    if exclude_mice is None:
+    ids = optional_mouse_ids(exclude_mice)
+    if ids is None:
         return (), {}
-    return check_mouse_ids(exclude_mice), exclude_mice_from_problems(drifting, exclude_mice)
+    return ids, exclude_mice_from_problems(drifting, ids)
 
 
 def run_pooled_drifting(
@@ -720,28 +723,27 @@ def run_excluded_pooled_set(
     cohort_id: int,
     drifting: dict,
     excluded: tuple[str, ...],
-    sessions_table: pd.DataFrame,
     *,
     results_root: Path,
     selection: AnalysisSelection,
-    run_at: datetime,
 ) -> dict:
-    """The pooled drifting set without the *excluded* mice, in its own figure and table folders.
+    """The pooled drifting analyses without the *excluded* mice, in their own folders.
 
-    Writes ``drifting/all-drifting-problems-without-<mice>/`` (the layout of the plain pool,
-    sessions-per-problem included) and the same-named folder under the cohort's tables. Every
-    figure written is marked with the exclusion, whichever plot drew it. Its tables are kept
+    Writes the figures of ``drifting/all-drifting-problems-without-<mice>/`` and the analyses'
+    tables under the same name in the cohort's tables folder. Both folders belong to the set
+    and are emptied first, so nothing from an earlier run with other settings remains. Every
+    figure written is marked with the exclusion, whichever plot drew it. The tables are kept
     out of the cohort's stacked diagnostic tables, which come from the per-problem runs alone.
+    The sessions-per-problem figure and table are written by
+    :func:`write_excluded_sessions_per_problem`, after this.
 
     Args:
         cohort_id (int): 1 for ``cohort-01``, and so on.
         drifting (dict): ``{k: {mouse: sessions}}`` already without the excluded mice (see
             :func:`checked_exclusion`).
         excluded (tuple[str, ...]): The excluded mouse ids, sorted.
-        sessions_table (pd.DataFrame): The cohort's whole sessions-per-problem table.
         results_root (Path): Folder that receives ``figures/`` and ``tables/``. Keyword-only.
         selection (AnalysisSelection): The drifting selection. Keyword-only.
-        run_at (datetime): Time written to ``excluded_mice.txt``. Keyword-only.
 
     Returns:
         dict: The rank results of the reduced pool, as :func:`pooled_drifting_rank_results`.
@@ -751,19 +753,49 @@ def run_excluded_pooled_set(
     scope = excluded_scope_text(excluded)
     pooled_dir = _figures_dir(results_root, cohort) / DRIFTING / name
     tables_dir = _tables_dir(results_root, cohort) / name
+    for folder in (pooled_dir, tables_dir):
+        shutil.rmtree(folder, ignore_errors=True)
     with figure_banner(scope):
         ranks, tables = run_pooled_drifting(drifting, pooled_dir, selection, scope)
-        sessions = exclude_mice_from_table(sessions_table, excluded)
+    _write_tables(tables, tables_dir)
+    return ranks
+
+
+def write_excluded_sessions_per_problem(
+    cohort_id: int,
+    excluded: tuple[str, ...],
+    sessions_table: pd.DataFrame,
+    *,
+    results_root: Path,
+    run_at: datetime,
+) -> None:
+    """The sessions-per-problem figure and table of the set without the *excluded* mice.
+
+    Redrawn on every run of a cohort with drifting problems, as the plain set's is, because any
+    new session can complete a problem. Also writes ``excluded_mice.txt`` into the set's figure
+    and table folders (created if missing).
+
+    Args:
+        cohort_id (int): 1 for ``cohort-01``, and so on.
+        excluded (tuple[str, ...]): The excluded mouse ids, sorted.
+        sessions_table (pd.DataFrame): The cohort's whole sessions-per-problem table.
+        results_root (Path): Folder that receives ``figures/`` and ``tables/``. Keyword-only.
+        run_at (datetime): Time written to ``excluded_mice.txt``. Keyword-only.
+    """
+    cohort = cohort_name(cohort_id)
+    name = excluded_set_name(POOLED_DRIFTING_FOLDER, excluded)
+    scope = excluded_scope_text(excluded)
+    pooled_dir = _figures_dir(results_root, cohort) / DRIFTING / name
+    tables_dir = _tables_dir(results_root, cohort) / name
+    sessions = exclude_mice_from_table(sessions_table, excluded)
+    with figure_banner(scope):
         write_sessions_per_problem_figures(
-            sessions,
-            pooled_dir / SESSIONS_PER_PROBLEM_FOLDER,
-            f"cohort {cohort_id} {scope}",
+            sessions, pooled_dir / SESSIONS_PER_PROBLEM_FOLDER, f"cohort {cohort_id} {scope}"
         )
-    _write_tables({**tables, SESSIONS_PER_PROBLEM_TABLE: sessions}, tables_dir)
+    _write_tables({SESSIONS_PER_PROBLEM_TABLE: sessions}, tables_dir)
     description = excluded_mice_description(cohort, excluded, run_at)
     for folder in (pooled_dir, tables_dir):
         (folder / EXCLUDED_MICE_FILE).write_text(description)
-    return ranks
 
 
 # ---------------------------------------------------------------------------
@@ -860,6 +892,7 @@ def run_cohort(
         raise ValueError(
             "pooled_only runs no problems, so it cannot be combined with only_problems"
         )
+    exclude_mice = optional_mouse_ids(exclude_mice)
     cohort = cohort_name(cohort_id)
     log = import_log
     if trials_by_problem is None:
@@ -944,10 +977,8 @@ def run_cohort(
                         cohort_id,
                         drifting_without,
                         excluded,
-                        sessions_table,
                         results_root=results_root,
                         selection=drifting_selection,
-                        run_at=run_at or datetime.now(),
                     )
                 pooled_ran = True
             else:
@@ -961,6 +992,14 @@ def run_cohort(
                     figures / DRIFTING / POOLED_DRIFTING_FOLDER / SESSIONS_PER_PROBLEM_FOLDER,
                     f"cohort {cohort_id}",
                 )
+                if excluded:
+                    write_excluded_sessions_per_problem(
+                        cohort_id,
+                        excluded,
+                        sessions_table,
+                        results_root=results_root,
+                        run_at=run_at or datetime.now(),
+                    )
 
             if not pooled_only:
                 session_table, block_table = build_trial_block_tables(
@@ -1127,6 +1166,7 @@ def run_cohort_incremental(
         ValueError: As :func:`plan_cohort_incremental`.
         NoSessionsSelectedError: If no session matches; nothing is written.
     """
+    exclude_mice = optional_mouse_ids(exclude_mice)
     log = import_log
     if trials_by_problem is None:
         trials_by_problem, log = load_cohort(cohort_id, data_root, use_cache)
@@ -1148,6 +1188,35 @@ def run_cohort_incremental(
         exclude_mice=exclude_mice,
         **settings,
     )
+
+
+def check_exclusion_in_cohorts(
+    cohort_ids: Iterable[int], exclude_mice: tuple[str, ...], data_root, use_cache: bool
+) -> None:
+    """Check that every cohort has all of *exclude_mice* among its drifting mice.
+
+    Imports each cohort (from the cache when it is there) and discards it, so that a wrong name
+    stops a multi-cohort run before the first cohort starts its long work.
+
+    Args:
+        cohort_ids (Iterable[int]): The cohorts a run will cover.
+        exclude_mice (tuple[str, ...]): The mouse ids to leave out.
+        data_root (Path | None): As for :func:`run_cohort`.
+        use_cache (bool): As for :func:`run_cohort`.
+
+    Raises:
+        ExcludedMiceError: Naming every cohort the mice do not fit, and why.
+    """
+    problems = []
+    for cohort_id in cohort_ids:
+        trials, _ = load_cohort(cohort_id, data_root, use_cache)
+        grouped = regroup_by_task_type(trials, number_within_task_type(trials)) if trials else {}
+        try:
+            checked_exclusion(_drifting_of(grouped), exclude_mice)
+        except ExcludedMiceError as err:
+            problems.append(f"{cohort_name(cohort_id)}: {err}")
+    if problems:
+        raise ExcludedMiceError("\n".join(problems))
 
 
 def _drifting_of(grouped: dict) -> dict:
@@ -1192,7 +1261,7 @@ def _run_one_cohort(
         text = describe_plan(name, plan, _extra_set_name(exclude_mice))
         print(f"[PLAN] dry run, nothing written. {text}")
         return None
-    # only the options that were given are forwarded, so a run without them calls exactly as before
+    # an option left at its default is not forwarded
     options = {"exclude_mice": exclude_mice} if exclude_mice is not None else {}
     if last_sessions is not None or since is not None:
         return run_cohort_incremental(
@@ -1225,7 +1294,8 @@ def run_cohorts(
 
     With *pooled_only* every cohort runs only its pooled drifting analyses. *exclude_mice*
     names mice of the cohorts run; each cohort must have all of them among its drifting mice,
-    so name the cohort that holds them (``--cohorts 3``), not all four.
+    so name the cohort that holds them (``--cohorts 3``), not all four. A generator is read
+    once.
 
     Args:
         cohort_ids (Iterable[int]): Cohort numbers to run, in order.
@@ -1253,9 +1323,11 @@ def run_cohorts(
         ValueError: For *dry_run* without a selection or *pooled_only*, *pooled_only* with a
             selection, an invalid mouse id, or invalid selection options (all checked before any
             cohort is loaded).
-        RuntimeError: Naming each cohort that failed and why (a mouse that is not in a cohort's
-            drifting problems included) and, for a partial run, that no cohort has a matching
-            session (both are reported when both happen).
+        ExcludedMiceError: If a cohort lacks one of *exclude_mice* among its drifting mice or
+            would be left with none; every cohort is checked, and every misfit named, before
+            the first one runs. Raised for a dry run too.
+        RuntimeError: Naming each cohort that failed and why and, for a partial run, that no
+            cohort has a matching session (both are reported when both happen).
     """
     selecting = last_sessions is not None or since is not None
     if pooled_only and selecting:
@@ -1268,8 +1340,11 @@ def run_cohorts(
         )
     if selecting:
         check_selection_options(last_sessions, since)
+    exclude_mice = optional_mouse_ids(exclude_mice)  # once, so a generator reaches every cohort
     if exclude_mice is not None:
-        check_mouse_ids(exclude_mice)
+        check_exclusion_in_cohorts(
+            cohort_ids, exclude_mice, settings.get("data_root"), settings.get("use_cache", True)
+        )
     results, failures, unmatched, planned = {}, {}, {}, 0
     for cohort_id in cohort_ids:
         try:

@@ -52,7 +52,7 @@ Switch an analysis off in the selections below (e.g. run_value_change_analysis=F
 
 import argparse
 
-from src.behavior_analysis.exclude_mice import check_mouse_ids
+from src.behavior_analysis.exclude_mice import ExcludedMiceError, parse_mouse_id
 from src.pipelines.cohort_analysis import (
     BLOCKED_SELECTION,
     DEFAULT_RESULTS_ROOT,
@@ -86,14 +86,6 @@ CHOICE = ChoiceProbabilitySettings(
 )
 
 
-def _mouse_id(text: str) -> str:
-    """*text* as a mouse id, or an argparse error naming what is wrong with it."""
-    try:
-        return check_mouse_ids([text])[0]
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(str(err)) from err
-
-
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cohorts", type=int, nargs="+", default=COHORT_IDS, metavar="N")
@@ -116,7 +108,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--exclude-mice",
         nargs="+",
-        type=_mouse_id,
+        type=parse_mouse_id,
         metavar="MOUSE",
         help=(
             "also write the pooled drifting set without these mice, e.g. MY_175_N MY_66_LL, into "
@@ -144,20 +136,24 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> None:
     args = parse_args(argv)
-    run_cohorts(
-        args.cohorts,
-        continue_on_error=args.continue_on_error,
-        last_sessions=args.last_sessions,
-        since=args.since,
-        dry_run=args.dry_run,
-        pooled_only=args.pooled_only,
-        exclude_mice=args.exclude_mice,
-        results_root=RESULTS_ROOT,
-        blocked_selection=BLOCKED,
-        drifting_selection=DRIFTING,
-        choice=CHOICE,
-        reversal_trial_window=REVERSAL_TRIAL_WINDOW,
-    )
+    try:
+        run_cohorts(
+            args.cohorts,
+            continue_on_error=args.continue_on_error,
+            last_sessions=args.last_sessions,
+            since=args.since,
+            dry_run=args.dry_run,
+            pooled_only=args.pooled_only,
+            exclude_mice=args.exclude_mice,
+            results_root=RESULTS_ROOT,
+            blocked_selection=BLOCKED,
+            drifting_selection=DRIFTING,
+            choice=CHOICE,
+            reversal_trial_window=REVERSAL_TRIAL_WINDOW,
+        )
+    except ExcludedMiceError as err:
+        # a wrong mouse name is a usage error: one line, no traceback
+        raise SystemExit(f"error: {err}") from None
 
 
 if __name__ == "__main__":

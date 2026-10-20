@@ -92,3 +92,16 @@ def test_main_passes_pooled_only_and_the_mice_to_run_cohorts(cli, monkeypatch):
     assert seen["pooled_only"] is True
     assert seen["exclude_mice"] == ["MY_175_N", "MY_66_LL"]
     assert seen["last_sessions"] is None and seen["dry_run"] is False
+
+
+def test_a_bad_mouse_name_is_one_line_not_a_traceback(cli, monkeypatch, capsys):
+    from src.behavior_analysis.exclude_mice import ExcludedMiceError
+
+    def fail(ids, **kw):
+        raise ExcludedMiceError("cannot exclude MY_9_Z: not among the mice (MY_175_L)")
+
+    monkeypatch.setattr(cli, "run_cohorts", fail)
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["--cohorts", "3", "--pooled-only", "--exclude-mice", "MY_9_Z"])
+    assert stop.value.code != 0
+    assert "MY_9_Z" in str(stop.value.code)

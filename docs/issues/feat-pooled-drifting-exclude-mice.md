@@ -31,10 +31,12 @@ MY_66_LL, without regenerating every problem folder.
   sessions per problem) also carry the text in their own titles.
 - A pooled-only run skips `trial-block-summaries/` and leaves the stacked diagnostic tables
   alone (it has no per-problem rows to add); it does write the review tables, as asked.
-- With several cohorts every cohort must contain all named mice (a mouse missing from one cohort
-  is an error for that cohort); name the cohort that holds them.
-- In a partial run that selects no drifting problem the extra set is skipped like the plain set,
-  so its sessions-per-problem figure is not redrawn then (the plain one is).
+- With several cohorts every listed cohort is checked (imported, from the cache if present)
+  before the first one runs, and must contain all named mice; name the cohort that holds them.
+- In a partial run that selects no drifting problem the extra set's analyses are skipped like
+  the plain pool's, but its sessions-per-problem figure and table are redrawn, as the plain
+  ones are. The extra figure and table folders are emptied before its analyses are rewritten.
+- A wrong mouse name is a one-line error in both scripts (no traceback).
 - An empty `--exclude-mice` list is an error rather than "no exclusion".
 - `excluded_mice.txt` rather than a README.
 

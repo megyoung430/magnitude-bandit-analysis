@@ -18,6 +18,7 @@ import pytest
 
 import src.pipelines.cohort_analysis as cohort_analysis
 import src.pipelines.open_field as pipeline
+from src.behavior_analysis.exclude_mice import ExcludedMiceError
 from src.behavior_import.task_types import BLOCKED, DRIFTING
 from src.behavior_visualization.plot_helpers import current_figure_banner
 from src.pipelines.cohort_analysis import run_cohort, run_cohort_incremental, run_cohorts
@@ -317,12 +318,66 @@ def test_a_partial_run_regenerates_the_extra_set_when_the_pooled_set_is_regenera
     assert (cohort_dir / DRIFTING / WITHOUT_M2 / "value-change" / "stub.txt").exists()
 
 
-def test_a_blocked_only_partial_run_skips_the_extra_set(
-    tmp_path, cohort_dir, calls, cohort_extras, single_sessions
+def test_a_blocked_only_partial_run_redraws_the_extra_sessions_per_problem_but_not_its_analyses(
+    tmp_path, cohort_dir, tables_dir, calls, cohort_extras, single_sessions
+):
+    run(tmp_path, exclude_mice=["m2"])
+    extra_table = tables_dir / WITHOUT_M2 / "sessions_per_problem.csv"
+    extra_table.write_text("mouse\nstale\n")  # a table an earlier run left behind
+    (cohort_dir / DRIFTING / WITHOUT_M2 / SESSIONS_PNG).unlink()
+    calls.clear()
+    run(tmp_path, only_problems={(BLOCKED, 1)}, exclude_mice=["m2"])
+    assert calls == []  # the analyses are not rerun ...
+    assert (cohort_dir / DRIFTING / WITHOUT_M2 / "value-change" / "stub.txt").exists()  # or cleared
+    # ... but the sessions-per-problem figure and table are redrawn, as the plain ones are
+    assert (cohort_dir / DRIFTING / WITHOUT_M2 / SESSIONS_PNG).exists()
+    assert set(pd.read_csv(extra_table)["mouse"]) == {"m1"}
+
+
+def test_a_first_blocked_only_partial_run_writes_the_extra_sessions_per_problem_alone(
+    tmp_path, cohort_dir, tables_dir, calls, cohort_extras, single_sessions
 ):
     run(tmp_path, only_problems={(BLOCKED, 1)}, exclude_mice=["m2"])
-    assert not list(cohort_dir.rglob(WITHOUT_M2))
-    assert calls == []
+    folder = cohort_dir / DRIFTING / WITHOUT_M2
+    assert {p.name for p in folder.iterdir()} == {"sessions-per-problem", "excluded_mice.txt"}
+    assert (tables_dir / WITHOUT_M2 / "sessions_per_problem.csv").exists()
+
+
+def test_a_rerun_clears_the_extra_figure_and_table_folders_first(
+    tmp_path, cohort_dir, tables_dir, calls, cohort_extras, single_sessions
+):
+    run(tmp_path, exclude_mice=["m2"])
+    stale_figure = cohort_dir / DRIFTING / WITHOUT_M2 / "value-change" / "left over.png"
+    stale_table = tables_dir / WITHOUT_M2 / "left_over.csv"
+    stale_figure.write_text("x")
+    stale_table.write_text("x")
+    run(tmp_path, exclude_mice=["m2"])
+    assert not stale_figure.exists() and not stale_table.exists()
+    assert (cohort_dir / DRIFTING / WITHOUT_M2 / "value-change" / "stub.txt").exists()
+
+
+def test_the_plain_pool_folders_are_not_cleared(
+    tmp_path, cohort_dir, calls, cohort_extras, single_sessions
+):
+    run(tmp_path, exclude_mice=["m2"])
+    kept = cohort_dir / DRIFTING / POOLED / "value-change" / "kept.txt"
+    kept.write_text("x")
+    run(tmp_path, exclude_mice=["m2"])
+    assert kept.exists()
+
+
+def test_the_mice_may_come_as_a_generator(
+    tmp_path, cohort_dir, calls, cohort_extras, single_sessions
+):
+    run(tmp_path, exclude_mice=(m for m in ["m2"]))
+    assert (cohort_dir / DRIFTING / WITHOUT_M2 / "value-change" / "stub.txt").exists()
+
+
+def test_a_generator_of_mice_is_read_once_by_a_partial_run(
+    tmp_path, cohort_dir, calls, cohort_extras, single_sessions
+):
+    incremental(tmp_path, last_sessions=1, exclude_mice=(m for m in ["m2"]))
+    assert (cohort_dir / DRIFTING / WITHOUT_M2 / "value-change" / "stub.txt").exists()
 
 
 def test_a_blocked_only_partial_run_still_checks_the_names(
@@ -389,7 +444,7 @@ def test_a_dry_run_checks_the_names_too(tmp_path, monkeypatch, calls, cohort_ext
     monkeypatch.setattr(
         cohort_analysis, "load_cohort", lambda *a: (blocked_then_two_drifting(), None)
     )
-    with pytest.raises(RuntimeError, match="MY_9_Z"):
+    with pytest.raises(ExcludedMiceError, match="MY_9_Z"):
         run_cohorts([1], results_root=tmp_path, exclude_mice=["MY_9_Z"], dry_run=True, **options)
     assert not list(tmp_path.iterdir())
 
@@ -398,7 +453,7 @@ def test_a_dry_run_that_leaves_no_mouse_says_so(tmp_path, monkeypatch, calls, co
     monkeypatch.setattr(
         cohort_analysis, "load_cohort", lambda *a: (blocked_then_two_drifting(), None)
     )
-    with pytest.raises(RuntimeError, match="no mice left"):
+    with pytest.raises(ExcludedMiceError, match="no mice left"):
         run_cohorts(
             [1], results_root=tmp_path, pooled_only=True, exclude_mice=["m1", "m2"], dry_run=True
         )
@@ -414,3 +469,30 @@ def test_pooled_only_with_a_selection_raises_before_any_cohort_is_loaded(tmp_pat
 def test_an_invalid_mouse_id_raises_before_any_cohort_is_loaded(tmp_path):
     with pytest.raises(ValueError, match="not a mouse id"):
         run_cohorts([1], results_root=tmp_path, exclude_mice=["../x"])
+
+
+# --- the names are checked against every cohort first ----------------------------------------
+
+
+def test_every_listed_cohort_is_checked_before_the_first_one_runs(tmp_path, monkeypatch):
+    cohorts = {1: blocked_then_two_drifting(), 2: blocked_then_two_drifting()}
+    for problem in cohorts[2].values():
+        problem.pop("m2")  # cohort 2 has no m2
+    monkeypatch.setattr(cohort_analysis, "load_cohort", lambda c, *a: (cohorts[c], None))
+    ran = []
+    monkeypatch.setattr(cohort_analysis, "run_cohort", lambda i, **k: ran.append(i))
+    with pytest.raises(ExcludedMiceError, match="cohort-02.*m2"):
+        run_cohorts([1, 2], results_root=tmp_path, exclude_mice=["m2"])
+    assert ran == [] and not list(tmp_path.iterdir())
+
+
+def test_a_generator_of_mice_reaches_every_cohort(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        cohort_analysis, "load_cohort", lambda c, *a: (blocked_then_two_drifting(), None)
+    )
+    seen = []
+    monkeypatch.setattr(
+        cohort_analysis, "run_cohort", lambda i, **k: seen.append(k["exclude_mice"])
+    )
+    run_cohorts([1, 2], results_root=tmp_path, exclude_mice=(m for m in ["m2"]))
+    assert seen == [("m2",), ("m2",)]
