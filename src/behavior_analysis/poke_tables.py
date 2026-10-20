@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 
 import pandas as pd
 
@@ -89,7 +89,10 @@ def counts_by_session_table(per_session: PerMouseSession) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["mouse", "session", "kind", "port", "count"])
 
 
-def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
+def cross_check_table(
+    per_session: PerMouseSession,
+    port_finding_only: Mapping[str, Collection[str]] | None = None,
+) -> pd.DataFrame:
     """Trials counted, dropped and port finding, and raw-versus-printed long pokes, per session.
 
     Port-finding trials are not task trials: they are in the ``n_port_finding_*`` columns only,
@@ -101,22 +104,30 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
 
     ``parse_error`` is empty unless the session's raw events could not be read.
 
+    ``port_finding_only`` marks the sessions that hold only port finding and are not sessions of
+    the problem (their trials count in the port-finding maps of the problem that follows): their
+    ``n_trials`` and every task count is 0.
+
     Args:
         per_session (PerMouseSession): ``{mouse: {session: SessionPokeCounts}}``.
+        port_finding_only (Mapping[str, Collection[str]] | None): ``{mouse: sessions}`` that are
+            port-finding-only. Default ``None``: none are.
 
     Returns:
         pd.DataFrame: One row per mouse and session; columns ``mouse``, ``session``,
-        ``n_trials``, ``n_port_finding_trials``, ``n_port_finding_counted``,
+        ``port_finding_only``, ``n_trials``, ``n_port_finding_trials``, ``n_port_finding_counted``,
         ``n_port_finding_dropped``, ``n_port_finding_open_after_choice_windows``,
         ``n_trials_counted``,
         ``n_trials_dropped_no_print``, ``n_trials_dropped_inconsistent``,
         ``n_open_after_choice_windows``,
         ``n_long_poke_checked``, ``n_long_poke_agree``, ``parse_error``.
     """
+    port_finding_only = port_finding_only or {}
     rows = [
         {
             "mouse": mouse,
             "session": session,
+            "port_finding_only": session in port_finding_only.get(mouse, ()),
             "n_trials": counts.n_trials,
             "n_port_finding_trials": counts.n_port_finding_trials,
             "n_port_finding_counted": counts.port_finding.n_valid,
@@ -138,6 +149,7 @@ def cross_check_table(per_session: PerMouseSession) -> pd.DataFrame:
         columns=[
             "mouse",
             "session",
+            "port_finding_only",
             "n_trials",
             "n_port_finding_trials",
             "n_port_finding_counted",

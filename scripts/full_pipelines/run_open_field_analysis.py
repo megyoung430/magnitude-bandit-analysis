@@ -13,7 +13,8 @@ problems, use scripts/full_pipelines/run_cohorts.py: it reads the task type of e
 its task name and runs the analyses that apply to each type.
 """
 
-from src.behavior_import.load_trials import load_trials_by_problem
+from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
+from src.behavior_import.load_trials import load_trials_with_log
 from src.pipelines.open_field import ChoiceProbabilitySettings, run_open_field_analysis
 from src.settings import REPO_ROOT, get_settings
 
@@ -44,9 +45,15 @@ def main() -> None:
         print(f"  {name}: {value}")
 
     raw_data = get_settings().data_root / FOLDER_NAME / COHORT / "rawdata"
-    subjects_trials_by_problem = load_trials_by_problem(raw_data)
+    imported = load_trials_with_log(raw_data)
+    # sessions that hold only port finding are not in the problems; their trials still belong to
+    # the port-finding maps of the problem that follows them
+    port_finding = assign_port_finding_sessions(
+        imported.trials_by_problem, imported.log.port_finding_sessions
+    )
     run_open_field_analysis(
-        subjects_trials_by_problem,
+        imported.trials_by_problem,
+        port_finding_assignment=port_finding,
         task=TASK,
         cohort=COHORT,
         output_root=REPO_ROOT / "results" / "figures",

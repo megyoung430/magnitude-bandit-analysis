@@ -25,6 +25,7 @@ from src.behavior_import.problem_numbering import (  # noqa: F401  (re-exported)
     SessionFacts,
     assign_problems,
     describe_flag,
+    is_pretraining,
     normalize_tower_token,
     permutation_invariant_signature,
     session_sort_key,
@@ -107,9 +108,10 @@ def extract_trials_grouped_by_problem(data, log=None):
             by :func:`src.behavior_import.import_data.import_data`. Mutated in place by
             :func:`extract_trials`.
         log (ImportLog | None): Receives a skip record for each recording and session without
-            trial information, and the flagged sessions of the final numbering
-            (:func:`flagged_sessions`). Changes nothing that is loaded or printed. Default
-            ``None``.
+            trial information, the flagged sessions of the final numbering
+            (:func:`flagged_sessions`) and the recordings of the sessions that hold only port
+            finding (:func:`port_finding_only_sessions`). Changes nothing that is loaded or
+            printed. Default ``None``.
 
     Returns:
         dict: ``{problem_id: {subject: {session_key: session_dict}}}`` with deep-copied
@@ -123,6 +125,7 @@ def extract_trials_grouped_by_problem(data, log=None):
     problems = group_sessions_by_problem(data)
     if log is not None:
         log.flags = flagged_sessions(data)
+        log.port_finding_sessions = port_finding_only_sessions(data)
     return problems
 
 
@@ -208,11 +211,23 @@ def empty_recording_kind(df):
     """
     if recording_trial_rows(df):
         return NO_BANDIT_FIELDS
-    is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
-    printed = df.loc[is_print, "content"].map(parse_content_json)
-    if any(isinstance(d, dict) and "num_t_found" in d for d in printed):
+    if port_finding_prints(df):
         return ONLY_PORT_FINDING
     return NO_TRIAL_PRINTS
+
+
+def port_finding_prints(df):
+    """The port-finding trial dicts (those with ``"num_t_found"``) printed by one recording.
+
+    Args:
+        df (pd.DataFrame): One recording with ``type``, ``subtype`` and ``content`` columns.
+
+    Returns:
+        list[dict]: The parsed prints, in file order.
+    """
+    is_print = (df.get("type", "") == "variable") & (df.get("subtype", "").isin(["print"]))
+    printed = df.loc[is_print, "content"].map(parse_content_json)
+    return [d for d in printed if isinstance(d, dict) and "num_t_found" in d]
 
 
 _EMPTY_RECORDING_REASONS = {
@@ -220,8 +235,18 @@ _EMPTY_RECORDING_REASONS = {
         "it prints trials but none has a bandit field (reward magnitudes, choice towers or rank "
         "counts), so it is not a bandit recording"
     ),
-    ONLY_PORT_FINDING: "it prints only port-finding trials (num_t_found), no bandit trials",
+    ONLY_PORT_FINDING: (
+        "it prints only port-finding trials (num_t_found), no bandit trials; its port-finding "
+        "trials are used in the port-finding poke maps"
+    ),
     NO_TRIAL_PRINTS: "it prints no trials",
+}
+
+
+# Where the port-finding trials of a skipped port-finding-only recording are counted, by level.
+_PORT_FINDING_MAP_SCOPE = {
+    RECORDING: " of the session's problem",
+    SESSION: " of the mouse's next problem when that has the same towers",
 }
 
 
@@ -246,6 +271,9 @@ def empty_recording_skips(frames, trial_info_list, subject, session_key, task_na
         if trial_info:
             continue
         kind = empty_recording_kind(frame)
+        reason = _EMPTY_RECORDING_REASONS[kind]
+        if kind == ONLY_PORT_FINDING:
+            reason += _PORT_FINDING_MAP_SCOPE[level]
         path = source_path(frame)
         skips.append(
             SkipRecord(
@@ -254,7 +282,7 @@ def empty_recording_skips(frames, trial_info_list, subject, session_key, task_na
                 None if path.startswith("<") else path,
                 level,
                 kind,
-                _EMPTY_RECORDING_REASONS[kind],
+                reason,
                 read_task_name(frame) or task_name,
             )
         )
@@ -1116,6 +1144,74 @@ def flagged_sessions(data):
                 )
             )
     return flags
+
+
+def _port_finding_towers(frames, run_start_towers):
+    """The towers port finding ran on: the ``c_tows`` of its prints, else the run_start towers."""
+    printed = {
+        tower
+        for frame in frames
+        for trial in port_finding_prints(frame)
+        for tower in trial.get("c_tows") or ()
+    }
+    return frozenset(printed or run_start_towers or ())
+
+
+def port_finding_only_record(session_data):
+    """A kept record of a session that holds only port finding, or ``None`` for any other.
+
+    Args:
+        session_data (dict): One extracted session dict from ``import_data``; the raw recordings
+            are ``"df"`` (a session without them has nothing to keep).
+
+    Returns:
+        dict | None: ``{"df", "choice_towers", "initiation_tower"}`` (see
+        :attr:`~src.behavior_import.import_log.ImportLog.port_finding_sessions`) if the session
+        has no bandit trials and at least one recording prints port-finding trials, all others
+        printing nothing. ``None`` otherwise, including a session with a recording of other
+        prints and a pretraining session.
+    """
+    # A pretraining task can print num_t_found too; it is not the bandit task's port finding.
+    if session_data.get("trial_info") or "df" not in session_data:
+        return None
+    if is_pretraining(session_data.get("task_name")):
+        return None
+    frames = session_data["df"]
+    frames = frames if isinstance(frames, list) else [frames]
+    kinds = {empty_recording_kind(frame) for frame in frames}
+    if ONLY_PORT_FINDING not in kinds or not kinds <= {ONLY_PORT_FINDING, NO_TRIAL_PRINTS}:
+        return None
+    return {
+        "df": session_data["df"],
+        "choice_towers": _port_finding_towers(frames, session_data.get("choice_towers")),
+        "initiation_tower": session_data.get("initiation_tower"),
+    }
+
+
+def port_finding_only_sessions(data):
+    """The sessions of *data* that hold only port finding, by mouse and session.
+
+    They are not in :func:`group_sessions_by_problem`'s problems (no bandit trials); the poke
+    analysis counts their port-finding trials in the problem that follows them.
+
+    Args:
+        data (dict): ``{subject: {session_key: session_dict}}`` after :func:`extract_trials`.
+
+    Returns:
+        dict[str, dict[str, dict]]: ``{subject: {session_key: record}}`` with the records of
+        :func:`port_finding_only_record`, sessions oldest first; subjects without such a session
+        are left out.
+    """
+    kept = {}
+    for subject, subject_sessions in data.items():
+        records = {
+            key: record
+            for key in ordered_session_keys(subject, subject_sessions)
+            if (record := port_finding_only_record(subject_sessions[key])) is not None
+        }
+        if records:
+            kept[subject] = records
+    return kept
 
 
 def group_sessions_by_problem(data, copy_sessions=True):

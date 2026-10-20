@@ -16,6 +16,10 @@ Skips (:class:`SkipRecord`) come at three levels:
 
 Flags (:class:`SessionFlag`) are the problem-numbering outcomes of
 :mod:`src.behavior_import.problem_numbering` for the sessions of the final data.
+
+The log also carries the raw recordings of the sessions that hold only port finding
+(:attr:`ImportLog.port_finding_sessions`), so the poke analysis can count their trials without
+those sessions entering the trials by problem.
 """
 
 from dataclasses import dataclass, field
@@ -99,11 +103,19 @@ class ImportLog:
             once the sessions are numbered.
         warnings (list[WarningRecord]): The Python warnings raised during the import. Filled by
             the loader, so that a cached load still has them.
+        port_finding_sessions (dict[str, dict[str, dict]]): ``{mouse: {session_key: record}}``
+            for the sessions that hold only port finding (they are also in ``skips``). Each
+            record has ``"df"`` (the raw recordings, one DataFrame or a list), ``"choice_towers"``
+            (a frozenset: the ``c_tows`` of the port-finding prints) and ``"initiation_tower"``.
+            They stay out of the trials by problem, which every task analysis assumes have bandit
+            trials; the poke analysis counts their trials in the port-finding maps. Not part of
+            the log's equality (it holds recordings). Set once the sessions are extracted.
     """
 
     skips: list[SkipRecord] = field(default_factory=list)
     flags: list[SessionFlag] = field(default_factory=list)
     warnings: list[WarningRecord] = field(default_factory=list)
+    port_finding_sessions: dict[str, dict[str, dict]] = field(default_factory=dict, compare=False)
 
     def add_skip(self, skip: SkipRecord) -> None:
         """Append *skip* to :attr:`skips`."""

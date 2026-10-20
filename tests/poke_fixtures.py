@@ -23,7 +23,11 @@ class Recording:
     """A growing list of log rows; every method returns ``self`` so calls chain."""
 
     def __init__(self, *, towers=None, init="B2", start=True):
-        self.rows = [(0.0, "info", "task_name", "Meg\\3x3_field_drifting_value_bandit")]
+        self.rows = [
+            (0.0, "info", "task_name", "Meg\\3x3_field_drifting_value_bandit"),
+            # a session of the importer always has one; the port-finding check reads it
+            (0.0, "variable", "run_start", json.dumps({"found_ports": False, "found_t_thresh": 4})),
+        ]
         self.t = 0.0
         self.towers = list(towers or TOWERS)
         self.init = init

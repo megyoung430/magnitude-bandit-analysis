@@ -18,6 +18,13 @@ Figures written to ``out_dir`` (PNG and PDF):
 - The same two with `` (Port Finding)`` added to the name: the pokes of the port-finding trials
   of every session of the problem, summed per mouse. A mouse without port-finding trials in the
   problem has no panel, and a figure with no panel at all is not drawn.
+
+Port finding can span sessions: a mouse that does not finish starts the next session in port
+finding again. The earlier session has no bandit trials, so it is not a session of the problem;
+the caller passes it as ``port_finding_sessions`` (see
+:mod:`src.behavior_analysis.port_finding_sessions`) and its trials are counted in the
+port-finding maps, their titles and the summary table. The task maps and the long-poke means
+never see those sessions.
 """
 
 from __future__ import annotations
@@ -44,8 +51,10 @@ from src.behavior_analysis.poke_counts import (  # noqa: F401  (re-exported)
     total_port_finding_counts,
 )
 from src.behavior_analysis.poke_tables import cross_check_table
+from src.behavior_analysis.port_finding_check import port_finding_check_table
 from src.behavior_analysis.stats import mean_se_n
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
+from src.behavior_import.session_order import ordered_session_keys
 from src.behavior_visualization.plot_maze_heatmaps import plot_maze_heatmaps_across_mice
 from src.behavior_visualization.plot_num_long_pokes import (
     plot_num_pokes_across_mice,
@@ -80,6 +89,49 @@ def _validate_problem(subjects_trials: Mapping) -> None:
                     "sessions of a single problem"
                 )
             raise ValueError(f"{mouse} {key}: session has no raw 'df' recordings")
+
+
+def _validate_port_finding_sessions(found: Mapping | None, subjects_trials: Mapping) -> dict:
+    """*found* as a dict (``{}`` for ``None``), after checking it against the problem.
+
+    Raises:
+        ValueError: If it names a mouse that is not in the problem, a session that is also a task
+            session of the problem, or a record without raw ``"df"`` recordings.
+    """
+    found = {} if found is None else found
+    for mouse, records in found.items():
+        if mouse not in subjects_trials:
+            raise ValueError(f"port_finding_sessions names mouse {mouse!r}, not in the problem")
+        clash = sorted(set(records) & set(subjects_trials[mouse]))
+        if clash:
+            raise ValueError(f"{mouse}: port-finding-only sessions {clash} are task sessions too")
+        for key, record in records.items():
+            if not (isinstance(record, Mapping) and "df" in record):
+                raise ValueError(f"{mouse} {key}: port-finding-only session has no raw 'df'")
+    return found
+
+
+def _with_port_finding_sessions(per_session: Mapping, found: Mapping) -> dict:
+    """*per_session* with the parsed port-finding-only sessions added, in session order."""
+    merged = {}
+    for mouse, by_session in per_session.items():
+        extra = found.get(mouse, {})
+        both = {**by_session, **extra}
+        merged[mouse] = (
+            {key: both[key] for key in ordered_session_keys(mouse, both)} if extra else by_session
+        )
+    return merged
+
+
+def _warn_on_flagged_port_finding(check) -> None:
+    for row in check[check["flagged"]].itertuples():
+        warnings.warn(
+            f"{row.mouse}: port-finding check flagged, {row.n_port_finding_trials} port-finding "
+            f"trials (expected minimum {row.expected_min_port_finding_trials:g}): "
+            f"{row.flag_reason}",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def _previous_ports(
@@ -219,6 +271,7 @@ def run_poke_analysis(
     *,
     previous_choice_towers: dict | None = None,
     poke_counts: dict | None = None,
+    port_finding_sessions: dict | None = None,
 ) -> dict:
     """Long pokes per relative session and the maze heatmaps for one problem.
 
@@ -237,6 +290,12 @@ def run_poke_analysis(
             (for example ``per_session`` of an earlier call, or ``mouse_poke_counts`` per
             mouse), so the raw events are parsed once. It must cover every mouse and session;
             ``None`` (default) parses the sessions' ``"df"`` here. Keyword-only.
+        port_finding_sessions (dict | None): ``{mouse: {session_key: record}}`` of the
+            port-finding-only sessions that belong to this problem (see
+            :func:`~src.behavior_analysis.port_finding_sessions.port_finding_sessions_for_problem`);
+            each record needs ``"df"``, and ``"initiation_tower"`` if it is not ``"B2"``. Their
+            trials are added to the port-finding maps, titles and ``"summary"`` only. ``None``
+            (default) adds none. Keyword-only.
 
     Returns:
         dict: A dict with ``"long_pokes"`` (``"by_session"`` = ``{mouse: {session: mean}}``,
@@ -245,18 +304,24 @@ def run_poke_analysis(
         {port: count}}}`` for ``"after_initiation"`` and ``"after_choice"``, task trials only),
         ``"port_finding_counts"`` (the same for the port-finding trials, with only the mice that
         have some; ``{}`` for a kind with none), ``"per_session"``
-        (``{mouse: {session: SessionPokeCounts}}``), ``"cross_check"`` (the raw-versus-printed
-        long-poke comparison per session), ``"summary"`` (a DataFrame with one row per mouse and
-        session: ``mouse, session, n_trials, n_port_finding_trials, n_port_finding_counted,
+        (``{mouse: {session: SessionPokeCounts}}``, the port-finding-only sessions included),
+        ``"cross_check"`` (the raw-versus-printed long-poke comparison per session),
+        ``"summary"`` (a DataFrame with one row per mouse and session, the port-finding-only
+        ones included with ``n_trials`` 0 and ``port_finding_only`` true: ``mouse, session,
+        port_finding_only, n_trials, n_port_finding_trials, n_port_finding_counted,
         n_port_finding_dropped, n_port_finding_open_after_choice_windows, n_trials_counted,
         n_trials_dropped_no_print, n_trials_dropped_inconsistent, n_open_after_choice_windows,
-        n_long_poke_checked, n_long_poke_agree, parse_error``) and ``"files"`` (the figure paths
-        written, PNG then PDF per figure; the port-finding figures only if drawn). No table is
-        written to disk.
+        n_long_poke_checked, n_long_poke_agree, parse_error``), ``"port_finding_check"`` (one
+        row per mouse with port-finding trials against the minimum ``n_ports x found_t_thresh``,
+        see :func:`~src.behavior_analysis.port_finding_check.port_finding_check_table`) and
+        ``"files"`` (the figure paths written, PNG then PDF per figure; the port-finding figures
+        only if drawn). No table is written to disk.
 
     Raises:
         ValueError: If the input is not one problem's ``{mouse: {session: session}}`` with raw
-            recordings, or if *previous_choice_towers* or *poke_counts* miss a mouse or session.
+            recordings, if *previous_choice_towers* or *poke_counts* miss a mouse or session, or
+            if *port_finding_sessions* names a mouse outside the problem, a session of the
+            problem, or a record without ``"df"``.
         PokeAlignmentError: If a session's parsed trials do not match its imported trials; this
             is likely a code bug and stops the run.
 
@@ -266,20 +331,30 @@ def run_poke_analysis(
         the reason (the long-poke means, which come from the imported trials, still include it).
         Disagreements between the raw long pokes and the printed ``long_pokes`` lists raise a
         ``UserWarning`` and are listed in the cross-check table. The last trial of each recording
-        has no following initiation, so it is left out of the after-choice map.
+        has no following initiation, so it is left out of the after-choice map. A flagged
+        port-finding check (fewer trials than the task needs, counts carried in from an
+        earlier session, or variables set by hand) raises a ``UserWarning`` and is flagged in
+        ``"port_finding_check"``; the run goes on.
     """
     _validate_problem(subjects_trials_by_problem)
+    found = _validate_port_finding_sessions(port_finding_sessions, subjects_trials_by_problem)
     out_dir = Path(out_dir)
     mice = sorted(subjects_trials_by_problem)
     previous = _previous_ports(mice, previous_choice_towers)
     initiation_ports = _initiation_ports(subjects_trials_by_problem)
 
-    per_session = (
+    task_counts = (
         _check_parsed(poke_counts, subjects_trials_by_problem)
         if poke_counts is not None
         else {mouse: mouse_poke_counts(mouse, subjects_trials_by_problem[mouse]) for mouse in mice}
     )
+    found_counts = {mouse: mouse_poke_counts(mouse, records) for mouse, records in found.items()}
+    per_session = _with_port_finding_sessions(task_counts, found_counts)
     _warn_on_disagreement(per_session)
+    check = port_finding_check_table(
+        {mouse: {**subjects_trials_by_problem[mouse], **found.get(mouse, {})} for mouse in mice}
+    )
+    _warn_on_flagged_port_finding(check)
     counts = {
         kind: {mouse: total_counts(per_session[mouse], kind) for mouse in mice}
         for kind in ("after_initiation", "after_choice")
@@ -337,6 +412,9 @@ def run_poke_analysis(
             mouse: {s: c.long_poke_check for s, c in by_session.items()}
             for mouse, by_session in per_session.items()
         },
-        "summary": cross_check_table(per_session),
+        "summary": cross_check_table(
+            per_session, port_finding_only={mouse: set(records) for mouse, records in found.items()}
+        ),
+        "port_finding_check": check,
         "files": [out_dir / f"{s}.{e}" for s in stems for e in ("png", "pdf")],
     }

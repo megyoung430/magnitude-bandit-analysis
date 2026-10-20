@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import src.pipelines.open_field as pipeline
+from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
 from src.pipelines.open_field import AnalysisSelection, run_drifting_value_analyses, run_problem
 
 NOTHING_BUT = dict.fromkeys(
@@ -45,11 +46,48 @@ def test_the_reversal_figures_are_told_the_task_type_and_problem_for_their_warni
     assert seen["leave"] == {"problem_number": 3, "task_type": "blocked"}
 
 
-def test_the_poke_summary_is_collected_as_a_diagnostic(monkeypatch):
-    monkeypatch.setattr(pipeline, "run_poke_analysis", lambda *a, **k: {"summary": "POKE"})
+def test_the_poke_tables_are_collected_as_diagnostics(monkeypatch):
+    monkeypatch.setattr(
+        pipeline,
+        "run_poke_analysis",
+        lambda *a, **k: {"summary": "POKE", "port_finding_check": "CHECK"},
+    )
     diagnostics = {}
     run(only(run_poke_analysis=True), "blocked", diagnostics=diagnostics)
-    assert diagnostics == {"poke_trial_summary": "POKE"}
+    assert diagnostics == {"poke_trial_summary": "POKE", "port_finding_check": "CHECK"}
+
+
+def test_the_port_finding_sessions_of_the_problem_reach_the_poke_analysis(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        pipeline,
+        "run_poke_analysis",
+        lambda *a, **k: seen.update(k) or {"summary": None, "port_finding_check": None},
+    )
+    found = {"m1": {"ses-1_date-20260101": {"df": "frames"}}}
+    run(only(run_poke_analysis=True), "blocked", port_finding_sessions=found)
+    assert seen["port_finding_sessions"] == found
+
+
+def test_the_open_field_runner_gives_each_problem_its_own_port_finding_sessions(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        pipeline, "run_problem", lambda number, trials, **k: calls.append((number, k)) or {}
+    )
+    sessions = {
+        1: {"m1": {"ses-2_date-20260102": {"choice_towers": [["A1", "B1", "C1"]]}}},
+        2: {"m1": {"ses-4_date-20260104": {"choice_towers": [["A3", "B3", "C3"]]}}},
+    }
+    found = {
+        "m1": {
+            "ses-3_date-20260103": {"df": "frames", "choice_towers": frozenset(["A3", "B3", "C3"])}
+        }
+    }
+    assignment = assign_port_finding_sessions(sessions, found)
+    pipeline.run_open_field_analysis(
+        sessions, port_finding_assignment=assignment, task="t", cohort="c", output_root=Path("out")
+    )
+    assert [(n, k["port_finding_sessions"]) for n, k in calls] == [(1, {}), (2, found)]
 
 
 def test_the_value_tables_of_a_drifting_problem_are_collected_as_diagnostics(monkeypatch):
