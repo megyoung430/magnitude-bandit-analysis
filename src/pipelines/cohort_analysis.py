@@ -21,7 +21,7 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
     figures/open-field/<cohort>/drifting/problem-KK/{value-psychometrics,reversal-aligned-arms,
         value-change,port-preference}/
     figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
-        reversal-aligned-arms,value-change,port-preference}/
+        reversal-aligned-arms,value-change,port-preference,sessions-per-problem}/
     figures/open-field/<cohort>/trial-block-summaries/all-problems/
     (reversal-aligned-arms/ and value-change/ each hold the subfolders mouse-weighted/ and
         event-weighted/, with the figures inside)
@@ -34,6 +34,10 @@ The tables are for looking at by hand; each row names the mouse, the session (an
 it has one), the task type and the problem (number within the type, and overall):
 
 - ``problem_map.csv``: one row per mouse and problem, with its towers and session range;
+- ``sessions_per_problem.csv``: one row per mouse and drifting problem with the number of sessions
+  it took (see :mod:`src.behavior_analysis.sessions_per_problem`); written from the whole cohort
+  on every run, also a partial one, and drawn into ``sessions-per-problem/`` with the pooled
+  drifting analyses;
 - ``suspect_reversals.csv``: the good reversals and block changes the analyses drop;
 - ``suspect_sessions.csv``: sessions the problem numbering flagged (a one-session layout in
   "A A B A" is treated as a settings error), and configuration settings that changed within a
