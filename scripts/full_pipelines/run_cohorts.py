@@ -25,6 +25,23 @@ with an error.
 weeks ago has its final problem regenerated every time; use --since for "what is new since I
 last ran".
 
+Redo only the pooled all-drifting-problems analyses, without regenerating any problem folder, and
+add a second pooled set without some mice:
+
+    uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only \\
+        --exclude-mice MY_175_N MY_66_LL
+    uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only \\
+        --exclude-mice MY_175_N MY_66_LL --dry-run
+
+--pooled-only writes drifting/all-drifting-problems/ (with sessions-per-problem/) and the review
+tables, and leaves the problem folders, trial-block-summaries/ and the stacked diagnostic tables
+as they are. --exclude-mice also writes drifting/all-drifting-problems-without-<mice>/ with the
+same subfolders, every figure marked "without <mice>", and its tables in
+tables/open-field/<cohort>/all-drifting-problems-without-<mice>/. It works with a full run and
+with --last-sessions/--since too (the extra set is regenerated whenever the pooled set is). Every
+cohort in --cohorts must have all the named mice among its drifting mice, so name the cohort
+that holds them. Names are checked against the cohort before anything is written.
+
 Raw data is read from <BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N. Figures
 go to results/figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/ and tables to
 results/tables/open-field/cohort-0N/ (see src/pipelines/cohort_analysis.py). Every problem also
@@ -35,6 +52,7 @@ Switch an analysis off in the selections below (e.g. run_value_change_analysis=F
 
 import argparse
 
+from src.behavior_analysis.exclude_mice import check_mouse_ids
 from src.pipelines.cohort_analysis import (
     BLOCKED_SELECTION,
     DEFAULT_RESULTS_ROOT,
@@ -68,6 +86,14 @@ CHOICE = ChoiceProbabilitySettings(
 )
 
 
+def _mouse_id(text: str) -> str:
+    """*text* as a mouse id, or an argparse error naming what is wrong with it."""
+    try:
+        return check_mouse_ids([text])[0]
+    except ValueError as err:
+        raise argparse.ArgumentTypeError(str(err)) from err
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cohorts", type=int, nargs="+", default=COHORT_IDS, metavar="N")
@@ -80,16 +106,39 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--since", metavar="YYYY-MM-DD", help="only sessions dated on or after this day"
     )
     parser.add_argument(
+        "--pooled-only",
+        action="store_true",
+        help=(
+            "run only the pooled all-drifting-problems analyses and the review tables, no "
+            "problem folders (not with --last-sessions or --since)"
+        ),
+    )
+    parser.add_argument(
+        "--exclude-mice",
+        nargs="+",
+        type=_mouse_id,
+        metavar="MOUSE",
+        help=(
+            "also write the pooled drifting set without these mice, e.g. MY_175_N MY_66_LL, into "
+            "all-drifting-problems-without-<mice>/"
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help=(
-            "print what --last-sessions or --since would regenerate and write no results or "
-            "tables (the import cache may be filled)"
+            "print what --last-sessions, --since or --pooled-only would regenerate and write no "
+            "results or tables (the import cache may be filled)"
         ),
     )
     args = parser.parse_args(argv)
-    if args.dry_run and args.last_sessions is None and args.since is None:
-        parser.error("--dry-run needs --last-sessions or --since")
+    selecting = args.last_sessions is not None or args.since is not None
+    if args.pooled_only and selecting:
+        parser.error(
+            "--pooled-only runs no problems, so it cannot be used with --last-sessions or --since"
+        )
+    if args.dry_run and not (selecting or args.pooled_only):
+        parser.error("--dry-run needs --last-sessions, --since or --pooled-only")
     return args
 
 
@@ -101,6 +150,8 @@ def main(argv=None) -> None:
         last_sessions=args.last_sessions,
         since=args.since,
         dry_run=args.dry_run,
+        pooled_only=args.pooled_only,
+        exclude_mice=args.exclude_mice,
         results_root=RESULTS_ROOT,
         blocked_selection=BLOCKED,
         drifting_selection=DRIFTING,

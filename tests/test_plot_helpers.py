@@ -308,7 +308,9 @@ def test_jittered_continues_a_given_generator_so_lines_get_different_noise():
 def texts_at_each_save(fig, monkeypatch):
     """Spy on ``fig.savefig``: the figure-level texts present at each call."""
     seen = []
-    monkeypatch.setattr(fig, "savefig", lambda *a, **k: seen.append([t.get_text() for t in fig.texts]))
+    monkeypatch.setattr(
+        fig, "savefig", lambda *a, **k: seen.append([t.get_text() for t in fig.texts])
+    )
     return seen
 
 
@@ -360,4 +362,6 @@ def test_a_banner_is_drawn_in_the_saved_image(tmp_path):
     with figure_banner("without MY_1_A"):
         save_or_show(banner, tmp_path / "banner", formats=("png",))
     # the banner grows the tight bounding box upward, so the image is taller
-    assert plt.imread(tmp_path / "banner.png").shape[0] > plt.imread(tmp_path / "plain.png").shape[0]
+    assert (
+        plt.imread(tmp_path / "banner.png").shape[0] > plt.imread(tmp_path / "plain.png").shape[0]
+    )

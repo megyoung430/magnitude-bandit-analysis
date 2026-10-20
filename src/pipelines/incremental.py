@@ -7,7 +7,8 @@ need redoing.
 
 - :func:`select_recent_sessions` picks the sessions (each mouse's last N, or those on or after a
   date) and the ``(task_type, k)`` problems they belong to.
-- :func:`describe_plan` says in words what a run will regenerate, and why.
+- :func:`describe_plan` says in words what a run will regenerate, and why;
+  :func:`describe_pooled_only_plan` does the same for a run of the pooled analyses alone.
 - :func:`replace_problem_rows` and :func:`merge_diagnostic_tables` put the freshly computed
   diagnostic rows of the rerun problems into the stacked tables of the earlier run, keeping the
   rows of every other problem.
@@ -222,12 +223,15 @@ def select_recent_sessions(
     )
 
 
-def describe_plan(cohort: str, selection: SessionSelection) -> str:
+def describe_plan(cohort: str, selection: SessionSelection, extra_set: str | None = None) -> str:
     """What a partial run of *cohort* regenerates and which sessions make it so.
 
     Args:
         cohort (str): Cohort folder name, e.g. ``"cohort-04"``.
         selection (SessionSelection): From :func:`select_recent_sessions`.
+        extra_set (str | None): Folder name of the pooled set without chosen mice, e.g.
+            ``"all-drifting-problems-without-MY_1_A"``; ``None`` if none was asked for. It is
+            regenerated exactly when ``all-drifting-problems`` is.
 
     Returns:
         str: A multi-line plan: the problems with the mice and sessions behind each, the pooled
@@ -244,12 +248,48 @@ def describe_plan(cohort: str, selection: SessionSelection) -> str:
             f"  {DRIFTING}/all-drifting-problems: will be regenerated "
             "(a selected problem is drifting; it pools all drifting problems)"
         )
+        if extra_set:
+            lines.append(f"  {DRIFTING}/{extra_set}: will be regenerated (same pool, fewer mice)")
     else:
         lines.append(f"  {DRIFTING}/all-drifting-problems: skipped (no drifting problem selected)")
+        if extra_set:
+            lines.append(f"  {DRIFTING}/{extra_set}: skipped (no drifting problem selected)")
     lines.append(
         "  always regenerated: review tables, trial-block-summaries/all-problems, "
         "drifting/all-drifting-problems/sessions-per-problem; the diagnostic tables keep the "
         "rows of the other problems"
+    )
+    return "\n".join(lines)
+
+
+def describe_pooled_only_plan(
+    cohort: str, drifting: dict, excluded: tuple[str, ...] = (), extra_set: str | None = None
+) -> str:
+    """What a pooled-only run of *cohort* regenerates, with the mice each pool holds.
+
+    Args:
+        cohort (str): Cohort folder name, e.g. ``"cohort-03"``.
+        drifting (dict): ``{k: {mouse: sessions}}``, the cohort's drifting problems.
+        excluded (tuple[str, ...]): Mice left out of the extra set; empty for none.
+        extra_set (str | None): Folder name of the extra set, given with *excluded*.
+
+    Returns:
+        str: A multi-line plan: the pools, the mice in each, and what is left alone.
+    """
+    mice = sorted({m for subjects in drifting.values() for m in subjects})
+    lines = [
+        f"{cohort}: pooled only, {len(drifting)} drifting problem(s), no problem folders",
+        f"  {DRIFTING}/all-drifting-problems: will be regenerated with {', '.join(mice)}",
+    ]
+    if extra_set:
+        kept = [m for m in mice if m not in excluded]
+        lines.append(
+            f"  {DRIFTING}/{extra_set}: will be regenerated without {', '.join(excluded)} "
+            f"({len(kept)} mice left: {', '.join(kept)})"
+        )
+    lines.append(
+        "  also regenerated: review tables; left alone: the problem folders, "
+        "trial-block-summaries and the stacked diagnostic tables"
     )
     return "\n".join(lines)
 
@@ -262,7 +302,11 @@ def _sessions_by_mouse(pairs: list[SessionPair]) -> str:
 
 
 def describe_written(
-    cohort: str, rerun: frozenset, pooled_ran: bool, tables: dict[str, pd.DataFrame]
+    cohort: str,
+    rerun: frozenset,
+    pooled_ran: bool,
+    tables: dict[str, pd.DataFrame],
+    extra_set: str | None = None,
 ) -> str:
     """What a finished partial run of *cohort* wrote.
 
@@ -271,6 +315,8 @@ def describe_written(
         rerun (frozenset): ``(task_type, k)`` of the regenerated problems.
         pooled_ran (bool): Whether the pooled drifting analyses were regenerated.
         tables (dict): ``{name: table}`` written after the problems ran (diagnostics, log).
+        extra_set (str | None): Folder name of the pooled set without chosen mice, if one was
+            asked for; it is reported as regenerated or not together with the pooled set.
 
     Returns:
         str: A one-paragraph summary of the figure folders and tables written.
@@ -279,10 +325,11 @@ def describe_written(
     problems = ", ".join(f"{task_type}/problem-{k:02d}" for task_type, k in ordered)
     pooled = "regenerated" if pooled_ran else "not regenerated"
     rows = ", ".join(f"{name} ({len(table)} rows)" for name, table in tables.items())
+    extra = f"{DRIFTING}/{extra_set} {pooled}; " if extra_set else ""
     return (
         f"[DONE] {cohort} partial run wrote figures for {problems}; "
-        f"{DRIFTING}/all-drifting-problems {pooled}; trial-block-summaries/all-problems and "
-        f"the review tables rewritten; tables: {rows}"
+        f"{DRIFTING}/all-drifting-problems {pooled}; {extra}trial-block-summaries/all-problems "
+        f"and the review tables rewritten; tables: {rows}"
     )
 
 
