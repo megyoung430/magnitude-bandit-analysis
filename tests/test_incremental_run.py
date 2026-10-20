@@ -110,7 +110,13 @@ def test_a_blocked_only_partial_run_skips_the_pooled_drifting_analyses(
 ):
     result = rerun(tmp_path, {BLOCKED_1})
     assert problem_dirs(cohort_dir) == ["blocked/problem-01"]
-    assert not (cohort_dir / DRIFTING).exists()
+    # only the cohort-wide sessions-per-problem figure is redrawn in the drifting folder
+    drifting_files = {
+        p.relative_to(cohort_dir / DRIFTING).parts[0:2]
+        for p in (cohort_dir / DRIFTING).rglob("*")
+        if p.is_file()
+    }
+    assert drifting_files == {("all-drifting-problems", "sessions-per-problem")}
     assert calls == []
     assert result.pooled_drifting_ranks == {}
     assert set(result.rank_results) == {BLOCKED_1}
