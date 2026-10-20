@@ -335,6 +335,7 @@ report all failures at the end.
   | `drifting/problem-KK/long-pokes/`, `.../single-sessions/` | as for blocked |
   | `drifting/all-drifting-problems/choice-stats/` | rank proportions pooled over the drifting problems |
   | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change,port-preference}/` | the four drifting-only analyses pooled over the drifting problems |
+  | `drifting/all-drifting-problems/sessions-per-problem/` | sessions each mouse ran per drifting problem: a line per mouse (a problem still running is hollow and dashed) and the mean ± SE of the completed problems; redrawn on every run (also a blocked-only partial one), because any new session can complete a problem |
   | `trial-block-summaries/all-problems/` | trial and block-length summaries |
 
   Tables go to `tables/open-field/cohort-0N/`, for looking at by hand. Each row names the mouse,
@@ -353,6 +354,7 @@ report all failures at the end.
   | `no_second_best.csv` | block with more than one arm at 0, with the only rewarded arm |
   | `port_finding_check.csv` | mouse and problem with port-finding trials: trials against `n_ports x found_t_thresh`, `below_expected_min` and `flag_reason` (see the long-pokes bullet) |
   | `poke_trial_summary.csv`, `reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`, `value_change_symmetric_exclusions.csv` | diagnostics of the analyses, stacked over problems with `task_type`, `problem_in_type` (and `overall_problem` where a mouse is named); `poke_trial_summary.csv` has one row per mouse and session, port-finding-only sessions included (`port_finding_only`) |
+  | `sessions_per_problem.csv` | mouse and drifting problem: `n_sessions` (sessions with bandit trials; `_part-NN` parts count once), `n_port_finding_only_sessions` (assigned port-finding-only sessions), `n_sessions_total`, `first_session`, `last_session`, and `complete` and `provisional`; always rewritten from the whole cohort. A mouse's latest problem of any task type may still be running (`complete` False); if it is provisional (a final one-session run on a new layout, which a later session can turn into a settings error) the problem before it is not yet complete either. A newest port-finding-only session that no problem took is not a problem, so the problem before it counts as still running (conservative). A session split into `_part-NN` parts counts once per problem, so one split across two problems counts in both. `n_sessions` equals `problem_map.csv`'s |
   | `warnings_log.csv` | distinct Python warning of the run that the console shows (`n_times`), with the mouse, session, task type and problem its text names; written even when the run fails, and always with every table (header only when empty) |
 
   In `suspect_reversals.csv`, `session_trial` counts from 0 over the whole
@@ -370,12 +372,14 @@ uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 
 ```
 
 makes the figures of `drifting/all-drifting-problems/` (`choice-stats`, `value-psychometrics`,
-`reversal-aligned-arms`, `value-change`, `port-preference`) from the drifting problems of the
+`reversal-aligned-arms`, `value-change`, `port-preference`, `sessions-per-problem`) from the drifting problems of the
 listed cohorts together (`--no-cache` re-imports the raw files). They go to
 `results/figures/open-field/all-cohorts/<same subfolders>/`, with `cohorts.txt` there naming the
 cohorts pooled, the mice per cohort and the time of the run; the diagnostic tables
 (`reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`, `value_change_symmetric_exclusions.csv`) go
-to `results/tables/open-field/all-cohorts/`. A rerun replaces those five folders and four tables, so
+to `results/tables/open-field/all-cohorts/`, with `sessions_per_problem.csv` (a `cohort` column in front)
+as a fifth table. `sessions-per-problem/` also has a figure with one mean line per cohort (n mice at each point)
+when several cohorts are pooled. A rerun replaces those six folders and five tables, so
 the files always match `cohorts.txt`; the titles say "all drifting problems, cohorts 1, 3, 4".
 
 - Problems stay separate: each is keyed `(cohort, drifting problem number)`, beliefs reset at each

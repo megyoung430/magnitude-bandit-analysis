@@ -31,6 +31,7 @@ TABLE_FILES = {
     "value_change_events",
     "value_change_bin_counts",
     "value_change_symmetric_exclusions",
+    "sessions_per_problem",
     "warnings_log",
 }
 

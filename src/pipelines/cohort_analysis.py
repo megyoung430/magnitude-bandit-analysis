@@ -21,7 +21,7 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
     figures/open-field/<cohort>/drifting/problem-KK/{value-psychometrics,reversal-aligned-arms,
         value-change,port-preference}/
     figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
-        reversal-aligned-arms,value-change,port-preference}/
+        reversal-aligned-arms,value-change,port-preference,sessions-per-problem}/
     figures/open-field/<cohort>/trial-block-summaries/all-problems/
     (reversal-aligned-arms/ and value-change/ each hold the subfolders mouse-weighted/ and
         event-weighted/, with the figures inside)
@@ -34,6 +34,10 @@ The tables are for looking at by hand; each row names the mouse, the session (an
 it has one), the task type and the problem (number within the type, and overall):
 
 - ``problem_map.csv``: one row per mouse and problem, with its towers and session range;
+- ``sessions_per_problem.csv``: one row per mouse and drifting problem with the number of sessions
+  it took (see :mod:`src.behavior_analysis.sessions_per_problem`); written from the whole cohort
+  on every run, also a partial one, and drawn into ``sessions-per-problem/`` on every run of a
+  cohort with drifting problems;
 - ``suspect_reversals.csv``: the good reversals and block changes the analyses drop;
 - ``suspect_sessions.csv``: sessions the problem numbering flagged (a one-session layout in
   "A A B A" is treated as a settings error), and configuration settings that changed within a
@@ -59,7 +63,8 @@ Partial runs: ``run_cohort(..., only_problems={("drifting", 2)})``, or
 ``since="YYYY-MM-DD"``, regenerate only the problems that contain the selected sessions (a
 problem folder holds every mouse that ran it) and leave the other figure folders alone. The pooled
 ``all-drifting-problems/`` analyses are redone only when a selected problem is drifting; the
-review tables and ``trial-block-summaries/`` cover the cohort and are always rewritten. In the
+review tables, ``trial-block-summaries/`` and ``all-drifting-problems/sessions-per-problem/``
+cover the cohort and are always rewritten. In the
 stacked diagnostic tables the rows of the regenerated problems replace the earlier ones and
 the other rows stay; if a table is missing, a warning says that only the new rows were written.
 ``warnings_log.csv`` lists only the warnings of the latest run, partial or not.
@@ -98,6 +103,7 @@ from src.behavior_analysis.port_finding_sessions import (
     port_finding_sessions_for_problem,
 )
 from src.behavior_analysis.review_context import ProblemIndex
+from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table
 from src.behavior_analysis.starting_magnitudes import starting_magnitudes_table
 from src.behavior_analysis.suspect_reversal_table import (
     COLUMNS as SUSPECT_COLUMNS,
@@ -142,6 +148,10 @@ from src.pipelines.open_field import (
     check_selection_for_task_type,
     run_drifting_value_analyses,
     run_problem,
+)
+from src.pipelines.sessions_per_problem import (
+    SESSIONS_PER_PROBLEM_FOLDER,
+    write_sessions_per_problem_figures,
 )
 from src.settings import REPO_ROOT, get_settings
 
@@ -727,6 +737,8 @@ def run_cohort(
                 trials_by_problem, log.port_finding_sessions if log else {}
             )
             review_tables = import_review_tables(grouped, problem_map, index, log)
+            sessions_table = sessions_per_problem_table(trials_by_problem, port_finding)
+            review_tables["sessions_per_problem"] = sessions_table
             _write_tables(review_tables, tables)
             suspects = suspect_table_with_task_types(grouped, problem_map)
             write_suspect_reversal_table(suspects, tables / "suspect_reversals.csv")
@@ -773,6 +785,14 @@ def run_cohort(
             else:
                 why = "no drifting problems" if not drifting else "no drifting problem selected"
                 print(f"[INFO] {cohort}: {why}; skipping pooled drifting ranks.")
+
+            if drifting:
+                # redrawn on every run: any new session can complete a problem, drifting or not
+                write_sessions_per_problem_figures(
+                    sessions_table,
+                    figures / DRIFTING / POOLED_DRIFTING_FOLDER / SESSIONS_PER_PROBLEM_FOLDER,
+                    f"cohort {cohort_id}",
+                )
 
             session_table, block_table = build_trial_block_tables(
                 trials_by_problem, subject_numbers_from_sessions(trials_by_problem)
