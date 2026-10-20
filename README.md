@@ -186,6 +186,31 @@ is read from `<BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N`. 
 the first cohort that fails and names it; add `--continue-on-error` to run the others and
 report all failures at the end.
 
+- **Pooled drifting analyses only, and a pooled set without some mice.** To redo just
+  `drifting/all-drifting-problems/` (no problem folders) and also get the same analyses without
+  chosen mice:
+
+  ```bash
+  uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --exclude-mice MY_175_N MY_66_LL
+  uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --exclude-mice MY_175_N MY_66_LL --dry-run
+  ```
+
+  `--pooled-only` writes the pooled figures (with `sessions-per-problem/`) and the review tables
+  and leaves the problem folders, `trial-block-summaries/` and the stacked diagnostic tables as
+  they are; it cannot be combined with `--last-sessions`/`--since`. `--exclude-mice` writes a
+  second set, `drifting/all-drifting-problems-without-MY_175_N-MY_66_LL/` (sorted ids, same
+  subfolders), next to the normal one, which is unchanged. Every figure in it is marked
+  "without MY_175_N, MY_66_LL"; its tables are in
+  `tables/open-field/cohort-03/all-drifting-problems-without-MY_175_N-MY_66_LL/` (not in the
+  stacked diagnostic tables), and `excluded_mice.txt` in both folders lists the excluded mice and
+  the run time. The option also works with a full run and with `--last-sessions`/`--since` (the
+  extra set is regenerated whenever the pooled set is). Names are checked against the cohort's
+  drifting mice before anything is written: a mouse that is not there, or a list that leaves no
+  mouse, stops the run with an error listing the mice that exist. With several cohorts every
+  cohort must hold all the named mice, so pass the cohort that has them.
+  `run_all_drifting_problems.py --exclude-mice ...` does the same across cohorts into
+  `all-cohorts-without-<mice>/`.
+
 - **Redoing only what recent sessions changed.** After a few new sessions the whole suite need
   not be rerun:
 

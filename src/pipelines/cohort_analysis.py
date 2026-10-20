@@ -22,6 +22,9 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
         value-change,port-preference}/
     figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
         reversal-aligned-arms,value-change,port-preference,sessions-per-problem}/
+    figures/open-field/<cohort>/drifting/all-drifting-problems-without-<mice>/  (only with
+        ``exclude_mice``: the same subfolders, from the drifting problems without those mice, its
+        figures marked "without <mice>"; its tables are in ``tables/.../<same name>/``)
     figures/open-field/<cohort>/trial-block-summaries/all-problems/
     (reversal-aligned-arms/ and value-change/ each hold the subfolders mouse-weighted/ and
         event-weighted/, with the figures inside)

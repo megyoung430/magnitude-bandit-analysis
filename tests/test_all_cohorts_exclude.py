@@ -1,3 +1,4 @@
+# ruff: noqa: F811, F401  (fixtures imported from another test module are used as arguments)
 """The all-cohorts pool without chosen mice (``all-cohorts-without-<mice>/``).
 
 Uses the two synthetic cohorts of ``tests/test_all_cohorts_drifting.py`` (1 with mice a1-a3, 3
