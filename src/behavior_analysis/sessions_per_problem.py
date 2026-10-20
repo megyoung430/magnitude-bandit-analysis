@@ -16,6 +16,7 @@ not reached its final count).
 
 from __future__ import annotations
 
+import re
 from typing import NamedTuple
 
 import numpy as np
@@ -26,7 +27,7 @@ from src.behavior_analysis.port_finding_sessions import (
     port_finding_sessions_for_problem,
 )
 from src.behavior_analysis.stats import mean_se_n
-from src.behavior_import.session_order import ordered_session_keys, session_without_part
+from src.behavior_import.session_order import ordered_session_keys
 from src.behavior_import.task_types import DRIFTING, number_within_task_type
 
 TABLE_COLUMNS = (
@@ -41,6 +42,21 @@ TABLE_COLUMNS = (
     "last_session",
     "complete",
 )
+
+
+_PART_RE = re.compile(r"_part-\d+$")
+
+
+def session_without_part(key: str) -> str:
+    """A session key without its ``_part-NN`` suffix, so the parts of one session share a key.
+
+    Args:
+        key (str): A session key such as ``"ses-3_date-20260102_part-02"``.
+
+    Returns:
+        str: ``"ses-3_date-20260102"`` for the example; a key without a suffix is unchanged.
+    """
+    return _PART_RE.sub("", key)
 
 
 class SessionsPerProblem(NamedTuple):

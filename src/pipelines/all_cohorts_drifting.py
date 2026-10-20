@@ -5,18 +5,25 @@
 cohorts together, in one folder that belongs to no cohort::
 
     figures/open-field/all-cohorts/{choice-stats,value-psychometrics,reversal-aligned-arms,
-        value-change,port-preference}/
+        value-change,port-preference,sessions-per-problem}/
     figures/open-field/all-cohorts/{reversal-aligned-arms,value-change}/{mouse-weighted,
         event-weighted}/   (their figures; nothing at the top level of those two folders)
     figures/open-field/all-cohorts/cohorts.txt
     tables/open-field/all-cohorts/{reversal_aligned_arms_counts,value_change_events,
-        value_change_bin_counts,value_change_symmetric_exclusions}.csv
+        value_change_bin_counts,value_change_symmetric_exclusions,sessions_per_problem}.csv
 
 Problems stay separate: each cohort's drifting problems are keyed ``(cohort id, number within
 the type)``, so problem 1 of cohort 1 and problem 1 of cohort 3 are two problems, and every
 analysis computes inside a problem (beliefs reset, windows and events end at its boundaries)
 before the mice's results are combined. A mouse keeps its own id, so mouse ids must differ
 between cohorts; a shared one raises.
+
+``sessions-per-problem/`` holds the number of sessions each mouse ran in each drifting problem,
+one line per mouse, and with several cohorts a second figure with one mean line per cohort;
+``sessions_per_problem.csv`` has the cohort in front of the columns of the cohort runner's table.
+A mouse's latest problem may still be running (see
+:mod:`src.behavior_analysis.sessions_per_problem`), and the port-finding-only sessions of the
+cohorts' import logs are counted in their own column.
 
 With many mice, the figures leave out what the cohort folders already hold per mouse: the
 per-mouse heatmaps, and the legends that name each mouse (their thin lines are still drawn).
@@ -27,6 +34,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
+import pandas as pd
+
+from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
+from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table, with_cohort
+from src.behavior_import.import_log import ImportLog
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
 from src.pipelines.cohort_analysis import (
     DEFAULT_RESULTS_ROOT,
@@ -46,6 +58,11 @@ from src.pipelines.open_field import (
     AnalysisSelection,
     run_drifting_value_analyses,
 )
+from src.pipelines.sessions_per_problem import (
+    SESSIONS_PER_PROBLEM_FOLDER,
+    TABLE_NAME,
+    write_sessions_per_problem_figures,
+)
 
 ALL_COHORTS_FOLDER = "all-cohorts"
 COHORTS_FILE = "cohorts.txt"
@@ -57,12 +74,14 @@ FIGURE_FOLDERS = (
     REVERSAL_ARMS_FOLDER,
     VALUE_CHANGE_FOLDER,
     PORT_PREFERENCE_FOLDER,
+    SESSIONS_PER_PROBLEM_FOLDER,
 )
 TABLE_NAMES = (
     "reversal_aligned_arms_counts",
     "value_change_events",
     "value_change_bin_counts",
     "value_change_symmetric_exclusions",
+    TABLE_NAME,
 )
 
 
@@ -87,7 +106,8 @@ class AllCohortsResult(NamedTuple):
         tables_dir (Path): ``<results_root>/tables/open-field/all-cohorts``.
         mice_by_cohort (dict): As in :class:`PooledCohorts`.
         rank_results (dict): Output of ``pooled_drifting_rank_results``.
-        tables (dict): ``{name: DataFrame}`` of the diagnostic tables written.
+        tables (dict): ``{name: DataFrame}`` of the tables written: the diagnostic tables and
+            ``sessions_per_problem``.
     """
 
     figures_dir: Path
@@ -216,14 +236,43 @@ def _clear_previous_outputs(figures_dir: Path, tables_dir: Path) -> None:
         (tables_dir / f"{name}.csv").unlink(missing_ok=True)
 
 
-def _trials_for_cohorts(cohort_ids, trials_by_cohort, data_root, use_cache) -> dict:
-    """``{cohort id: {overall problem: {mouse: sessions}}}``, passed in or loaded."""
+def _inputs_for_cohorts(
+    cohort_ids, trials_by_cohort, import_logs, data_root, use_cache
+) -> tuple[dict, dict]:
+    """``({cohort id: trials by problem}, {cohort id: ImportLog or None})``, passed in or loaded.
+
+    Raises:
+        ValueError: If trials are passed in but lack a cohort, or logs are given for a cohort that
+            is not run.
+    """
     if trials_by_cohort is None:
-        return {c: load_cohort(c, data_root, use_cache)[0] for c in cohort_ids}
+        loaded = {c: load_cohort(c, data_root, use_cache) for c in cohort_ids}
+        return {c: trials for c, (trials, _) in loaded.items()}, {
+            c: log for c, (_, log) in loaded.items()
+        }
     missing = [c for c in cohort_ids if c not in trials_by_cohort]
     if missing:
         raise ValueError(f"no trials given for {cohorts_phrase(missing)}")
-    return {c: trials_by_cohort[c] for c in cohort_ids}
+    extra = sorted(set(import_logs or {}) - set(cohort_ids))
+    if extra:
+        raise ValueError(f"import logs given for {cohorts_phrase(extra)}, which is not run")
+    logs = import_logs or {}
+    return {c: trials_by_cohort[c] for c in cohort_ids}, {c: logs.get(c) for c in cohort_ids}
+
+
+def _sessions_per_problem(trials_by_cohort: dict, logs: dict) -> pd.DataFrame:
+    """The stacked sessions-per-problem tables of the cohorts, the cohort name in front.
+
+    A cohort without an import log has no port-finding-only sessions.
+    """
+    tables = []
+    for cohort_id, trials in trials_by_cohort.items():
+        log = logs[cohort_id]
+        assignment = assign_port_finding_sessions(trials, log.port_finding_sessions if log else {})
+        tables.append(
+            with_cohort(sessions_per_problem_table(trials, assignment), cohort_name(cohort_id))
+        )
+    return pd.concat(tables, ignore_index=True)
 
 
 def run_all_cohorts_drifting(
@@ -234,12 +283,13 @@ def run_all_cohorts_drifting(
     drifting_selection: AnalysisSelection = DRIFTING_SELECTION,
     use_cache: bool = True,
     trials_by_cohort: dict | None = None,
+    import_logs: dict[int, ImportLog] | None = None,
     run_at: datetime | None = None,
 ) -> AllCohortsResult:
     """Run the all-drifting-problems analyses over the drifting problems of several cohorts.
 
-    See the module docstring for the outputs. Anything an earlier run left in the five figure
-    folders and four tables of the output is removed first, so the files always belong to the
+    See the module docstring for the outputs. Anything an earlier run left in the six figure
+    folders and five tables of the output is removed first, so the files always belong to the
     cohorts named in ``cohorts.txt``.
 
     Args:
@@ -253,6 +303,9 @@ def run_all_cohorts_drifting(
         use_cache (bool): Use the on-disk import cache. Default ``True``. Keyword-only.
         trials_by_cohort (dict | None): Already-loaded ``{cohort id: {overall problem: {mouse:
             sessions}}}``, to skip the load. Default ``None``: load the cohorts. Keyword-only.
+        import_logs (dict[int, ImportLog] | None): ``{cohort id: import log}`` of the passed-in
+            *trials_by_cohort*, for their port-finding-only sessions; a cohort without one has
+            none. Ignored when the cohorts are loaded. Default ``None``. Keyword-only.
         run_at (datetime | None): The time written to ``cohorts.txt``. Default ``None``: now.
             Keyword-only.
 
@@ -267,7 +320,7 @@ def run_all_cohorts_drifting(
     ids = check_cohort_ids(cohort_ids)
     if drifting_selection.rank_value_bases is None:
         raise ValueError("drifting_selection.rank_value_bases must name the value bases to pool")
-    imported = _trials_for_cohorts(ids, trials_by_cohort, data_root, use_cache)
+    imported, logs = _inputs_for_cohorts(ids, trials_by_cohort, import_logs, data_root, use_cache)
     pooled = pool_cohorts({c: drifting_problems(trials) for c, trials in imported.items()})
     figures_dir = Path(results_root) / "figures" / TASK / ALL_COHORTS_FOLDER
     tables_dir = Path(results_root) / "tables" / TASK / ALL_COHORTS_FOLDER
@@ -290,6 +343,14 @@ def run_all_cohorts_drifting(
             x_vs_plus=True,
             per_mouse_figures=False,
             mouse_legends=False,
+        )
+        tables[TABLE_NAME] = _sessions_per_problem(imported, logs)
+        write_sessions_per_problem_figures(
+            tables[TABLE_NAME],
+            figures_dir / SESSIONS_PER_PROBLEM_FOLDER,
+            cohorts_phrase(ids),
+            mouse_legend=False,
+            by_cohort=len(ids) > 1,
         )
     tables_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():

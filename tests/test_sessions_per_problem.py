@@ -11,11 +11,11 @@ import pytest
 from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
 from src.behavior_analysis.sessions_per_problem import (
     TABLE_COLUMNS,
+    session_without_part,
     sessions_per_problem_table,
     summarize_sessions_per_problem,
     with_cohort,
 )
-from src.behavior_import.session_order import session_without_part
 
 BLOCKED_NAME = "Meg\\3x3_field_blocked_value_bandit"
 DRIFTING_NAME = "Meg\\3x3_field_drifting_value_bandit"

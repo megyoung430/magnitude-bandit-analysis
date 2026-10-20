@@ -98,6 +98,7 @@ from src.behavior_analysis.port_finding_sessions import (
     port_finding_sessions_for_problem,
 )
 from src.behavior_analysis.review_context import ProblemIndex
+from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table
 from src.behavior_analysis.starting_magnitudes import starting_magnitudes_table
 from src.behavior_analysis.suspect_reversal_table import (
     COLUMNS as SUSPECT_COLUMNS,
@@ -142,6 +143,10 @@ from src.pipelines.open_field import (
     check_selection_for_task_type,
     run_drifting_value_analyses,
     run_problem,
+)
+from src.pipelines.sessions_per_problem import (
+    SESSIONS_PER_PROBLEM_FOLDER,
+    write_sessions_per_problem_figures,
 )
 from src.settings import REPO_ROOT, get_settings
 
@@ -727,6 +732,8 @@ def run_cohort(
                 trials_by_problem, log.port_finding_sessions if log else {}
             )
             review_tables = import_review_tables(grouped, problem_map, index, log)
+            sessions_table = sessions_per_problem_table(trials_by_problem, port_finding)
+            review_tables["sessions_per_problem"] = sessions_table
             _write_tables(review_tables, tables)
             suspects = suspect_table_with_task_types(grouped, problem_map)
             write_suspect_reversal_table(suspects, tables / "suspect_reversals.csv")
@@ -768,6 +775,11 @@ def run_cohort(
                 plot_pooled_drifting_rank(pooled, pooled_dir / "choice-stats")
                 run_drifting_value_analyses(
                     drifting, pooled_dir, drifting_selection, arm_scope_label=POOLED_DRIFTING_LABEL
+                )
+                write_sessions_per_problem_figures(
+                    sessions_table,
+                    pooled_dir / SESSIONS_PER_PROBLEM_FOLDER,
+                    f"cohort {cohort_id}",
                 )
                 pooled_ran = True
             else:

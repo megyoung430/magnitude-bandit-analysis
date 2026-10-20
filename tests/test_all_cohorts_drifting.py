@@ -16,9 +16,12 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import pandas as pd
 import pytest
 
 from src.behavior_analysis.get_choice_probs_by_value import count_choice_probs
+from src.behavior_analysis.poke_counts import session_choice_ports
+from src.behavior_import.import_log import ImportLog
 from src.pipelines import all_cohorts_drifting as pipeline
 from src.pipelines.all_cohorts_drifting import (
     drifting_problems,
@@ -47,6 +50,13 @@ SUBFOLDERS = {
     "reversal-aligned-arms",
     "value-change",
     "port-preference",
+    "sessions-per-problem",
+}
+SESSIONS_FIGURES = {
+    "Sessions per Drifting Problem.png",
+    "Sessions per Drifting Problem.pdf",
+    "Sessions per Drifting Problem by Cohort.png",
+    "Sessions per Drifting Problem by Cohort.pdf",
 }
 MICE_A, MICE_B = ("a1", "a2", "a3"), ("b1", "b2")
 ALL_MICE = {*MICE_A, *MICE_B}
@@ -56,6 +66,7 @@ TABLES = {
     "value_change_events",
     "value_change_bin_counts",
     "value_change_symmetric_exclusions",
+    "sessions_per_problem",
 }
 
 
@@ -247,7 +258,70 @@ def test_it_writes_what_the_cohort_runner_pools_minus_the_per_mouse_figures(
     reference = figure_files(cohort_runner_pool)
     dropped = reference - ours
     assert dropped and all("Per Mouse" in name for name in dropped)
-    assert ours <= reference
+    # the sessions-per-problem folder is the only addition: the reference holds the analyses only
+    assert ours - reference == {f"sessions-per-problem/{name}" for name in SESSIONS_FIGURES}
+
+
+def test_the_sessions_per_problem_folder_holds_the_figure_and_the_one_by_cohort(written):
+    results_root, _ = written
+    folder = results_root / "figures/open-field/all-cohorts/sessions-per-problem"
+    assert {p.name for p in folder.iterdir()} == SESSIONS_FIGURES
+
+
+def test_one_cohort_gets_no_figure_by_cohort(monkeypatch, imported, tmp_path):
+    capture = capture_figures(monkeypatch, write_files=True)
+    run_all_cohorts_drifting([3], results_root=tmp_path, trials_by_cohort=imported, run_at=RUN_AT)
+    folder = tmp_path / "figures/open-field/all-cohorts/sessions-per-problem"
+    assert {p.name for p in folder.iterdir()} == {
+        "Sessions per Drifting Problem.png",
+        "Sessions per Drifting Problem.pdf",
+    }
+    assert capture.saved
+
+
+def test_the_sessions_table_has_a_row_per_mouse_and_drifting_problem_with_the_cohort(written):
+    results_root, result = written
+    table = pd.read_csv(results_root / "tables/open-field/all-cohorts/sessions_per_problem.csv")
+    assert list(table.columns[:3]) == ["cohort", "mouse", "task_type"]
+    assert len(table) == len(ALL_MICE) * 2  # two drifting problems each
+    assert table.groupby("cohort")["mouse"].nunique().to_dict() == {"cohort-01": 3, "cohort-03": 2}
+    assert table["n_sessions"].eq(2).all()
+    # the second drifting problem is each mouse's latest problem
+    assert table.groupby("problem_in_type")["complete"].all().to_dict() == {1: True, 2: False}
+    assert len(result.tables["sessions_per_problem"]) == len(table)
+
+
+def test_port_finding_only_sessions_of_the_logs_are_counted_per_cohort(imported, tmp_path):
+    # b1's drifting problem 2 (overall problem 3) moves to ses-8 and ses-9, so that ses-7 can be
+    # a port-finding-only session on its towers
+    cohort = {c: {p: dict(by_mouse) for p, by_mouse in t.items()} for c, t in imported.items()}
+    old = cohort[3][3]["b1"]
+    cohort[3][3]["b1"] = dict(
+        zip(["ses-8_date-20260108", "ses-9_date-20260109"], old.values(), strict=True)
+    )
+    towers = session_choice_ports(next(iter(old.values())))
+    found = {"b1": {"ses-7_date-20260107": {"df": "x", "choice_towers": towers}}}
+    result = run_all_cohorts_drifting(
+        [1, 3],
+        results_root=tmp_path,
+        trials_by_cohort=cohort,
+        import_logs={3: ImportLog(port_finding_sessions=found)},
+        run_at=RUN_AT,
+    )
+    table = result.tables["sessions_per_problem"].set_index(["mouse", "problem_in_type"])
+    assert table.loc[("b1", 2), "n_port_finding_only_sessions"] == 1
+    assert table.loc[("b1", 2), "n_sessions_total"] == 3
+    assert table["n_port_finding_only_sessions"].sum() == 1
+
+
+def test_logs_for_cohorts_that_are_not_run_raise(imported):
+    with pytest.raises(ValueError, match="cohort 4"):
+        run_all_cohorts_drifting(
+            [1],
+            results_root=Path("unused"),
+            trials_by_cohort=imported,
+            import_logs={4: ImportLog()},
+        )
 
 
 def test_no_figure_is_per_mouse(written):
@@ -281,10 +355,15 @@ def test_a_rerun_with_other_cohorts_removes_the_old_figures_and_rewrites_cohorts
     figures = tmp_path / "figures" / "open-field" / "all-cohorts"
     stale = figures / "value-change" / "left over from the first run.png"
     stale.write_bytes(b"")
+    stale_sessions = (
+        figures / "sessions-per-problem" / "Sessions per Drifting Problem by Cohort.png"
+    )
+    stale_sessions.write_bytes(b"")
     unrelated = figures / "notes.md"
     unrelated.write_text("mine")
     run_all_cohorts_drifting([3], results_root=tmp_path, trials_by_cohort=imported, run_at=RUN_AT)
     assert not stale.exists()
+    assert not stale_sessions.exists()
     assert unrelated.read_text() == "mine"  # only the folders this pipeline writes are cleared
     text = (figures / "cohorts.txt").read_text()
     assert "cohort-03: 2 mice" in text and "cohort-01" not in text
