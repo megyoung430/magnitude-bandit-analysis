@@ -9,6 +9,7 @@ closed here.
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
@@ -131,16 +132,63 @@ def axes_or_new(ax: plt.Axes | None, **subplots_kwargs) -> Iterator[plt.Axes]:
         raise
 
 
+# Set only by figure_banner; read where figures are written, so a banner reaches every figure of
+# a run without each plotting function taking a parameter for it.
+_FIGURE_BANNER: ContextVar[str | None] = ContextVar("figure_banner", default=None)
+
+
+@contextmanager
+def figure_banner(text: str) -> Iterator[None]:
+    """Mark every figure saved inside the block with *text*, in bold above its top-left corner.
+
+    For output sets that differ from the standard one in what they contain (e.g. "without
+    MY_175_N"): the marker is added when the figure is written, so no plot needs to know about
+    it and none can be forgotten. Blocks nest; the innermost text wins.
+
+    Args:
+        text (str): The text to print on each figure.
+
+    Yields:
+        None: Use as ``with figure_banner("without MY_175_N"): ...``.
+    """
+    token = _FIGURE_BANNER.set(text)
+    try:
+        yield
+    finally:
+        _FIGURE_BANNER.reset(token)
+
+
+def current_figure_banner() -> str | None:
+    """The text of the innermost active :func:`figure_banner`, or ``None`` outside one."""
+    return _FIGURE_BANNER.get()
+
+
+@contextmanager
+def _banner_drawn(fig: plt.Figure) -> Iterator[None]:
+    """Draw the active banner on *fig* for the block and take it off again afterwards."""
+    text = current_figure_banner()
+    if text is None:
+        yield
+        return
+    # y=1 with va="bottom" sits above the suptitle; bbox_inches="tight" grows the file to fit
+    banner = fig.text(0.01, 1.0, text, ha="left", va="bottom", fontsize=11, weight="bold")
+    try:
+        yield
+    finally:
+        banner.remove()
+
+
 def _write_figure_files(
     fig: plt.Figure, base: str | Path, formats: Iterable[str], dpi: Mapping[str, int]
 ) -> list[Path]:
     """Save *fig* as ``<base>.<format>`` for each of *formats*, in order; return the paths."""
     paths = []
-    for fmt in formats:
-        path = Path(f"{base}.{fmt}")
-        dpi_kwargs = {"dpi": dpi[fmt]} if fmt in dpi else {}
-        fig.savefig(path, bbox_inches="tight", **dpi_kwargs)
-        paths.append(path)
+    with _banner_drawn(fig):
+        for fmt in formats:
+            path = Path(f"{base}.{fmt}")
+            dpi_kwargs = {"dpi": dpi[fmt]} if fmt in dpi else {}
+            fig.savefig(path, bbox_inches="tight", **dpi_kwargs)
+            paths.append(path)
     return paths
 
 

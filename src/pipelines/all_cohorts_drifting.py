@@ -12,6 +12,11 @@ cohorts together, in one folder that belongs to no cohort::
     tables/open-field/all-cohorts/{reversal_aligned_arms_counts,value_change_events,
         value_change_bin_counts,value_change_symmetric_exclusions,sessions_per_problem}.csv
 
+With ``exclude_mice`` a second set is written next to it, from the same problems without those
+mice, into ``figures/open-field/all-cohorts-without-<mice>/`` and
+``tables/open-field/all-cohorts-without-<mice>/`` (same layout, every figure marked "without
+<mice>", plus ``excluded_mice.txt``); the plain set is as without the option.
+
 Problems stay separate: each cohort's drifting problems are keyed ``(cohort id, number within
 the type)``, so problem 1 of cohort 1 and problem 1 of cohort 3 are two problems, and every
 analysis computes inside a problem (beliefs reset, windows and events end at its boundaries)
@@ -31,16 +36,27 @@ per-mouse heatmaps, and the legends that name each mouse (their thin lines are s
 
 import shutil
 import warnings
+from collections.abc import Iterable
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
 import pandas as pd
 
+from src.behavior_analysis.exclude_mice import (
+    exclude_mice_from_problems,
+    exclude_mice_from_table,
+    excluded_mice_description,
+    excluded_scope_text,
+    excluded_set_name,
+    optional_mouse_ids,
+)
 from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
 from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table, with_cohort
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
+from src.behavior_visualization.plot_helpers import figure_banner
 from src.pipelines.cohort_analysis import (
     DEFAULT_RESULTS_ROOT,
     DRIFTING_SELECTION,
@@ -67,6 +83,7 @@ from src.pipelines.sessions_per_problem import (
 
 ALL_COHORTS_FOLDER = "all-cohorts"
 COHORTS_FILE = "cohorts.txt"
+EXCLUDED_MICE_FILE = "excluded_mice.txt"
 RANK_FOLDER = "choice-stats"
 # The folders and tables this pipeline writes; a rerun clears exactly these.
 FIGURE_FOLDERS = (
@@ -109,6 +126,9 @@ class AllCohortsResult(NamedTuple):
         rank_results (dict): Output of ``pooled_drifting_rank_results``.
         tables (dict): ``{name: DataFrame}`` of the tables written: the diagnostic tables and
             ``sessions_per_problem``.
+        without (AllCohortsResult | None): The same for the set without the ``exclude_mice``
+            (``figures_dir`` and ``tables_dir`` are its own folders); ``None`` if none was asked
+            for.
     """
 
     figures_dir: Path
@@ -116,6 +136,7 @@ class AllCohortsResult(NamedTuple):
     mice_by_cohort: dict
     rank_results: dict
     tables: dict
+    without: "AllCohortsResult | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +304,85 @@ def _sessions_per_problem(trials_by_cohort: dict, logs: dict) -> pd.DataFrame:
     return pd.concat(tables, ignore_index=True)
 
 
+def _mice_by_cohort(problems: dict) -> dict:
+    """``{cohort id: sorted mice}`` over problems keyed ``(cohort id, k)``."""
+    found: dict[int, set] = {}
+    for (cohort_id, _), subjects in problems.items():
+        found.setdefault(cohort_id, set()).update(subjects)
+    return {cohort_id: sorted(mice) for cohort_id, mice in sorted(found.items())}
+
+
+def _write_pool(
+    problems: dict,
+    sessions: pd.DataFrame,
+    *,
+    ids: list[int],
+    figures_dir: Path,
+    tables_dir: Path,
+    selection: AnalysisSelection,
+    run_at: datetime,
+    excluded: tuple[str, ...] = (),
+) -> AllCohortsResult:
+    """Run and write the all-drifting-problems analyses of *problems* into the two folders.
+
+    Anything an earlier run left in the folders this pipeline owns is removed first. With
+    *excluded* the scope text in the titles and the banner on every figure say which mice are
+    left out, and ``excluded_mice.txt`` lists them.
+
+    Args:
+        problems (dict): ``{(cohort id, k): {mouse: sessions}}`` to pool.
+        sessions (pd.DataFrame): The stacked sessions-per-problem table of the problems' mice.
+        ids (list[int]): The cohorts named in the titles.
+        figures_dir (Path): Folder that receives the figures.
+        tables_dir (Path): Folder that receives the tables.
+        selection (AnalysisSelection): Which drifting analyses run, and the rank settings.
+        run_at (datetime): The time written to ``cohorts.txt``.
+        excluded (tuple[str, ...]): Mice left out of *problems*; empty for the plain pool.
+
+    Returns:
+        AllCohortsResult: The folders, the mice per cohort of *problems*, rank results and tables.
+    """
+    mice_by_cohort = _mice_by_cohort(problems)
+    shown_ids = list(mice_by_cohort)  # a cohort whose mice are all excluded is not in the pool
+    scope = excluded_scope_text(excluded) if excluded else None
+    label = pooled_scope_label(shown_ids) + (f" {scope}" if scope else "")
+    print(f"[INFO] {label}: {len(problems)} problems, {mice_by_cohort}")
+
+    _clear_previous_outputs(figures_dir, tables_dir)
+    with each_reversal_warning_once(), figure_banner(scope) if scope else nullcontext():
+        rank_results = pooled_drifting_rank_results(
+            problems, selection.rank_value_bases, selection.rank_pooling_modes
+        )
+        plot_pooled_drifting_rank(rank_results, figures_dir / RANK_FOLDER, mouse_legend=False)
+        tables = run_drifting_value_analyses(
+            problems,
+            figures_dir,
+            selection,
+            arm_scope_label=label,
+            x_vs_plus=True,
+            per_mouse_figures=False,
+            mouse_legends=False,
+        )
+        tables[TABLE_NAME] = sessions
+        write_sessions_per_problem_figures(
+            sessions,
+            figures_dir / SESSIONS_PER_PROBLEM_FOLDER,
+            cohorts_phrase(shown_ids) + (f" {scope}" if scope else ""),
+            mouse_legend=False,
+            by_cohort=len(shown_ids) > 1,
+        )
+    tables_dir.mkdir(parents=True, exist_ok=True)
+    for name, table in tables.items():
+        table.to_csv(tables_dir / f"{name}.csv", index=False)
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    (figures_dir / COHORTS_FILE).write_text(cohorts_description(mice_by_cohort, run_at))
+    if excluded:
+        description = excluded_mice_description(cohorts_phrase(ids), excluded, run_at)
+        for folder in (figures_dir, tables_dir):
+            (folder / EXCLUDED_MICE_FILE).write_text(description)
+    return AllCohortsResult(figures_dir, tables_dir, mice_by_cohort, rank_results, tables)
+
+
 def run_all_cohorts_drifting(
     cohort_ids,
     *,
@@ -293,6 +393,7 @@ def run_all_cohorts_drifting(
     trials_by_cohort: dict | None = None,
     import_logs: dict[int, ImportLog] | None = None,
     run_at: datetime | None = None,
+    exclude_mice: Iterable[str] | None = None,
 ) -> AllCohortsResult:
     """Run the all-drifting-problems analyses over the drifting problems of several cohorts.
 
@@ -316,55 +417,52 @@ def run_all_cohorts_drifting(
             none. Ignored when the cohorts are loaded. Default ``None``. Keyword-only.
         run_at (datetime | None): The time written to ``cohorts.txt``. Default ``None``: now.
             Keyword-only.
+        exclude_mice (Iterable[str] | None): Mouse ids (of any of the cohorts) to leave out of
+            a second set, written to ``all-cohorts-without-<mice>/``. Default ``None``: no
+            second set. Keyword-only.
 
     Returns:
-        AllCohortsResult: The output folders, mice per cohort, rank results and tables.
+        AllCohortsResult: The output folders, mice per cohort, rank results and tables; its
+        ``without`` holds the same for the second set.
 
     Raises:
         ValueError: For no, repeated or invalid cohort ids, a cohort without trials or without
-            drifting problems, a mouse id shared by two cohorts, or a selection without rank
-            value bases.
+            drifting problems, a mouse id shared by two cohorts, a selection without rank
+            value bases, or *exclude_mice* that is empty, names a mouse of no cohort or all of
+            them (checked before anything is written).
     """
     ids = check_cohort_ids(cohort_ids)
     if drifting_selection.rank_value_bases is None:
         raise ValueError("drifting_selection.rank_value_bases must name the value bases to pool")
     imported, logs = _inputs_for_cohorts(ids, trials_by_cohort, import_logs, data_root, use_cache)
     pooled = pool_cohorts({c: drifting_problems(trials) for c, trials in imported.items()})
-    figures_dir = Path(results_root) / "figures" / TASK / ALL_COHORTS_FOLDER
-    tables_dir = Path(results_root) / "tables" / TASK / ALL_COHORTS_FOLDER
-    label = pooled_scope_label(ids)
-    print(f"[INFO] {label}: {len(pooled.problems)} problems, {pooled.mice_by_cohort}")
+    excluded = optional_mouse_ids(exclude_mice) or ()  # a tuple, so a generator is read once
+    problems_without = exclude_mice_from_problems(pooled.problems, excluded) if excluded else {}
+    run_at = run_at or datetime.now()
+    sessions = _sessions_per_problem(imported, logs)
+    root = Path(results_root)
+    folders = {kind: root / kind / TASK / ALL_COHORTS_FOLDER for kind in ("figures", "tables")}
 
-    _clear_previous_outputs(figures_dir, tables_dir)
-    with each_reversal_warning_once():
-        rank_results = pooled_drifting_rank_results(
-            pooled.problems,
-            drifting_selection.rank_value_bases,
-            drifting_selection.rank_pooling_modes,
-        )
-        plot_pooled_drifting_rank(rank_results, figures_dir / RANK_FOLDER, mouse_legend=False)
-        tables = run_drifting_value_analyses(
-            pooled.problems,
-            figures_dir,
-            drifting_selection,
-            arm_scope_label=label,
-            x_vs_plus=True,
-            per_mouse_figures=False,
-            mouse_legends=False,
-        )
-        tables[TABLE_NAME] = _sessions_per_problem(imported, logs)
-        write_sessions_per_problem_figures(
-            tables[TABLE_NAME],
-            figures_dir / SESSIONS_PER_PROBLEM_FOLDER,
-            cohorts_phrase(ids),
-            mouse_legend=False,
-            by_cohort=len(ids) > 1,
-        )
-    tables_dir.mkdir(parents=True, exist_ok=True)
-    for name, table in tables.items():
-        table.to_csv(tables_dir / f"{name}.csv", index=False)
-    figures_dir.mkdir(parents=True, exist_ok=True)
-    (figures_dir / COHORTS_FILE).write_text(
-        cohorts_description(pooled.mice_by_cohort, run_at or datetime.now())
+    plain = _write_pool(
+        pooled.problems,
+        sessions,
+        ids=ids,
+        figures_dir=folders["figures"],
+        tables_dir=folders["tables"],
+        selection=drifting_selection,
+        run_at=run_at,
     )
-    return AllCohortsResult(figures_dir, tables_dir, pooled.mice_by_cohort, rank_results, tables)
+    if not excluded:
+        return plain
+    name = excluded_set_name(ALL_COHORTS_FOLDER, excluded)
+    without = _write_pool(
+        problems_without,
+        exclude_mice_from_table(sessions, excluded),
+        ids=ids,
+        figures_dir=root / "figures" / TASK / name,
+        tables_dir=root / "tables" / TASK / name,
+        selection=drifting_selection,
+        run_at=run_at,
+        excluded=excluded,
+    )
+    return plain._replace(without=without)
