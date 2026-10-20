@@ -24,6 +24,46 @@ from src.sync.pycontrol_time import (
 )
 
 FRAME_TIMES_FILE = "frame_times.npz"
+# The batch preprocessing's record of which raw TIFF each variant of a run was made from.
+BATCH_MANIFEST = "source_tiff.json"
+VARIANTS = ("without_destriping", "with_destriping")
+
+
+class RunMismatchError(ValueError):
+    """A run's traces, frame clock and behaviour cannot be shown to be one acquisition."""
+
+
+def batch_source_tiffs(run_dir) -> dict[str, str]:
+    """File name of the raw TIFF each variant of *run_dir* was made from, per the batch."""
+    names = {}
+    for variant in VARIANTS:
+        manifest = Path(run_dir) / variant / BATCH_MANIFEST
+        if manifest.is_file():
+            names[variant] = Path(json.loads(manifest.read_text())["source_tiff"]).name
+    return names
+
+
+def check_run_source(tiff_name: str, run_dir, variants=VARIANTS) -> None:
+    """Refuse unless the batch made every listed variant of *run_dir* from *tiff_name*.
+
+    The run numbering here and in the batch are worked out separately; a stray file in
+    either can shift it, and runs of equal length would not reveal that. The batch's own
+    record settles which acquisition a run folder holds.
+
+    Raises:
+        RunMismatchError: If no variant has a batch record, or one names another TIFF.
+    """
+    recorded = {v: name for v, name in batch_source_tiffs(run_dir).items() if v in variants}
+    if not recorded:
+        raise RunMismatchError(
+            f"{run_dir} has no {BATCH_MANIFEST} for {list(variants)}; cannot confirm its TIFF."
+        )
+    wrong = {v: name for v, name in recorded.items() if name != tiff_name}
+    if wrong:
+        raise RunMismatchError(
+            f"{run_dir}: the batch made {wrong} from another TIFF than {tiff_name}; the run "
+            "numbering disagrees, so these frames would be paired with the wrong acquisition."
+        )
 
 
 @dataclass(frozen=True)
@@ -38,8 +78,8 @@ class FrameTimes:
     quality: dict
 
 
-def compute_frame_times(run: RunFiles) -> dict:
-    """Arrays and provenance for :func:`write_frame_times`, from the run's raw files."""
+def frame_times_from_files(run: RunFiles) -> dict:
+    """Arrays and provenance for :func:`write_frame_times`, read from the run's raw files."""
     daq = load_daq_sync(run.h5)
     aligner = align_to_pycontrol(
         daq.rsync_s, pycontrol_sync_times(read_tsv_file(run.tsv)), units_ms=1000
@@ -66,15 +106,17 @@ def write_frame_times(run: RunFiles, run_dir, overwrite: bool = False) -> Path:
 
     Raises:
         FileNotFoundError: If *run_dir* (the derivatives run folder) does not exist.
+        RunMismatchError: If the batch did not make this run folder from ``run.tiff``.
         FileExistsError: If the file exists and *overwrite* is False.
     """
     run_dir = Path(run_dir)
     if not run_dir.is_dir():
         raise FileNotFoundError(f"No derivatives run folder {run_dir}.")
+    check_run_source(run.tiff.name, run_dir)
     path = run_dir / FRAME_TIMES_FILE
     if path.exists() and not overwrite:
         raise FileExistsError(f"{path} exists; pass overwrite=True to replace it.")
-    np.savez(path, **compute_frame_times(run))
+    np.savez(path, **frame_times_from_files(run))
     return path
 
 

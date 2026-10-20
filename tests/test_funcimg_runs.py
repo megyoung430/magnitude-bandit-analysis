@@ -1,8 +1,17 @@
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE, load_frame_times, write_frame_times
+pytest.importorskip("h5py")  # the optional funcimg extra
+
+from src.funcimg_analysis.frame_times import (
+    FRAME_TIMES_FILE,
+    RunMismatchError,
+    load_frame_times,
+    write_frame_times,
+)
 from src.funcimg_analysis.run_responses import VIEWS, pulse_responses
 from src.funcimg_import.runs import session_run_files
 from tests.funcimg_fixtures import DAQ_RATE, daq_session
@@ -61,7 +70,7 @@ def test_frame_times_are_written_beside_the_run_and_read_back(raw_session, tmp_p
     session_dir, sessions = raw_session
     run = session_run_files(session_dir, "71rtask")[0]
     run_dir = tmp_path / "der" / "run-01"
-    run_dir.mkdir(parents=True)
+    write_manifest(run_dir / "without_destriping", run.tiff)
     path = write_frame_times(run, run_dir)
     assert path == run_dir / FRAME_TIMES_FILE
     loaded = load_frame_times(run_dir)
@@ -73,6 +82,39 @@ def test_frame_times_are_written_beside_the_run_and_read_back(raw_session, tmp_p
     assert loaded.tsv.name == run.tsv.name and loaded.quality["fraction_matched"] > 0.9
     with pytest.raises(FileExistsError):
         write_frame_times(run, run_dir)
+
+
+def write_manifest(folder, tiff):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "source_tiff.json").write_text(json.dumps({"source_tiff": str(tiff)}))
+
+
+def test_frame_times_refuse_a_run_the_batch_made_from_another_tiff(raw_session, tmp_path):
+    session_dir, _ = raw_session
+    first, second = session_run_files(session_dir, "71rtask")
+    run_dir = tmp_path / "der" / "run-01"
+    write_manifest(run_dir / "without_destriping", first.tiff)
+    write_manifest(run_dir / "with_destriping", second.tiff)  # numbering shifted by a stray file
+    with pytest.raises(RunMismatchError, match="71rtask_00040.tif"):
+        write_frame_times(first, run_dir)
+    assert not (run_dir / FRAME_TIMES_FILE).exists()
+
+
+def test_frame_times_need_a_batch_record_of_the_run(raw_session, tmp_path):
+    session_dir, _ = raw_session
+    run_dir = tmp_path / "der" / "run-01"
+    run_dir.mkdir(parents=True)
+    with pytest.raises(RunMismatchError, match="source_tiff.json"):
+        write_frame_times(session_run_files(session_dir, "71rtask")[0], run_dir)
+
+
+def test_tiffs_are_found_whatever_the_case_of_their_extension(raw_session):
+    session_dir, _ = raw_session
+    tif = session_dir / "funcimg" / "71rtask_00040.tif"
+    tif.rename(tif.with_suffix(".TIF"))
+    assert [r.tiff.name for r in session_run_files(session_dir, "71rtask")][
+        1
+    ] == "71rtask_00040.TIF"
 
 
 def outcomes(times, pulses, phase="task"):

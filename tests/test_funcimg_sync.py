@@ -3,6 +3,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+pytest.importorskip("h5py")  # the optional funcimg extra
+
 from src.funcimg_import.daq_sync import edge_times, rising_edges
 from src.funcimg_import.runs import acquisition_counter, match_by_sync, pair_by_acquisition
 from src.sync.pycontrol_time import imaging_frame_times

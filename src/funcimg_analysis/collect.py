@@ -11,9 +11,14 @@ from pathlib import Path
 
 import numpy as np
 
-from src.behavior_analysis.outcome_events import load_outcome_events
+from src.behavior_analysis.outcome_events import OutcomeParseError, load_outcome_events
 from src.funcimg_analysis.event_frames import pooled_mean_sem, top_cells_by_max
-from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE, load_frame_times
+from src.funcimg_analysis.frame_times import (
+    FRAME_TIMES_FILE,
+    RunMismatchError,
+    check_run_source,
+    load_frame_times,
+)
 from src.funcimg_analysis.run_responses import (
     EXTRACTION_RECORD,
     PULSE_CATEGORIES,
@@ -80,14 +85,15 @@ def collect_pulse_responses(
         if reason is None:
             try:
                 frames = load_frame_times(run_dir)
+                check_run_source(frames.tiff.name, run_dir, variants=(variant,))
                 views, _ = plane_views(plane_dir)
                 result = pulse_responses(
                     views, frames.time_s, load_outcomes(frames.tsv), window_s, phases
                 )
                 runs.append({"session": session, "run": run_dir.name, **result})
                 continue
-            except (ValueError, FileNotFoundError) as error:
-                reason = str(error)
+            except (RunMismatchError, OutcomeParseError, FileNotFoundError) as error:
+                reason = str(error)  # anything else is a bug and stops the analysis
         skipped.append((session, run_dir.name, reason))
     _check_same_window(runs)
     pooled = {
@@ -103,7 +109,13 @@ def _check_same_window(runs: list[dict]) -> None:
         raise ValueError("Runs have different frame periods, so their windows cannot be pooled.")
 
 
-def top_cells(plane_dir, run_dir, n: int, load_outcomes: Callable = load_outcome_events) -> dict:
+def top_cells(
+    plane_dir,
+    run_dir,
+    n: int,
+    load_outcomes: Callable = load_outcome_events,
+    phases: tuple[str, ...] = ("task",),
+) -> dict:
     """The *n* cells of a run with the largest ΔF/F0 (green), with what a figure needs.
 
     Returns:
@@ -113,10 +125,11 @@ def top_cells(plane_dir, run_dir, n: int, load_outcomes: Callable = load_outcome
         trial) to mark on the traces.
     """
     frames = load_frame_times(run_dir)
+    check_run_source(frames.tiff.name, run_dir, variants=(Path(plane_dir).parents[1].name,))
     views, traces = plane_views(plane_dir)
     dff = views[("green", "dF/F0")]
     if dff.shape[1] != len(frames.time_s):
-        raise ValueError(
+        raise RunMismatchError(
             f"{plane_dir} has {dff.shape[1]} frames but there are {len(frames.time_s)} frame times."
         )
     cells = top_cells_by_max(dff, n)
@@ -129,5 +142,5 @@ def top_cells(plane_dir, run_dir, n: int, load_outcomes: Callable = load_outcome
         "period_s": frames.period_s,
         "labels": traces.labels,
         "mean_image": np.asarray(traces.ops["meanImg"], dtype=float),
-        "outcomes": outcomes[outcomes["phase"] == "task"][["outcome_time", "num_rew_pulses"]],
+        "outcomes": outcomes[outcomes["phase"].isin(phases)][["outcome_time", "num_rew_pulses"]],
     }

@@ -19,6 +19,10 @@ destriping variants of the mini2p preprocessing.
   acquisition-counter order, as the batch numbers `run-XX`. The behaviour `.tsv` is the one whose rsync pulses align with the
   DAQ's: at least 90 % of pulses matched and interval discrepancies ≤ 10 ms, because the aligner alone accepted an
   unrelated train of 30 pulses in testing.
+- **Run identity**: the run numbering is worked out from the raw folder, then checked against the batch's
+  `run-XX/<variant>/source_tiff.json` before frame times are written and again when traces are loaded; a mismatch (a
+  stray `._` file, a renamed TIFF) is refused, because runs of equal length would otherwise pair one acquisition's traces
+  with another's frame clock and behaviour.
 - **Frame times** (`src/funcimg_analysis/frame_times.py`): `derivatives/.../funcimg/run-XX/frame_times.npz` with
   `time_s` (pyControl s per frame, NaN outside the sync pulses), `frame_index`, `daq_frame_s`, the three source files and
   the sync quality. Shared by both variants. Frames between the last *matched* rsync pulse and the DAQ's last pulse take
@@ -43,6 +47,12 @@ destriping variants of the mini2p preprocessing.
 None for existing analyses. Photometry and video alignments never had a negative error (it raised), so they are unchanged.
 
 ## Caveats
+
+"Cells" are all Cellpose ROIs (`iscell` is not used). Frame times are frame *starts*; a frame takes ~128 of its 133 ms
+to acquire, so an event's frame 0 starts within half a frame of it. `frame_times.npz` is not invalidated automatically:
+set `OVERWRITE_FRAME_TIMES` after a change to the sync code. With every chunk an exact match, `RsyncAligner` can still
+raise (zero errors are replaced by the smallest non-zero one); it never returns a wrong alignment, and the real imaging
+session aligns. The `funcimg` extra brings in suite2p and torch, and CI installs all extras.
 
 0 pulses is aligned to the no-reward cue, 1-4 pulses to reward onset. Raw F is not baseline-subtracted. Ranking by max
 ΔF/F0 favours cells with one bright frame; check the traces. Cells of different runs of the same field of view may be the

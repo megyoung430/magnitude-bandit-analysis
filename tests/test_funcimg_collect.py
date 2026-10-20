@@ -9,6 +9,8 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
+pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
+
 from src.funcimg_analysis.collect import collect_pulse_responses, top_cells  # noqa: E402
 from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
@@ -54,7 +56,7 @@ def write_frame_times(run_dir, n_frames=N_FRAMES):
         time_s=time_s,
         frame_index=np.arange(n_frames),
         daq_frame_s=time_s - 20.0,
-        tiff="t.tif",
+        tiff="71rtask_00001.tif",
         h5="d.h5",
         tsv=str(run_dir / "behaviour.tsv"),
         quality=json.dumps({"fraction_matched": 1.0}),
@@ -69,8 +71,15 @@ def derivatives(tmp_path):
     for run in ("run-01", "run-02"):
         write_plane(funcimg / run / "without_destriping" / "suite2p" / "plane0", rng)
         write_frame_times(funcimg / run)
+        write_manifest(funcimg / run / "without_destriping", "71rtask_00001.tif")
     write_plane(funcimg / "run-03" / "without_destriping" / "suite2p" / "plane0", rng)  # no times
     return tmp_path / "der"
+
+
+def write_manifest(variant_dir, tiff_name):
+    (variant_dir / "source_tiff.json").write_text(
+        json.dumps({"source_tiff": f"/raw/ses-224/funcimg/{tiff_name}"})
+    )
 
 
 def outcomes_for(tsv_path):
@@ -114,3 +123,37 @@ def test_top_cells_and_figures(derivatives):
     assert np.all(np.diff(top["peaks"]) <= 0)
     fig = plot_top_cells(top, x_units="s", title="run-01")
     plt.close(fig)
+
+
+def test_a_run_registered_from_another_tiff_than_its_frame_times_is_left_out(derivatives):
+    run_dir = derivatives / "ses-224_date-20260809" / "funcimg" / "run-02"
+    write_manifest(run_dir / "without_destriping", "71rtask_00002.tif")
+    _, runs, skipped = collect(derivatives)
+    assert [r["run"] for r in runs] == ["run-01"]
+    assert "71rtask_00002.tif" in skipped[0][2] and "71rtask_00001.tif" in skipped[0][2]
+
+
+def test_unexpected_errors_stop_the_analysis(derivatives, monkeypatch):
+    from src.funcimg_analysis import collect as collect_module
+
+    def broken(*args, **kwargs):
+        raise ValueError("operands could not be broadcast together")
+
+    monkeypatch.setattr(collect_module, "pulse_responses", broken)
+    with pytest.raises(ValueError, match="broadcast"):
+        collect(derivatives)
+
+
+def test_top_cells_mark_the_trials_of_the_chosen_phases(derivatives):
+    run_dir = derivatives / "ses-224_date-20260809" / "funcimg" / "run-01"
+    plane = run_dir / "without_destriping" / "suite2p" / "plane0"
+
+    def two_phases(tsv_path):
+        table = outcomes_for(tsv_path)
+        table.loc[0, "phase"] = "port_finding"
+        return table
+
+    top = top_cells(plane, run_dir, 2, two_phases, phases=("task",))
+    assert len(top["outcomes"]) == len(PULSES) - 1
+    top = top_cells(plane, run_dir, 2, two_phases, phases=("task", "port_finding"))
+    assert len(top["outcomes"]) == len(PULSES)

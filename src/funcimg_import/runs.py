@@ -123,8 +123,10 @@ def session_run_files(session_dir, source_substring: str) -> list[RunFiles]:
     tiffs = pair_by_acquisition(
         [
             p
-            for p in (session_dir / "funcimg").glob("*.tif")
-            if source_substring.lower() in p.name.lower() and not p.name.startswith("._")
+            for p in (session_dir / "funcimg").iterdir()
+            if p.suffix.lower() == ".tif"
+            and source_substring.lower() in p.name.lower()
+            and not p.name.startswith("._")
         ]
     )
     daq_files = pair_by_acquisition(

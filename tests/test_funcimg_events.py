@@ -65,6 +65,16 @@ def test_pooled_mean_and_sem_across_all_cells_of_all_runs():
     assert pooled[2]["n_cells"] == 1 and np.isnan(pooled[2]["sem"]).all()
 
 
+def test_cells_without_any_value_are_not_counted():
+    pooled = pooled_mean_sem([{0: np.array([[1.0, 2.0], [np.nan, np.nan]])}], [0])
+    assert pooled[0]["n_cells"] == 1
+
+
+def test_too_few_frames_with_a_time_is_a_clear_error():
+    with pytest.raises(ValueError, match="at least two frames"):
+        event_frames(np.array([np.nan, 1.0, np.nan]), np.array([1.0]))
+
+
 def test_most_responsive_cells_by_their_largest_dff():
     dff = np.array([[0.1, 0.5], [2.0, np.nan], [np.nan, np.nan], [0.9, 0.2]])
     assert top_cells_by_max(dff, 2).tolist() == [1, 3]

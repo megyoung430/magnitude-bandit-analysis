@@ -10,9 +10,9 @@ CHANNEL_TITLES = {"green": "Green (functional)", "red": "Red (structural)"}
 
 def _x(offsets: np.ndarray, period_s: float, x_units: str) -> tuple[np.ndarray, str]:
     if x_units == "frames":
-        return offsets, "Frames from outcome"
+        return offsets, "Frames from the outcome's frame"
     if x_units == "s":
-        return offsets * period_s, "Time from outcome (s)"
+        return offsets * period_s, "Time from outcome to frame start (s)"
     raise ValueError(f"x_units must be 's' or 'frames', not {x_units!r}.")
 
 
@@ -96,10 +96,11 @@ def plot_top_cells(top: dict, x_units: str = "s", title: str = ""):
     elif x_units == "frames":
         x, xlabel = np.arange(top["dff"].shape[1]), "Frame"
         known = np.isfinite(top["time_s"])
-        events = np.interp(
-            top["outcomes"]["outcome_time"].to_numpy(float),
-            top["time_s"][known],
-            np.flatnonzero(known),
+        times = top["outcomes"]["outcome_time"].to_numpy(float)
+        imaged = (times >= top["time_s"][known][0]) & (times <= top["time_s"][known][-1])
+        # outside the imaged span np.interp would pin the mark to the first or last frame
+        events = np.where(
+            imaged, np.interp(times, top["time_s"][known], np.flatnonzero(known)), np.nan
         )
     else:
         raise ValueError(f"x_units must be 's' or 'frames', not {x_units!r}.")

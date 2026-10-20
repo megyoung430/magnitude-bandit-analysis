@@ -21,6 +21,7 @@ from src.funcimg_analysis.event_frames import (
     mean_by_category,
     window_offsets,
 )
+from src.funcimg_analysis.frame_times import RunMismatchError
 
 VIEWS = (("green", "F"), ("green", "dF/F0"), ("red", "F"), ("red", "dF/F0"))
 PULSE_CATEGORIES = [0, 1, 2, 3, 4]
@@ -51,12 +52,12 @@ def pulse_responses(
         (outcomes without a complete window of imaged frames).
 
     Raises:
-        ValueError: If a view's frame count differs from the frame times'.
+        RunMismatchError: If a view's frame count differs from the frame times'.
     """
     n_frames = len(frame_times_s)
     for view, traces in views.items():
         if traces.shape[1] != n_frames:
-            raise ValueError(
+            raise RunMismatchError(
                 f"{view} has {traces.shape[1]} frames but there are {n_frames} frame times; "
                 "the traces and the frame clock are not from the same acquisition."
             )

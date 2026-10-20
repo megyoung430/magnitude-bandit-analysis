@@ -51,6 +51,10 @@ def event_frames(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The frame nearest each event, and how far the event is from that frame's start.
 
+    A frame's time is the start of its acquisition (the frame clock's rising edge); a frame
+    takes almost a whole period to acquire, so frame 0 of a window can start up to half a
+    period before or after the event.
+
     Args:
         frame_times_s (np.ndarray): pyControl time (s) of each frame, NaN where unknown.
         event_times_s (np.ndarray): Event times (s, pyControl).
@@ -63,6 +67,8 @@ def event_frames(
     times = np.asarray(frame_times_s, dtype=float)
     events = np.asarray(event_times_s, dtype=float)
     known = np.flatnonzero(np.isfinite(times))
+    if len(known) < 2:
+        raise ValueError("Need at least two frames with a pyControl time to place events.")
     position = np.clip(np.searchsorted(times[known], events), 1, len(known) - 1)
     before, after = known[position - 1], known[position]
     nearest = np.where(events - times[before] <= times[after] - events, before, after)
@@ -144,6 +150,9 @@ def pooled_mean_sem(per_run: list[dict[int, np.ndarray]], categories: list[int])
         if not stacks:
             continue
         cells = np.vstack(stacks)
+        cells = cells[np.isfinite(cells).any(axis=1)]  # a cell with no value adds nothing
+        if not len(cells):
+            continue
         n_valid = np.sum(np.isfinite(cells), axis=0)
         with _quiet_empty_means():
             mean = np.nanmean(cells, axis=0)
