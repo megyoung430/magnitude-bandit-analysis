@@ -12,7 +12,9 @@ from src.behavior_visualization.plot_helpers import (
     FigureOutput,
     TableOutput,
     axes_or_new,
+    current_figure_banner,
     despine,
+    figure_banner,
     jittered,
     mouse_color_map,
     palette_color,
@@ -298,3 +300,64 @@ def test_jittered_continues_a_given_generator_so_lines_get_different_noise():
     expected = np.random.default_rng(5)
     np.testing.assert_array_equal(first, xs + expected.uniform(-0.1, 0.1, size=4))
     np.testing.assert_array_equal(second, xs + expected.uniform(-0.1, 0.1, size=4))
+
+
+# --- figure banner -----------------------------------------------------------------------
+
+
+def texts_at_each_save(fig, monkeypatch):
+    """Spy on ``fig.savefig``: the figure-level texts present at each call."""
+    seen = []
+    monkeypatch.setattr(fig, "savefig", lambda *a, **k: seen.append([t.get_text() for t in fig.texts]))
+    return seen
+
+
+def test_a_banner_is_on_every_saved_format_of_a_figure(monkeypatch, tmp_path):
+    fig = small_figure()
+    seen = texts_at_each_save(fig, monkeypatch)
+    with figure_banner("without MY_1_A"):
+        save_or_show(fig, tmp_path / "f")
+    assert seen == [["without MY_1_A"], ["without MY_1_A"]]  # pdf and png, drawn once each
+
+
+def test_a_banner_is_removed_from_the_figure_after_saving(monkeypatch, tmp_path):
+    fig = small_figure()
+    texts_at_each_save(fig, monkeypatch)
+    with figure_banner("without MY_1_A"):
+        save_or_show(fig, tmp_path / "f")
+    assert fig.texts == []
+
+
+def test_figures_saved_outside_a_banner_have_none(monkeypatch, tmp_path):
+    fig = small_figure()
+    seen = texts_at_each_save(fig, monkeypatch)
+    with figure_banner("without MY_1_A"):
+        pass
+    save_or_show(fig, tmp_path / "f")
+    assert seen == [[], []]
+    assert current_figure_banner() is None
+
+
+def test_a_banner_is_gone_after_the_block_even_if_it_raises():
+    with pytest.raises(RuntimeError):
+        with figure_banner("without MY_1_A"):
+            assert current_figure_banner() == "without MY_1_A"
+            raise RuntimeError("boom")
+    assert current_figure_banner() is None
+
+
+def test_write_outputs_banners_its_figures_too(monkeypatch, tmp_path):
+    fig = small_figure()
+    seen = texts_at_each_save(fig, monkeypatch)
+    with figure_banner("without MY_1_A"):
+        write_outputs([FigureOutput("f", fig)], tmp_path, show=False)
+    assert seen == [["without MY_1_A"], ["without MY_1_A"]]
+
+
+def test_a_banner_is_drawn_in_the_saved_image(tmp_path):
+    plain, banner = small_figure(), small_figure()
+    save_or_show(plain, tmp_path / "plain", formats=("png",))
+    with figure_banner("without MY_1_A"):
+        save_or_show(banner, tmp_path / "banner", formats=("png",))
+    # the banner grows the tight bounding box upward, so the image is taller
+    assert plt.imread(tmp_path / "banner.png").shape[0] > plt.imread(tmp_path / "plain.png").shape[0]
