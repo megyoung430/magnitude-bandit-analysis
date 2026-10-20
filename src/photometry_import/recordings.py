@@ -6,6 +6,8 @@ shares, and every sample is given its pyControl time. No filtering or other prep
 done here: the signals are as the importer returns them.
 """
 
+import re
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +32,7 @@ DEFAULT_MIN_PULSES = 20
 # unrelated one pairs few pulses and is off by hundreds of ms, so both limits reject it.
 MIN_FRACTION_MATCHED = 0.5
 MAX_MEDIAN_DISCREPANCY_MS = 50.0
+_PPD_NAME_RE = re.compile(r"^(.+)-\d{4}-\d{2}-\d{2}-\d{6}$")
 
 
 @dataclass(frozen=True, eq=False)
@@ -179,13 +182,41 @@ def _session_sync_pulses(
     return {path: np.asarray(injected[path], dtype=float) for path in session.tsv_paths}
 
 
+def filename_subject(ppd_path: Path) -> str | None:
+    """The subject named by a pyPhotometry file name ``<subject>-YYYY-MM-DD-HHMMSS.ppd``.
+
+    Args:
+        ppd_path (Path): A ``.ppd`` file.
+
+    Returns:
+        str | None: The part before the timestamp, or None if the name has no timestamp.
+    """
+    match = _PPD_NAME_RE.match(ppd_path.stem)
+    return match[1] if match else None
+
+
 def _check_header_subject(session: PhotometrySession, ppd_path: Path) -> None:
+    """Fail if *ppd_path* belongs to another subject than its session folder.
+
+    A recording started under the wrong subject ID and then renamed to the folder's subject
+    has a header that disagrees with both; the file name and folder are taken as the correction
+    and a warning names the header subject. If the file name does not name the folder's subject,
+    the mismatch is an error.
+    """
     subject = read_ppd_header(ppd_path).get("subject_ID")
-    if subject != session.subject:
-        raise ValueError(
-            f"{ppd_path} was recorded from subject {subject!r} but sits in the folder of "
-            f"{session.subject!r}."
+    if subject == session.subject:
+        return
+    if filename_subject(ppd_path) == session.subject:
+        warnings.warn(
+            f"{ppd_path} was recorded under subject ID {subject!r} but was renamed to "
+            f"{session.subject!r}, the subject of its folder; it is loaded as {session.subject!r}.",
+            stacklevel=4,
         )
+        return
+    raise ValueError(
+        f"{ppd_path} was recorded from subject {subject!r} but sits in the folder of "
+        f"{session.subject!r}, and its file name does not name {session.subject!r} either."
+    )
 
 
 def _build_recording(
@@ -269,8 +300,14 @@ def load_photometry_recordings(
         matching ``.tsv``). Both are in file order.
 
     Raises:
-        ValueError: If a ``.ppd`` header names a different subject than the session folder,
-            or a ``.ppd`` matches more than one ``.tsv``.
+        ValueError: If a ``.ppd`` header names a different subject than the session folder and
+            its file name does not name the folder's subject either, or a ``.ppd`` matches more
+            than one ``.tsv``.
+
+    Warns:
+        UserWarning: For a ``.ppd`` whose header names another subject but whose file name was
+            corrected to the folder's subject (a recording started under the wrong ID); it is
+            loaded as the folder's subject.
     """
     tsv_pulses = _session_sync_pulses(session, tsv_pulses_s)
     results = [_load_one(session, ppd, tsv_pulses, min_pulses) for ppd in session.ppd_paths]

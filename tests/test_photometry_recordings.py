@@ -261,6 +261,26 @@ def test_a_ppd_from_another_subject_raises(tmp_path):
         _load(tmp_path)
 
 
+def test_a_renamed_ppd_with_the_wrong_header_subject_warns_and_loads(tmp_path):
+    folder = _folder(tmp_path)
+    ppd_ms, tsv_s = _pulses(1)
+    _add_ppd(folder, f"{SUBJECT}-2026-10-14-183222.ppd", ppd_ms, subject="RT_999_X")
+    _add_tsv(folder, "a.tsv", tsv_s)
+    with pytest.warns(UserWarning, match="RT_999_X.*renamed to"):
+        (rec,), skipped = _load(tmp_path)
+    assert skipped == []
+    assert rec.subject == SUBJECT
+
+
+def test_a_ppd_whose_filename_names_another_subject_raises(tmp_path):
+    folder = _folder(tmp_path)
+    ppd_ms, tsv_s = _pulses(1)
+    _add_ppd(folder, "RT_999_X-2026-10-14-183222.ppd", ppd_ms, subject="RT_999_X")
+    _add_tsv(folder, "a.tsv", tsv_s)
+    with pytest.raises(ValueError, match="RT_999_X"):
+        _load(tmp_path)
+
+
 def test_a_tsv_without_rsync_events_cannot_match_but_does_not_stop_the_session(tmp_path):
     folder = _folder(tmp_path)
     ppd_ms, tsv_s = _pulses(1)
