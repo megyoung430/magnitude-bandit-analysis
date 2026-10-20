@@ -22,6 +22,7 @@ from typing import NamedTuple
 
 import pandas as pd
 
+from src.behavior_analysis.sessions_per_problem import session_without_part
 from src.behavior_import.session_order import ordered_session_keys, session_date
 from src.behavior_import.task_types import BLOCKED, DRIFTING
 
@@ -29,7 +30,6 @@ Problem = tuple[str, int]  # (task_type, k within the type)
 SessionPair = tuple[str, str]  # (mouse, session key without any _part-NN)
 
 PROBLEM_COLUMNS = ["task_type", "problem_in_type"]
-_PART_RE = re.compile(r"_part-\d+$")
 _TASK_TYPE_ORDER = {BLOCKED: 0, DRIFTING: 1}
 _SINCE_FORMAT = "YYYY-MM-DD"
 
@@ -95,7 +95,7 @@ def _problems_of_sessions(grouped: dict) -> dict[str, dict[str, list[Problem]]]:
         for mouse, sessions in subjects.items():
             by_session = found.setdefault(mouse, {})
             for key in sessions:
-                problems = by_session.setdefault(_PART_RE.sub("", key), [])
+                problems = by_session.setdefault(session_without_part(key), [])
                 if problem not in problems:
                     problems.append(problem)
     return found
@@ -247,8 +247,9 @@ def describe_plan(cohort: str, selection: SessionSelection) -> str:
     else:
         lines.append(f"  {DRIFTING}/all-drifting-problems: skipped (no drifting problem selected)")
     lines.append(
-        "  always regenerated: review tables, trial-block-summaries/all-problems; the diagnostic "
-        "tables keep the rows of the other problems"
+        "  always regenerated: review tables, trial-block-summaries/all-problems, "
+        "drifting/all-drifting-problems/sessions-per-problem; the diagnostic tables keep the "
+        "rows of the other problems"
     )
     return "\n".join(lines)
 

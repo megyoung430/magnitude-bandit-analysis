@@ -314,6 +314,22 @@ def test_port_finding_only_sessions_of_the_logs_are_counted_per_cohort(imported,
     assert table["n_port_finding_only_sessions"].sum() == 1
 
 
+def test_trials_passed_in_without_a_log_warn_naming_the_cohorts_that_lack_one(
+    monkeypatch, imported, tmp_path
+):
+    capture_figures(monkeypatch)
+    with pytest.warns(UserWarning, match=r"import_logs.*cohort 3.*port-finding-only") as caught:
+        run_all_cohorts_drifting(
+            [1, 3],
+            results_root=tmp_path,
+            trials_by_cohort=imported,
+            import_logs={1: ImportLog()},
+            run_at=RUN_AT,
+        )
+    message = next(str(w.message) for w in caught if "import_logs" in str(w.message))
+    assert "cohort 1" not in message
+
+
 def test_logs_for_cohorts_that_are_not_run_raise(imported):
     with pytest.raises(ValueError, match="cohort 4"):
         run_all_cohorts_drifting(

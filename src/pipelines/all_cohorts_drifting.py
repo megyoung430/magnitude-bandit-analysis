@@ -30,6 +30,7 @@ per-mouse heatmaps, and the legends that name each mouse (their thin lines are s
 """
 
 import shutil
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -257,6 +258,13 @@ def _inputs_for_cohorts(
     if extra:
         raise ValueError(f"import logs given for {cohorts_phrase(extra)}, which is not run")
     logs = import_logs or {}
+    unlogged = [c for c in cohort_ids if c not in logs]
+    if unlogged:
+        warnings.warn(
+            f"trials were passed in without import_logs for {cohorts_phrase(unlogged)}, so their "
+            "port-finding-only sessions are unknown: sessions_per_problem.csv counts none",
+            stacklevel=3,
+        )
     return {c: trials_by_cohort[c] for c in cohort_ids}, {c: logs.get(c) for c in cohort_ids}
 
 

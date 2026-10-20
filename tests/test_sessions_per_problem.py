@@ -27,12 +27,17 @@ def key(number):
     return f"ses-{number}_date-202601{number:02d}"
 
 
-def session(towers, task=DRIFTING_NAME):
-    return {"task_name": task, "choice_towers": [sorted(towers)] * 3, "initiation_tower": "B2"}
+def session(towers, task=DRIFTING_NAME, provisional=False):
+    return {
+        "task_name": task,
+        "choice_towers": [sorted(towers)] * 3,
+        "initiation_tower": "B2",
+        "problem_provisional": provisional,
+    }
 
 
-def run_of(numbers, towers=A, task=DRIFTING_NAME):
-    return {key(n): session(towers, task) for n in numbers}
+def run_of(numbers, towers=A, task=DRIFTING_NAME, provisional=False):
+    return {key(n): session(towers, task, provisional) for n in numbers}
 
 
 def row_of(table, mouse, k):
@@ -85,6 +90,17 @@ def test_the_parts_of_a_split_session_count_once():
     row = row_of(sessions_per_problem_table(trials), "m1", 1)
     assert row["n_sessions"] == 2
     assert (row["first_session"], row["last_session"]) == (key(1), key(2))
+
+
+def test_a_session_split_across_two_problems_counts_once_in_each():
+    trials = {
+        1: {"m1": {key(1): session(A), f"{key(2)}_part-01": session(A)}},
+        2: {"m1": {f"{key(2)}_part-02": session(B), key(3): session(B)}},
+    }
+    table = sessions_per_problem_table(trials)
+    assert table["n_sessions"].tolist() == [2, 2]
+    assert row_of(table, "m1", 1)["last_session"] == key(2)
+    assert row_of(table, "m1", 2)["first_session"] == key(2)
 
 
 def test_a_cohort_without_drifting_problems_gives_an_empty_table_with_the_columns():
@@ -147,6 +163,45 @@ def test_a_drifting_problem_followed_by_a_blocked_one_is_complete():
     assert sessions_per_problem_table(trials)["complete"].tolist() == [True]
 
 
+# --- provisional problems --------------------------------------------------------------------
+
+
+def test_a_provisional_latest_problem_leaves_the_previous_one_not_yet_complete():
+    # a final one-session run on a new layout may turn out to be a settings error, which would
+    # leave the previous problem still running
+    trials = {
+        1: {"m1": run_of([1, 2])},
+        2: {"m1": run_of([3, 4], B)},
+        3: {"m1": run_of([5], A, provisional=True)},
+    }
+    table = sessions_per_problem_table(trials)
+    assert table["complete"].tolist() == [True, False, False]
+    assert table["provisional"].tolist() == [False, False, True]
+
+
+def test_a_provisional_problem_after_a_blocked_one_changes_nothing_else():
+    trials = {
+        1: {"m1": run_of([1, 2], task=BLOCKED_NAME)},
+        2: {"m1": run_of([3], B, provisional=True)},
+    }
+    table = sessions_per_problem_table(trials)
+    assert table["complete"].tolist() == [False] and table["provisional"].tolist() == [True]
+
+
+def test_a_provisional_session_earlier_in_the_run_does_not_matter():
+    trials = {1: {"m1": run_of([1, 2], provisional=True)}, 2: {"m1": run_of([3, 4], B)}}
+    table = sessions_per_problem_table(trials)
+    assert table["complete"].tolist() == [True, False]
+    assert table["provisional"].tolist() == [True, False]
+
+
+def test_a_mouse_whose_last_session_was_left_out_keeps_its_last_problem_running():
+    # a last session flagged as a settings error is not in any problem, so the problem before it
+    # is still the mouse's latest
+    trials = {1: {"m1": run_of([1, 2])}, 2: {"m1": run_of([3, 4], B)}}
+    assert sessions_per_problem_table(trials)["complete"].tolist() == [True, False]
+
+
 # --- port-finding-only sessions ----------------------------------------------------------
 
 
@@ -177,6 +232,18 @@ def test_an_unassigned_port_finding_session_is_counted_nowhere():
         assignment = assign_port_finding_sessions(trials, found)
     row = row_of(sessions_per_problem_table(trials, assignment), "m1", 1)
     assert (row["n_port_finding_only_sessions"], row["n_sessions_total"]) == (0, 2)
+
+
+def test_a_newest_unassigned_port_finding_session_leaves_the_last_problem_running():
+    # port finding on new towers after the last problem may be the start of the next problem, but
+    # no problem has taken it: the table keeps the conservative reading, the last problem running
+    trials = {1: {"m1": run_of([1, 2], A)}, 2: {"m1": run_of([3, 4], B)}}
+    found = {"m1": {key(5): port_finding(["A2", "B2", "C2"])}}
+    with pytest.warns(UserWarning, match="port-finding-only"):
+        assignment = assign_port_finding_sessions(trials, found)
+    table = sessions_per_problem_table(trials, assignment)
+    assert table["complete"].tolist() == [True, False]
+    assert table["n_port_finding_only_sessions"].tolist() == [0, 0]
 
 
 def test_without_an_assignment_there_are_no_port_finding_sessions():
@@ -212,6 +279,7 @@ def table_of(rows):
                 "first_session": key(1),
                 "last_session": key(2),
                 "complete": complete,
+                "provisional": False,
             }
             for mouse, k, n, complete in rows
         ],

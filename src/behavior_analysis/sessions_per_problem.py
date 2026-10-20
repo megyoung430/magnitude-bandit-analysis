@@ -5,9 +5,21 @@ bandit trials (the ``_part-NN`` parts of one session count once) and, in separat
 port-finding-only sessions assigned to the problem
 (:mod:`src.behavior_analysis.port_finding_sessions`) and the total.
 
-A mouse's latest problem, of any task type, may still be running, so its row is marked
-``complete=False``; every problem the mouse has moved on from is complete. A mouse whose latest
-problem is blocked has only complete drifting problems.
+Rules the table follows:
+
+- A mouse's latest problem, of any task type, may still be running, so its row is marked
+  ``complete=False``; every problem the mouse has moved on from is complete. A mouse whose latest
+  problem is blocked has only complete drifting problems.
+- A latest problem whose number is provisional (a final one-session run on a new layout, which a
+  later session can turn into a settings error) is marked ``provisional=True``, and the problem
+  before it is not yet complete either, because the provisional session may not be a new problem.
+- Only sessions in a problem are counted. A port-finding-only session that no problem took (a
+  newest one on towers no later session uses, say) is not a problem, so the problem before it
+  stays the latest and is reported as still running, the conservative reading.
+- A session split into ``_part-NN`` parts counts once in a problem. If its parts fall in two
+  problems (a layout change mid-session) it counts once in each, so the sessions of consecutive
+  problems can add up to one more than the mouse's number of sessions. ``n_sessions`` equals the
+  ``n_sessions`` of ``problem_map.csv`` (distinct session numbers of a problem).
 
 :func:`summarize_sessions_per_problem` arranges a table for the figure: one series per mouse and
 the mean and standard error across mice of the completed problems only (a running problem has
@@ -41,6 +53,7 @@ TABLE_COLUMNS = (
     "first_session",
     "last_session",
     "complete",
+    "provisional",
 )
 
 
@@ -94,7 +107,7 @@ def _problem_row(
     k: int,
     sessions: dict,
     assignment: PortFindingAssignment | None,
-    latest: int,
+    running: set[int],
 ) -> dict:
     # dict.fromkeys drops the repeats the _part-NN segments of one session leave, keeping order
     keys = list(
@@ -116,8 +129,19 @@ def _problem_row(
         "n_sessions_total": len(keys) + n_found,
         "first_session": keys[0],
         "last_session": keys[-1],
-        "complete": overall_problem != latest,
+        "complete": overall_problem not in running,
+        "provisional": any(bool(s.get("problem_provisional")) for s in sessions.values()),
     }
+
+
+def _running_problems(mouse: str, problems: list[int], trials_by_problem: dict) -> set[int]:
+    """The overall problems of *mouse* that may still be running, *problems* ascending.
+
+    The latest one, and the one before it when the latest is provisional.
+    """
+    latest_sessions = trials_by_problem[problems[-1]][mouse]
+    provisional = any(bool(s.get("problem_provisional")) for s in latest_sessions.values())
+    return set(problems[-2:] if provisional else problems[-1:])
 
 
 def sessions_per_problem_table(
@@ -138,20 +162,25 @@ def sessions_per_problem_table(
         header only if the cohort has no drifting problem. ``n_sessions`` counts the sessions
         with bandit trials, ``n_port_finding_only_sessions`` those assigned to the problem and
         ``n_sessions_total`` their sum; ``first_session`` and ``last_session`` are keys of the
-        bandit sessions (without ``_part-NN``); ``complete`` is ``False`` only for a mouse's
-        latest problem overall.
+        bandit sessions (without ``_part-NN``); ``complete`` is ``False`` for a mouse's latest
+        problem overall and, when that one is provisional, the problem before it;
+        ``provisional`` marks a problem with a provisional session (see the module doc).
 
     Raises:
         ValueError: If a session's task name is not recognised or the sessions of a mouse cannot
             be ordered (see ``number_within_task_type`` and ``ordered_session_keys``).
     """
     numbering = number_within_task_type(trials_by_problem)
-    latest: dict[str, int] = {}
-    for mouse, problem in numbering:
-        latest[mouse] = max(latest.get(mouse, problem), problem)
+    problems_of: dict[str, list[int]] = {}
+    for mouse, problem in sorted(numbering, key=lambda item: item[1]):
+        problems_of.setdefault(mouse, []).append(problem)
+    running = {
+        mouse: _running_problems(mouse, problems, trials_by_problem)
+        for mouse, problems in problems_of.items()
+    }
     rows = [
         _problem_row(
-            mouse, problem, k, trials_by_problem[problem][mouse], port_finding, latest[mouse]
+            mouse, problem, k, trials_by_problem[problem][mouse], port_finding, running[mouse]
         )
         for (mouse, problem), (task_type, k) in numbering.items()
         if task_type == DRIFTING

@@ -25,11 +25,20 @@ mouse (like the long-pokes-per-relative-session plot).
   `write_sessions_per_problem_figures` / `summarize_sessions_per_problem` plots the total. The
   title says which. The switch is not exposed on `run_cohort` or the scripts.
 - The table is rewritten from the whole cohort on every run (also partial ones), not merged by
-  problem; the figure is regenerated whenever the pooled drifting analyses run.
+  problem; the figure is redrawn on every run of a cohort with drifting problems (also a
+  blocked-only partial run), because any new session can complete a problem.
 - The all-cohorts figures do not name mice (as its other figures); the cohort-mean figure is
   skipped for a single cohort. All-cohorts colours mice by position in the sorted mouse list.
 - `run_all_cohorts_drifting` takes `import_logs={cohort: ImportLog}` so port-finding-only sessions
   of passed-in trials are counted; loaded cohorts use their own logs.
+- A provisional latest problem (`problem_provisional`) gets `provisional=True` and the problem
+  before it is not yet complete (the final session may be a settings error).
+- A newest port-finding-only session that no problem took leaves the previous problem running
+  (conservative; documented).
+- A session split into parts across two problems counts once in each.
+- `n_sessions` agrees with `problem_map.csv`'s `n_sessions` (checked on the staged data).
+- Single-mouse readability: the mean is drawn under the mouse lines. The by-cohort figure labels
+  cohorts without a completed problem and shows n per point.
 - A mouse with a running problem and one with no completed problem at a number leave that mean
   point empty; an SE needs two mice.
 - `session_without_part` lives in `behavior_analysis`, because the import cache key hashes

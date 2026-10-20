@@ -140,11 +140,12 @@ def test_an_incremental_run_of_the_last_sessions_regenerates_it_and_the_table(
     assert len(pd.read_csv(table_file(tmp_path))) == 4
 
 
-def test_a_blocked_only_partial_run_leaves_the_figure_alone_but_rewrites_the_table(
+def test_a_blocked_only_partial_run_redraws_the_figure_with_the_table(
     tmp_path, figure_dir, stubbed
 ):
+    # a new blocked session can complete a drifting problem, so the figure follows the table
     run(tmp_path, only_problems={(BLOCKED, 1)})
-    assert not figure_dir.exists()
+    assert {p.name for p in figure_dir.iterdir()} == FIGURE_FILES
     assert len(pd.read_csv(table_file(tmp_path))) == 4
 
 

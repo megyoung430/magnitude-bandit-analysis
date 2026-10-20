@@ -91,6 +91,15 @@ def test_the_mean_is_a_thick_black_line_over_completed_problems_only(summary):
     assert list(xs) == [1, 2] and list(ys) == pytest.approx([6.0, 6.0])  # problem 3: none complete
 
 
+def test_the_mean_is_drawn_under_the_mouse_lines_so_a_single_mouse_stays_visible(summary):
+    ax = plot_sessions_per_problem_panel(summary, scope_label="cohort 3")
+    (mean,) = [ln for ln in ax.lines if ln.get_label() == MEAN_LABEL]
+    for mouse in summary.mice:
+        assert mean.get_zorder() < solid_line(ax, mouse).get_zorder()
+    for point in running_points(ax):
+        assert mean.get_zorder() < point.get_zorder()
+
+
 def test_ticks_are_integers_with_n_mice_under_each_problem_and_the_axis_starts_at_zero(summary):
     ax = plot_sessions_per_problem_panel(summary, scope_label="cohort 3")
     assert list(ax.get_xticks()) == [1, 2, 3]
@@ -161,6 +170,21 @@ def test_each_cohort_is_a_line_of_its_mean_with_its_own_colour(by_cohort):
     assert lines["cohort-01 (2 mice)"].get_color() != lines["cohort-03 (1 mouse)"].get_color()
     assert "by Cohort" in ax.get_title() and "cohorts 1, 3" in ax.get_title()
     assert ax.get_ylim()[0] == 0 and list(ax.get_xticks()) == [1, 2]
+
+
+def test_each_cohort_point_says_how_many_mice_are_behind_it(by_cohort):
+    ax = plot_sessions_per_problem_by_cohort_panel(by_cohort, scope_label="cohorts 1, 3")
+    assert sorted(t.get_text() for t in ax.texts) == ["n=1", "n=1", "n=2"]
+
+
+def test_a_cohort_without_a_completed_problem_is_named_so_in_the_legend():
+    running_only = summarize_sessions_per_problem(table_of([("c1", 1, 3, False)]), problems=[1, 2])
+    done = summarize_sessions_per_problem(table_of([("a1", 1, 4, True)]), problems=[1, 2])
+    ax = plot_sessions_per_problem_by_cohort_panel(
+        {"cohort-01": done, "cohort-05": running_only}, scope_label="cohorts 1, 5"
+    )
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert labels == ["cohort-01 (1 mouse)", "cohort-05 (1 mouse; no completed problem)"]
 
 
 # --- saving ---------------------------------------------------------------------------------

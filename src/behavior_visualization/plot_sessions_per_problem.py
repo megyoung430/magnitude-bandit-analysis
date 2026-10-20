@@ -61,17 +61,32 @@ def _top(*arrays: np.ndarray) -> float:
 
 
 def _draw_mean(ax: plt.Axes, problems, mean, se, *, color, linewidth, label) -> None:
-    """The mean as a line over the problems that have one, with error bars where an SE exists."""
+    """The mean as a line over the problems that have one, with error bars where an SE exists.
+
+    Drawn under everything else (zorder 2), so a mouse's own line stays visible on top of it.
+    """
     x = np.asarray(problems, dtype=float)
     has_mean, has_se = np.isfinite(mean), np.isfinite(se)
     ax.plot(
-        x[has_mean], mean[has_mean], color=color, linewidth=linewidth, marker="o", markersize=8,
-        label=label, zorder=6,
-    )  # fmt: skip
+        x[has_mean],
+        mean[has_mean],
+        color=color,
+        linewidth=linewidth,
+        marker="o",
+        markersize=8,
+        label=label,
+        zorder=2,
+    )
     ax.errorbar(
-        x[has_se], mean[has_se], yerr=se[has_se], fmt="none", ecolor=color, elinewidth=2,
-        capsize=6, zorder=6,
-    )  # fmt: skip
+        x[has_se],
+        mean[has_se],
+        yerr=se[has_se],
+        fmt="none",
+        ecolor=color,
+        elinewidth=2,
+        capsize=6,
+        zorder=2,
+    )
 
 
 def _draw_mouse(
@@ -81,20 +96,43 @@ def _draw_mouse(
     finite = np.isfinite(y)
     completed, running = finite & done, finite & ~done
     ax.plot(
-        x[completed], y[completed], color=color, linewidth=2.5, alpha=0.9, marker="o",
-        markersize=6, label=mouse, zorder=4,
-    )  # fmt: skip
+        x[completed],
+        y[completed],
+        color=color,
+        linewidth=2.5,
+        alpha=0.9,
+        marker="o",
+        markersize=6,
+        label=mouse,
+        zorder=4,
+    )
     if running.any():
         # join the running point to the last completed one before it
         before = np.flatnonzero(completed & (np.arange(len(x)) < np.flatnonzero(running)[0]))
         if before.size:
             joined = [before[-1], *np.flatnonzero(running)]
-            ax.plot(x[joined], y[joined], color=color, linestyle="--", linewidth=2, alpha=0.9,
-                    zorder=3, label=f"_{mouse} running segment")  # fmt: skip
+            ax.plot(
+                x[joined],
+                y[joined],
+                color=color,
+                linestyle="--",
+                linewidth=2,
+                alpha=0.9,
+                zorder=3,
+                label=f"_{mouse} running segment",
+            )
         ax.plot(
-            x[running], y[running], color=color, linestyle="none", marker="o", markersize=8,
-            markerfacecolor="white", markeredgewidth=2, zorder=5, label=f"_{mouse} running",
-        )  # fmt: skip
+            x[running],
+            y[running],
+            color=color,
+            linestyle="none",
+            marker="o",
+            markersize=8,
+            markerfacecolor="white",
+            markeredgewidth=2,
+            zorder=5,
+            label=f"_{mouse} running",
+        )
 
 
 def _legend_handles(summary: SessionsPerProblem, colors: dict, mouse_legend: bool) -> list:
@@ -120,7 +158,7 @@ def _legend_handles(summary: SessionsPerProblem, colors: dict, mouse_legend: boo
                 markerfacecolor="white",
                 markeredgewidth=2,
                 label=RUNNING_LABEL,
-            )  # fmt: skip
+            )
         )
     return handles
 
@@ -209,6 +247,26 @@ def _mice_phrase(n: int) -> str:
     return f"{n} mouse" if n == 1 else f"{n} mice"
 
 
+def _cohort_label(cohort: str, summary: SessionsPerProblem) -> str:
+    mice = _mice_phrase(len(summary.mice))
+    return f"{cohort} ({mice}{'' if summary.n.any() else '; no completed problem'})"
+
+
+def _annotate_n(ax: plt.Axes, problems: list[int], summary: SessionsPerProblem, color: str) -> None:
+    """The number of mice behind each point of a cohort's mean, just above the point."""
+    for k, mean, n in zip(problems, summary.mean, summary.n, strict=True):
+        if np.isfinite(mean):
+            ax.annotate(
+                f"n={n}",
+                (k, mean),
+                textcoords="offset points",
+                xytext=(0, 9),
+                ha="center",
+                fontsize=9,
+                color=color,
+            )
+
+
 def plot_sessions_per_problem_by_cohort_panel(
     summaries: Mapping[str, SessionsPerProblem], *, scope_label: str, ax: plt.Axes | None = None
 ) -> plt.Axes:
@@ -239,11 +297,17 @@ def plot_sessions_per_problem_by_cohort_panel(
     phrase = _count_phrase(next(iter(summaries.values())))
     with axes_or_new(ax, figsize=_FIGSIZE) as ax:
         for i, (cohort, summary) in enumerate(summaries.items()):
+            color = palette_color(i)
             _draw_mean(
-                ax, problems, summary.mean, summary.se,
-                color=palette_color(i), linewidth=3,
-                label=f"{cohort} ({_mice_phrase(len(summary.mice))})",
-            )  # fmt: skip
+                ax,
+                problems,
+                summary.mean,
+                summary.se,
+                color=color,
+                linewidth=3,
+                label=_cohort_label(cohort, summary),
+            )
+            _annotate_n(ax, problems, summary, color)
         _style_axes(
             ax,
             problems,
