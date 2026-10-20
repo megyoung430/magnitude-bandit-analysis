@@ -19,6 +19,7 @@ import re
 
 _DATE_RE = re.compile(r"date-(\d{8})")
 _NUMBER_RE = re.compile(r"ses-(\d+)")
+_PART_RE = re.compile(r"_part-\d+$")
 
 
 def session_date(key):
@@ -45,6 +46,18 @@ def session_number(key):
     """
     match = _NUMBER_RE.search(key)
     return int(match[1]) if match else None
+
+
+def session_without_part(key):
+    """A session key without its ``_part-NN`` suffix, so the parts of one session share a key.
+
+    Args:
+        key (str): A session key such as ``"ses-3_date-20260102_part-02"``.
+
+    Returns:
+        str: ``"ses-3_date-20260102"`` for the example; a key without a suffix is unchanged.
+    """
+    return _PART_RE.sub("", key)
 
 
 def session_sort_key(session_id):
