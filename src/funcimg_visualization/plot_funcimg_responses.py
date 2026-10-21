@@ -1,5 +1,7 @@
 """Figures for reward-aligned imaging responses and a run's most responsive cells."""
 
+import warnings
+
 import matplotlib
 import matplotlib.colors
 import matplotlib.pyplot as plt
@@ -119,18 +121,53 @@ SPACING_MARGIN = 0.1  # fraction of the spacing left between neighbouring rows
 SPACING_FLOOR = 0.05  # ΔF/F0 units; keeps rows apart when every trace is flat
 
 
+def check_clip_percentiles(clip_percentiles) -> None:
+    """Raise unless *clip_percentiles* is None or two numbers with ``0 <= low < high <= 100``."""
+    if clip_percentiles is None:
+        return
+    message = (
+        "clip_percentiles must be None or (low, high) with 0 <= low < high <= 100, "
+        f"not {clip_percentiles!r}."
+    )
+    try:
+        low, high = clip_percentiles
+    except (TypeError, ValueError):
+        raise ValueError(message) from None
+    numbers = all(
+        isinstance(value, int | float | np.integer | np.floating) and not isinstance(value, bool)
+        for value in (low, high)
+    )
+    if not (numbers and 0 <= low < high <= 100):
+        raise ValueError(message)
+
+
+def row_percentiles(traces: np.ndarray, percentiles) -> np.ndarray:
+    """``(len(percentiles), n_rows)`` NaN-safe percentiles; NaN for a row with no finite value."""
+    out = np.full((len(percentiles), len(traces)), np.nan)
+    has_data = np.isfinite(traces).any(axis=1)
+    if has_data.any():
+        out[:, has_data] = np.nanpercentile(traces[has_data], percentiles, axis=1)
+    return out
+
+
 def clip_traces(dff: np.ndarray, clip_percentiles: tuple[float, float] | None) -> np.ndarray:
     """Each trace limited to its own percentile range (NaN-safe), for display only.
 
     Args:
         dff (np.ndarray): ``(n_cells, n_frames)`` ΔF/F0.
         clip_percentiles (tuple[float, float] | None): Low and high percentile, e.g. ``(1, 99)``;
-            None returns *dff* unchanged.
+            None returns *dff* unchanged. Values above the high percentile are flattened to it,
+            so a trace's true maximum is not visible in the clipped trace.
+
+    Raises:
+        ValueError: If *clip_percentiles* is not None or two numbers with
+            ``0 <= low < high <= 100``.
     """
+    check_clip_percentiles(clip_percentiles)
     if clip_percentiles is None:
         return dff
-    low, high = np.nanpercentile(dff, clip_percentiles, axis=1, keepdims=True)
-    return np.clip(dff, low, high)
+    low, high = row_percentiles(dff, clip_percentiles)
+    return np.clip(dff, low[:, None], high[:, None])
 
 
 def trace_spacing(traces: np.ndarray, percentiles: tuple[float, float] = (0.5, 99.5)) -> float:
@@ -139,15 +176,18 @@ def trace_spacing(traces: np.ndarray, percentiles: tuple[float, float] = (0.5, 9
     The largest, over adjacent rows (in plotted order), of the lower trace's high percentile
     minus the upper trace's low percentile, so the bulk of one row never reaches the next; a
     brief transient beyond the percentiles may. A trace's own range counts too. A margin
-    is added and a floor keeps all-flat traces apart.
+    is added and a floor keeps all-flat traces apart. A row with no finite value (NaN
+    throughout) constrains nothing; if no row has a value the spacing is the floor.
 
     Args:
         traces (np.ndarray): ``(n_cells, n_frames)`` ΔF/F0, best cell first.
         percentiles (tuple[float, float]): Low and high percentile of a trace's extent. Use
             ``(0, 100)`` for traces already clipped to their percentile range.
     """
-    low, high = np.nanpercentile(traces, percentiles, axis=1)
+    low, high = row_percentiles(traces, percentiles)
     needed = np.concatenate([high - low, high[1:] - low[:-1]])
+    if not np.isfinite(needed).any():
+        return SPACING_FLOOR
     return float(max((1 + SPACING_MARGIN) * np.nanmax(needed), SPACING_FLOOR))
 
 
@@ -166,14 +206,34 @@ def middle_frames(n_frames: int, n_shown: int | None) -> slice:
         n_shown (int | None): Frames to keep, e.g. ``8000``; None keeps every frame.
 
     Raises:
+        TypeError: If *n_shown* is not None or an integer (a bool or a float is refused).
         ValueError: If *n_shown* is not positive.
     """
-    if n_shown is None or n_shown >= n_frames:
+    if n_shown is None:
         return slice(0, n_frames)
+    if isinstance(n_shown, bool) or not isinstance(n_shown, int | np.integer):
+        raise TypeError(
+            f"middle_frames_shown must be None or an integer number of frames, not {n_shown!r}."
+        )
     if n_shown < 1:
         raise ValueError(f"middle_frames_shown must be positive, not {n_shown}.")
+    if n_shown >= n_frames:
+        return slice(0, n_frames)
     start = (n_frames - n_shown) // 2
     return slice(start, start + n_shown)
+
+
+def peak_frames(dff: np.ndarray) -> np.ndarray:
+    """Frame of each row's maximum; -1 for a row with no finite value."""
+    finite = np.isfinite(dff)
+    peaks = np.where(finite, dff, -np.inf).argmax(axis=1)
+    return np.where(finite.any(axis=1), peaks, -1)
+
+
+def roi_label(cell: int, p_cell: float, peak: float, has_data: bool) -> str:
+    """Tick label: ROI number, classifier probability, full-run max ΔF/F0, and a no-data note."""
+    label = f"ROI {cell} (p={p_cell:.2f}, max {peak:.3g})"
+    return label if has_data else f"{label} (no data in shown frames)"
 
 
 def _x_axis(top: dict, x_units: str) -> tuple[np.ndarray, str, np.ndarray]:
@@ -199,24 +259,43 @@ def _draw_traces(
     colors: list[str],
     clip_percentiles: tuple[float, float] | None,
     frames: slice,
-) -> None:
-    """Stacked traces, one colour per ROI, with ``ROI <n>`` ticks and outcome markers above."""
+) -> bool:
+    """Stacked traces, one colour per ROI, with ROI tick labels, outcome markers and peak ticks.
+
+    The tick label carries the ROI's full-run maximum ΔF/F0 (clipping flattens it in the
+    trace), and a small tick on the x axis marks where that maximum falls, if within *frames*.
+    A ROI with no finite value in *frames* is an empty row, labelled as such.
+
+    Returns:
+        bool: False if the frames shown have no pyControl time (``x_units="s"``), so nothing
+        could be placed; True otherwise.
+    """
     if len(top["cells"]) == 0:
         ax.text(0.5, 0.5, "no ROIs to show", ha="center", va="center", transform=ax.transAxes)
         ax.set_axis_off()
-        return
-    x, xlabel, events = _x_axis(top, x_units)
-    x = x[frames]
+        return True
+    x_all, xlabel, events = _x_axis(top, x_units)
+    x = x_all[frames]
+    if not np.isfinite(x).any():
+        message = "no frame times in the frames shown"
+        ax.text(0.5, 0.5, message, ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        return False
     # an outcome outside the frames shown would stretch the axis, so it is not marked
     events = np.where((events >= np.nanmin(x)) & (events <= np.nanmax(x)), events, np.nan)
     shown = clip_traces(top["dff"][:, frames], clip_percentiles)
+    has_data = np.isfinite(shown).any(axis=1)
     # clipped traces end exactly at their percentiles, so the spacing is measured at the ends
     spacing_percentiles = (0, 100) if clip_percentiles else (0.5, 99.5)
     spacing = trace_spacing(shown, spacing_percentiles)
     baselines = -spacing * np.arange(len(shown))
     for base, trace, color in zip(baselines, shown, colors, strict=True):
         ax.plot(x, base + trace, color=color, linewidth=0.8)
-    marker_bottom = np.nanmax(shown[0]) + 0.1 * spacing
+    # the axis spans every row's baseline (so every tick label is visible), and the data
+    stacked = baselines[:, None] + shown
+    top_y = max(np.nanmax(stacked), baselines[0]) if has_data.any() else baselines[0]
+    bottom_y = min(np.nanmin(stacked), baselines[-1]) if has_data.any() else baselines[-1]
+    marker_bottom = top_y + 0.1 * spacing
     for time, pulses in zip(events, top["outcomes"]["num_rew_pulses"], strict=True):
         ax.plot(
             [time, time],
@@ -226,14 +305,33 @@ def _draw_traces(
     for pulses in sorted(set(top["outcomes"]["num_rew_pulses"])):
         ax.plot([], [], color=PULSE_COLORS[pulses], label=f"{pulses} pulses")
     ax.legend(loc="upper right", fontsize=7, frameon=False, ncols=5)
+    for frame, color in zip(peak_frames(top["dff"]), colors, strict=True):
+        if frames.start <= frame < frames.stop and np.isfinite(x_all[frame]):
+            ax.plot(
+                [x_all[frame]],
+                [0],
+                marker="|",
+                markersize=9,
+                markeredgewidth=1.5,
+                linestyle="none",
+                color=color,
+                transform=ax.get_xaxis_transform(),  # y in axes units: on the x axis itself
+                clip_on=False,
+            )
     ax.set_yticks(
         baselines,
-        [f"ROI {cell} (p={p:.2f})" for cell, p in zip(top["cells"], top["p_cell"], strict=True)],
+        [
+            roi_label(cell, p, peak, row_has_data)
+            for cell, p, peak, row_has_data in zip(
+                top["cells"], top["p_cell"], top["peaks"], has_data, strict=True
+            )
+        ],
     )
-    ax.set_ylim(baselines[-1] + np.nanmin(shown[-1]) - 0.1 * spacing, marker_bottom + 0.6 * spacing)
+    ax.set_ylim(bottom_y - 0.1 * spacing, marker_bottom + 0.6 * spacing)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("ROI")
     ax.spines[["top", "right"]].set_visible(False)
+    return True
 
 
 def _draw_fov(ax, top: dict, colors: list[str]) -> None:
@@ -264,9 +362,47 @@ def _draw_fov(ax, top: dict, colors: list[str]) -> None:
     ax.set_title("Mean image; top cells outlined" + note)
 
 
-def top_cells_pdf_name(n: int, rank_by: str, tag: str, variant: str, x_units: str) -> str:
-    """File name of the PDF of one ranking's top cells, e.g. ``top30_cells_by_p_cell_<tag>_...``."""
-    return f"top{n}_cells_by_{rank_by}_{tag}_{variant}_{x_units}.pdf"
+def top_cells_pdf_name(
+    n: int,
+    rank_by: str,
+    tag: str,
+    variant: str,
+    x_units: str,
+    middle_frames_shown: int | None = None,
+    clip_percentiles: tuple[float, float] | None = None,
+) -> str:
+    """File name of the PDF of one ranking's top cells.
+
+    The display settings are part of the name, so a figure made with other settings does not
+    overwrite it: ``top30_cells_by_p_cell_<tag>_<variant>_frames_mid8000_clip1-99.pdf``. A
+    setting that is None adds nothing.
+    """
+    name = f"top{n}_cells_by_{rank_by}_{tag}_{variant}_{x_units}"
+    if middle_frames_shown is not None:
+        name += f"_mid{middle_frames_shown}"
+    if clip_percentiles is not None:
+        low, high = clip_percentiles
+        name += f"_clip{low:g}-{high:g}"
+    return name + ".pdf"
+
+
+def window_tag(window_s: tuple[float, float]) -> str:
+    """The window around the outcome for a file name, e.g. ``win-10to30s``."""
+    start, stop = window_s
+    return f"win{start:g}to{stop:g}s"
+
+
+def pulse_responses_png_name(
+    file_tag: str,
+    variant: str,
+    measure_tag: str,
+    x_units: str,
+    window_s: tuple[float, float],
+) -> str:
+    """File name of the pooled response figure; the window is part of it."""
+    return (
+        f"pulse_responses_{file_tag}_{variant}_{measure_tag}_{x_units}_{window_tag(window_s)}.png"
+    )
 
 
 def _ordinal(value: float) -> str:
@@ -293,7 +429,11 @@ def plot_top_cells(
     view. The best ROI is on top; ``ROI <n> (p=<p(cell)>)`` tick labels mark each trace's
     baseline. Outcomes are marked above the traces, coloured by number of reward pulses.
     Each trace is drawn clipped to its own percentile range, so a brief transient does not set
-    the row spacing; the ranking behind *top* uses the unclipped values.
+    the row spacing; the ranking behind *top* uses the unclipped values. Clipping flattens any
+    peak above the high percentile, so each tick label carries the ROI's true maximum ΔF/F0 over
+    the whole run (``ROI 12 (p=0.93, max 2.4)``) and a small tick on the x axis, in the ROI's
+    colour, marks the frame of that maximum when it is among the frames shown. A ROI with no
+    finite value in the frames shown is an empty row, labelled "(no data in shown frames)".
 
     Args:
         top (dict): From ``src.funcimg_analysis.collect.top_cells``.
@@ -302,20 +442,29 @@ def plot_top_cells(
         variant (str): Destriping variant, named in the traces' title.
         clip_percentiles (tuple[float, float] | None): Per-trace display range in percentiles,
             e.g. ``(1, 99)``; None draws the traces unclipped. The percentiles are taken over the
-            frames shown.
+            frames shown. Must be None or ``0 <= low < high <= 100``.
         middle_frames_shown (int | None): Draw only this many frames from the middle of the
             run, e.g. ``8000``; outcomes outside them are not marked. Default None, every frame.
 
     Returns:
         matplotlib.figure.Figure: The figure.
+
+    Raises:
+        ValueError: If *clip_percentiles* or *middle_frames_shown* is invalid.
+        TypeError: If *middle_frames_shown* is not an integer.
+
+    Warns:
+        UserWarning: If ``x_units="s"`` and none of the frames shown has a pyControl time; the
+            traces panel is then empty and the title says so.
     """
+    check_clip_percentiles(clip_percentiles)
+    n_frames = top["dff"].shape[1]
+    frames = middle_frames(n_frames, middle_frames_shown)  # validated before a figure exists
     fig, (ax_traces, ax_fov) = plt.subplots(
         1, 2, figsize=(16, 9), gridspec_kw={"width_ratios": [3, 1]}, constrained_layout=True
     )
     colors = roi_colors(len(top["cells"]))
-    n_frames = top["dff"].shape[1]
-    frames = middle_frames(n_frames, middle_frames_shown)
-    _draw_traces(ax_traces, top, x_units, colors, clip_percentiles, frames)
+    has_times = _draw_traces(ax_traces, top, x_units, colors, clip_percentiles, frames)
     n = len(top["cells"])
     ranking = RANKING_TITLES[top["rank_by"]]
     heading = f"{variant} green: top {n} ROIs by {ranking}".strip()
@@ -324,6 +473,14 @@ def plot_top_cells(
         heading += f"\nclipped to {_ordinal(low)}–{_ordinal(high)} percentile per ROI"
     if frames.stop - frames.start < n_frames:
         heading += f"; middle {frames.stop - frames.start} of {n_frames} frames"
+    if not has_times:
+        warnings.warn(
+            f"{title or 'top cells'}: none of the frames shown has a pyControl time, so the "
+            "traces cannot be placed on the time axis; use x_units='frames'.",
+            UserWarning,
+            stacklevel=2,
+        )
+        heading += "\nno pyControl time in the frames shown"
     ax_traces.set_title(heading)
     _draw_fov(ax_fov, top, colors)
     fig.suptitle(title)

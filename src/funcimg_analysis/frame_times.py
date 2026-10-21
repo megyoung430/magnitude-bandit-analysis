@@ -30,11 +30,20 @@ FRAME_TIMES_FILE = "frame_times.npz"
 BATCH_MANIFEST = "source_tiff.json"
 VARIANTS = ("without_destriping", "with_destriping")
 TIFF_SUFFIXES = (".tif", ".tiff")
+# The batch's processed-TIFF names, ``<stem>_dynamic_bidiphase[_destriped][_undistorted].tif``,
+# are built in mini2p_preprocessing.config (corrected_tiff_path, undistorted_tiff_path); a test
+# pins this pattern to those functions' output.
 PROCESSED_SUFFIX = r"_dynamic_bidiphase(_destriped)?(_undistorted)?"
 
 
 class RunMismatchError(ValueError):
     """A run's traces, frame clock and behaviour cannot be shown to be one acquisition."""
+
+
+def same_tiff_name(name: str, other: str) -> bool:
+    """Whether two TIFF file names agree: stems exactly, extensions ignoring case."""
+    first, second = Path(name), Path(other)
+    return first.stem == second.stem and first.suffix.lower() == second.suffix.lower()
 
 
 def batch_source_tiffs(run_dir, variants=VARIANTS) -> dict[str, str]:
@@ -68,11 +77,10 @@ def names_match_source(tiff_name: str, names) -> bool:
     The batch (``mini2p_preprocessing.config``) names its outputs
     ``<stem>_dynamic_bidiphase[_destriped][_undistorted].tif``; anything else after the stem
     (``_retry_...``, a further acquisition number) is not accepted, and the exact stem keeps
-    ``71rtask_00039`` from claiming ``71rtask_000390_...``.
+    ``71rtask_00039`` from claiming ``71rtask_000390_...``. Only the extension ignores case
+    (as in :func:`same_tiff_name`); the stem and the suffix are compared exactly.
     """
-    pattern = re.compile(
-        re.escape(Path(tiff_name).stem) + PROCESSED_SUFFIX + r"\.tiff?", re.IGNORECASE
-    )
+    pattern = re.compile(re.escape(Path(tiff_name).stem) + PROCESSED_SUFFIX + r"(?i:\.tiff?)")
     return len(names) > 0 and all(pattern.fullmatch(name) for name in names)
 
 
@@ -108,7 +116,7 @@ def check_run_source(tiff_name: str, run_dir, variants=VARIANTS) -> None:
     """
     run_dir = Path(run_dir)
     recorded = batch_source_tiffs(run_dir, variants)
-    wrong = {v: name for v, name in recorded.items() if name != tiff_name}
+    wrong = {v: name for v, name in recorded.items() if not same_tiff_name(name, tiff_name)}
     if wrong:
         raise RunMismatchError(
             f"{run_dir}: the batch made {wrong} from another TIFF than {tiff_name}; the run "

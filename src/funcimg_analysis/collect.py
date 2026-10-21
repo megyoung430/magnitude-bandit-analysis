@@ -25,16 +25,17 @@ from src.funcimg_analysis.frame_times import (
     load_frame_times,
 )
 from src.funcimg_analysis.run_responses import (
+    BACKGROUND_MEASURES,
     EXTRACTION_RECORD,
     MEASURES,
     PULSE_CATEGORIES,
     VIEWS,
+    check_measures,
     plane_views,
     pulse_responses,
 )
 
 RANKINGS = ("max_dff", "p_cell")
-BACKGROUND_MEASURES = ("F", "F z")  # a background has no neuropil or F0, so no ΔF/F0
 SESSION = re.compile(r"^ses-(\d+)_")
 
 
@@ -140,7 +141,12 @@ def _collect_runs(
 
 
 def pool_runs(runs: list[dict], measures: tuple[str, ...]) -> dict:
-    """Pool *runs* for *measures*: ``{view: {pulses: {"mean", "sem", "n_cells", "n_runs"}}}``."""
+    """Pool *runs* for *measures*: ``{view: {pulses: {"mean", "sem", "n_cells", "n_runs"}}}``.
+
+    Raises:
+        ValueError: If *measures* is empty or has an unknown name.
+    """
+    check_measures(measures)
     return {
         view: pooled_mean_sem([run["means"][view] for run in runs], PULSE_CATEGORIES)
         for view in VIEWS
@@ -180,7 +186,11 @@ def collect_pulse_responses(
         tuple: ``{view: {pulses: {"mean", "sem", "n_cells", "n_runs"}}}`` pooled over cells;
         one result per included run (see ``pulse_responses``, plus ``session`` and ``run``);
         and ``(session, run, reason)`` for each run left out.
+
+    Raises:
+        ValueError: If *measures* is empty or has an unknown name (the valid ones are listed).
     """
+    check_measures(measures)
     found = variant_runs(subject_dir, first_session, last_session, variant, runs)
     included, skipped = _collect_runs(
         found,
@@ -253,10 +263,9 @@ def collect_background_responses(
         ``(session, run, reason)`` for each run left out.
 
     Raises:
-        ValueError: If a measure other than ``F`` and ``F z`` is requested.
+        ValueError: If *measures* is empty or has a name other than ``F`` and ``F z``.
     """
-    if not set(measures) <= set(BACKGROUND_MEASURES):
-        raise ValueError(f"measures must be among {BACKGROUND_MEASURES}, not {measures}.")
+    check_measures(measures, BACKGROUND_MEASURES)
 
     def load_views(plane_dir):
         background = load_background(plane_dir, roi_margin_px, cache_dir)

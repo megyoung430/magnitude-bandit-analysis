@@ -8,11 +8,19 @@ from src.funcimg_visualization.plot_funcimg_responses import (
     PULSE_COLORS,
     outline,
     plot_pulse_responses,
+    window_tag,
     window_x,
 )
 
 MASK_COLOR = (1.0, 0.55, 0.0)  # orange over the grey mean image
 MASK_ALPHA = 0.35
+
+
+def background_responses_png_name(
+    file_tag: str, variant: str, x_units: str, window_s: tuple[float, float]
+) -> str:
+    """File name of the background response figure; the window is part of it."""
+    return f"background_responses_{file_tag}_{variant}_{x_units}_{window_tag(window_s)}.png"
 
 
 def _share_ylim(first, second) -> None:

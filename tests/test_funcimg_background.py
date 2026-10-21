@@ -23,6 +23,7 @@ from src.funcimg_analysis.collect import (  # noqa: E402
 )
 from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE, RunMismatchError  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_background import (  # noqa: E402
+    background_responses_png_name,
     plot_background_mask,
     plot_background_responses,
 )
@@ -582,3 +583,10 @@ def test_a_run_with_no_z_does_not_count_in_the_legend(derivatives, tmp_path):
     pooled, _, _ = collect_background(derivatives, tmp_path / "cache")
     assert pooled[("green", "F z")][2]["n_runs"] == 1
     assert pooled[("green", "F")][2]["n_runs"] == 2
+
+
+def test_the_background_png_name_carries_the_window():
+    name = background_responses_png_name("ses-224-224_run-01", "with_destriping", "s", (-10, 30))
+    assert name == "background_responses_ses-224-224_run-01_with_destriping_s_win-10to30s.png"
+    other = background_responses_png_name("ses-224-224_run-01", "with_destriping", "s", (-5, 20))
+    assert other != name

@@ -1,3 +1,5 @@
+import warnings
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -9,13 +11,16 @@ import pytest  # noqa: E402
 from matplotlib.colors import to_hex, to_rgba  # noqa: E402
 
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
+    SPACING_FLOOR,
     clip_traces,
     middle_frames,
     plot_top_cells,
+    pulse_responses_png_name,
     roi_colors,
     top_cells_pdf_name,
     trace_baselines,
     trace_spacing,
+    window_tag,
 )
 
 TAB10 = [
@@ -89,9 +94,12 @@ def test_y_ticks_are_roi_labels_at_each_baseline_with_the_best_roi_on_top(figure
     top = synthetic_top()
     labels = [t.get_text() for t in ax.get_yticklabels()]
     order = np.argsort(-ax.get_yticks())  # top of the axis first
-    expected = [f"ROI {c} (p={p:.2f})" for c, p in zip(top["cells"], top["p_cell"], strict=True)]
+    expected = [
+        f"ROI {c} (p={p:.2f}, max {peak:.3g})"
+        for c, p, peak in zip(top["cells"], top["p_cell"], top["peaks"], strict=True)
+    ]
     assert [labels[i] for i in order] == expected
-    assert labels[order[0]] == "ROI 5 (p=0.99)"
+    assert labels[order[0]].startswith("ROI 5 (p=0.99, max ")
     assert ax.get_ylabel() == "ROI"
     assert not ax.texts
 
@@ -175,8 +183,23 @@ def test_unclipped_figure_shows_the_raw_values():
     plt.close(fig)
 
 
-def test_clipping_is_named_in_the_title_and_does_not_change_the_ranking_inputs(figure):
+def test_clipping_is_named_in_the_title(figure):
     assert "clipped to 1st–99th percentile per ROI" in figure.axes[0].get_title()
+
+
+def test_clipping_leaves_the_input_and_the_rank_order_unchanged():
+    top = synthetic_top()
+    before = {key: np.copy(top[key]) for key in ("dff", "cells", "peaks")}
+    labels = {}
+    for clip in ((1, 99), None):
+        fig = plot_top_cells(top, clip_percentiles=clip)
+        ax = fig.axes[0]
+        order = np.argsort(-ax.get_yticks())
+        labels[clip] = [ax.get_yticklabels()[i].get_text() for i in order]
+        plt.close(fig)
+    assert all(np.array_equal(top[key], before[key]) for key in before)
+    assert labels[(1, 99)] == labels[None]  # same ROIs in the same order, with the same max
+    assert labels[None][0].startswith(f"ROI {top['cells'][0]} ")
 
 
 def test_no_top_cells_gives_an_empty_panel_with_a_note():
@@ -194,10 +217,13 @@ def test_no_top_cells_gives_an_empty_panel_with_a_note():
 
 def test_a_top_roi_hidden_by_overlaps_is_noted_and_does_not_break_the_overlay():
     top = synthetic_top(n_rois=4)
-    top["labels"] = np.where(top["labels"] == top["cells"][2] + 1, 0, top["labels"])
-    top["cells"] = top["cells"].copy()
+    hidden = top["cells"][2]
+    top["labels"] = np.where(top["labels"] == hidden + 1, 0, top["labels"])
     fig = plot_top_cells(top)
-    assert f"ROI {top['cells'][2]}" in fig.axes[1].get_title()
+    ax_fov = fig.axes[1]
+    note = ax_fov.get_title().split("\n")[1]
+    assert note == f"not visible (hidden by overlaps): ROI {hidden}"
+    assert {t.get_text() for t in ax_fov.texts} == {str(c) for c in top["cells"] if c != hidden}
     plt.close(fig)
 
 
@@ -205,6 +231,11 @@ def test_a_top_roi_numbered_beyond_the_labels_does_not_break_the_overlay():
     top = synthetic_top(n_rois=4)
     top["cells"] = top["cells"] + 500  # no such labels in the image
     fig = plot_top_cells(top)
+    ax_fov = fig.axes[1]
+    assert not ax_fov.texts  # no ROI has any pixel to number
+    for cell in top["cells"]:
+        assert f"ROI {cell}" in ax_fov.get_title()
+    assert not ax_fov.images[1].get_array().any()  # nothing outlined
     plt.close(fig)
 
 
@@ -243,13 +274,77 @@ def test_each_ranking_has_its_own_pdf_name():
     assert by_max == "top30_cells_by_max_dff_20-20_with_destriping_s.pdf"
 
 
+def test_the_pdf_name_carries_the_middle_frames_and_clip_settings():
+    args = (30, "p_cell", "20-20", "with_destriping", "frames")
+    stem = "top30_cells_by_p_cell_20-20_with_destriping_frames"
+    assert top_cells_pdf_name(*args) == f"{stem}.pdf"
+    assert top_cells_pdf_name(*args, middle_frames_shown=8000) == f"{stem}_mid8000.pdf"
+    assert top_cells_pdf_name(*args, clip_percentiles=(1, 99)) == f"{stem}_clip1-99.pdf"
+    both = top_cells_pdf_name(*args, middle_frames_shown=8000, clip_percentiles=(1, 99))
+    assert both == f"{stem}_mid8000_clip1-99.pdf"
+    half = top_cells_pdf_name(*args, clip_percentiles=(0.5, 99.5))
+    assert half == f"{stem}_clip0.5-99.5.pdf"
+
+
+def test_pdf_names_differ_when_a_display_setting_differs():
+    args = (30, "max_dff", "t", "v", "s")
+    names = {
+        top_cells_pdf_name(*args),
+        top_cells_pdf_name(*args, middle_frames_shown=8000),
+        top_cells_pdf_name(*args, middle_frames_shown=4000),
+        top_cells_pdf_name(*args, clip_percentiles=(1, 99)),
+        top_cells_pdf_name(*args, clip_percentiles=(5, 95)),
+    }
+    assert len(names) == 5
+
+
+def test_the_window_is_named_in_seconds():
+    assert window_tag((-10.0, 30.0)) == "win-10to30s"
+    assert window_tag((-0.5, 1.5)) == "win-0.5to1.5s"
+    assert window_tag((0.0, 1.0)) == "win0to1s"
+
+
+def test_pooled_and_background_png_names_carry_the_window():
+    pooled = pulse_responses_png_name("ses-224-224_run-01", "with_destriping", "Fz", "s", (-10, 30))
+    assert pooled == "pulse_responses_ses-224-224_run-01_with_destriping_Fz_s_win-10to30s.png"
+    other = pulse_responses_png_name("ses-224-224_run-01", "with_destriping", "Fz", "s", (-5, 20))
+    assert other != pooled
+
+
 def test_middle_frames_is_a_centred_slice_or_everything():
     assert middle_frames(10_000, 8000) == slice(1000, 9000)
     assert middle_frames(10_001, 8000) == slice(1000, 9000)
     assert middle_frames(5000, 8000) == slice(0, 5000)
     assert middle_frames(5000, None) == slice(0, 5000)
+    assert middle_frames(5000, np.int64(1000)) == slice(2000, 3000)
+
+
+@pytest.mark.parametrize(("n_frames", "n_shown"), [(5000, 0), (5000, -3), (0, 0), (10, -1)])
+def test_a_non_positive_middle_frame_count_is_refused_whatever_the_run_length(n_frames, n_shown):
     with pytest.raises(ValueError, match="positive"):
-        middle_frames(5000, 0)
+        middle_frames(n_frames, n_shown)
+
+
+@pytest.mark.parametrize("n_shown", [True, 2.5, 8000.0, "100"])
+def test_a_middle_frame_count_that_is_not_an_integer_is_refused(n_shown):
+    with pytest.raises(TypeError, match="integer"):
+        middle_frames(1, n_shown)  # True >= 1 would otherwise read as "everything"
+
+
+@pytest.mark.parametrize(
+    "clip",
+    [(1,), (1, 2, 3), (99, 1), (5, 5), (-1, 50), (0, 101), (float("nan"), 99), (True, 99), "ab"],
+)
+def test_clip_percentiles_must_be_two_ordered_percentiles(clip):
+    with pytest.raises(ValueError, match="clip_percentiles"):
+        clip_traces(long_traces(n=4), clip)
+    with pytest.raises(ValueError, match="clip_percentiles"):
+        plot_top_cells(synthetic_top(), clip_percentiles=clip)
+
+
+def test_clip_percentiles_may_span_the_whole_range_or_be_a_list():
+    clip_traces(long_traces(n=4), (0, 100))
+    clip_traces(long_traces(n=4), [0.5, 99.5])
 
 
 def test_only_the_middle_frames_are_drawn_and_named_in_the_title():
@@ -262,14 +357,113 @@ def test_only_the_middle_frames_are_drawn_and_named_in_the_title():
     plt.close(fig)
 
 
-def test_outcome_markers_outside_the_middle_frames_are_not_drawn():
-    top = synthetic_top()
-    fig = plot_top_cells(top, x_units="frames", middle_frames_shown=100)
-    shown = middle_frames(N_FRAMES, 100)
-    markers = [
+def outcome_marker_positions(fig):
+    """x of each outcome marker (a vertical segment); NaN means nothing is drawn."""
+    return [
         line.get_xdata()[0]
         for line in fig.axes[0].lines
         if len(line.get_xdata()) == 2 and line.get_xdata()[0] == line.get_xdata()[1]
     ]
-    assert all(shown.start <= x < shown.stop for x in markers if np.isfinite(x))
+
+
+def test_outcome_markers_outside_the_middle_frames_are_not_drawn():
+    fig = plot_top_cells(synthetic_top(), x_units="frames", middle_frames_shown=100)
+    drawn = [x for x in outcome_marker_positions(fig) if np.isfinite(x)]
+    assert drawn == [150.0]  # the outcomes at frames 50 and 250 are outside frames 100-199
+    plt.close(fig)
+
+
+@pytest.mark.parametrize(("middle", "frames"), [(None, [50, 150, 250]), (100, [150])])
+def test_outcome_markers_in_seconds_mode_are_filtered_to_the_frames_shown(middle, frames):
+    top = synthetic_top()
+    fig = plot_top_cells(top, x_units="s", middle_frames_shown=middle)
+    drawn = [x for x in outcome_marker_positions(fig) if np.isfinite(x)]
+    assert drawn == pytest.approx(list(top["time_s"][frames]))
+    plt.close(fig)
+
+
+def test_shown_frames_without_a_time_warn_and_are_named_in_the_title():
+    top = synthetic_top()
+    top["time_s"][100:200] = np.nan  # the middle 100 frames lie outside the sync pulses
+    with pytest.warns(UserWarning, match="none of the frames shown has a pyControl time"):
+        fig = plot_top_cells(top, x_units="s", middle_frames_shown=100)
+    assert "no pyControl time in the frames shown" in fig.axes[0].get_title()
+    plt.close(fig)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # frames mode needs no times
+        plt.close(plot_top_cells(top, x_units="frames", middle_frames_shown=100))
+
+
+def test_a_row_without_data_in_the_frames_shown_is_an_empty_labelled_row():
+    top = synthetic_top()
+    top["dff"][2, 100:200] = np.nan  # finite elsewhere, so the run ranked it
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # no numpy all-NaN warnings either
+        fig = plot_top_cells(top, x_units="frames", middle_frames_shown=100)
+    ax = fig.axes[0]
+    labels = [t.get_text() for t in ax.get_yticklabels()]
+    order = np.argsort(-ax.get_yticks())
+    empty = [i for i, tick in enumerate(order) if "no data in shown frames" in labels[tick]]
+    assert empty == [2]
+    assert np.isnan(trace_lines(fig)[2].get_ydata()).all()
+    assert np.isfinite(ax.get_ylim()).all()
+    plt.close(fig)
+
+
+@pytest.mark.parametrize("empty_rows", [[0], [N_ROIS - 1], list(range(N_ROIS))])
+def test_empty_rows_at_the_ends_or_everywhere_still_give_a_finite_axis(empty_rows):
+    top = synthetic_top()
+    top["dff"][empty_rows, 100:200] = np.nan
+    fig = plot_top_cells(top, x_units="frames", middle_frames_shown=100)
+    ax = fig.axes[0]
+    low, high = ax.get_ylim()
+    assert np.isfinite([low, high]).all() and low < high
+    assert low <= ax.get_yticks().min() and ax.get_yticks().max() <= high  # every label is visible
+    plt.close(fig)
+
+
+def test_spacing_ignores_rows_without_data_and_falls_back_to_the_floor():
+    dff = long_traces(n=6)
+    with_gap = dff.copy()
+    with_gap[2] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert trace_spacing(with_gap) > SPACING_FLOOR
+        assert trace_spacing(np.full((3, 50), np.nan)) == SPACING_FLOOR
+        clipped = clip_traces(with_gap, (1, 99))
+    assert np.isnan(clipped[2]).all()
+    assert np.array_equal(clipped[0], clip_traces(dff, (1, 99))[0])
+
+
+def test_the_tick_label_carries_the_true_max_that_clipping_flattens():
+    top = synthetic_top(with_big_transient=False)
+    top["dff"][3, 150] += 8.0  # one frame in 300: above the 99th percentile
+    top["peaks"] = np.nanmax(top["dff"], axis=1)
+    peak = top["peaks"][3]
+    assert peak > 8
+    fig = plot_top_cells(top, clip_percentiles=(1, 99))
+    ax = fig.axes[0]
+    assert np.ptp(trace_lines(fig)[3].get_ydata()) < peak / 4  # flattened to the 99th percentile
+    expected = f"ROI {top['cells'][3]} (p={top['p_cell'][3]:.2f}, max {peak:.3g})"
+    assert expected in [t.get_text() for t in ax.get_yticklabels()]
+    plt.close(fig)
+
+
+def peak_ticks(fig):
+    return [line for line in fig.axes[0].lines if line.get_marker() == "|"]
+
+
+@pytest.mark.parametrize(("x_units", "middle"), [("frames", None), ("frames", 100), ("s", 100)])
+def test_each_roi_has_a_tick_in_its_colour_where_its_maximum_falls_if_shown(x_units, middle):
+    top = synthetic_top()
+    shown = middle_frames(N_FRAMES, middle)
+    where = np.argmax(top["dff"], axis=1)
+    x_all = np.arange(N_FRAMES) if x_units == "frames" else top["time_s"]
+    colors = roi_colors(N_ROIS)
+    expected = [(colors[i], x_all[w]) for i, w in enumerate(where) if shown.start <= w < shown.stop]
+    assert 0 < len(expected) < N_ROIS or middle is None
+    fig = plot_top_cells(top, x_units=x_units, middle_frames_shown=middle)
+    got = [(to_hex(t.get_color()), t.get_xdata()[0]) for t in peak_ticks(fig)]
+    assert [c for c, _ in got] == [c for c, _ in expected]
+    assert [x for _, x in got] == pytest.approx([x for _, x in expected])
     plt.close(fig)
