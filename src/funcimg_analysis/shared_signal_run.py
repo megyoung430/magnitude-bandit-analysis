@@ -12,7 +12,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from src.funcimg_analysis.event_frames import frame_period_s
+from src.funcimg_analysis.event_frames import MAD_TO_SD, frame_period_s, quiet_empty_means
 from src.funcimg_analysis.frame_times import RunMismatchError
 from src.funcimg_analysis.run_responses import check_measures, pulse_responses
 from src.funcimg_analysis.shared_signal import (
@@ -35,6 +35,28 @@ def _background_z(background: dict, channel: str, window_frames: int) -> np.ndar
     if flat[0]:
         raise ValueError(f"the {channel} background is constant after detrending; it has no scale.")
     return z[0]
+
+
+def _robust_scale(traces: np.ndarray) -> np.ndarray:
+    """Per-row ``1.4826 * MAD`` (NaN-safe), the scale ``robust_z`` divides by."""
+    with quiet_empty_means():
+        median = np.nanmedian(traces, axis=1, keepdims=True)
+        return MAD_TO_SD * np.nanmedian(np.abs(traces - median), axis=1)
+
+
+def _in_units_of(result: dict, scales: dict) -> dict:
+    """Multiply each cell's z response by *scales* of its raw view, undoing the re-z-scoring.
+
+    ``pulse_responses`` z-scores a trace by its own scale. After removing the background that
+    scale is smaller than the detrended cell's, which would inflate a surviving response, so the
+    responses are multiplied back to the units of the detrended cell's z (1 = its own noise).
+    """
+    for view in result["means"]:
+        factor = scales[(view[0], view[1].removesuffix(" z"))][:, None]
+        for table in (result["means"][view], result["sems"][view]):
+            for pulses in table:
+                table[pulses] = table[pulses] * factor
+    return result
 
 
 def analyse_shared_signal(
@@ -70,7 +92,8 @@ def analyse_shared_signal(
     Returns:
         dict: ``stats`` (``{(channel, measure): shared_signal_stats}``), ``original`` and
         ``residual`` (``pulse_responses`` of the detrended cells and of the cells minus the
-        background's fit), ``n_cells`` and ``period_s``.
+        background's fit, the latter in units of the detrended cell's own robust scale),
+        ``n_cells`` and ``period_s``.
 
     Raises:
         ValueError: If *measures* is empty or has a name other than ``F z`` and ``dF/F0 z``,
@@ -100,18 +123,21 @@ def analyse_shared_signal(
     offsets = shift_offsets(n_frames, min_shift_frames, n_shifts, rng)
     raw_measures = {measure.removesuffix(" z") for measure in measures}
     wanted = [key for key in views if key[1] in raw_measures]
-    stats, original, residual = {}, {}, {}
+    stats, original, residual, residual_scale = {}, {}, {}, {}
     for channel in dict.fromkeys(channel for channel, _ in wanted):
         background_z = _background_z(background, channel, window_frames)
         for key in (key for key in wanted if key[0] == channel):
             z, _ = detrended_z(views[key], window_frames)
             stats[key] = shared_signal_stats(z, background_z, offsets)
             original[key], residual[key] = z, remove_background(z, background_z)
+            residual_scale[key] = _robust_scale(residual[key])
     align = dict(window_s=window_s, phases=phases, measures=measures)
     return {
         "stats": stats,
         "original": pulse_responses(original, frame_times_s, outcomes, **align),
-        "residual": pulse_responses(residual, frame_times_s, outcomes, **align),
+        "residual": _in_units_of(
+            pulse_responses(residual, frame_times_s, outcomes, **align), residual_scale
+        ),
         "n_cells": next(iter(views.values())).shape[0],
         "period_s": period,
     }

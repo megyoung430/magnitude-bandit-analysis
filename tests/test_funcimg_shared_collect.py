@@ -115,7 +115,7 @@ def test_a_reward_response_that_is_only_in_the_cells_survives_background_removal
     result = analyse(views, background)
     original, residual = response_2s(result, "original"), response_2s(result, "residual")
     assert original > 0.5
-    assert residual > 0.7 * original
+    assert 0.7 * original < residual < 1.3 * original  # same units: z of the detrended cell
 
 
 def test_the_response_of_a_dff_view_is_removed_the_same_way():
