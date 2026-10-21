@@ -136,21 +136,32 @@ def robust_z(traces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return (traces - median) / safe, flat
 
 
-def baseline_subtract(windows: np.ndarray, pre_frames: int) -> np.ndarray:
+def baseline_subtract(
+    windows: np.ndarray, pre_frames: int, last_pre_frame_spans_event: np.ndarray | None = None
+) -> np.ndarray:
     """Subtract from each trial its own mean over the pre-event frames (offsets < 0).
 
     Args:
         windows (np.ndarray): ``(n_cells, n_events, n_window)``; the first *pre_frames* columns
             are the frames before the event's frame.
         pre_frames (int): Number of frames before the event's frame.
+        last_pre_frame_spans_event (np.ndarray | None): Per event, True if the event happened
+            before its nearest frame's start, so the frame at offset -1 was being acquired when
+            it occurred and is left out of that trial's baseline. A trial left with no baseline
+            frame becomes NaN. Default None, meaning none.
 
     Raises:
         ValueError: If there are no pre-event frames to take a baseline from.
     """
     if pre_frames < 1:
         raise ValueError("Baseline subtraction needs pre-event frames; widen the window below 0 s.")
+    pre = windows[:, :, :pre_frames]
+    if last_pre_frame_spans_event is not None:
+        spanned = np.zeros(pre.shape[1:], dtype=bool)
+        spanned[np.asarray(last_pre_frame_spans_event, dtype=bool), -1] = True
+        pre = np.where(spanned[None], np.nan, pre)
     with _quiet_empty_means():
-        baseline = np.nanmean(windows[:, :, :pre_frames], axis=2, keepdims=True)
+        baseline = np.nanmean(pre, axis=2, keepdims=True)
     return windows - baseline
 
 

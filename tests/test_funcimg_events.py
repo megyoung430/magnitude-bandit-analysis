@@ -133,3 +133,13 @@ def test_cells_are_ranked_by_score_with_ties_broken_by_roi_index():
 def test_cells_without_a_score_are_left_out_of_a_score_ranking():
     dff = np.ones((3, 4))
     assert top_cells_by_score(dff, np.array([0.2, np.nan, 0.7]), 3).tolist() == [2, 0]
+
+
+def test_baseline_leaves_out_the_last_pre_frame_of_trials_whose_event_it_spans():
+    windows = np.zeros((1, 2, 8))
+    windows[0, :, 3] = 100.0  # the frame at offset -1 of a window with 4 pre-event frames
+    out = baseline_subtract(
+        windows, pre_frames=4, last_pre_frame_spans_event=np.array([True, False])
+    )
+    assert out[0, 0, 0] == 0  # baseline of the first trial ignores the frame holding the event
+    assert out[0, 1, 0] == -25  # the second trial's baseline includes it

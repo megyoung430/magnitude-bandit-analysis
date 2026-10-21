@@ -23,8 +23,9 @@ destriping variants of the mini2p preprocessing.
   `run-XX/<variant>/source_tiff.json` before frame times are written and again when traces are loaded; a mismatch (a
   stray `._` file, a renamed TIFF) is refused, because runs of equal length would otherwise pair one acquisition's traces
   with another's frame clock and behaviour. A variant folder without a `source_tiff.json` (e.g. `with_destriping` when
-  the batch wrote no record) is accepted if it has processed `.tif` files and every one is named
-  `<source stem>_*.tif` (`._` AppleDouble files ignored); a `UserWarning` names the run, variant and TIFFs used. No TIFF,
+  the batch wrote no record) is accepted if it has processed `.tif`/`.tiff` files and every one is named
+  `<source stem>_dynamic_bidiphase[_destriped][_undistorted]` (the batch's output names; `._` AppleDouble files ignored,
+  `_retry_...` or a further acquisition number refused); the record is read from whichever variant folder is checked; a `UserWarning` names the run, variant and TIFFs used. No TIFF,
   another stem, or a record naming another TIFF is still refused. Variant folders that do not exist are not checked, but
   at least one listed variant must exist. The warning is raised once per run and step (frame times, pooled responses, top
   cells), not per frame.
@@ -45,15 +46,20 @@ destriping variants of the mini2p preprocessing.
   `(x - median) / (1.4826 * MAD)` over the whole trace (NaN-safe), then each trial's mean over the pre-event part of the
   window (offsets < 0) is subtracted before averaging over trials; mean ± SEM across cells as for the raw views. A cell
   with MAD 0 (or no finite value) has no scale: its z is NaN, it adds nothing to the pool, and it is listed per run
-  (`flat_cells`, printed by the notebook). Views are `RAW_VIEWS` (`F`, `dF/F0`) and `Z_VIEWS` (`F z`, `dF/F0 z`), both
-  computed; the notebook's `MEASURES` chooses which two rows `plot_pulse_responses` draws (default z; titles and y
-  labels say "robust z, baseline-subtracted"). Needs a window starting before 0 s.
+  (`flat_cells`, printed by the notebook). Only the requested `measures` are computed (`F`, `dF/F0`, `F z`, `dF/F0 z`; the notebook's `MEASURES`, default z;
+  titles and y labels say "robust z, baseline-subtracted" and that F is not neuropil-corrected; file names carry the
+  measure set). A z measure needs frames before the outcome (a window starting at 0 s raises unless raw measures are
+  asked for). For an event that falls before its nearest frame's start, the frame at offset -1 was being acquired when it
+  occurred and is left out of that trial's baseline.
 - **Top cells**: per run, the `N_TOP` cells with the largest green ΔF/F0 anywhere in the trace, stacked traces with the
   outcomes marked by pulse count, and their outlines on the mean image. One PDF page per run per variant. Each ROI has one
   colour (matplotlib `tab10`, cycling in rank order, best ROI on top) shared by its trace and its outline and number in the
-  field of view; traces are 0.8 pt, with `ROI <n>` as y tick labels at each baseline, spaced by 1.1 x the 99.5th
-  percentile of the per-trace range (max - min). That spacing keeps traces from overlapping, but with ~20 traces the
-  percentile is close to the largest range, so one very large transient widens the spacing for all.
+  field of view; traces are 0.8 pt, with `ROI <n>` as y tick labels at each baseline, drawn clipped to each ROI's
+  own 1st-99th percentile (`clip_percentiles`, `CLIP_PERCENTILES` in the notebook; None = unclipped; display only, the
+  ranking uses the unclipped values) and spaced by one constant distance: the largest, over adjacent rows, of the lower
+  trace's high percentile minus the upper trace's low percentile, plus 10 % (with clipping, nothing overlaps; unclipped
+  uses the 0.5th and 99.5th percentiles, so only a brief transient can reach the next row). A floor keeps flat traces
+  apart. With no top cells the panel says so; a top ROI hidden by overlaps in the label image is listed in the FOV title.
 - **Top-cell rankings**: `top_cells(..., rank_by="max_dff" | "p_cell")`. `p_cell` is Suite2p's classifier
   probability (`iscell.npy` column 1); mini2p's `classify_rois` runs Suite2p's built-in classifier on the Cellpose ROIs,
   so it is advisory. Ties go to the lower ROI index; ROIs without a probability or without a defined ΔF/F0 are left

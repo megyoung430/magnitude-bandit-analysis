@@ -9,10 +9,12 @@ import pytest  # noqa: E402
 from matplotlib.colors import to_hex, to_rgba  # noqa: E402
 
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
+    clip_traces,
     plot_top_cells,
     roi_colors,
     top_cells_pdf_name,
     trace_baselines,
+    trace_spacing,
 )
 
 TAB10 = [
@@ -98,18 +100,111 @@ def test_only_left_and_bottom_spines_are_drawn(figure):
     assert [name for name, s in spines.items() if s.get_visible()] == ["left", "bottom"]
 
 
-def test_traces_do_not_overlap_even_with_one_large_transient():
-    dff = synthetic_top()["dff"]
+def long_traces(n=30, n_frames=3000, transient=8.0, seed=0):
+    """Noisy ΔF/F0 traces, the fourth with one brief (10-frame) large transient."""
+    dff = np.random.default_rng(seed).normal(0, 0.2, (n, n_frames))
+    dff[3, 100:110] += transient
+    return dff
+
+
+def test_spacing_ignores_one_brief_transient_among_many_traces():
+    quiet = trace_spacing(long_traces(transient=0.0))
+    big = trace_spacing(long_traces(transient=8.0))
+    assert big == pytest.approx(quiet, rel=0.15)  # not the transient (8)
+    assert quiet < 2.5  # about one trace's own range, nowhere near the 8 of the transient
+
+
+def test_the_bulk_of_each_trace_stays_within_its_own_row():
+    dff = long_traces()
     baselines = trace_baselines(dff)
     shifted = baselines[:, None] + dff
+    low, high = np.percentile(shifted, [1, 99], axis=1)
+    assert np.all(high[1:] < low[:-1])
     assert np.all(np.diff(baselines) < 0)  # rank 0 first, each lower than the one before
-    assert np.all(shifted[1:].max(axis=1) < shifted[:-1].min(axis=1))
 
 
-def test_spacing_is_set_by_the_largest_traces_not_by_noise():
-    quiet = trace_baselines(synthetic_top(with_big_transient=False)["dff"])
-    big = trace_baselines(synthetic_top()["dff"])
-    assert abs(big[1]) > abs(quiet[1]) * 3
+def test_spacing_clears_an_asymmetric_pair():
+    rng = np.random.default_rng(0)
+    reaches_down = rng.uniform(-4.0, 0.1, 1000)  # the upper row
+    reaches_up = rng.uniform(-0.1, 4.0, 1000)  # the lower row
+    dff = np.vstack([reaches_down, reaches_up])
+    needed = np.percentile(reaches_up, 99.5) - np.percentile(reaches_down, 0.5)
+    assert trace_spacing(dff) >= needed  # about 8; each trace's own range is only 4.1
+
+
+def test_flat_traces_get_a_nonzero_spacing():
+    assert trace_spacing(np.zeros((3, 50))) > 0
+    assert trace_spacing(np.zeros((1, 50))) > 0
+
+
+def test_clipping_limits_each_trace_to_its_own_percentile_range():
+    dff = long_traces(n=5)
+    clipped = clip_traces(dff, (1, 99))
+    low, high = np.percentile(dff, [1, 99], axis=1)
+    assert np.allclose(clipped.min(axis=1), low) and np.allclose(clipped.max(axis=1), high)
+    inside = (dff >= low[:, None]) & (dff <= high[:, None])
+    assert np.array_equal(clipped[inside], dff[inside])  # values in range are untouched
+
+
+def test_no_clipping_is_the_identity():
+    dff = long_traces(n=5)
+    assert clip_traces(dff, None) is dff
+
+
+def test_clipped_rows_do_not_overlap_in_the_figure():
+    top = synthetic_top(n_rois=30)
+    top["dff"] = long_traces(n=30)[:, :N_FRAMES]
+    top["peaks"] = top["dff"].max(axis=1)
+    top["p_cell"] = np.linspace(0.99, 0.5, 30)
+    fig = plot_top_cells(top, clip_percentiles=(1, 99))
+    lines = fig.axes[0].lines[:30]
+    ys = [line.get_ydata() for line in lines]
+    assert all(
+        np.all(lower.max() < upper.min() + 1e-9) for upper, lower in zip(ys, ys[1:], strict=False)
+    )
+    plt.close(fig)
+
+
+def test_unclipped_figure_shows_the_raw_values():
+    top = synthetic_top()
+    fig = plot_top_cells(top, clip_percentiles=None)
+    first = fig.axes[0].lines[0].get_ydata()
+    assert np.allclose(first, top["dff"][0])  # row 0 has baseline 0
+    assert "clipped" not in fig.axes[0].get_title()
+    plt.close(fig)
+
+
+def test_clipping_is_named_in_the_title_and_does_not_change_the_ranking_inputs(figure):
+    assert "clipped to 1st–99th percentile per ROI" in figure.axes[0].get_title()
+
+
+def test_no_top_cells_gives_an_empty_panel_with_a_note():
+    top = synthetic_top()
+    top.update(
+        cells=np.array([], dtype=int),
+        peaks=np.array([]),
+        p_cell=np.array([]),
+        dff=np.empty((0, N_FRAMES)),
+    )
+    fig = plot_top_cells(top, title="empty", variant="v")
+    assert any("no ROIs" in t.get_text() for t in fig.axes[0].texts)
+    plt.close(fig)
+
+
+def test_a_top_roi_hidden_by_overlaps_is_noted_and_does_not_break_the_overlay():
+    top = synthetic_top(n_rois=4)
+    top["labels"] = np.where(top["labels"] == top["cells"][2] + 1, 0, top["labels"])
+    top["cells"] = top["cells"].copy()
+    fig = plot_top_cells(top)
+    assert f"ROI {top['cells'][2]}" in fig.axes[1].get_title()
+    plt.close(fig)
+
+
+def test_a_top_roi_numbered_beyond_the_labels_does_not_break_the_overlay():
+    top = synthetic_top(n_rois=4)
+    top["cells"] = top["cells"] + 500  # no such labels in the image
+    fig = plot_top_cells(top)
+    plt.close(fig)
 
 
 @pytest.mark.parametrize(("x_units", "label"), [("s", "pyControl time (s)"), ("frames", "Frames")])
@@ -120,9 +215,12 @@ def test_x_label_names_the_units(x_units, label):
 
 
 def test_titles_name_the_variant_and_count_and_the_run(figure):
-    assert figure.axes[0].get_title() == f"with_destriping green: top {N_ROIS} ROIs by maximum dF/F"
+    first_line = figure.axes[0].get_title().split("\n")[0]
+    assert first_line == f"with_destriping green: top {N_ROIS} ROIs by maximum dF/F"
     fig = plot_top_cells(synthetic_top(rank_by="p_cell"), variant="with_destriping")
-    assert fig.axes[0].get_title() == f"with_destriping green: top {N_ROIS} ROIs by p(cell)"
+    assert (
+        fig.axes[0].get_title().startswith(f"with_destriping green: top {N_ROIS} ROIs by p(cell)")
+    )
     plt.close(fig)
     assert figure.get_suptitle() == "ses run"
 

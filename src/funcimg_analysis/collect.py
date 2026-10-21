@@ -25,6 +25,7 @@ from src.funcimg_analysis.frame_times import (
 )
 from src.funcimg_analysis.run_responses import (
     EXTRACTION_RECORD,
+    MEASURES,
     PULSE_CATEGORIES,
     VIEWS,
     plane_views,
@@ -102,6 +103,7 @@ def collect_pulse_responses(
     load_outcomes: Callable = load_outcome_events,
     *,
     runs: Collection[str] | None = None,
+    measures: tuple[str, ...] = MEASURES,
 ) -> tuple[dict, list[dict], list[tuple[str, str, str]]]:
     """Pool every cell's reward response across the runs of *variant*.
 
@@ -115,6 +117,8 @@ def collect_pulse_responses(
         load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
         runs (Collection[str] | None): Run folder names to include, e.g. ``("run-02",)``; runs
             not named are neither pooled nor listed as left out. Default None, meaning every run.
+            Keyword-only.
+        measures (tuple[str, ...]): Measures to compute and pool (see ``pulse_responses``).
             Keyword-only.
 
     Returns:
@@ -132,7 +136,12 @@ def collect_pulse_responses(
                 check_run_source(frames.tiff.name, run_dir, variants=(variant,))
                 views, _ = plane_views(plane_dir)
                 result = pulse_responses(
-                    views, frames.time_s, load_outcomes(frames.tsv), window_s, phases
+                    views,
+                    frames.time_s,
+                    load_outcomes(frames.tsv),
+                    window_s,
+                    phases,
+                    measures=measures,
                 )
                 runs.append({"session": session, "run": run_dir.name, **result})
                 continue
@@ -143,6 +152,7 @@ def collect_pulse_responses(
     pooled = {
         view: pooled_mean_sem([run["means"][view] for run in runs], PULSE_CATEGORIES)
         for view in VIEWS
+        if view[1] in measures
     }
     return pooled, runs, skipped
 

@@ -10,9 +10,12 @@ PULSE_COLORS = {0: "#C44E52", 1: "#41B6C4", 2: "#1D91C0", 3: "#225EA8", 4: "#0C2
 CHANNEL_TITLES = {"green": "Green (functional)", "red": "Red (structural)"}
 RANKING_TITLES = {"max_dff": "maximum dF/F", "p_cell": "p(cell)"}
 MEASURE_LABELS = {
-    "F": ("raw F", "F (a.u.)"),
+    "F": ("raw F (not neuropil-corrected)", "F (a.u.)"),
     "dF/F0": ("ΔF/F0", "ΔF/F0"),
-    "F z": ("F, robust z, baseline-subtracted", "F (robust z, baseline-subtracted)"),
+    "F z": (
+        "raw F (not neuropil-corrected), robust z, baseline-subtracted",
+        "F (robust z, baseline-subtracted)",
+    ),
     "dF/F0 z": ("ΔF/F0, robust z, baseline-subtracted", "ΔF/F0 (robust z, baseline-subtracted)"),
 }
 
@@ -94,23 +97,47 @@ def roi_colors(n: int) -> list[str]:
     return [matplotlib.colors.to_hex(cycle[i % len(cycle)]) for i in range(n)]
 
 
-def trace_spacing(dff: np.ndarray) -> float:
-    """Vertical distance between stacked traces.
+SPACING_MARGIN = 0.1  # fraction of the spacing left between neighbouring rows
+SPACING_FLOOR = 0.05  # ΔF/F0 units; keeps rows apart when every trace is flat
 
-    The 99.5th percentile of the per-trace range (max - min), plus a margin, so adjacent
-    traces clear each other without a single huge transient setting the scale when there
-    are many traces.
+
+def clip_traces(dff: np.ndarray, clip_percentiles: tuple[float, float] | None) -> np.ndarray:
+    """Each trace limited to its own percentile range (NaN-safe), for display only.
 
     Args:
         dff (np.ndarray): ``(n_cells, n_frames)`` ΔF/F0.
+        clip_percentiles (tuple[float, float] | None): Low and high percentile, e.g. ``(1, 99)``;
+            None returns *dff* unchanged.
     """
-    ranges = np.nanmax(dff, axis=1) - np.nanmin(dff, axis=1)
-    return float(1.1 * np.nanpercentile(ranges, 99.5))
+    if clip_percentiles is None:
+        return dff
+    low, high = np.nanpercentile(dff, clip_percentiles, axis=1, keepdims=True)
+    return np.clip(dff, low, high)
 
 
-def trace_baselines(dff: np.ndarray) -> np.ndarray:
+def trace_spacing(traces: np.ndarray, percentiles: tuple[float, float] = (0.5, 99.5)) -> float:
+    """Vertical distance between stacked traces, constant over the rows.
+
+    The largest, over adjacent rows (in plotted order), of the lower trace's high percentile
+    minus the upper trace's low percentile, so the bulk of one row never reaches the next; a
+    brief transient beyond the percentiles may. A trace's own range counts too. A margin
+    is added and a floor keeps all-flat traces apart.
+
+    Args:
+        traces (np.ndarray): ``(n_cells, n_frames)`` ΔF/F0, best cell first.
+        percentiles (tuple[float, float]): Low and high percentile of a trace's extent. Use
+            ``(0, 100)`` for traces already clipped to their percentile range.
+    """
+    low, high = np.nanpercentile(traces, percentiles, axis=1)
+    needed = np.concatenate([high - low, high[1:] - low[:-1]])
+    return float(max((1 + SPACING_MARGIN) * np.nanmax(needed), SPACING_FLOOR))
+
+
+def trace_baselines(
+    traces: np.ndarray, percentiles: tuple[float, float] = (0.5, 99.5)
+) -> np.ndarray:
     """Baseline (y of ΔF/F0 = 0) of each stacked trace: row 0 at 0, each next one lower."""
-    return -trace_spacing(dff) * np.arange(len(dff))
+    return -trace_spacing(traces, percentiles) * np.arange(len(traces))
 
 
 def _x_axis(top: dict, x_units: str) -> tuple[np.ndarray, str, np.ndarray]:
@@ -129,15 +156,23 @@ def _x_axis(top: dict, x_units: str) -> tuple[np.ndarray, str, np.ndarray]:
     raise ValueError(f"x_units must be 's' or 'frames', not {x_units!r}.")
 
 
-def _draw_traces(ax, top: dict, x_units: str, colors: list[str]) -> None:
+def _draw_traces(
+    ax, top: dict, x_units: str, colors: list[str], clip_percentiles: tuple[float, float] | None
+) -> None:
     """Stacked traces, one colour per ROI, with ``ROI <n>`` ticks and outcome markers above."""
+    if len(top["cells"]) == 0:
+        ax.text(0.5, 0.5, "no ROIs to show", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        return
     x, xlabel, events = _x_axis(top, x_units)
-    dff = top["dff"]
-    baselines = trace_baselines(dff)
-    spacing = trace_spacing(dff)
-    for base, trace, color in zip(baselines, dff, colors, strict=True):
+    shown = clip_traces(top["dff"], clip_percentiles)
+    # clipped traces end exactly at their percentiles, so the spacing is measured at the ends
+    spacing_percentiles = (0, 100) if clip_percentiles else (0.5, 99.5)
+    spacing = trace_spacing(shown, spacing_percentiles)
+    baselines = -spacing * np.arange(len(shown))
+    for base, trace, color in zip(baselines, shown, colors, strict=True):
         ax.plot(x, base + trace, color=color, linewidth=0.8)
-    marker_bottom = np.nanmax(dff[0]) + 0.1 * spacing
+    marker_bottom = np.nanmax(shown[0]) + 0.1 * spacing
     for time, pulses in zip(events, top["outcomes"]["num_rew_pulses"], strict=True):
         ax.plot(
             [time, time],
@@ -151,7 +186,7 @@ def _draw_traces(ax, top: dict, x_units: str, colors: list[str]) -> None:
         baselines,
         [f"ROI {cell} (p={p:.2f})" for cell, p in zip(top["cells"], top["p_cell"], strict=True)],
     )
-    ax.set_ylim(baselines[-1] + np.nanmin(dff[-1]) - 0.1 * spacing, marker_bottom + 0.6 * spacing)
+    ax.set_ylim(baselines[-1] + np.nanmin(shown[-1]) - 0.1 * spacing, marker_bottom + 0.6 * spacing)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("ROI")
     ax.spines[["top", "right"]].set_visible(False)
@@ -164,18 +199,25 @@ def _draw_fov(ax, top: dict, colors: list[str]) -> None:
     ax.imshow(image, cmap="gray", vmin=low, vmax=high)
     labels = top["labels"]
     chosen = np.where(np.isin(labels, top["cells"] + 1), labels, 0)
-    lut = np.zeros((labels.max() + 1, 4))
-    lut[top["cells"] + 1] = [matplotlib.colors.to_rgba(c) for c in colors]
+    # sized by the ROI numbers too: a top ROI fully hidden by overlaps has no label pixels
+    n_labels = max(int(labels.max()), int(top["cells"].max()) + 1 if len(top["cells"]) else 0)
+    lut = np.zeros((n_labels + 1, 4))
+    if len(top["cells"]):
+        lut[top["cells"] + 1] = [matplotlib.colors.to_rgba(c) for c in colors]
     overlay = np.zeros((*image.shape, 4))
     edge = _outline(chosen)
     overlay[edge] = lut[chosen[edge]]
     ax.imshow(overlay)
+    hidden = []
     for cell, color in zip(top["cells"], colors, strict=True):
         ys, xs = np.nonzero(labels == cell + 1)
         if len(ys):
             ax.text(xs.mean(), ys.mean(), str(cell), color=color, fontsize=6, ha="center")
+        else:
+            hidden.append(f"ROI {cell}")
     ax.set_axis_off()
-    ax.set_title("Mean image; top cells outlined")
+    note = f"\nnot visible (hidden by overlaps): {', '.join(hidden)}" if hidden else ""
+    ax.set_title("Mean image; top cells outlined" + note)
 
 
 def top_cells_pdf_name(n: int, rank_by: str, tag: str, variant: str, x_units: str) -> str:
@@ -183,19 +225,38 @@ def top_cells_pdf_name(n: int, rank_by: str, tag: str, variant: str, x_units: st
     return f"top{n}_cells_by_{rank_by}_{tag}_{variant}_{x_units}.pdf"
 
 
-def plot_top_cells(top: dict, x_units: str = "s", title: str = "", variant: str = ""):
+def _ordinal(value: float) -> str:
+    number = int(value) if float(value).is_integer() else value
+    suffix = (
+        "th"
+        if 10 <= number % 100 < 20 or number % 10 not in (1, 2, 3)
+        else ("st", "nd", "rd")[number % 10 - 1]
+    )
+    return f"{number}{suffix}"
+
+
+def plot_top_cells(
+    top: dict,
+    x_units: str = "s",
+    title: str = "",
+    variant: str = "",
+    clip_percentiles: tuple[float, float] | None = (1, 99),
+):
     """Stacked ΔF/F0 traces of a run's most responsive cells, and where they are.
 
     Each ROI has one colour, used for its trace and for its outline and number in the field of
     view. The best ROI is on top; ``ROI <n> (p=<p(cell)>)`` tick labels mark each trace's
-    baseline. Outcomes
-    are marked above the traces, coloured by number of reward pulses.
+    baseline. Outcomes are marked above the traces, coloured by number of reward pulses.
+    Each trace is drawn clipped to its own percentile range, so a brief transient does not set
+    the row spacing; the ranking behind *top* uses the unclipped values.
 
     Args:
         top (dict): From ``src.funcimg_analysis.collect.top_cells``.
         x_units (str): ``"s"`` (pyControl time) or ``"frames"`` (frame index).
         title (str): Figure title, e.g. the session and run.
         variant (str): Destriping variant, named in the traces' title.
+        clip_percentiles (tuple[float, float] | None): Per-trace display range in percentiles,
+            e.g. ``(1, 99)``; None draws the traces unclipped.
 
     Returns:
         matplotlib.figure.Figure: The figure.
@@ -204,10 +265,14 @@ def plot_top_cells(top: dict, x_units: str = "s", title: str = "", variant: str 
         1, 2, figsize=(16, 9), gridspec_kw={"width_ratios": [3, 1]}, constrained_layout=True
     )
     colors = roi_colors(len(top["cells"]))
-    _draw_traces(ax_traces, top, x_units, colors)
+    _draw_traces(ax_traces, top, x_units, colors, clip_percentiles)
     n = len(top["cells"])
     ranking = RANKING_TITLES[top["rank_by"]]
-    ax_traces.set_title(f"{variant} green: top {n} ROIs by {ranking}".strip())
+    heading = f"{variant} green: top {n} ROIs by {ranking}".strip()
+    if clip_percentiles:
+        low, high = clip_percentiles
+        heading += f"\nclipped to {_ordinal(low)}–{_ordinal(high)} percentile per ROI"
+    ax_traces.set_title(heading)
     _draw_fov(ax_fov, top, colors)
     fig.suptitle(title)
     return fig
