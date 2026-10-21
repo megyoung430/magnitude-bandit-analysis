@@ -653,3 +653,30 @@ def test_a_background_of_one_pixel_is_left_out_because_it_cannot_be_split(deriva
     np.save(plane / "stat.npy", stat, allow_pickle=True)
     with pytest.raises(BackgroundUnavailableError, match="two halves"):
         load_background(plane, cache_dir=tmp_path / "cache")
+
+
+def test_the_chunked_mean_reports_each_chunk_it_has_read():
+    movie = np.arange(10 * 2 * 3, dtype=np.int16).reshape(10, 2, 3)
+    seen = []
+    chunked_mask_mean(movie, np.ones((2, 3), bool), 4, on_chunk=lambda: seen.append(1))
+    assert len(seen) == 3  # chunks of 4, 4 and 2 frames
+
+
+def test_reading_the_binaries_reports_progress_per_channel_and_a_cache_hit_says_so(
+    derivatives, tmp_path
+):
+    plane, cache = plane_of(derivatives), tmp_path / "cache"
+    lines = []
+    load_background(plane, cache_dir=cache, chunk_frames=7, progress=lines.append)
+    assert any(line.startswith("Background green") for line in lines)
+    assert any(line.startswith("Background red") for line in lines)
+    assert all("all done" in line for line in lines if line.endswith("all done"))
+    assert sum("all done" in line for line in lines) == 2
+    lines.clear()
+    load_background(plane, cache_dir=cache, progress=lines.append)
+    assert len(lines) == 1 and "from cache" in lines[0]
+
+
+def test_without_a_progress_callback_nothing_is_reported(derivatives, tmp_path, capsys):
+    load_background(plane_of(derivatives), cache_dir=tmp_path / "cache")
+    assert capsys.readouterr().out == ""

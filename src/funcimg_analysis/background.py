@@ -6,6 +6,8 @@ subtraction. This module is pure array code; reading the binaries and caching li
 ``background_io``.
 """
 
+from collections.abc import Callable
+
 import numpy as np
 from scipy.ndimage import binary_dilation
 
@@ -94,7 +96,12 @@ def background_halves(mask: np.ndarray) -> np.ndarray:
     return halves
 
 
-def chunked_mask_mean(movie, mask: np.ndarray, chunk_frames: int) -> np.ndarray:
+def chunked_mask_mean(
+    movie,
+    mask: np.ndarray,
+    chunk_frames: int,
+    on_chunk: Callable[[], None] | None = None,
+) -> np.ndarray:
     """Mean over the masked pixels in each frame, reading *chunk_frames* frames at a time.
 
     Chunking keeps memory at one chunk even for a multi-GB memory-mapped movie; the sum is in
@@ -105,6 +112,8 @@ def chunked_mask_mean(movie, mask: np.ndarray, chunk_frames: int) -> np.ndarray:
         mask (np.ndarray): Boolean ``(Ly, Lx)``, or ``(n_masks, Ly, Lx)`` to average several
             sets of pixels in one pass over the movie.
         chunk_frames (int): Frames per chunk, at least 1.
+        on_chunk (Callable[[], None] | None): Called after each chunk is read, e.g. to report
+            progress. Default None.
 
     Returns:
         np.ndarray: ``(n_frames,)`` float64 mean F, or ``(n_masks, n_frames)`` for several masks.
@@ -123,4 +132,6 @@ def chunked_mask_mean(movie, mask: np.ndarray, chunk_frames: int) -> np.ndarray:
         chunk = np.asarray(movie[start : start + chunk_frames])
         for row, one_mask in zip(out, masks, strict=True):
             row[start : start + len(chunk)] = chunk[:, one_mask].mean(axis=1, dtype=np.float64)
+        if on_chunk is not None:
+            on_chunk()
     return out[0] if mask.ndim == 2 else out

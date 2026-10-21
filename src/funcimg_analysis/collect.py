@@ -256,6 +256,7 @@ def collect_background_responses(
     measures: tuple[str, ...] = BACKGROUND_MEASURES,
     roi_margin_px: int = 0,
     cache_dir=None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[dict, list[dict], list[tuple[str, str, str]]]:
     """Pool the reward response of each run's background (all non-ROI pixels as one ROI).
 
@@ -275,6 +276,8 @@ def collect_background_responses(
         measures (tuple[str, ...]): ``"F"`` and/or ``"F z"``.
         roi_margin_px (int): Pixels excluded around every ROI. Default 0.
         cache_dir (str | Path | None): Trace cache (see ``load_background``).
+        progress (Callable[[str], None] | None): Receives progress lines while the background
+            binaries are read (see ``load_background``); e.g. ``print``. Default None.
 
     Returns:
         tuple: ``{view: {pulses: {"mean", "sem", "n_cells", "n_runs", "sem_kind"}}}`` with
@@ -289,7 +292,7 @@ def collect_background_responses(
     check_measures(measures, BACKGROUND_MEASURES)
 
     def load_views(plane_dir):
-        background = load_background(plane_dir, roi_margin_px, cache_dir)
+        background = load_background(plane_dir, roi_margin_px, cache_dir, progress=progress)
         views = {view: trace[None, :] for view, trace in background["F"].items()}
         extra = {
             "n_pixels": background["n_pixels"],

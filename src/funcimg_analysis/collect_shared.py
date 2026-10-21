@@ -61,6 +61,7 @@ def collect_shared_signal(
     measures: tuple[str, ...] = Z_MEASURES,
     roi_margin_px: int = 0,
     cache_dir=None,
+    progress: Callable[[str], None] | None = None,
     results_cache_dir=None,
     cells_only: bool = False,
     detrend_window_s: float = 60.0,
@@ -91,6 +92,8 @@ def collect_shared_signal(
         measures (tuple[str, ...]): ``"F z"`` and/or ``"dF/F0 z"``.
         roi_margin_px (int): Pixels excluded around every ROI from the background.
         cache_dir (str | Path | None): Background trace cache (see ``load_background``).
+        progress (Callable[[str], None] | None): Receives progress lines while the background
+            binaries are read (see ``load_background``); e.g. ``print``. Default None.
         results_cache_dir (str | Path | None): Where each run's result is cached. Default None,
             meaning ``<settings cache_dir>/funcimg_shared`` (git-ignored). Never beside the data.
         cells_only (bool): Use only ROIs with ``iscell[:, 0] > 0``. Default False, every ROI.
@@ -137,7 +140,7 @@ def collect_shared_signal(
     def analyse(session, run_dir, plane_dir, frames, outcomes):
         traces = load_plane_traces(plane_dir)
         rois = _cell_rows(traces, cells_only)
-        background = load_background(plane_dir, roi_margin_px, cache_dir)
+        background = load_background(plane_dir, roi_margin_px, cache_dir, progress=progress)
         entropy = _run_seed(seed, session, run_dir.name)
         key = content_key(
             {
