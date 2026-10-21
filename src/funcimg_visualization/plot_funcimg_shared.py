@@ -285,11 +285,17 @@ def _histogram_panels(
     run_handles = [
         Line2D([], [], color=_color(i), label=_run_label(run)) for i, run in enumerate(runs)
     ]
-    axes[0, -1].legend(
-        handles=[*run_handles, *style_legend], fontsize=7, frameon=False, loc="upper right"
+    figure = axes[0, 0].figure
+    # outside the panels, where it cannot cover the per-run text or the histograms
+    figure.legend(
+        handles=[*run_handles, *style_legend],
+        fontsize=7,
+        frameon=False,
+        loc="outside lower center",
+        ncol=len(run_handles) + len(style_legend),
     )
-    axes[0, 0].figure.suptitle(_with_title(title, suptitle))
-    return axes[0, 0].figure
+    figure.suptitle(_with_title(title, suptitle))
+    return figure
 
 
 def _median(values: np.ndarray) -> float:
