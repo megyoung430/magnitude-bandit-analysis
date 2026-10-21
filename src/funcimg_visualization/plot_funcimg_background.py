@@ -22,6 +22,12 @@ def _share_ylim(first, second) -> None:
     second.set_ylim(low, high)
 
 
+def _retitle(ax, what: str) -> None:
+    """Name what is plotted ("Background" or "Cells") and break the long measure onto line 2."""
+    channel, measure = ax.get_title().split(": ", 1)
+    ax.set_title(f"{what}, {channel}\n{measure}", fontsize=9)
+
+
 def _draw_run_lines(axes_row, per_run: list[dict], measure: str, x: np.ndarray) -> None:
     """One thin line per run and pulse count, under the pooled mean."""
     for ax, channel in zip(axes_row, ("green", "red"), strict=True):
@@ -73,14 +79,14 @@ def plot_background_responses(
     x = window_x(np.asarray(offsets), period_s, x_units)[0]
     for row, measure in enumerate(measures):
         for ax in bg_axes[row]:
-            ax.set_title("Background: " + ax.get_title().split(": ", 1)[1])
+            _retitle(ax, "Background")
         if per_run:
             _draw_run_lines(bg_axes[row], per_run, measure, x)
     if cells is not None:
         cell_axes = axes[len(measures) :]
         plot_pulse_responses(cells, offsets, period_s, x_units, cell_axes, measures=("F z",))
         for ax in cell_axes[0]:
-            ax.set_title("Cells: " + ax.get_title().split(": ", 1)[1])
+            _retitle(ax, "Cells")
         if "F z" in measures:
             z_row = measures.index("F z")
             for col in range(2):

@@ -102,3 +102,26 @@ from the pooled figures (`X_UNITS`): each run's traces show only its middle 8000
 all frames when the run is shorter or the setting is None). The per-ROI clipping percentiles and the row spacing are
 taken over the frames shown, outcomes outside them are not marked, and the title says "middle 8000 of N frames". The
 ranking still uses the whole run.
+
+## Background (non-ROI) fluorescence
+
+A check for a field-wide effect on the reward responses (blood flow, neuropil, motion, a diffuse neuromodulator).
+`background_mask` (`src/funcimg_analysis/background.py`) is True for pixels in no ROI of `stat.npy` (cells and non-cells,
+the ROIs' `ypix/xpix` in full, so overlapping pixels count as ROI) and inside the registration crop (`ops["yrange"]`,
+`ops["xrange"]`); `roi_margin_px` (default 0) also drops a square ring around every ROI. All those pixels are one large
+ROI: its F is the per-frame mean of its pixels (Suite2p's ROI mean with uniform weights, no neuropil subtraction) in the
+green (`data.bin`) and red (`data_chan2.bin`) registered binaries. `load_background` (`background_io.py`) reads them
+as a memmap in chunks of 200 frames (never a whole ~3.4 GB binary) and caches the two traces in
+`<cache_dir>/funcimg_background/` (the repo's git-ignored `.cache/`), keyed on the plane's path, the sizes and mtimes of
+the two binaries, `stat.npy` and `ops.npy`, the margin and a hash of the code; nothing is written beside the data.
+`collect_background_responses` passes the traces through `pulse_responses` like a cell's F, so frame times, window,
+phases, 0-pulse no-reward cue, pulse categories and robust z with baseline subtraction are identical (a test builds a
+cell with the background's trace and checks every view agrees). Measures are raw `F` (main view) and `F z`; there is no
+ΔF/F0 (no neuropil or F0 model for the background). Each run is one trace, so the pooled figure is mean ± SEM across
+runs (`n_cells` in the pooled dict is the number of runs). `plot_background_responses` draws the background rows with
+`plot_pulse_responses` (one line per pulse count, thin lines per run) and the cells' `F z` beneath on shared y limits;
+`plot_background_mask` shows each run's mean images with the included pixels shaded and the ROIs outlined (title:
+number of pixels and fraction of the FOV). The notebook's section 2b (`BACKGROUND = True`, `ROI_MARGIN_PX = 0`) writes
+`background_responses_<tag>_<variant>_<units>.png` and `background_pixels_<tag>_<variant>.pdf` (one page per run).
+Caveats: out-of-focus neuropil is in the background; the registration edges are excluded; a run whose binaries are
+missing or whose size does not match `ops` is left out with the reason.
