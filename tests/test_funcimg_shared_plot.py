@@ -12,7 +12,10 @@ from src.funcimg_analysis.event_frames import pooled_mean_sem  # noqa: E402
 from src.funcimg_analysis.run_responses import PULSE_CATEGORIES  # noqa: E402
 from src.funcimg_analysis.run_statistics import shared_signal_stats  # noqa: E402
 from src.funcimg_analysis.shared_signal_null import shift_offsets  # noqa: E402
-from src.funcimg_visualization.plot_funcimg_responses import CHANNEL_TITLES, MEASURE_LABELS  # noqa: E402
+from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
+    CHANNEL_TITLES,
+    MEASURE_LABELS,
+)
 from src.funcimg_visualization.plot_funcimg_shared import (  # noqa: E402
     plot_partial_r_histograms,
     plot_r2_histograms,

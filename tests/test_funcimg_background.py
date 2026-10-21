@@ -20,7 +20,10 @@ from src.funcimg_analysis.background import (  # noqa: E402
     background_mask,
     chunked_mask_mean,
 )
-from src.funcimg_analysis.background_io import BackgroundUnavailableError, load_background  # noqa: E402
+from src.funcimg_analysis.background_io import (  # noqa: E402
+    BackgroundUnavailableError,
+    load_background,
+)
 from src.funcimg_analysis.collect import (  # noqa: E402
     collect_background_responses,
     collect_pulse_responses,

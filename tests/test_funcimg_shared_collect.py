@@ -12,7 +12,10 @@ import pytest  # noqa: E402
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
 from src.funcimg_analysis import collect_shared, shared_cache  # noqa: E402
-from src.funcimg_analysis.collect_shared import collect_shared_signal, pool_shared_signal  # noqa: E402
+from src.funcimg_analysis.collect_shared import (  # noqa: E402
+    collect_shared_signal,
+    pool_shared_signal,
+)
 from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
 from tests.funcimg_shared_fixtures import (  # noqa: E402
     MEASURES,
