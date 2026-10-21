@@ -2,13 +2,16 @@ import numpy as np
 import pytest
 
 from src.funcimg_analysis.event_frames import (
+    baseline_subtract,
     event_frames,
     frame_period_s,
     frame_windows,
     limited_frame_times,
     mean_by_category,
     pooled_mean_sem,
+    robust_z,
     top_cells_by_max,
+    top_cells_by_score,
     window_offsets,
 )
 
@@ -88,3 +91,45 @@ def test_frame_times_extend_only_to_the_daq_sync_pulses():
     times = limited_frame_times(matched, extrapolated, frame_s, daq_rsync_s=np.array([0.7, 4.0]))
     assert np.isnan(times[0]) and np.isnan(times[4])  # outside the DAQ's own pulses
     assert times[1:4].tolist() == [1.0, 2.0, 3.0]
+
+
+def test_robust_z_uses_the_median_and_scaled_mad_of_each_cell():
+    rng = np.random.default_rng(0)
+    traces = np.vstack([rng.normal(5, 2, 5000), rng.normal(-3, 0.1, 5000)])
+    z, flat = robust_z(traces)
+    assert not flat.any()
+    assert np.allclose(np.median(z, axis=1), 0, atol=1e-9)
+    assert np.allclose(1.4826 * np.median(np.abs(z), axis=1), 1, atol=1e-9)
+
+
+def test_robust_z_ignores_nan_and_does_not_divide_by_a_zero_mad():
+    traces = np.array([[1.0, 2.0, np.nan, 3.0, 4.0], [7.0, 7.0, 7.0, 7.0, 9.0], [np.nan] * 5])
+    z, flat = robust_z(traces)
+    assert np.isfinite(z[0, [0, 1, 3, 4]]).all() and np.isnan(z[0, 2])
+    assert flat.tolist() == [False, True, True]  # a MAD of 0 and an all-NaN cell are flagged
+    assert np.isnan(z[1]).all() and np.isnan(z[2]).all()
+
+
+def test_baseline_subtraction_zeroes_each_trials_pre_event_mean():
+    windows = np.random.default_rng(1).normal(size=(3, 7, 12)) + 50.0
+    out = baseline_subtract(windows, pre_frames=4)
+    assert np.allclose(np.nanmean(out[:, :, :4], axis=2), 0)
+    assert np.allclose(out - windows, -np.nanmean(windows[:, :, :4], axis=2)[:, :, None])
+
+
+def test_baseline_subtraction_needs_pre_event_frames():
+    with pytest.raises(ValueError, match="pre-event"):
+        baseline_subtract(np.zeros((1, 2, 5)), pre_frames=0)
+
+
+def test_cells_are_ranked_by_score_with_ties_broken_by_roi_index():
+    dff = np.zeros((5, 10))
+    dff[4] = np.nan  # no ΔF/F0 at all: cannot be plotted
+    scores = np.array([0.5, 0.9, 0.5, 0.9, 1.0])
+    assert top_cells_by_score(dff, scores, 3).tolist() == [1, 3, 0]
+    assert top_cells_by_score(dff, scores, 10).tolist() == [1, 3, 0, 2]
+
+
+def test_cells_without_a_score_are_left_out_of_a_score_ranking():
+    dff = np.ones((3, 4))
+    assert top_cells_by_score(dff, np.array([0.2, np.nan, 0.7]), 3).tolist() == [2, 0]

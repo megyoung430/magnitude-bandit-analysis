@@ -15,15 +15,20 @@ import numpy as np
 import pandas as pd
 
 from src.funcimg_analysis.event_frames import (
+    baseline_subtract,
     event_frames,
     frame_period_s,
     frame_windows,
     mean_by_category,
+    robust_z,
     window_offsets,
 )
 from src.funcimg_analysis.frame_times import RunMismatchError
 
-VIEWS = (("green", "F"), ("green", "dF/F0"), ("red", "F"), ("red", "dF/F0"))
+RAW_VIEWS = (("green", "F"), ("green", "dF/F0"), ("red", "F"), ("red", "dF/F0"))
+# Robust z over each cell's whole trace, then each trial's pre-event mean subtracted.
+Z_VIEWS = tuple((channel, f"{measure} z") for channel, measure in RAW_VIEWS)
+VIEWS = RAW_VIEWS + Z_VIEWS
 PULSE_CATEGORIES = [0, 1, 2, 3, 4]
 EXTRACTION_RECORD = "cellpose_extraction.json"
 
@@ -39,7 +44,8 @@ def pulse_responses(
     """Each cell's mean window around the outcome, per pulse count, for every view.
 
     Args:
-        views (dict): ``{(channel, measure): (n_cells, n_frames)}``.
+        views (dict): ``{(channel, measure): (n_cells, n_frames)}`` raw views (``RAW_VIEWS``);
+            the matching ``Z_VIEWS`` are added here.
         frame_times_s (np.ndarray): pyControl time of each frame (NaN where unknown).
         outcomes (pd.DataFrame): ``outcome_time``, ``num_rew_pulses`` and ``phase`` per trial.
         window_s (tuple[float, float]): Window around the outcome (s), rounded to whole frames.
@@ -48,8 +54,9 @@ def pulse_responses(
 
     Returns:
         dict: ``offsets`` (frames), ``period_s``, ``means`` (``{view: {pulses: (n_cells,
-        n_window)}}``), ``n_trials`` per pulse count, ``n_cells`` and ``n_events_dropped``
-        (outcomes without a complete window of imaged frames).
+        n_window)}}`` for the raw and z views), ``n_trials`` per pulse count, ``n_cells``,
+        ``n_events_dropped`` (outcomes without a complete window of imaged frames) and
+        ``flat_cells`` (``{z view: ROI indices}`` with no defined scale, whose z is NaN).
 
     Raises:
         RunMismatchError: If a view's frame count differs from the frame times'.
@@ -61,6 +68,7 @@ def pulse_responses(
                 f"{view} has {traces.shape[1]} frames but there are {n_frames} frame times; "
                 "the traces and the frame clock are not from the same acquisition."
             )
+    views, flat_cells = _with_z_views(views)
     period = frame_period_s(frame_times_s)
     pre, post = int(round(-window_s[0] / period)), int(round(window_s[1] / period))
     trials = outcomes[outcomes["phase"].isin(phases)]
@@ -73,6 +81,8 @@ def pulse_responses(
     means = {}
     for view, traces in views.items():
         windows, _ = frame_windows(traces, index[kept], pre, post, valid)
+        if view in Z_VIEWS:
+            windows = baseline_subtract(windows, pre)
         means[view] = mean_by_category(windows, pulses, categories)
     counts = {c: int(np.sum(pulses == c)) for c in categories if np.any(pulses == c)}
     return {
@@ -82,7 +92,18 @@ def pulse_responses(
         "n_trials": counts,
         "n_cells": first.shape[0],
         "n_events_dropped": int(len(trials) - len(kept)),
+        "flat_cells": flat_cells,
     }
+
+
+def _with_z_views(views: dict) -> tuple[dict, dict]:
+    """*views* plus the robust-z version of each raw view, and the cells that have no scale."""
+    out, flat_cells = dict(views), {}
+    for channel, measure in RAW_VIEWS:
+        if (channel, measure) in views:
+            out[(channel, f"{measure} z")], flat = robust_z(views[(channel, measure)])
+            flat_cells[(channel, f"{measure} z")] = np.flatnonzero(flat).tolist()
+    return out, flat_cells
 
 
 def plane_views(plane_dir) -> tuple[dict, object]:

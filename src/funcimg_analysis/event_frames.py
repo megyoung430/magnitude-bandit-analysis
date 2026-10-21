@@ -111,6 +111,49 @@ def frame_windows(
     return traces[:, frames[kept]], kept
 
 
+MAD_TO_SD = 1.4826  # scales the median absolute deviation to a standard deviation for normal data
+
+
+def robust_z(traces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Robust z-score of each cell over its whole trace: ``(x - median) / (1.4826 * MAD)``.
+
+    Median and MAD are NaN-safe. Large transients barely move them, so cells of different
+    brightness or ΔF/F0 scale become comparable.
+
+    Args:
+        traces (np.ndarray): ``(n_cells, n_frames)``.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: The z-scored traces, and per cell whether it has no
+        defined scale (MAD of 0, or no finite value). Such cells are all NaN, never divided by 0.
+    """
+    traces = np.asarray(traces, dtype=float)
+    with _quiet_empty_means():
+        median = np.nanmedian(traces, axis=1, keepdims=True)
+        scale = MAD_TO_SD * np.nanmedian(np.abs(traces - median), axis=1, keepdims=True)
+    flat = ~(np.isfinite(scale[:, 0]) & (scale[:, 0] > 0))
+    safe = np.where(flat[:, None], np.nan, scale)
+    return (traces - median) / safe, flat
+
+
+def baseline_subtract(windows: np.ndarray, pre_frames: int) -> np.ndarray:
+    """Subtract from each trial its own mean over the pre-event frames (offsets < 0).
+
+    Args:
+        windows (np.ndarray): ``(n_cells, n_events, n_window)``; the first *pre_frames* columns
+            are the frames before the event's frame.
+        pre_frames (int): Number of frames before the event's frame.
+
+    Raises:
+        ValueError: If there are no pre-event frames to take a baseline from.
+    """
+    if pre_frames < 1:
+        raise ValueError("Baseline subtraction needs pre-event frames; widen the window below 0 s.")
+    with _quiet_empty_means():
+        baseline = np.nanmean(windows[:, :, :pre_frames], axis=2, keepdims=True)
+    return windows - baseline
+
+
 def mean_by_category(
     windows: np.ndarray, categories_per_event: np.ndarray, categories: list[int]
 ) -> dict[int, np.ndarray]:
@@ -171,6 +214,21 @@ def top_cells_by_max(dff: np.ndarray, n: int) -> np.ndarray:
         peaks = np.nanmax(np.asarray(dff, dtype=float), axis=1)
     order = [int(i) for i in np.argsort(-np.nan_to_num(peaks, nan=-np.inf), kind="stable")]
     return np.array([i for i in order if np.isfinite(peaks[i])][:n], dtype=int)
+
+
+def top_cells_by_score(dff: np.ndarray, scores: np.ndarray, n: int) -> np.ndarray:
+    """The *n* cells with the highest score, best first; ties go to the lower cell index.
+
+    Cells without a score, or whose ΔF/F0 is undefined throughout (they cannot be plotted),
+    are left out.
+    """
+    scores = np.asarray(scores, dtype=float)
+    with _quiet_empty_means():
+        plottable = np.isfinite(np.nanmax(np.asarray(dff, dtype=float), axis=1))
+    order = np.argsort(-np.nan_to_num(scores, nan=-np.inf), kind="stable")
+    return np.array(
+        [int(i) for i in order if plottable[i] and np.isfinite(scores[i])][:n], dtype=int
+    )
 
 
 @contextmanager

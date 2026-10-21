@@ -22,7 +22,12 @@ destriping variants of the mini2p preprocessing.
 - **Run identity**: the run numbering is worked out from the raw folder, then checked against the batch's
   `run-XX/<variant>/source_tiff.json` before frame times are written and again when traces are loaded; a mismatch (a
   stray `._` file, a renamed TIFF) is refused, because runs of equal length would otherwise pair one acquisition's traces
-  with another's frame clock and behaviour.
+  with another's frame clock and behaviour. A variant folder without a `source_tiff.json` (e.g. `with_destriping` when
+  the batch wrote no record) is accepted if it has processed `.tif` files and every one is named
+  `<source stem>_*.tif` (`._` AppleDouble files ignored); a `UserWarning` names the run, variant and TIFFs used. No TIFF,
+  another stem, or a record naming another TIFF is still refused. Variant folders that do not exist are not checked, but
+  at least one listed variant must exist. The warning is raised once per run and step (frame times, pooled responses, top
+  cells), not per frame.
 - **Frame times** (`src/funcimg_analysis/frame_times.py`): `derivatives/.../funcimg/run-XX/frame_times.npz` with
   `time_s` (pyControl s per frame, NaN outside the sync pulses), `frame_index`, `daq_frame_s`, the three source files and
   the sync quality. Shared by both variants. Frames between the last *matched* rsync pulse and the DAQ's last pulse take
@@ -35,8 +40,25 @@ destriping variants of the mini2p preprocessing.
   QC audit. Each cell is averaged over its trials per pulse count; the figure shows mean ± SEM across all cells of all
   runs (each cell counts once). Runs without frame times or an extraction, or whose trace length differs from the frame
   clock, are listed with the reason.
+- **Z-scored population responses** (`event_frames.robust_z`, `baseline_subtract`): cells with the same trend but
+  different raw F or ΔF/F0 scale average out, so the default views are robust z-scores: per cell and run,
+  `(x - median) / (1.4826 * MAD)` over the whole trace (NaN-safe), then each trial's mean over the pre-event part of the
+  window (offsets < 0) is subtracted before averaging over trials; mean ± SEM across cells as for the raw views. A cell
+  with MAD 0 (or no finite value) has no scale: its z is NaN, it adds nothing to the pool, and it is listed per run
+  (`flat_cells`, printed by the notebook). Views are `RAW_VIEWS` (`F`, `dF/F0`) and `Z_VIEWS` (`F z`, `dF/F0 z`), both
+  computed; the notebook's `MEASURES` chooses which two rows `plot_pulse_responses` draws (default z; titles and y
+  labels say "robust z, baseline-subtracted"). Needs a window starting before 0 s.
 - **Top cells**: per run, the `N_TOP` cells with the largest green ΔF/F0 anywhere in the trace, stacked traces with the
-  outcomes marked by pulse count, and their outlines on the mean image. One PDF page per run per variant.
+  outcomes marked by pulse count, and their outlines on the mean image. One PDF page per run per variant. Each ROI has one
+  colour (matplotlib `tab10`, cycling in rank order, best ROI on top) shared by its trace and its outline and number in the
+  field of view; traces are 0.8 pt, with `ROI <n>` as y tick labels at each baseline, spaced by 1.1 x the 99.5th
+  percentile of the per-trace range (max - min). That spacing keeps traces from overlapping, but with ~20 traces the
+  percentile is close to the largest range, so one very large transient widens the spacing for all.
+- **Top-cell rankings**: `top_cells(..., rank_by="max_dff" | "p_cell")`. `p_cell` is Suite2p's classifier
+  probability (`iscell.npy` column 1); mini2p's `classify_rois` runs Suite2p's built-in classifier on the Cellpose ROIs,
+  so it is advisory. Ties go to the lower ROI index; ROIs without a probability or without a defined ΔF/F0 are left
+  out. The notebook (`N_TOP = 30`, `RANKINGS`) writes one PDF per ranking, `top30_cells_by_p_cell_<tag>_<variant>_<units>.pdf`
+  and `top30_cells_by_max_dff_….pdf`; the traces' title names the ranking and each label reads `ROI 12 (p=0.93)`.
 - **Optional dependency** `funcimg` (`h5py`, `mini2p-preprocessing` from GitHub); nothing else in the repo needs it.
 - **rsync fix**: `_align_chunks` clamps each chunk's mean squared error at 0. The expansion used to compute it cancels to a
   tiny negative number for an exact match of intervals of seconds in ms, which raised in `_classify_chunks` on the first

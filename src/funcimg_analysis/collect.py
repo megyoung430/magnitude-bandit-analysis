@@ -12,7 +12,11 @@ from pathlib import Path
 import numpy as np
 
 from src.behavior_analysis.outcome_events import OutcomeParseError, load_outcome_events
-from src.funcimg_analysis.event_frames import pooled_mean_sem, top_cells_by_max
+from src.funcimg_analysis.event_frames import (
+    pooled_mean_sem,
+    top_cells_by_max,
+    top_cells_by_score,
+)
 from src.funcimg_analysis.frame_times import (
     FRAME_TIMES_FILE,
     RunMismatchError,
@@ -27,6 +31,7 @@ from src.funcimg_analysis.run_responses import (
     pulse_responses,
 )
 
+RANKINGS = ("max_dff", "p_cell")
 SESSION = re.compile(r"^ses-(\d+)_")
 
 
@@ -154,15 +159,32 @@ def top_cells(
     n: int,
     load_outcomes: Callable = load_outcome_events,
     phases: tuple[str, ...] = ("task",),
+    rank_by: str = "max_dff",
 ) -> dict:
-    """The *n* cells of a run with the largest ΔF/F0 (green), with what a figure needs.
+    """The *n* top-ranked cells of a run, with what a figure needs.
+
+    Args:
+        plane_dir: The run's ``suite2p/plane0`` folder.
+        run_dir: The run's derivatives folder.
+        n (int): Number of cells.
+        load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
+        phases (tuple[str, ...]): Trial phases whose outcomes are marked.
+        rank_by (str): ``"max_dff"`` for the largest green ΔF/F0 anywhere in the trace, or
+            ``"p_cell"`` for Suite2p's classifier probability (``iscell.npy`` column 1, advisory
+            for Cellpose ROIs). Ties go to the lower ROI index.
+
+    Raises:
+        ValueError: If *rank_by* is neither of those.
 
     Returns:
-        dict: ``cells`` (ROI indices, largest first), ``peaks`` (their max ΔF/F0), ``dff``
+        dict: ``cells`` (ROI indices, best first), ``rank_by``, ``p_cell`` and ``peaks`` (their
+        classifier probability and max ΔF/F0), ``dff``
         (``(n, n_frames)`` green ΔF/F0), ``time_s`` and ``period_s`` of the frames, ``labels``
         and ``mean_image`` of the plane, and ``outcomes`` (outcome time and pulses per task
         trial) to mark on the traces.
     """
+    if rank_by not in RANKINGS:
+        raise ValueError(f"rank_by must be one of {RANKINGS}, not {rank_by!r}.")
     frames = load_frame_times(run_dir)
     check_run_source(frames.tiff.name, run_dir, variants=(Path(plane_dir).parents[1].name,))
     views, traces = plane_views(plane_dir)
@@ -171,10 +193,13 @@ def top_cells(
         raise RunMismatchError(
             f"{plane_dir} has {dff.shape[1]} frames but there are {len(frames.time_s)} frame times."
         )
-    cells = top_cells_by_max(dff, n)
+    p_cell = np.asarray(traces.iscell, dtype=float)[:, 1]
+    cells = top_cells_by_max(dff, n) if rank_by == "max_dff" else top_cells_by_score(dff, p_cell, n)
     outcomes = load_outcomes(frames.tsv)
     return {
         "cells": cells,
+        "rank_by": rank_by,
+        "p_cell": p_cell[cells],
         "peaks": np.nanmax(dff[cells], axis=1),
         "dff": dff[cells],
         "time_s": frames.time_s,

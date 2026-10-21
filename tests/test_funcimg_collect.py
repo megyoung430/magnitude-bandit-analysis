@@ -17,6 +17,7 @@ from src.funcimg_analysis.collect import (  # noqa: E402
     variant_runs,
 )
 from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
+from src.funcimg_analysis.run_responses import VIEWS  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
     plot_pulse_responses,
     plot_top_cells,
@@ -112,7 +113,8 @@ def test_cells_of_every_run_are_pooled_and_skipped_runs_say_why(derivatives):
     assert green[2]["n_cells"] == 2 * N_CELLS and green[2]["n_runs"] == 2
     zero = int(np.flatnonzero(runs[0]["offsets"] == 0)[0])
     assert green[4]["mean"][zero] > green[2]["mean"][zero] > green[0]["mean"][zero]
-    assert set(pooled) == {("green", "F"), ("green", "dF/F0"), ("red", "F"), ("red", "dF/F0")}
+    assert set(pooled) == set(VIEWS)  # raw F, dF/F0 and their robust z, per channel
+    assert "flat_cells" in runs[0]
 
 
 def test_a_run_whose_traces_do_not_match_its_frame_clock_is_skipped(derivatives):
@@ -190,3 +192,53 @@ def test_choosing_a_run_that_does_not_exist_names_the_runs_that_do(derivatives):
 def test_a_single_run_name_must_be_given_as_a_collection(derivatives):
     with pytest.raises(TypeError, match="tuple"):
         variant_runs(derivatives, 224, 224, "without_destriping", runs="run-02")
+
+
+def test_a_run_without_a_record_is_pooled_with_one_warning_naming_it(derivatives):
+    variant_dir = (
+        derivatives / "ses-224_date-20260809" / "funcimg" / "run-02" / "without_destriping"
+    )
+    (variant_dir / "source_tiff.json").unlink()
+    (variant_dir / "71rtask_00001_dynamic_bidiphase.tif").write_bytes(b"")
+    with pytest.warns(UserWarning, match="inferred from file names") as caught:
+        _, runs, _ = collect(derivatives)
+    assert [r["run"] for r in runs] == ["run-01", "run-02"]
+    assert len(caught) == 1 and "run-02" in str(caught[0].message)
+
+
+def test_pooled_figures_show_robust_z_by_default_and_raw_views_on_request(derivatives):
+    pooled, runs, _ = collect(derivatives)
+    fig = plot_pulse_responses(pooled, runs[0]["offsets"], runs[0]["period_s"])
+    assert "robust z, baseline-subtracted" in fig.axes[0].get_title()
+    assert "robust z, baseline-subtracted" in fig.axes[0].get_ylabel()
+    plt.close(fig)
+    fig = plot_pulse_responses(
+        pooled, runs[0]["offsets"], runs[0]["period_s"], measures=("F", "dF/F0")
+    )
+    assert fig.axes[0].get_ylabel() == "F (a.u.)" and fig.axes[2].get_ylabel() == "ΔF/F0"
+    plt.close(fig)
+
+
+def set_p_cell(plane_dir, p_cell):
+    iscell = np.ones((N_CELLS, 2))
+    iscell[:, 1] = p_cell
+    np.save(plane_dir / "iscell.npy", iscell)
+
+
+def test_top_cells_can_be_ranked_by_the_classifier_probability(derivatives):
+    run_dir = derivatives / "ses-224_date-20260809" / "funcimg" / "run-01"
+    plane = run_dir / "without_destriping" / "suite2p" / "plane0"
+    set_p_cell(plane, [0.2, 0.9, 0.9, 0.5])
+    top = top_cells(plane, run_dir, 3, outcomes_for, rank_by="p_cell")
+    assert top["cells"].tolist() == [1, 2, 3]  # the 0.9 tie goes to the lower ROI index
+    assert top["p_cell"].tolist() == [0.9, 0.9, 0.5]
+    assert top["dff"].shape == (3, N_FRAMES) and top["rank_by"] == "p_cell"
+    by_max = top_cells(plane, run_dir, 3, outcomes_for)
+    assert by_max["rank_by"] == "max_dff" and len(by_max["p_cell"]) == 3
+
+
+def test_an_unknown_ranking_is_refused(derivatives):
+    run_dir = derivatives / "ses-224_date-20260809" / "funcimg" / "run-01"
+    plane = run_dir / "without_destriping" / "suite2p" / "plane0"
+    with pytest.raises(ValueError, match="rank_by"):
+        top_cells(plane, run_dir, 3, outcomes_for, rank_by="brightness")
