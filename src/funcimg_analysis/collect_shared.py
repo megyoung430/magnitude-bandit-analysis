@@ -34,7 +34,7 @@ def _cell_rows(traces, cells_only: bool) -> np.ndarray:
     return np.flatnonzero(iscell > 0) if cells_only else np.arange(len(iscell))
 
 
-def _run_seed(seed: int, session: str, run: str) -> list[int]:
+def run_seed(seed: int, session: str, run: str) -> list[int]:
     """Entropy fixed by the seed and the run's name, so a run's chance levels do not depend on
     which other runs are collected."""
     return [seed, zlib.crc32(f"{session}/{run}".encode())]
@@ -141,7 +141,7 @@ def collect_shared_signal(
         traces = load_plane_traces(plane_dir)
         rois = _cell_rows(traces, cells_only)
         background = load_background(plane_dir, roi_margin_px, cache_dir, progress=progress)
-        entropy = _run_seed(seed, session, run_dir.name)
+        entropy = run_seed(seed, session, run_dir.name)
         key = content_key(
             {
                 # the raw traces and the settings that make ΔF/F0 stand for the views

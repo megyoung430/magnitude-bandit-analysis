@@ -334,7 +334,7 @@ def _draw_traces(
     return True
 
 
-def _draw_fov(ax, top: dict, colors: list[str]) -> None:
+def draw_fov(ax, top: dict, colors: list[str]) -> None:
     """Mean image with each top ROI outlined and numbered in its trace colour."""
     image = top["mean_image"]
     low, high = np.nanpercentile(image, [1, 99.5])
@@ -482,6 +482,6 @@ def plot_top_cells(
         )
         heading += "\nno pyControl time in the frames shown"
     ax_traces.set_title(heading)
-    _draw_fov(ax_fov, top, colors)
+    draw_fov(ax_fov, top, colors)
     fig.suptitle(title)
     return fig
