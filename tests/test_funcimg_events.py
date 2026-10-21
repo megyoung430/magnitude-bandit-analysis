@@ -8,12 +8,14 @@ from src.funcimg_analysis.event_frames import (
     frame_windows,
     limited_frame_times,
     mean_by_category,
+    outcome_window_mask,
     pooled_mean_sem,
     robust_z,
     sem_by_category,
     top_cells_by_max,
     top_cells_by_score,
     trials_without_baseline,
+    window_frame_counts,
     window_offsets,
 )
 
@@ -166,3 +168,20 @@ def test_a_trial_has_no_baseline_when_its_only_pre_frame_spans_the_event():
     assert trials_without_baseline(1, spans).tolist() == [False, True, True]
     assert trials_without_baseline(2, spans).tolist() == [False, False, False]
     assert trials_without_baseline(0, spans).tolist() == [True, True, True]
+
+
+def test_window_frame_counts_round_seconds_to_whole_frames():
+    assert window_frame_counts((-10.0, 30.0), 0.133) == (75, 226)
+    assert window_frame_counts((0.0, 2.0), 0.5) == (0, 4)
+
+
+def test_the_outcome_window_mask_marks_every_frame_of_every_window_and_clips_at_the_ends():
+    mask = outcome_window_mask(30, np.array([5, 20, 29]), pre_frames=2, post_frames=3)
+    expected = np.zeros(30, bool)
+    for start, stop in ((3, 9), (18, 24), (27, 30)):
+        expected[start:stop] = True
+    np.testing.assert_array_equal(mask, expected)
+
+
+def test_the_outcome_window_mask_of_no_events_is_empty():
+    assert not outcome_window_mask(10, np.array([], dtype=int), 2, 3).any()

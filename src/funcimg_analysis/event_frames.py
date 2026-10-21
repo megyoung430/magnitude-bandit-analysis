@@ -77,6 +77,24 @@ def event_frames(
     return nearest, offset, kept
 
 
+def window_frame_counts(window_s: tuple[float, float], period_s: float) -> tuple[int, int]:
+    """Frames before and after the event's frame for a window of seconds ``(start, stop)``."""
+    return int(round(-window_s[0] / period_s)), int(round(window_s[1] / period_s))
+
+
+def outcome_window_mask(
+    n_frames: int, event_index: np.ndarray, pre_frames: int, post_frames: int
+) -> np.ndarray:
+    """Boolean per frame, True inside the window ``-pre_frames .. post_frames`` of any event.
+
+    Windows are clipped at the ends of the recording.
+    """
+    mask = np.zeros(n_frames, dtype=bool)
+    for index in np.asarray(event_index, dtype=int):
+        mask[max(0, index - pre_frames) : index + post_frames + 1] = True
+    return mask
+
+
 def window_offsets(pre_frames: int, post_frames: int) -> np.ndarray:
     """Frame offsets of a window, ``-pre_frames .. post_frames`` (0 is the event's frame)."""
     return np.arange(-pre_frames, post_frames + 1)

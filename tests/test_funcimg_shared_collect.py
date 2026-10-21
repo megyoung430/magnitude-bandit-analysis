@@ -1,4 +1,4 @@
-"""Shared-signal analysis of whole runs: residual reward responses and collection from disk."""
+"""Shared-signal analysis from disk: collection, left-out runs, pooling and the result cache."""
 
 import json
 
@@ -7,213 +7,46 @@ import matplotlib
 matplotlib.use("Agg")
 
 import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
-from src.funcimg_analysis.collect import collect_shared_signal, pool_shared_signal  # noqa: E402
-from src.funcimg_analysis.event_frames import pooled_mean_sem  # noqa: E402
-from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE, RunMismatchError  # noqa: E402
-from src.funcimg_analysis.run_responses import PULSE_CATEGORIES  # noqa: E402
-from src.funcimg_analysis.shared_signal import mean_response  # noqa: E402
-from src.funcimg_analysis.shared_signal_run import (  # noqa: E402
-    TooShortForSharedSignalError,
-    analyse_shared_signal,
+from src.funcimg_analysis import collect_shared, shared_cache  # noqa: E402
+from src.funcimg_analysis.collect_shared import (  # noqa: E402
+    collect_shared_signal,
+    pool_shared_signal,
 )
-from tests.test_funcimg_background import PERIOD, write_plane  # noqa: E402
-
-N_FRAMES = 900
-N_CELLS = 4  # the plane fixture's cell count
-EVENT_STEP = 20
-EVENT_FRAMES = np.arange(40, N_FRAMES - 30, EVENT_STEP)
-PULSES = np.arange(len(EVENT_FRAMES)) % 5
-SETTINGS = {"detrend_window_s": 15.0, "min_shift_s": 10.0, "n_shifts": 20}
-WINDOW_S = (-1.5, 3.0)
-MEASURES = ("F z", "dF/F0 z")
-
-
-def smooth(rng, n=N_FRAMES, width=9):
-    raw = rng.normal(size=n + width)
-    out = np.convolve(raw, np.ones(width) / np.sqrt(width), mode="valid")[:n]
-    return out / out.std()
-
-
-def reward_bump():
-    """A response after every outcome, growing with the number of reward pulses."""
-    bump = np.zeros(N_FRAMES)
-    for frame, pulses in zip(EVENT_FRAMES, PULSES, strict=True):
-        bump[frame : frame + 8] += pulses  # ~1 s
-    return bump
-
-
-def make_traces(rng, reward_in: str, n_cells=N_CELLS):
-    """Background and cell traces: shared field + private noise; the reward in one place only."""
-    field, bump = smooth(rng), reward_bump()
-    in_bg, in_cells = reward_in == "background", reward_in == "cells"
-    background = 1000 + 30 * field + 60 * bump * in_bg
-    weights = rng.uniform(0.8, 1.2, n_cells)
-    cells = np.array(
-        [
-            2000
-            + 40 * w * field
-            + 30 * smooth(rng)
-            + 80 * w * bump * in_bg  # the cells see the same reward signal as the background
-            + 80 * bump * in_cells
-            for w in weights
-        ]
-    )
-    return background, cells
-
-
-def frame_times():
-    return 20.0 + PERIOD * np.arange(N_FRAMES)
-
-
-def outcomes():
-    return pd.DataFrame(
-        {
-            "outcome_time": frame_times()[EVENT_FRAMES] + 0.01,
-            "num_rew_pulses": PULSES,
-            "phase": "task",
-        }
-    )
-
-
-def run_views(rng, reward_in):
-    background, cells = make_traces(rng, reward_in)
-    views = {("green", "F"): cells, ("green", "dF/F0"): cells / 2000 - 1}
-    return views, {("green", "F"): background}
-
-
-def analyse(views, background, **overrides):
-    settings = {**SETTINGS, "window_s": WINDOW_S, "phases": ("task",), "measures": MEASURES}
-    settings.update(overrides)
-    return analyse_shared_signal(
-        views, background, frame_times(), outcomes(), rng=np.random.default_rng(0), **settings
-    )
-
-
-def response_2s(result, which, pulses=4, view=("green", "F z")):
-    pooled = {view: pooled_mean_sem([result[which]["means"][view]], PULSE_CATEGORIES)}
-    return mean_response(pooled, result[which]["offsets"], PERIOD)[view][pulses]
-
-
-# --- the pure per-run analysis ------------------------------------------------------------------
-
-
-def test_a_reward_response_that_is_only_in_the_background_vanishes_from_the_residual():
-    views, background = run_views(np.random.default_rng(0), "background")
-    result = analyse(views, background)
-    original, residual = response_2s(result, "original"), response_2s(result, "residual")
-    assert original > 0.5
-    assert abs(residual) < 0.25 * original
-
-
-def test_a_reward_response_that_is_only_in_the_cells_survives_background_removal():
-    views, background = run_views(np.random.default_rng(1), "cells")
-    result = analyse(views, background)
-    original, residual = response_2s(result, "original"), response_2s(result, "residual")
-    assert original > 0.5
-    assert 0.7 * original < residual < 1.3 * original  # same units: z of the detrended cell
-
-
-def test_the_response_of_a_dff_view_is_removed_the_same_way():
-    views, background = run_views(np.random.default_rng(2), "background")
-    result = analyse(views, background)
-    original = response_2s(result, "original", view=("green", "dF/F0 z"))
-    residual = response_2s(result, "residual", view=("green", "dF/F0 z"))
-    assert original > 0.5 and abs(residual) < 0.25 * original
-
-
-def test_statistics_are_given_per_channel_and_raw_measure_with_the_requested_shifts():
-    rng = np.random.default_rng(3)
-    views, background = run_views(rng, "none")
-    result = analyse(views, background)
-    assert set(result["stats"]) == {("green", "F"), ("green", "dF/F0")}
-    stats = result["stats"][("green", "F")]
-    assert stats["null_partial_average"].shape == (SETTINGS["n_shifts"], N_CELLS)
-    assert stats["r_bg_avg"] > 0.3  # the cells follow the field signal
-    assert result["n_cells"] == N_CELLS
-
-
-def test_only_the_requested_measures_are_analysed():
-    views, background = run_views(np.random.default_rng(4), "none")
-    result = analyse(views, background, measures=("F z",))
-    assert set(result["stats"]) == {("green", "F")}
-    assert set(result["original"]["means"]) == {("green", "F z")}
-
-
-def test_the_same_seed_gives_the_same_chance_levels_and_another_seed_does_not():
-    views, background = run_views(np.random.default_rng(5), "none")
-    first = analyse(views, background)["stats"][("green", "F")]["null_r_bg"]
-    again = analyse(views, background)["stats"][("green", "F")]["null_r_bg"]
-    np.testing.assert_array_equal(first, again)
-    other = analyse_shared_signal(
-        views,
-        background,
-        frame_times(),
-        outcomes(),
-        rng=np.random.default_rng(99),
-        window_s=WINDOW_S,
-        phases=("task",),
-        measures=MEASURES,
-        **SETTINGS,
-    )["stats"][("green", "F")]["null_r_bg"]
-    assert not np.array_equal(first, other)
-
-
-def test_a_run_too_short_for_the_shifts_or_the_window_is_refused():
-    views, background = run_views(np.random.default_rng(6), "none")
-    with pytest.raises(TooShortForSharedSignalError, match="shift"):
-        analyse(views, background, min_shift_s=70.0)  # 2 x 70 s > 120 s
-    with pytest.raises(TooShortForSharedSignalError, match="window"):
-        analyse(views, background, detrend_window_s=500.0)
-
-
-def test_a_background_of_another_length_than_the_frame_times_raises():
-    views, background = run_views(np.random.default_rng(7), "none")
-    background = {key: trace[:-5] for key, trace in background.items()}
-    with pytest.raises(RunMismatchError, match="frames"):
-        analyse(views, background)
-
-
-def test_a_constant_background_raises():
-    views, background = run_views(np.random.default_rng(8), "none")
-    background = {key: np.full(N_FRAMES, 5.0) for key in background}
-    with pytest.raises(ValueError, match="constant"):
-        analyse(views, background)
-
-
-def test_raw_measures_are_not_accepted_because_the_analysis_is_in_z_units():
-    views, background = run_views(np.random.default_rng(9), "none")
-    with pytest.raises(ValueError, match="F z"):
-        analyse(views, background, measures=("F",))
-
-
-def test_the_input_traces_are_not_modified():
-    views, background = run_views(np.random.default_rng(10), "background")
-    before = {k: v.copy() for k, v in views.items()}, {k: v.copy() for k, v in background.items()}
-    analyse(views, background)
-    for got, want in zip((views, background), before, strict=True):
-        for key in want:
-            np.testing.assert_array_equal(got[key], want[key])
-
-
-# --- from disk ----------------------------------------------------------------------------------
+from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
+from tests.funcimg_shared_fixtures import (  # noqa: E402
+    MEASURES,
+    N_CELLS,
+    N_FRAMES,
+    SETTINGS,
+    WINDOW_S,
+    analyse,
+    frame_times,
+    make_traces,
+    neuropil_and_halves,
+    outcomes,
+    response_2s,
+    run_inputs,
+)
+from tests.test_funcimg_background import write_plane  # noqa: E402
 
 
 def write_run(funcimg, run, rng, reward_in, iscell=None):
-    """A run folder: planes' binaries hold the background; F.npy holds the cells."""
+    """A run folder: the plane's binaries hold the background; the .npy files hold the cells."""
     plane = funcimg / run / "without_destriping" / "suite2p" / "plane0"
     green_bg, green_cells = make_traces(rng, reward_in)
     red_bg, red_cells = make_traces(rng, "none")
     write_plane(plane, rng, green_bg, red_bg)
+    green_neuropil, _ = neuropil_and_halves(rng, green_bg, green_cells)
+    red_neuropil, _ = neuropil_and_halves(rng, red_bg, red_cells)
     for name, array in {
         "F": green_cells,
-        "Fneu": green_cells * 0.2,
+        "Fneu": green_neuropil,
         "F_chan2": red_cells,
-        "Fneu_chan2": red_cells * 0.1,
+        "Fneu_chan2": red_neuropil,
     }.items():
         np.save(plane / f"{name}.npy", array)
     if iscell is not None:
@@ -234,6 +67,11 @@ def write_run(funcimg, run, rng, reward_in, iscell=None):
     )
 
 
+def plane_dir(derivatives, run="run-01"):
+    funcimg = derivatives / "ses-224_date-20260809" / "funcimg"
+    return funcimg / run / "without_destriping" / "suite2p" / "plane0"
+
+
 @pytest.fixture
 def derivatives(tmp_path):
     funcimg = tmp_path / "der" / "ses-224_date-20260809" / "funcimg"
@@ -243,7 +81,12 @@ def derivatives(tmp_path):
 
 
 def collect_runs(derivatives, tmp_path, **overrides):
-    settings = {**SETTINGS, "measures": MEASURES, "cache_dir": tmp_path / "cache"}
+    settings = {
+        **SETTINGS,
+        "measures": MEASURES,
+        "cache_dir": tmp_path / "cache",
+        "results_cache_dir": tmp_path / "results",
+    }
     settings.update(overrides)
     return collect_shared_signal(
         derivatives,
@@ -268,6 +111,7 @@ def test_each_run_is_analysed_for_green_and_red_with_original_and_residual_respo
             (channel, measure) for channel in ("green", "red") for measure in ("F", "dF/F0")
         }
         assert run["n_cells"] == N_CELLS and run["rois"].tolist() == list(range(N_CELLS))
+        assert np.isfinite(run["stats"][("red", "F")]["bg_reliability"])
     original, residual = pool_shared_signal(runs, MEASURES)
     assert (
         set(original)
@@ -287,14 +131,37 @@ def test_the_residual_response_is_gone_for_the_background_run_and_kept_for_the_c
     assert response_2s(in_cells, "residual") > 0.7 * response_2s(in_cells, "original")
 
 
+def test_the_neuropil_and_background_halves_come_from_the_plane_and_the_binaries(
+    derivatives, tmp_path
+):
+    runs, _ = collect_runs(derivatives, tmp_path, runs=("run-01",))
+    stats = runs[0]["stats"][("green", "F")]
+    # the fixture's background pixels all carry one trace, so its two halves agree exactly
+    assert stats["bg_half_r"] == pytest.approx(1.0) and stats["bg_reliability"] == pytest.approx(
+        1.0
+    )
+    assert np.isfinite(stats["partial_r_neuropil"]).all()
+
+
 def test_cells_only_keeps_the_rois_the_classifier_accepts(derivatives, tmp_path):
-    plane = derivatives / "ses-224_date-20260809" / "funcimg" / "run-01"
-    plane = plane / "without_destriping" / "suite2p" / "plane0"
-    np.save(plane / "iscell.npy", np.array([[1, 0.9], [0, 0.2], [1, 0.8], [1, 0.7]]))
+    np.save(
+        plane_dir(derivatives) / "iscell.npy", np.array([[1, 0.9], [0, 0.2], [1, 0.8], [1, 0.7]])
+    )
     everything, _ = collect_runs(derivatives, tmp_path, runs=("run-01",))
     cells_only, _ = collect_runs(derivatives, tmp_path, runs=("run-01",), cells_only=True)
     assert everything[0]["n_cells"] == 4
     assert cells_only[0]["n_cells"] == 3 and cells_only[0]["rois"].tolist() == [0, 2, 3]
+
+
+def test_cells_only_with_a_single_accepted_roi_leaves_the_run_out_with_a_reason(
+    derivatives, tmp_path
+):
+    np.save(
+        plane_dir(derivatives) / "iscell.npy", np.array([[0, 0.1], [1, 0.9], [0, 0.2], [0, 0.1]])
+    )
+    runs, skipped = collect_runs(derivatives, tmp_path, cells_only=True)
+    assert [r["run"] for r in runs] == ["run-02"]  # the other run keeps all its ROIs
+    assert skipped[0][1] == "run-01" and "two" in skipped[0][2]
 
 
 def test_a_run_too_short_for_the_shifts_is_listed_with_the_reason(derivatives, tmp_path):
@@ -305,6 +172,11 @@ def test_a_run_too_short_for_the_shifts_is_listed_with_the_reason(derivatives, t
         ("ses-224_date-20260809", "run-02"),
     ]
     assert "shift" in skipped[0][2]
+
+
+def test_a_run_whose_outcome_windows_cover_it_is_listed_with_the_fix(derivatives, tmp_path):
+    runs, skipped = collect_runs(derivatives, tmp_path, fit_exclude_window_s=None)
+    assert runs == [] and "fit_exclude_window_s" in skipped[0][2]
 
 
 def test_a_run_without_frame_times_is_listed_not_dropped(derivatives, tmp_path):
@@ -327,3 +199,117 @@ def test_nothing_is_written_beside_the_data(derivatives, tmp_path):
     before = sorted(p for p in derivatives.rglob("*"))
     collect_runs(derivatives, tmp_path)
     assert sorted(p for p in derivatives.rglob("*")) == before
+
+
+# --- the result cache ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def analysis_calls(monkeypatch):
+    calls = []
+    real = collect_shared.analyse_shared_signal
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(collect_shared, "analyse_shared_signal", counting)
+    return calls
+
+
+def test_a_second_collection_comes_from_the_cache_with_the_same_numbers(
+    derivatives, tmp_path, analysis_calls
+):
+    first, _ = collect_runs(derivatives, tmp_path)
+    assert len(analysis_calls) == 2
+    second, _ = collect_runs(derivatives, tmp_path)
+    assert len(analysis_calls) == 2  # nothing recomputed
+    np.testing.assert_array_equal(
+        first[1]["stats"][("red", "F")]["partial_r"], second[1]["stats"][("red", "F")]["partial_r"]
+    )
+    np.testing.assert_array_equal(first[0]["rois"], second[0]["rois"])
+    assert list((tmp_path / "results").glob("*"))
+
+
+def test_changing_a_trace_a_setting_or_the_seed_recomputes_only_that_run(
+    derivatives, tmp_path, analysis_calls
+):
+    collect_runs(derivatives, tmp_path)
+    analysis_calls.clear()
+    f = plane_dir(derivatives) / "F.npy"
+    edited = np.load(f)
+    edited[0] += 1.0
+    np.save(f, edited)
+    collect_runs(derivatives, tmp_path)
+    assert len(analysis_calls) == 1  # run-01 only
+    analysis_calls.clear()
+    collect_runs(derivatives, tmp_path, n_shifts=SETTINGS["n_shifts"] + 1)
+    assert len(analysis_calls) == 2
+    analysis_calls.clear()
+    collect_runs(derivatives, tmp_path, n_shifts=SETTINGS["n_shifts"] + 1, seed=7)
+    assert len(analysis_calls) == 2
+    analysis_calls.clear()
+    collect_runs(derivatives, tmp_path, n_shifts=SETTINGS["n_shifts"] + 1, seed=7)
+    assert not analysis_calls
+
+
+def test_other_null_kinds_or_fit_settings_do_not_reuse_a_result(
+    derivatives, tmp_path, analysis_calls
+):
+    collect_runs(derivatives, tmp_path, runs=("run-01",))
+    analysis_calls.clear()
+    collect_runs(derivatives, tmp_path, runs=("run-01",), null_kinds=("r_bg",))
+    collect_runs(derivatives, tmp_path, runs=("run-01",), fit_exclude_outcomes=False)
+    collect_runs(derivatives, tmp_path, runs=("run-01",), cells_only=True)
+    assert len(analysis_calls) == 3
+
+
+def test_a_new_code_version_invalidates_the_cache(
+    derivatives, tmp_path, analysis_calls, monkeypatch
+):
+    collect_runs(derivatives, tmp_path, runs=("run-01",))
+    analysis_calls.clear()
+    monkeypatch.setattr(shared_cache, "CODE_VERSION", "another version")
+    collect_runs(derivatives, tmp_path, runs=("run-01",))
+    assert len(analysis_calls) == 1
+
+
+def test_the_cache_key_depends_on_array_content_and_not_on_dict_order():
+    a = {"x": np.arange(5.0), "y": ("a", 1)}
+    b = {"y": ("a", 1), "x": np.arange(5.0)}
+    assert shared_cache.content_key(a) == shared_cache.content_key(b)
+    assert shared_cache.content_key(a) != shared_cache.content_key({**a, "x": np.arange(5.0) + 1})
+    assert shared_cache.content_key({"x": np.zeros(4)}) != shared_cache.content_key(
+        {"x": np.zeros((2, 2))}
+    )
+
+
+def test_a_truncated_cache_file_is_recomputed_not_trusted(derivatives, tmp_path, analysis_calls):
+    collect_runs(derivatives, tmp_path, runs=("run-01",))
+    (cached,) = list((tmp_path / "results").glob("*"))
+    cached.write_bytes(cached.read_bytes()[:20])
+    analysis_calls.clear()
+    collect_runs(derivatives, tmp_path, runs=("run-01",))
+    assert len(analysis_calls) == 1
+
+
+# --- pooling ------------------------------------------------------------------------------------
+
+
+def test_runs_with_different_frame_periods_cannot_be_pooled():
+    result = analyse(run_inputs(np.random.default_rng(0), "none", channels=("green", "red")))
+    slower = {**result, "original": {**result["original"], "period_s": 0.2}}
+    with pytest.raises(ValueError, match="frame period"):
+        pool_shared_signal(
+            [{"original": result["original"], "residual": result["residual"]}, slower], MEASURES
+        )
+
+
+def test_runs_whose_periods_differ_only_by_measurement_noise_pool_fine():
+    result = analyse(run_inputs(np.random.default_rng(1), "none", channels=("green", "red")))
+    nearly = {
+        "original": {**result["original"], "period_s": result["original"]["period_s"] * 1.0001},
+        "residual": result["residual"],
+    }
+    original, _ = pool_shared_signal([result, nearly], MEASURES)
+    assert ("green", "F z") in original

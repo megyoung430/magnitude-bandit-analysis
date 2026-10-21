@@ -13,7 +13,11 @@ from pathlib import Path
 
 import numpy as np
 
-from src.funcimg_analysis.background import background_mask, chunked_mask_mean
+from src.funcimg_analysis.background import (
+    background_halves,
+    background_mask,
+    chunked_mask_mean,
+)
 from src.funcimg_analysis.frame_times import RunMismatchError
 
 CHUNK_FRAMES = 200
@@ -94,15 +98,45 @@ def _cached(cache_file: Path, compute: Callable[[], dict]) -> dict:
 
 
 def _read_traces(
-    paths: dict[str, Path], n_frames: int, shape: tuple[int, int], mask: np.ndarray, chunk: int
+    paths: dict[str, Path],
+    n_frames: int,
+    shape: tuple[int, int],
+    masks: np.ndarray,
+    chunk: int,
+    progress: Callable[[str], None] | None,
 ) -> dict[str, np.ndarray]:
     # both binaries are opened (and their sizes checked) before either is read
     movies = {channel: _open_movie(path, n_frames, shape) for channel, path in paths.items()}
-    return {channel: chunked_mask_mean(movie, mask, chunk) for channel, movie in movies.items()}
+    return {
+        channel: chunked_mask_mean(
+            movie,
+            masks,
+            chunk,
+            on_chunk=_chunk_reporter(progress, channel, paths[channel], n_frames, chunk),
+        )
+        for channel, movie in movies.items()
+    }
+
+
+def _chunk_reporter(
+    progress: Callable[[str], None] | None, channel: str, path: Path, n_frames: int, chunk: int
+) -> Callable[[], None] | None:
+    """A per-chunk callback that reports reading *path*, at most every PROGRESS_EVERY_S."""
+    if progress is None:
+        return None
+    from mini2p_preprocessing.progress import PROGRESS_EVERY_S, ProgressLog
+
+    n_chunks = -(-n_frames // chunk)
+    log = ProgressLog(f"Background {channel} ({path.name})", n_chunks, progress, PROGRESS_EVERY_S)
+    return log.step_done
 
 
 def load_background(
-    plane_dir, roi_margin_px: int = 0, cache_dir=None, chunk_frames: int = CHUNK_FRAMES
+    plane_dir,
+    roi_margin_px: int = 0,
+    cache_dir=None,
+    chunk_frames: int = CHUNK_FRAMES,
+    progress: Callable[[str], None] | None = None,
 ) -> dict:
     """The background F of both channels of a plane, and what a sanity figure needs.
 
@@ -112,9 +146,14 @@ def load_background(
         cache_dir (str | Path | None): Where traces are cached. Default None, meaning
             ``<settings cache_dir>/funcimg_background`` (git-ignored). Never beside the data.
         chunk_frames (int): Frames read at a time.
+        progress (Callable[[str], None] | None): Receives progress lines while the binaries are
+            read (first chunk, last chunk and every 30 s, with a time estimate) and one line on a
+            cache hit; e.g. ``print``. Default None, silent.
 
     Returns:
-        dict: ``F`` (``{("green", "F"): (n_frames,), ("red", "F"): ...}``), ``mask``,
+        dict: ``F`` (``{("green", "F"): (n_frames,), ("red", "F"): ...}``), ``F_halves`` (the same
+        keys, ``(2, n_frames)``: the F of two disjoint checkerboard halves of the background
+        pixels, for its split-half reliability), ``mask``,
         ``n_pixels``, ``labels`` (ROI label image) and ``mean_images`` (``green``, ``red``).
 
     Raises:
@@ -132,6 +171,11 @@ def load_background(
     yrange, xrange = (_ops_value(ops, key, plane_dir) for key in ("yrange", "xrange"))
     mask = background_mask(stat, shape, yrange, xrange, roi_margin_px)
     mean_images = _mean_images(ops, plane_dir, shape)
+    try:
+        halves = background_halves(mask)
+    except ValueError as error:
+        raise BackgroundUnavailableError(f"{plane_dir}: {error}") from error
+    all_masks = np.concatenate([mask[None], halves])  # the whole, then the two halves
     paths = {channel: _binary_path(ops, plane_dir, channel) for channel in CHANNEL_FILES}
     if cache_dir is None:
         from src.settings import get_settings
@@ -143,12 +187,15 @@ def load_background(
         [*paths.values(), plane_dir / "stat.npy", plane_dir / "ops.npy"],
         roi_margin_px,
     )
+    if progress is not None and cache_file.is_file():
+        progress(f"Background of {plane_dir}: from cache")
     traces = _cached(
         cache_file,
-        lambda: _read_traces(paths, int(ops["nframes"]), shape, mask, chunk_frames),
+        lambda: _read_traces(paths, int(ops["nframes"]), shape, all_masks, chunk_frames, progress),
     )
     return {
-        "F": {(channel, "F"): traces[channel] for channel in CHANNEL_FILES},
+        "F": {(channel, "F"): traces[channel][0] for channel in CHANNEL_FILES},
+        "F_halves": {(channel, "F"): traces[channel][1:] for channel in CHANNEL_FILES},
         "mask": mask,
         "n_pixels": int(mask.sum()),
         "labels": labels_from_stat(stat, *shape),

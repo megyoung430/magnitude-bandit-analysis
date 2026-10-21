@@ -15,8 +15,15 @@ import pytest  # noqa: E402
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
 from src.funcimg_analysis import background_io  # noqa: E402
-from src.funcimg_analysis.background import background_mask, chunked_mask_mean  # noqa: E402
-from src.funcimg_analysis.background_io import BackgroundUnavailableError, load_background  # noqa: E402
+from src.funcimg_analysis.background import (  # noqa: E402
+    background_halves,
+    background_mask,
+    chunked_mask_mean,
+)
+from src.funcimg_analysis.background_io import (  # noqa: E402
+    BackgroundUnavailableError,
+    load_background,
+)
 from src.funcimg_analysis.collect import (  # noqa: E402
     collect_background_responses,
     collect_pulse_responses,
@@ -236,6 +243,35 @@ def test_a_chunk_size_below_one_raises():
 def test_a_mask_of_the_wrong_shape_raises():
     with pytest.raises(ValueError, match="shape"):
         chunked_mask_mean(np.zeros((3, LY, LX), np.int16), np.ones((LY, LX + 1), bool), 2)
+
+
+def test_the_halves_split_the_background_into_two_disjoint_checkerboard_sets_that_cover_it():
+    mask = literal_background()
+    halves = background_halves(mask)
+    assert halves.shape == (2, LY, LX)
+    assert not (halves[0] & halves[1]).any()
+    np.testing.assert_array_equal(halves[0] | halves[1], mask)
+    ys, xs = np.nonzero(halves[0])
+    assert ((ys + xs) % 2 == 0).all()
+    ys, xs = np.nonzero(halves[1])
+    assert ((ys + xs) % 2 == 1).all()
+
+
+def test_a_background_too_small_to_split_into_two_halves_raises():
+    mask = np.zeros((LY, LX), bool)
+    mask[3, 3] = True
+    with pytest.raises(ValueError, match="two halves"):
+        background_halves(mask)
+
+
+def test_several_masks_are_averaged_in_one_pass():
+    rng = np.random.default_rng(3)
+    movie = rng.integers(0, 3000, (N_FRAMES, LY, LX)).astype(np.int16)
+    masks = np.stack([literal_background(), *background_halves(literal_background())])
+    together = chunked_mask_mean(movie, masks, 77)
+    assert together.shape == (3, N_FRAMES)
+    for row, mask in zip(together, masks, strict=True):
+        np.testing.assert_allclose(row, chunked_mask_mean(movie, mask, 77))
 
 
 # --- loading and the cache ----------------------------------------------------------------------
@@ -590,3 +626,57 @@ def test_the_background_png_name_carries_the_window():
     assert name == "background_responses_ses-224-224_run-01_with_destriping_s_win-10to30s.png"
     other = background_responses_png_name("ses-224-224_run-01", "with_destriping", "s", (-5, 20))
     assert other != name
+
+
+def test_load_background_returns_the_trace_of_each_half_and_the_whole(derivatives, tmp_path):
+    plane = plane_of(derivatives)
+    mask = literal_background()
+    halves = background_halves(mask)
+    rng = np.random.default_rng(5)
+    even, odd = 200 + rng.integers(-3, 4, N_FRAMES), 300 + rng.integers(-3, 4, N_FRAMES)
+    movie = np.full((N_FRAMES, LY, LX), 5000, dtype=np.int16)
+    movie[:, halves[0]] = even[:, None]
+    movie[:, halves[1]] = odd[:, None]
+    movie.tofile(plane / "data.bin")
+    bg = load_background(plane, cache_dir=tmp_path / "cache")
+    np.testing.assert_allclose(bg["F_halves"][("green", "F")][0], even)
+    np.testing.assert_allclose(bg["F_halves"][("green", "F")][1], odd)
+    expected = movie[:, mask].astype(float).mean(axis=1)
+    np.testing.assert_allclose(bg["F"][("green", "F")], expected)  # the whole is unchanged
+    assert bg["F_halves"][("red", "F")].shape == (2, N_FRAMES)
+
+
+def test_a_background_of_one_pixel_is_left_out_because_it_cannot_be_split(derivatives, tmp_path):
+    plane = plane_of(derivatives)
+    edit_ops(plane, yrange=[3, 4], xrange=[3, 4])  # a 1 x 1 crop that no ROI covers
+    stat = np.array([], dtype=object)
+    np.save(plane / "stat.npy", stat, allow_pickle=True)
+    with pytest.raises(BackgroundUnavailableError, match="two halves"):
+        load_background(plane, cache_dir=tmp_path / "cache")
+
+
+def test_the_chunked_mean_reports_each_chunk_it_has_read():
+    movie = np.arange(10 * 2 * 3, dtype=np.int16).reshape(10, 2, 3)
+    seen = []
+    chunked_mask_mean(movie, np.ones((2, 3), bool), 4, on_chunk=lambda: seen.append(1))
+    assert len(seen) == 3  # chunks of 4, 4 and 2 frames
+
+
+def test_reading_the_binaries_reports_progress_per_channel_and_a_cache_hit_says_so(
+    derivatives, tmp_path
+):
+    plane, cache = plane_of(derivatives), tmp_path / "cache"
+    lines = []
+    load_background(plane, cache_dir=cache, chunk_frames=7, progress=lines.append)
+    assert any(line.startswith("Background green") for line in lines)
+    assert any(line.startswith("Background red") for line in lines)
+    assert all("all done" in line for line in lines if line.endswith("all done"))
+    assert sum("all done" in line for line in lines) == 2
+    lines.clear()
+    load_background(plane, cache_dir=cache, progress=lines.append)
+    assert len(lines) == 1 and "from cache" in lines[0]
+
+
+def test_without_a_progress_callback_nothing_is_reported(derivatives, tmp_path, capsys):
+    load_background(plane_of(derivatives), cache_dir=tmp_path / "cache")
+    assert capsys.readouterr().out == ""

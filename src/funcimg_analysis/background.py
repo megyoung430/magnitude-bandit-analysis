@@ -6,6 +6,8 @@ subtraction. This module is pure array code; reading the binaries and caching li
 ``background_io``.
 """
 
+from collections.abc import Callable
+
 import numpy as np
 from scipy.ndimage import binary_dilation
 
@@ -71,7 +73,35 @@ def background_mask(
     return mask
 
 
-def chunked_mask_mean(movie, mask: np.ndarray, chunk_frames: int) -> np.ndarray:
+def background_halves(mask: np.ndarray) -> np.ndarray:
+    """Two disjoint sets of the background pixels, a checkerboard of the mask.
+
+    The traces of the two sets share the field signal but not the pixels' own shot noise, so
+    their correlation says how reliable the whole background trace is.
+
+    Args:
+        mask (np.ndarray): Boolean ``(Ly, Lx)`` background mask.
+
+    Returns:
+        np.ndarray: Boolean ``(2, Ly, Lx)``; the first set is the pixels with even row + column.
+
+    Raises:
+        ValueError: If either set would have no pixels.
+    """
+    rows, cols = np.indices(mask.shape)
+    parity = (rows + cols) % 2
+    halves = np.stack([mask & (parity == 0), mask & (parity == 1)])
+    if not halves.any(axis=(1, 2)).all():
+        raise ValueError("The background has too few pixels to split into two halves.")
+    return halves
+
+
+def chunked_mask_mean(
+    movie,
+    mask: np.ndarray,
+    chunk_frames: int,
+    on_chunk: Callable[[], None] | None = None,
+) -> np.ndarray:
     """Mean over the masked pixels in each frame, reading *chunk_frames* frames at a time.
 
     Chunking keeps memory at one chunk even for a multi-GB memory-mapped movie; the sum is in
@@ -79,22 +109,29 @@ def chunked_mask_mean(movie, mask: np.ndarray, chunk_frames: int) -> np.ndarray:
 
     Args:
         movie (np.ndarray | np.memmap): ``(n_frames, Ly, Lx)`` integer movie.
-        mask (np.ndarray): Boolean ``(Ly, Lx)``.
+        mask (np.ndarray): Boolean ``(Ly, Lx)``, or ``(n_masks, Ly, Lx)`` to average several
+            sets of pixels in one pass over the movie.
         chunk_frames (int): Frames per chunk, at least 1.
+        on_chunk (Callable[[], None] | None): Called after each chunk is read, e.g. to report
+            progress. Default None.
 
     Returns:
-        np.ndarray: ``(n_frames,)`` float64 mean F.
+        np.ndarray: ``(n_frames,)`` float64 mean F, or ``(n_masks, n_frames)`` for several masks.
 
     Raises:
         ValueError: If *chunk_frames* is below 1 or the mask does not fit the movie.
     """
     if chunk_frames < 1:
         raise ValueError(f"chunk_frames must be at least 1, not {chunk_frames}.")
-    if mask.shape != movie.shape[1:]:
+    if mask.shape[-2:] != movie.shape[1:]:
         raise ValueError(f"mask shape {mask.shape} does not match the movie's {movie.shape[1:]}.")
+    masks = mask[None] if mask.ndim == 2 else mask
     n_frames = movie.shape[0]
-    out = np.empty(n_frames, dtype=np.float64)
+    out = np.empty((len(masks), n_frames), dtype=np.float64)
     for start in range(0, n_frames, chunk_frames):
         chunk = np.asarray(movie[start : start + chunk_frames])
-        out[start : start + len(chunk)] = chunk[:, mask].mean(axis=1, dtype=np.float64)
-    return out
+        for row, one_mask in zip(out, masks, strict=True):
+            row[start : start + len(chunk)] = chunk[:, one_mask].mean(axis=1, dtype=np.float64)
+        if on_chunk is not None:
+            on_chunk()
+    return out[0] if mask.ndim == 2 else out
