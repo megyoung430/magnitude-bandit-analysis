@@ -59,8 +59,8 @@ def pulse_responses(
 
     Returns:
         dict: ``offsets`` (frames), ``period_s``, ``means`` (``{view: {pulses: (n_cells,
-        n_window)}}`` for the requested measures), ``sems`` (the same, SEM across trials), ``n_trials`` per pulse count, ``n_cells``,
-        ``n_events_dropped`` (outcomes without a complete window of imaged frames) and
+        n_window)}}`` for the requested measures), ``sems`` (the same, SEM across trials),
+        ``n_trials`` per pulse count, ``n_cells``, ``n_events_dropped`` (outcomes without a complete window of imaged frames) and
         ``flat_cells`` (``{z view: ROI indices}`` with no defined scale, whose z is NaN).
 
     Raises:
