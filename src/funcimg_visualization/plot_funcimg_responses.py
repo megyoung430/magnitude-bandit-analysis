@@ -20,7 +20,8 @@ MEASURE_LABELS = {
 }
 
 
-def _x(offsets: np.ndarray, period_s: float, x_units: str) -> tuple[np.ndarray, str]:
+def window_x(offsets: np.ndarray, period_s: float, x_units: str) -> tuple[np.ndarray, str]:
+    """x values and axis label of window *offsets* (frames), in ``"s"`` or ``"frames"``."""
     if x_units == "frames":
         return offsets, "Frames from the outcome's frame"
     if x_units == "s":
@@ -35,7 +36,8 @@ def plot_pulse_responses(
     x_units: str = "s",
     axes=None,
     title: str = "",
-    measures: tuple[str, str] = ("F z", "dF/F0 z"),
+    measures: tuple[str, ...] = ("F z", "dF/F0 z"),
+    unit: str | None = "cells",
 ):
     """Mean ± SEM across cells of each view, one line per number of reward pulses.
 
@@ -44,24 +46,39 @@ def plot_pulse_responses(
         offsets (np.ndarray): Window offsets in frames (0 = outcome frame).
         period_s (float): Frame period, for an x axis in seconds.
         x_units (str): ``"s"`` or ``"frames"``.
-        axes: A 2 x 2 array of axes (rows *measures*; columns green, red), or None for a new
-            figure.
+        axes: A ``(len(measures), 2)`` array of axes (columns green, red), or None for a new
+            figure with a row per measure.
         title (str): Figure title.
-        measures (tuple[str, str]): The two rows: ``"F"``, ``"dF/F0"`` or their robust-z,
-            baseline-subtracted versions ``"F z"``, ``"dF/F0 z"`` (the default).
+        measures (tuple[str, ...]): The rows: ``"F"``, ``"dF/F0"`` or their robust-z,
+            baseline-subtracted versions ``"F z"``, ``"dF/F0 z"`` (the default pair).
+        unit (str | None): What the pooled items are, named in the legend with their count
+            (``"cells"``); None names only the number of runs.
 
     Returns:
         matplotlib.figure.Figure: The figure.
     """
+    if not measures:
+        raise ValueError("Give at least one measure to plot.")
+    n_rows = len(measures)
     if axes is None:
-        fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, constrained_layout=True)
-    fig = np.asarray(axes).flat[0].figure
-    x, xlabel = _x(np.asarray(offsets), period_s, x_units)
+        _, axes = plt.subplots(
+            n_rows, 2, figsize=(11, 4 * n_rows), sharex=True, constrained_layout=True, squeeze=False
+        )
+    axes = np.asarray(axes)
+    if axes.shape != (n_rows, 2):
+        raise ValueError(
+            f"Need a {n_rows} x 2 array of axes for {n_rows} measures, got {axes.shape}."
+        )
+    fig = axes[0, 0].figure
+    x, xlabel = window_x(np.asarray(offsets), period_s, x_units)
     for col, channel in enumerate(("green", "red")):
         for row, measure in enumerate(measures):
-            ax = np.asarray(axes)[row, col]
+            ax = axes[row, col]
             for pulses, stats in sorted(pooled[(channel, measure)].items()):
-                label = f"{pulses} pulses ({stats['n_cells']} cells, {stats['n_runs']} runs)"
+                counts = f"{stats['n_cells']} {unit}, " if unit else ""
+                n_runs = stats["n_runs"]
+                sem_note = ", SEM across trials" if stats.get("sem_kind") == "trials" else ""
+                label = f"{pulses} pulses ({counts}{n_runs} run{'s' * (n_runs != 1)}{sem_note})"
                 ax.plot(x, stats["mean"], color=PULSE_COLORS[pulses], label=label)
                 ax.fill_between(
                     x,
@@ -75,14 +92,15 @@ def plot_pulse_responses(
             name, ylabel = MEASURE_LABELS[measure]
             ax.set_title(f"{CHANNEL_TITLES[channel]}: {name}")
             ax.set_ylabel(ylabel)
-            if row == 1:
+            if row == len(measures) - 1:
                 ax.set_xlabel(xlabel)
-    np.asarray(axes)[0, 1].legend(fontsize=8, frameon=False)
+    axes[0, 1].legend(fontsize=8, frameon=False)
     fig.suptitle(title or "Outcome-aligned response, mean ± SEM across cells")
     return fig
 
 
-def _outline(labels: np.ndarray) -> np.ndarray:
+def outline(labels: np.ndarray) -> np.ndarray:
+    """Boolean image of the pixels on the boundary of a labelled ROI (label > 0)."""
     edge = np.zeros(labels.shape, bool)
     edge[:-1] |= labels[:-1] != labels[1:]
     edge[1:] |= labels[:-1] != labels[1:]
@@ -231,7 +249,7 @@ def _draw_fov(ax, top: dict, colors: list[str]) -> None:
     if len(top["cells"]):
         lut[top["cells"] + 1] = [matplotlib.colors.to_rgba(c) for c in colors]
     overlay = np.zeros((*image.shape, 4))
-    edge = _outline(chosen)
+    edge = outline(chosen)
     overlay[edge] = lut[chosen[edge]]
     ax.imshow(overlay)
     hidden = []

@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from src.behavior_analysis.outcome_events import OutcomeParseError, load_outcome_events
+from src.funcimg_analysis.background_io import BackgroundUnavailableError, load_background
 from src.funcimg_analysis.event_frames import (
     pooled_mean_sem,
     top_cells_by_max,
@@ -33,6 +34,7 @@ from src.funcimg_analysis.run_responses import (
 )
 
 RANKINGS = ("max_dff", "p_cell")
+BACKGROUND_MEASURES = ("F", "F z")  # a background has no neuropil or F0, so no ΔF/F0
 SESSION = re.compile(r"^ses-(\d+)_")
 
 
@@ -93,6 +95,59 @@ def _missing(run_dir: Path, plane_dir: Path) -> str | None:
     return None
 
 
+def _collect_runs(
+    found: list,
+    variant: str,
+    window_s: tuple[float, float],
+    phases: tuple[str, ...],
+    load_outcomes: Callable,
+    measures: tuple[str, ...],
+    load_views: Callable[[Path], tuple[dict, dict]],
+) -> tuple[list[dict], list[tuple[str, str, str]]]:
+    """Align the views of every found run to its outcomes; list the runs left out and why.
+
+    *load_views* maps a plane folder to the views to align (``{(channel, measure): (n_rows,
+    n_frames)}``) and extra entries to keep in the run's result.
+    """
+    included, skipped = [], []
+    for session, run_dir, plane_dir in found:
+        reason = _missing(run_dir, plane_dir)
+        if reason is None:
+            try:
+                frames = load_frame_times(run_dir)
+                check_run_source(frames.tiff.name, run_dir, variants=(variant,))
+                views, extra = load_views(plane_dir)
+                result = pulse_responses(
+                    views,
+                    frames.time_s,
+                    load_outcomes(frames.tsv),
+                    window_s,
+                    phases,
+                    measures=measures,
+                )
+                included.append({"session": session, "run": run_dir.name, **result, **extra})
+                continue
+            except (
+                RunMismatchError,
+                OutcomeParseError,
+                FileNotFoundError,
+                BackgroundUnavailableError,
+            ) as error:
+                reason = str(error)  # anything else is a bug and stops the analysis
+        skipped.append((session, run_dir.name, reason))
+    _check_same_window(included)
+    return included, skipped
+
+
+def pool_runs(runs: list[dict], measures: tuple[str, ...]) -> dict:
+    """Pool *runs* for *measures*: ``{view: {pulses: {"mean", "sem", "n_cells", "n_runs"}}}``."""
+    return {
+        view: pooled_mean_sem([run["means"][view] for run in runs], PULSE_CATEGORIES)
+        for view in VIEWS
+        if view[1] in measures
+    }
+
+
 def collect_pulse_responses(
     subject_dir,
     first_session: int,
@@ -127,34 +182,99 @@ def collect_pulse_responses(
         and ``(session, run, reason)`` for each run left out.
     """
     found = variant_runs(subject_dir, first_session, last_session, variant, runs)
-    runs, skipped = [], []
-    for session, run_dir, plane_dir in found:
-        reason = _missing(run_dir, plane_dir)
-        if reason is None:
-            try:
-                frames = load_frame_times(run_dir)
-                check_run_source(frames.tiff.name, run_dir, variants=(variant,))
-                views, _ = plane_views(plane_dir)
-                result = pulse_responses(
-                    views,
-                    frames.time_s,
-                    load_outcomes(frames.tsv),
-                    window_s,
-                    phases,
-                    measures=measures,
+    included, skipped = _collect_runs(
+        found,
+        variant,
+        window_s,
+        phases,
+        load_outcomes,
+        measures,
+        lambda plane_dir: (plane_views(plane_dir)[0], {}),
+    )
+    return pool_runs(included, measures), included, skipped
+
+
+def _with_trial_sem(pooled: dict, runs: list[dict]) -> dict:
+    """Mark each pooled SEM as across runs, or across trials where one run alone contributes.
+
+    With a single run the SEM across runs is undefined, so the SEM across that run's trials
+    of the pulse count is shown instead, and ``sem_kind`` says which it is.
+    """
+    for view, per_pulse in pooled.items():
+        for pulses, stats in per_pulse.items():
+            stats["sem_kind"] = "runs"
+            if stats["n_runs"] == 1:
+                run = next(
+                    r for r in runs if np.isfinite(r["means"][view].get(pulses, np.nan)).any()
                 )
-                runs.append({"session": session, "run": run_dir.name, **result})
-                continue
-            except (RunMismatchError, OutcomeParseError, FileNotFoundError) as error:
-                reason = str(error)  # anything else is a bug and stops the analysis
-        skipped.append((session, run_dir.name, reason))
-    _check_same_window(runs)
-    pooled = {
-        view: pooled_mean_sem([run["means"][view] for run in runs], PULSE_CATEGORIES)
-        for view in VIEWS
-        if view[1] in measures
-    }
-    return pooled, runs, skipped
+                stats["sem"] = run["sems"][view][pulses][0]
+                stats["sem_kind"] = "trials"
+    return pooled
+
+
+def collect_background_responses(
+    subject_dir,
+    first_session: int,
+    last_session: int,
+    variant: str,
+    window_s: tuple[float, float],
+    phases: tuple[str, ...],
+    load_outcomes: Callable = load_outcome_events,
+    *,
+    runs: Collection[str] | None = None,
+    measures: tuple[str, ...] = BACKGROUND_MEASURES,
+    roi_margin_px: int = 0,
+    cache_dir=None,
+) -> tuple[dict, list[dict], list[tuple[str, str, str]]]:
+    """Pool the reward response of each run's background (all non-ROI pixels as one ROI).
+
+    The background F goes through ``pulse_responses`` exactly like a cell's F (same frame times,
+    window, phases, pulse categories and robust z), so the two are directly comparable. Runs
+    are pooled one trace each.
+
+    Args:
+        subject_dir (str | Path): ``derivatives/<cohort>/<subject>``.
+        first_session (int): First session number to include.
+        last_session (int): Last session number to include.
+        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        window_s (tuple[float, float]): Window around the outcome (s).
+        phases (tuple[str, ...]): Trial phases to include.
+        load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
+        runs (Collection[str] | None): Run folder names to include. Default None, every run.
+        measures (tuple[str, ...]): ``"F"`` and/or ``"F z"``.
+        roi_margin_px (int): Pixels excluded around every ROI. Default 0.
+        cache_dir (str | Path | None): Trace cache (see ``load_background``).
+
+    Returns:
+        tuple: ``{view: {pulses: {"mean", "sem", "n_cells", "n_runs", "sem_kind"}}}`` with
+        ``n_cells`` the number of runs and ``sem_kind`` ``"runs"``, or ``"trials"`` where a
+        single run contributes; one result per run (``pulse_responses`` output plus ``session``,
+        ``run``, ``n_pixels``, ``fraction_of_fov``, ``mask``, ``labels``, ``mean_images``); and
+        ``(session, run, reason)`` for each run left out.
+
+    Raises:
+        ValueError: If a measure other than ``F`` and ``F z`` is requested.
+    """
+    if not set(measures) <= set(BACKGROUND_MEASURES):
+        raise ValueError(f"measures must be among {BACKGROUND_MEASURES}, not {measures}.")
+
+    def load_views(plane_dir):
+        background = load_background(plane_dir, roi_margin_px, cache_dir)
+        views = {view: trace[None, :] for view, trace in background["F"].items()}
+        extra = {
+            "n_pixels": background["n_pixels"],
+            "fraction_of_fov": float(background["mask"].mean()),
+            "mask": background["mask"],
+            "labels": background["labels"],
+            "mean_images": background["mean_images"],
+        }
+        return views, extra
+
+    found = variant_runs(subject_dir, first_session, last_session, variant, runs)
+    included, skipped = _collect_runs(
+        found, variant, window_s, phases, load_outcomes, measures, load_views
+    )
+    return _with_trial_sem(pool_runs(included, measures), included), included, skipped
 
 
 def _check_same_window(runs: list[dict]) -> None:

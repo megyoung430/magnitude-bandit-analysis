@@ -257,3 +257,17 @@ def test_only_the_chosen_measures_are_pooled_and_a_window_from_zero_suits_raw_on
         measures=("F", "dF/F0"),
     )
     assert {m for _, m in pooled} == {"F", "dF/F0"} and len(runs) == 2
+
+
+@pytest.mark.parametrize("measures", [("F z",), ("F",), ("F", "F z", "dF/F0")])
+def test_the_pulse_figure_has_a_row_per_measure_whatever_their_number(derivatives, measures):
+    pooled, runs, _ = collect(derivatives)
+    fig = plot_pulse_responses(pooled, runs[0]["offsets"], runs[0]["period_s"], measures=measures)
+    assert len(fig.axes) == 2 * len(measures)
+    plt.close(fig)
+
+
+def test_the_pulse_figure_needs_at_least_one_measure(derivatives):
+    pooled, runs, _ = collect(derivatives)
+    with pytest.raises(ValueError, match="at least one measure"):
+        plot_pulse_responses(pooled, runs[0]["offsets"], runs[0]["period_s"], measures=())
