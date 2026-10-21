@@ -22,7 +22,12 @@ destriping variants of the mini2p preprocessing.
 - **Run identity**: the run numbering is worked out from the raw folder, then checked against the batch's
   `run-XX/<variant>/source_tiff.json` before frame times are written and again when traces are loaded; a mismatch (a
   stray `._` file, a renamed TIFF) is refused, because runs of equal length would otherwise pair one acquisition's traces
-  with another's frame clock and behaviour.
+  with another's frame clock and behaviour. A variant folder without a `source_tiff.json` (e.g. `with_destriping` when
+  the batch wrote no record) is accepted if it has processed `.tif` files and every one is named
+  `<source stem>_*.tif` (`._` AppleDouble files ignored); a `UserWarning` names the run, variant and TIFFs used. No TIFF,
+  another stem, or a record naming another TIFF is still refused. Variant folders that do not exist are not checked, but
+  at least one listed variant must exist. The warning is raised once per run and step (frame times, pooled responses, top
+  cells), not per frame.
 - **Frame times** (`src/funcimg_analysis/frame_times.py`): `derivatives/.../funcimg/run-XX/frame_times.npz` with
   `time_s` (pyControl s per frame, NaN outside the sync pulses), `frame_index`, `daq_frame_s`, the three source files and
   the sync quality. Shared by both variants. Frames between the last *matched* rsync pulse and the DAQ's last pulse take
@@ -36,7 +41,11 @@ destriping variants of the mini2p preprocessing.
   runs (each cell counts once). Runs without frame times or an extraction, or whose trace length differs from the frame
   clock, are listed with the reason.
 - **Top cells**: per run, the `N_TOP` cells with the largest green ΔF/F0 anywhere in the trace, stacked traces with the
-  outcomes marked by pulse count, and their outlines on the mean image. One PDF page per run per variant.
+  outcomes marked by pulse count, and their outlines on the mean image. One PDF page per run per variant. Each ROI has one
+  colour (matplotlib `tab10`, cycling in rank order, best ROI on top) shared by its trace and its outline and number in the
+  field of view; traces are 0.8 pt, with `ROI <n>` as y tick labels at each baseline, spaced by 1.1 x the 99.5th
+  percentile of the per-trace range (max - min). That spacing keeps traces from overlapping, but with ~20 traces the
+  percentile is close to the largest range, so one very large transient widens the spacing for all.
 - **Optional dependency** `funcimg` (`h5py`, `mini2p-preprocessing` from GitHub); nothing else in the repo needs it.
 - **rsync fix**: `_align_chunks` clamps each chunk's mean squared error at 0. The expansion used to compute it cancels to a
   tiny negative number for an exact match of intervals of seconds in ms, which raised in `_classify_chunks` on the first
