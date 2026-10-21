@@ -21,6 +21,7 @@ from src.funcimg_analysis.event_frames import (
     frame_windows,
     mean_by_category,
     robust_z,
+    sem_by_category,
     window_offsets,
 )
 from src.funcimg_analysis.frame_times import RunMismatchError
@@ -58,7 +59,7 @@ def pulse_responses(
 
     Returns:
         dict: ``offsets`` (frames), ``period_s``, ``means`` (``{view: {pulses: (n_cells,
-        n_window)}}`` for the requested measures), ``n_trials`` per pulse count, ``n_cells``,
+        n_window)}}`` for the requested measures), ``sems`` (the same, SEM across trials), ``n_trials`` per pulse count, ``n_cells``,
         ``n_events_dropped`` (outcomes without a complete window of imaged frames) and
         ``flat_cells`` (``{z view: ROI indices}`` with no defined scale, whose z is NaN).
 
@@ -92,17 +93,19 @@ def pulse_responses(
     kept = np.flatnonzero(near_frame)[complete]
     pulses = trials["num_rew_pulses"].to_numpy(int)[kept]
     event_before_frame = offset_s[kept] < 0  # the frame before it was being acquired
-    means = {}
+    means, sems = {}, {}
     for view, traces in views.items():
         windows, _ = frame_windows(traces, index[kept], pre, post, valid)
         if view in Z_VIEWS:
             windows = baseline_subtract(windows, pre, event_before_frame)
         means[view] = mean_by_category(windows, pulses, categories)
+        sems[view] = sem_by_category(windows, pulses, categories)
     counts = {c: int(np.sum(pulses == c)) for c in categories if np.any(pulses == c)}
     return {
         "offsets": window_offsets(pre, post),
         "period_s": period,
         "means": means,
+        "sems": sems,
         "n_trials": counts,
         "n_cells": first.shape[0],
         "n_events_dropped": int(len(trials) - len(kept)),

@@ -50,13 +50,14 @@ def background_mask(
     rows = _crop_slice("yrange", yrange, shape[0])
     cols = _crop_slice("xrange", xrange, shape[1])
     in_roi = np.zeros(shape, dtype=bool)
-    for roi in stat:
-        ypix, xpix = np.asarray(roi["ypix"], dtype=int), np.asarray(roi["xpix"], dtype=int)
+    if len(stat):
+        ypix = np.concatenate([np.asarray(roi["ypix"], dtype=int) for roi in stat])
+        xpix = np.concatenate([np.asarray(roi["xpix"], dtype=int) for roi in stat])
         if (
-            ypix.min(initial=0) < 0
-            or xpix.min(initial=0) < 0
-            or ypix.max(initial=0) >= shape[0]
-            or xpix.max(initial=0) >= shape[1]
+            (ypix.min(initial=0) < 0)
+            or (xpix.min(initial=0) < 0)
+            or (ypix.max(initial=0) >= shape[0])
+            or (xpix.max(initial=0) >= shape[1])
         ):
             raise ValueError(f"A ROI has pixels outside the {shape[0]} x {shape[1]} image.")
         in_roi[ypix, xpix] = True

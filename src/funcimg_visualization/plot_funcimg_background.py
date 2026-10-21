@@ -45,6 +45,7 @@ def plot_background_responses(
     per_run: list[dict] | None = None,
     title: str = "",
     measures: tuple[str, ...] = ("F", "F z"),
+    axes=None,
 ):
     """The background's reward response (raw F, then robust z), and the cells' z beneath it.
 
@@ -63,15 +64,21 @@ def plot_background_responses(
         per_run (list[dict] | None): Each run's ``means`` for a thin line per run, or None.
         title (str): Figure title.
         measures (tuple[str, ...]): Background rows, ``"F"`` and/or ``"F z"``.
+        axes: A ``(len(measures) + 1, 2)`` array of axes (one fewer row without *cells*), or None
+            for a new figure.
 
     Returns:
         matplotlib.figure.Figure: The figure.
     """
     n_rows = len(measures) + (cells is not None)
-    fig, axes = plt.subplots(
-        n_rows, 2, figsize=(11, 4 * n_rows), sharex=True, constrained_layout=True
-    )
-    axes = np.asarray(axes).reshape(n_rows, 2)
+    if axes is None:
+        _, axes = plt.subplots(
+            n_rows, 2, figsize=(11, 4 * n_rows), sharex=True, constrained_layout=True, squeeze=False
+        )
+    axes = np.asarray(axes)
+    if axes.shape != (n_rows, 2):
+        raise ValueError(f"Need a {n_rows} x 2 array of axes, got {axes.shape}.")
+    fig = axes[0, 0].figure
     bg_axes = axes[: len(measures)]
     plot_pulse_responses(
         background, offsets, period_s, x_units, bg_axes, measures=measures, unit=None

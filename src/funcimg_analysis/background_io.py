@@ -8,6 +8,7 @@ modification times, the margin and the code, so deleting the cache only costs ti
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -31,11 +32,33 @@ CODE_VERSION = hashlib.sha256(
 ).hexdigest()
 
 
+class BackgroundUnavailableError(Exception):
+    """A plane lacks what the background needs (an ``ops`` entry); the message says what."""
+
+
 def _binary_path(ops: dict, plane_dir: Path, channel: str) -> Path:
     from mini2p_preprocessing.registration import resolve_registered_binary
 
     key, filename, _ = CHANNEL_FILES[channel]
     return resolve_registered_binary(ops, plane_dir, key, filename)
+
+
+def _ops_value(ops: dict, key: str, plane_dir: Path):
+    if key not in ops:
+        raise BackgroundUnavailableError(f"{plane_dir / 'ops.npy'} has no {key!r}.")
+    return ops[key]
+
+
+def _mean_images(ops: dict, plane_dir: Path, shape: tuple[int, int]) -> dict[str, np.ndarray]:
+    images = {}
+    for channel, (_, _, key) in CHANNEL_FILES.items():
+        image = np.asarray(_ops_value(ops, key, plane_dir), dtype=float)
+        if image.shape != shape:
+            raise BackgroundUnavailableError(
+                f"{plane_dir / 'ops.npy'}: {key} has shape {image.shape}, not the image's {shape}."
+            )
+        images[channel] = image
+    return images
 
 
 def _open_movie(path: Path, n_frames: int, shape: tuple[int, int]) -> np.memmap:
@@ -57,6 +80,27 @@ def _cache_path(cache_dir: Path, plane_dir: Path, files: list[Path], margin: int
     return cache_dir / f"{key}.npz"
 
 
+def _cached(cache_file: Path, compute: Callable[[], dict]) -> dict:
+    """The arrays saved in *cache_file*, or ``compute()`` saved there first on a miss."""
+    if cache_file.is_file():
+        with np.load(cache_file) as cached:
+            return {name: cached[name] for name in cached.files}
+    arrays = compute()
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cache_file.with_suffix(f".{os.getpid()}.tmp.npz")  # only complete files are read
+    np.savez(tmp, **arrays)
+    tmp.replace(cache_file)
+    return arrays
+
+
+def _read_traces(
+    paths: dict[str, Path], n_frames: int, shape: tuple[int, int], mask: np.ndarray, chunk: int
+) -> dict[str, np.ndarray]:
+    # both binaries are opened (and their sizes checked) before either is read
+    movies = {channel: _open_movie(path, n_frames, shape) for channel, path in paths.items()}
+    return {channel: chunked_mask_mean(movie, mask, chunk) for channel, movie in movies.items()}
+
+
 def load_background(
     plane_dir, roi_margin_px: int = 0, cache_dir=None, chunk_frames: int = CHUNK_FRAMES
 ) -> dict:
@@ -74,7 +118,9 @@ def load_background(
         ``n_pixels``, ``labels`` (ROI label image) and ``mean_images`` (``green``, ``red``).
 
     Raises:
-        FileNotFoundError: If a registered binary or a channel's mean image is missing.
+        BackgroundUnavailableError: If ``ops`` lacks ``yrange``, ``xrange`` or a mean image, or
+            a mean image is not the image's shape.
+        FileNotFoundError: If a registered binary is missing.
         RunMismatchError: If a binary's size does not match ``ops``.
     """
     from mini2p_preprocessing.plane import labels_from_stat
@@ -83,40 +129,26 @@ def load_background(
     ops = np.load(plane_dir / "ops.npy", allow_pickle=True).item()
     stat = np.load(plane_dir / "stat.npy", allow_pickle=True)
     shape = (int(ops["Ly"]), int(ops["Lx"]))
-    mask = background_mask(stat, shape, ops["yrange"], ops["xrange"], roi_margin_px)
-    mean_images = {}
-    for channel, (_, _, image_key) in CHANNEL_FILES.items():
-        if image_key not in ops:
-            raise FileNotFoundError(f"{plane_dir / 'ops.npy'} has no {image_key} for {channel}.")
-        mean_images[channel] = np.asarray(ops[image_key], dtype=float)
+    yrange, xrange = (_ops_value(ops, key, plane_dir) for key in ("yrange", "xrange"))
+    mask = background_mask(stat, shape, yrange, xrange, roi_margin_px)
+    mean_images = _mean_images(ops, plane_dir, shape)
     paths = {channel: _binary_path(ops, plane_dir, channel) for channel in CHANNEL_FILES}
     if cache_dir is None:
         from src.settings import get_settings
 
         cache_dir = get_settings().cache_dir / CACHE_SUBDIR
-    cache_dir = Path(cache_dir)
     cache_file = _cache_path(
-        cache_dir,
+        Path(cache_dir),
         plane_dir,
         [*paths.values(), plane_dir / "stat.npy", plane_dir / "ops.npy"],
         roi_margin_px,
     )
-    if cache_file.is_file():
-        with np.load(cache_file) as cached:
-            traces = {channel: cached[channel] for channel in CHANNEL_FILES}
-    else:
-        traces = {
-            channel: chunked_mask_mean(
-                _open_movie(paths[channel], int(ops["nframes"]), shape), mask, chunk_frames
-            )
-            for channel in CHANNEL_FILES
-        }
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        tmp = cache_file.with_suffix(f".{os.getpid()}.tmp.npz")  # only complete files are read
-        np.savez(tmp, **traces)
-        tmp.replace(cache_file)
+    traces = _cached(
+        cache_file,
+        lambda: _read_traces(paths, int(ops["nframes"]), shape, mask, chunk_frames),
+    )
     return {
-        "F": {(channel, "F"): trace for channel, trace in traces.items()},
+        "F": {(channel, "F"): traces[channel] for channel in CHANNEL_FILES},
         "mask": mask,
         "n_pixels": int(mask.sum()),
         "labels": labels_from_stat(stat, *shape),

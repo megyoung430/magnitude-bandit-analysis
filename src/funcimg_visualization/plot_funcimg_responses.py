@@ -46,8 +46,8 @@ def plot_pulse_responses(
         offsets (np.ndarray): Window offsets in frames (0 = outcome frame).
         period_s (float): Frame period, for an x axis in seconds.
         x_units (str): ``"s"`` or ``"frames"``.
-        axes: An array of axes, one row per measure and columns green, red (2 x 2 for the
-            default measures), or None for a new 2 x 2 figure.
+        axes: A ``(len(measures), 2)`` array of axes (columns green, red), or None for a new
+            figure with a row per measure.
         title (str): Figure title.
         measures (tuple[str, ...]): The rows: ``"F"``, ``"dF/F0"`` or their robust-z,
             baseline-subtracted versions ``"F z"``, ``"dF/F0 z"`` (the default pair).
@@ -57,16 +57,28 @@ def plot_pulse_responses(
     Returns:
         matplotlib.figure.Figure: The figure.
     """
+    if not measures:
+        raise ValueError("Give at least one measure to plot.")
+    n_rows = len(measures)
     if axes is None:
-        fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, constrained_layout=True)
-    fig = np.asarray(axes).flat[0].figure
+        _, axes = plt.subplots(
+            n_rows, 2, figsize=(11, 4 * n_rows), sharex=True, constrained_layout=True, squeeze=False
+        )
+    axes = np.asarray(axes)
+    if axes.shape != (n_rows, 2):
+        raise ValueError(
+            f"Need a {n_rows} x 2 array of axes for {n_rows} measures, got {axes.shape}."
+        )
+    fig = axes[0, 0].figure
     x, xlabel = window_x(np.asarray(offsets), period_s, x_units)
     for col, channel in enumerate(("green", "red")):
         for row, measure in enumerate(measures):
-            ax = np.asarray(axes)[row, col]
+            ax = axes[row, col]
             for pulses, stats in sorted(pooled[(channel, measure)].items()):
                 counts = f"{stats['n_cells']} {unit}, " if unit else ""
-                label = f"{pulses} pulses ({counts}{stats['n_runs']} runs)"
+                n_runs = stats["n_runs"]
+                sem_note = ", SEM across trials" if stats.get("sem_kind") == "trials" else ""
+                label = f"{pulses} pulses ({counts}{n_runs} run{'s' * (n_runs != 1)}{sem_note})"
                 ax.plot(x, stats["mean"], color=PULSE_COLORS[pulses], label=label)
                 ax.fill_between(
                     x,
@@ -82,7 +94,7 @@ def plot_pulse_responses(
             ax.set_ylabel(ylabel)
             if row == len(measures) - 1:
                 ax.set_xlabel(xlabel)
-    np.asarray(axes).reshape(len(measures), 2)[0, 1].legend(fontsize=8, frameon=False)
+    axes[0, 1].legend(fontsize=8, frameon=False)
     fig.suptitle(title or "Outcome-aligned response, mean ± SEM across cells")
     return fig
 

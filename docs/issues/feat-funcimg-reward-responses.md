@@ -125,3 +125,13 @@ number of pixels and fraction of the FOV). The notebook's section 2b (`BACKGROUN
 `background_responses_<tag>_<variant>_<units>.png` and `background_pixels_<tag>_<variant>.pdf` (one page per run).
 Caveats: out-of-focus neuropil is in the background; the registration edges are excluded; a run whose binaries are
 missing or whose size does not match `ops` is left out with the reason.
+
+Details of the background analysis: with a single contributing run the SEM across runs is undefined, so
+`collect_background_responses` shows the SEM across that run's trials of the pulse count (`sem_kind = "trials"`; the
+legend says "SEM across trials"); runs whose background z is NaN (constant background, MAD 0) are listed by the notebook
+like `flat_cells` and are not counted in the legend's n. The cells' row in the notebook uses only the runs that also have
+a background (differences are printed). A run whose `ops.npy` lacks `yrange`, `xrange` or a mean image (or whose mean
+image is not the image's shape) is left out with that reason (`BackgroundUnavailableError`); both binaries' sizes are
+checked against `ops` before either is read. Caveat on the crop: Suite2p takes `yrange`/`xrange` from the non-bad
+frames only, so on frames with large motion some edge pixels inside the crop can be invalid; this affects the cells
+too. `plot_pulse_responses` now makes one row per measure (it raised for one or three measures without `axes`).

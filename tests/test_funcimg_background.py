@@ -16,12 +16,12 @@ pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
 from src.funcimg_analysis import background_io  # noqa: E402
 from src.funcimg_analysis.background import background_mask, chunked_mask_mean  # noqa: E402
-from src.funcimg_analysis.background_io import load_background  # noqa: E402
+from src.funcimg_analysis.background_io import BackgroundUnavailableError, load_background  # noqa: E402
 from src.funcimg_analysis.collect import (  # noqa: E402
     collect_background_responses,
     collect_pulse_responses,
 )
-from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
+from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE, RunMismatchError  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_background import (  # noqa: E402
     plot_background_mask,
     plot_background_responses,
@@ -45,6 +45,30 @@ def make_stat(n_cells=N_CELLS):
     ]
 
 
+def literal_background():
+    """The expected background written out by hand: the crop minus each 3 x 3 ROI rectangle.
+
+    Spelled out from the numbers (not from ``background_mask``) so the I/O and alignment tests
+    do not depend on the function whose result they check.
+    """
+    mask = np.zeros((LY, LX), dtype=bool)
+    mask[1:19, 2:28] = True  # rows 1-18, columns 2-27: the registration crop
+    for cell in range(N_CELLS):
+        mask[2:5, 3 + 6 * cell : 6 + 6 * cell] = False
+    return mask
+
+
+def edit_ops(plane_dir, **changes):
+    """Rewrite a plane's ``ops.npy`` with *changes*; a value of None removes the key."""
+    ops = np.load(plane_dir / "ops.npy", allow_pickle=True).item()
+    for key, value in changes.items():
+        if value is None:
+            del ops[key]
+        else:
+            ops[key] = value
+    np.save(plane_dir / "ops.npy", ops, allow_pickle=True)
+
+
 def bg_trace(rng, n_frames=N_FRAMES):
     """An integer trace with a response at each event, scaled by its pulse count."""
     trace = 200 + rng.integers(-2, 3, n_frames)
@@ -64,7 +88,7 @@ def write_plane(plane_dir, rng, trace_green, trace_red):
     """A plane in the layout mini2p_preprocessing writes, with registered binaries."""
     plane_dir.mkdir(parents=True)
     stat = make_stat()
-    mask = background_mask(stat, (LY, LX), YRANGE, XRANGE)
+    mask = literal_background()
     write_movie(plane_dir / "data.bin", trace_green, mask)
     write_movie(plane_dir / "data_chan2.bin", trace_red, mask)
     ops = {
@@ -79,7 +103,9 @@ def write_plane(plane_dir, rng, trace_green, trace_red):
         "meanImg_chan2": rng.normal(50, 5, (LY, LX)).astype(np.float32),
     }
     f = np.vstack([trace_green] + [trace_green + 10 * (c + 1) for c in range(N_CELLS - 1)])
-    arrays = {"F": f, "Fneu": f * 0.2, "F_chan2": f * 0.5, "Fneu_chan2": f * 0.1}
+    red = np.vstack([trace_red] + [trace_red + 10 * (c + 1) for c in range(N_CELLS - 1)])
+    # cell 0 of each channel carries the background's trace, so the paths can be compared
+    arrays = {"F": f, "Fneu": f * 0.2, "F_chan2": red, "Fneu_chan2": red * 0.1}
     arrays.update(iscell=np.ones((N_CELLS, 2)), spks=np.zeros_like(f))
     for name, array in arrays.items():
         np.save(plane_dir / f"{name}.npy", array.astype(float))
@@ -218,7 +244,7 @@ def test_load_background_reads_only_background_pixels_of_both_channels(derivativ
     plane = plane_of(derivatives)
     ops = np.load(plane / "ops.npy", allow_pickle=True).item()
     bg = load_background(plane, cache_dir=tmp_path / "cache")
-    expected = background_mask(make_stat(), (LY, LX), YRANGE, XRANGE)
+    expected = literal_background()
     assert bg["n_pixels"] == expected.sum()
     np.testing.assert_array_equal(bg["mask"], expected)
     green = np.fromfile(plane / "data.bin", np.int16).reshape(N_FRAMES, LY, LX)
@@ -278,10 +304,8 @@ def test_editing_a_binary_a_margin_or_the_code_recomputes(derivatives, tmp_path,
     load_background(plane, roi_margin_px=1, cache_dir=cache)
     assert len(calls) == 2  # green and red
 
-    stat = np.load(plane / "stat.npy", allow_pickle=True)
     movie = np.fromfile(plane / "data.bin", np.int16).reshape(N_FRAMES, LY, LX)
-    mask = background_mask(list(stat), (LY, LX), YRANGE, XRANGE)
-    movie[:, mask] += 7
+    movie[:, literal_background()] += 7
     movie.tofile(plane / "data.bin")  # same size, new mtime
     stat_time = os.stat(plane / "data.bin").st_mtime_ns
     os.utime(plane / "data.bin", ns=(stat_time + 10**9, stat_time + 10**9))
@@ -294,6 +318,54 @@ def test_editing_a_binary_a_margin_or_the_code_recomputes(derivatives, tmp_path,
     monkeypatch.setattr(background_io, "CODE_VERSION", "another version")
     load_background(plane, cache_dir=cache)
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("name", ["stat.npy", "ops.npy"])
+def test_rewriting_the_rois_or_ops_recomputes(derivatives, tmp_path, monkeypatch, name):
+    plane, cache = plane_of(derivatives), tmp_path / "cache"
+    load_background(plane, cache_dir=cache)
+    calls = []
+    real = background_io.chunked_mask_mean
+    monkeypatch.setattr(
+        background_io, "chunked_mask_mean", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    stat = np.load(plane / "stat.npy", allow_pickle=True)
+    if name == "stat.npy":
+        np.save(plane / name, stat[:-1], allow_pickle=True)  # one ROI fewer
+    else:
+        edit_ops(plane, xrange=[3, 28])
+    load_background(plane, cache_dir=cache)
+    assert len(calls) == 2
+
+
+def test_both_binaries_are_checked_before_either_is_read(derivatives, tmp_path, monkeypatch):
+    plane = plane_of(derivatives)
+    with open(plane / "data_chan2.bin", "ab") as handle:
+        handle.write(b"\0\0")  # only the second binary is the wrong size
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a binary was read before the other was checked")
+
+    monkeypatch.setattr(background_io, "chunked_mask_mean", forbidden)
+    with pytest.raises(RunMismatchError, match="data_chan2.bin"):
+        load_background(plane, cache_dir=tmp_path / "cache")
+
+
+def test_a_mean_image_of_the_wrong_shape_is_unavailable_with_the_reason(derivatives, tmp_path):
+    plane = plane_of(derivatives)
+    edit_ops(plane, meanImg_chan2=np.zeros((LY, LX + 1)))
+    with pytest.raises(BackgroundUnavailableError, match=r"meanImg_chan2.*\(20, 31\)"):
+        load_background(plane, cache_dir=tmp_path / "cache")
+
+
+@pytest.mark.parametrize("key", ["meanImg", "yrange", "xrange"])
+def test_an_ops_file_missing_a_needed_key_is_unavailable_with_the_reason(
+    derivatives, tmp_path, key
+):
+    plane = plane_of(derivatives)
+    edit_ops(plane, **{key: None})
+    with pytest.raises(BackgroundUnavailableError, match=key):
+        load_background(plane, cache_dir=tmp_path / "cache")
 
 
 # --- reward-aligned background ------------------------------------------------------------------
@@ -323,8 +395,9 @@ def test_the_background_is_aligned_exactly_like_a_cell_with_the_same_trace(deriv
     assert runs[0]["offsets"].tolist() == cell_runs[0]["offsets"].tolist()
     assert runs[0]["n_trials"] == cell_runs[0]["n_trials"]
     assert runs[0]["n_events_dropped"] == cell_runs[0]["n_events_dropped"]
-    # cell 0's F is the background trace (see write_plane), so every view must agree
-    for view in (("green", "F"), ("green", "F z")):
+    # cell 0's F is the background trace in each channel (see write_plane)
+    for view in (("green", "F"), ("green", "F z"), ("red", "F"), ("red", "F z")):
+        assert runs[0]["means"][view]
         for pulses, mean in runs[0]["means"][view].items():
             expected = cell_runs[0]["means"][view][pulses][0]
             np.testing.assert_allclose(mean[0], expected, atol=1e-9)
@@ -376,12 +449,25 @@ def test_the_response_figure_has_both_channels_raw_z_and_the_cells_on_shared_z_l
         derivatives, 224, 224, "without_destriping", (-1.0, 2.0), ("task",), outcomes_for,
         measures=("F z",),
     )  # fmt: skip
+    cells[("red", "F z")] = {
+        pulses: {**stats, "mean": 3 * stats["mean"], "sem": 3 * stats["sem"]}
+        for pulses, stats in cells[("red", "F z")].items()
+    }
     fig = plot_background_responses(
         pooled, cells, runs[0]["offsets"], runs[0]["period_s"], per_run=[r["means"] for r in runs]
     )
     assert len(fig.axes) == 6  # raw F, background z, cells z; green and red
     raw, z_bg, z_cells = fig.axes[0], fig.axes[2], fig.axes[4]
-    assert z_bg.get_ylim() == z_cells.get_ylim()
+    for col in (0, 1):
+        z_bg_col, z_cells_col = fig.axes[2 + col], fig.axes[4 + col]
+        assert z_bg_col.get_ylim() == z_cells_col.get_ylim()
+        data = np.concatenate(
+            [line.get_ydata() for ax in (z_bg_col, z_cells_col) for line in ax.lines[:4]]
+        )
+        low, high = z_bg_col.get_ylim()
+        assert low <= np.nanmin(data) and np.nanmax(data) <= high
+    background_top = max(np.nanmax(line.get_ydata()) for line in fig.axes[3].lines[:4])
+    assert fig.axes[3].get_ylim()[1] > 2 * background_top  # the 3x larger cells set the limits
     assert raw.get_title().startswith("Background") and z_cells.get_title().startswith("Cells")
     labels = fig.axes[1].get_legend().get_texts()
     assert all("2 runs" in text.get_text() and "cells" not in text.get_text() for text in labels)
@@ -424,3 +510,75 @@ def test_the_overlay_draws_into_given_axes(derivatives, tmp_path):
     out = plot_background_mask(run["mean_images"], run["mask"], run["labels"], axes=axes)
     assert out is fig
     plt.close(fig)
+
+
+def test_the_response_figure_draws_into_given_axes(derivatives, tmp_path):
+    pooled, runs, _ = collect_background(derivatives, tmp_path / "cache")
+    fig, axes = plt.subplots(2, 2)
+    out = plot_background_responses(
+        pooled, None, runs[0]["offsets"], runs[0]["period_s"], axes=axes
+    )
+    assert out is fig
+    wrong, bad_axes = plt.subplots(3, 2)
+    with pytest.raises(ValueError, match="2 x 2"):
+        plot_background_responses(
+            pooled, None, runs[0]["offsets"], runs[0]["period_s"], axes=bad_axes
+        )
+    plt.close("all")
+
+
+# --- one run: the SEM is across trials ---------------------------------------------------------
+
+
+def test_with_one_run_the_sem_is_across_trials_and_the_figure_says_so(derivatives, tmp_path):
+    pooled, runs, _ = collect_background(derivatives, tmp_path / "cache", runs=("run-01",))
+    stats = pooled[("green", "F")][2]  # two trials of 2 pulses
+    assert stats["sem_kind"] == "trials" and np.isfinite(stats["sem"]).all()
+    # the trials are two near-identical responses, so the SEM is small but defined
+    assert stats["sem"].shape == stats["mean"].shape
+    fig = plot_background_responses(pooled, None, runs[0]["offsets"], runs[0]["period_s"])
+    legend = " ".join(t.get_text() for t in fig.axes[1].get_legend().get_texts())
+    assert "SEM across trials" in legend and "1 run" in legend
+    plt.close(fig)
+
+
+def test_with_several_runs_the_sem_stays_across_runs(derivatives, tmp_path):
+    pooled, _, _ = collect_background(derivatives, tmp_path / "cache")
+    assert all(
+        "sem_kind" not in stats or stats["sem_kind"] == "runs"
+        for per_pulse in pooled.values()
+        for stats in per_pulse.values()
+    )
+
+
+def test_a_pulse_count_with_one_trial_has_no_trial_sem_to_show(derivatives, tmp_path):
+    pooled, _, _ = collect_background(derivatives, tmp_path / "cache", runs=("run-01",))
+    assert np.isnan(pooled[("green", "F")][4]["sem"]).all()  # a single 4-pulse trial
+
+
+# --- runs that cannot contribute ----------------------------------------------------------------
+
+
+def test_a_run_whose_ops_lack_the_crop_is_left_out_with_the_reason(derivatives, tmp_path):
+    edit_ops(plane_of(derivatives, "run-02"), yrange=None)
+    _, runs, skipped = collect_background(derivatives, tmp_path / "cache")
+    assert [r["run"] for r in runs] == ["run-01"]
+    assert skipped[0][1] == "run-02" and "yrange" in skipped[0][2]
+
+
+def test_a_constant_background_is_reported_as_having_no_z(derivatives, tmp_path):
+    plane = plane_of(derivatives, "run-02")
+    flat = np.full(N_FRAMES, 200)
+    write_movie(plane / "data.bin", flat, literal_background())
+    _, runs, _ = collect_background(derivatives, tmp_path / "cache")
+    assert runs[0]["flat_cells"][("green", "F z")] == []
+    assert runs[1]["flat_cells"][("green", "F z")] == [0]
+
+
+def test_a_run_with_no_z_does_not_count_in_the_legend(derivatives, tmp_path):
+    write_movie(
+        plane_of(derivatives, "run-02") / "data.bin", np.full(N_FRAMES, 200), literal_background()
+    )
+    pooled, _, _ = collect_background(derivatives, tmp_path / "cache")
+    assert pooled[("green", "F z")][2]["n_runs"] == 1
+    assert pooled[("green", "F")][2]["n_runs"] == 2

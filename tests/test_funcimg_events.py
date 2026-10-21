@@ -9,6 +9,7 @@ from src.funcimg_analysis.event_frames import (
     limited_frame_times,
     mean_by_category,
     pooled_mean_sem,
+    sem_by_category,
     robust_z,
     top_cells_by_max,
     top_cells_by_score,
@@ -143,3 +144,17 @@ def test_baseline_leaves_out_the_last_pre_frame_of_trials_whose_event_it_spans()
     )
     assert out[0, 0, 0] == 0  # baseline of the first trial ignores the frame holding the event
     assert out[0, 1, 0] == -25  # the second trial's baseline includes it
+
+
+def test_runs_whose_cells_have_no_value_are_not_counted_as_runs():
+    no_value = {0: np.array([[np.nan, np.nan]])}
+    pooled = pooled_mean_sem([{0: np.array([[1.0, 2.0]])}, no_value], [0])
+    assert pooled[0]["n_runs"] == 1 and pooled[0]["n_cells"] == 1
+
+
+def test_sem_across_trials_per_category():
+    windows = np.array([[[1.0, 2.0], [3.0, 2.0], [5.0, np.nan], [7.0, 7.0]]])  # 1 cell, 4 trials
+    sems = sem_by_category(windows, np.array([0, 0, 1, 1]), [0, 1, 2])
+    assert sems[0][0].tolist() == pytest.approx([1.0, 0.0])
+    assert sems[1][0][0] == pytest.approx(1.0) and np.isnan(sems[1][0][1])  # one value: no SEM
+    assert 2 not in sems

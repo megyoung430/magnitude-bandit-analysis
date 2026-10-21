@@ -188,6 +188,33 @@ def mean_by_category(
     return means
 
 
+def sem_by_category(
+    windows: np.ndarray, categories_per_event: np.ndarray, categories: list[int]
+) -> dict[int, np.ndarray]:
+    """Each cell's SEM of the window across the trials of each category, ignoring NaN frames.
+
+    Args:
+        windows (np.ndarray): ``(n_cells, n_events, n_window)``.
+        categories_per_event (np.ndarray): Category (e.g. reward pulses) of each event.
+        categories (list[int]): Categories to compute; one without trials is left out.
+
+    Returns:
+        dict[int, np.ndarray]: ``{category: (n_cells, n_window)}``; NaN where fewer than two
+        trials have a value.
+    """
+    labels = np.asarray(categories_per_event)
+    sems = {}
+    for category in categories:
+        trials = windows[:, labels == category]
+        if not trials.shape[1]:
+            continue
+        n_valid = np.sum(np.isfinite(trials), axis=1)
+        with _quiet_empty_means():
+            sd = np.nanstd(trials, axis=1, ddof=1)
+        sems[category] = np.where(n_valid > 1, sd / np.sqrt(np.maximum(n_valid, 1)), np.nan)
+    return sems
+
+
 def pooled_mean_sem(per_run: list[dict[int, np.ndarray]], categories: list[int]) -> dict:
     """Mean and SEM across every cell of every run, per category.
 
@@ -196,23 +223,26 @@ def pooled_mean_sem(per_run: list[dict[int, np.ndarray]], categories: list[int])
 
     Returns:
         dict: ``{category: {"mean", "sem", "n_cells", "n_runs"}}`` for categories with cells;
-        ``sem`` is NaN where fewer than two cells have a value.
+        ``n_runs`` counts the runs with at least one cell that has a value; ``sem`` is NaN where
+        fewer than two cells have a value.
     """
     pooled = {}
     for category in categories:
         stacks = [run[category] for run in per_run if category in run]
         if not stacks:
             continue
-        cells = np.vstack(stacks)
-        cells = cells[np.isfinite(cells).any(axis=1)]  # a cell with no value adds nothing
+        # a cell with no value adds nothing, and a run of such cells is not a contributing run
+        valid = [stack[np.isfinite(stack).any(axis=1)] for stack in stacks]
+        cells = np.vstack(valid)
         if not len(cells):
             continue
+        n_runs = sum(len(v) > 0 for v in valid)
         n_valid = np.sum(np.isfinite(cells), axis=0)
         with _quiet_empty_means():
             mean = np.nanmean(cells, axis=0)
             sd = np.nanstd(cells, axis=0, ddof=1) if len(cells) > 1 else np.full(mean.shape, np.nan)
         sem = np.where(n_valid > 1, sd / np.sqrt(np.maximum(n_valid, 1)), np.nan)
-        pooled[category] = {"mean": mean, "sem": sem, "n_cells": len(cells), "n_runs": len(stacks)}
+        pooled[category] = {"mean": mean, "sem": sem, "n_cells": len(cells), "n_runs": n_runs}
     return pooled
 
 
