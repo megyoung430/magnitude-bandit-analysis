@@ -151,3 +151,44 @@ image is not the image's shape) is left out with that reason (`BackgroundUnavail
 checked against `ops` before either is read. Caveat on the crop: Suite2p takes `yrange`/`xrange` from the non-bad
 frames only, so on frames with large motion some edge pixels inside the crop can be invalid; this affects the cells
 too. `plot_pulse_responses` now makes one row per measure (it raised for one or three measures without `axes`).
+
+## Shared vs cell-specific signal
+
+Asks whether cells carry signal beyond the field-wide background, and whether the reward response survives removing it
+(notebook section 2c, `SHARED_SIGNAL = True`; settings `DETREND_WINDOW_S` = 60, `N_SHIFTS` = 100, `MIN_SHIFT_S` = 30,
+`CELLS_ONLY` = False). Code: `src/funcimg_analysis/shared_signal.py` (pure statistics), `shared_signal_run.py` (one run),
+`collect_shared_signal` / `pool_shared_signal` in `collect.py`, `plot_funcimg_shared.py` (figures).
+
+- **Inputs**: every ROI's raw F and neuropil-corrected ΔF/F0 (green and red) from `plane_views`, and the cached
+  background F of the same channel (`load_background`). `CELLS_ONLY` keeps ROIs with `iscell[:, 0] > 0`; the default uses
+  all ROIs, as the other sections do.
+- **Preparation**: each trace minus a running 10th percentile over `DETREND_WINDOW_S` (a centred window, evaluated on a grid
+  of window/10 frames and interpolated; NaN stays local), then robust z (median / MAD). It is a new implementation, not
+  mini2p's ΔF/F0 baseline, because that one runs through Suite2p/torch on a whole plane. Correlations use every frame finite
+  in both traces, including frames without a pyControl time.
+- **Statistics per run, channel and measure**: r(background, mean of the cells); per cell r(cell, leave-one-out average of
+  the other cells) and r(cell, background); partial r(cell, LOO | background) (the background, with an intercept, regressed
+  out of both; equal to correlating the residuals, tested against `lstsq`); R² and slope of `cell ~ a + b * background`.
+  Chance levels: the same statistics with the background (and, separately, the LOO average) circularly shifted by
+  a random offset of at least `MIN_SHIFT_S` in both directions (`N_SHIFTS`, seeded from the seed and the run's name, so a run's
+  nulls do not depend on which other runs are collected). The histograms mark the 95th percentile of the null pooled over
+  cells and shifts (LOO average shifted); the table's `null 95th (median partial r)` is the 95th percentile over shifts
+  of the run's median. The whole-FOV average is not used (mostly background pixels); the leave-one-out average puts the same
+  noisy cell on both sides of the cell-vs-others against cell-vs-background comparison. The paired Wilcoxon p across cells
+  is descriptive, as cells within a run are not independent (zero differences count half, so identical inputs give p = 1).
+- **Residual response**: `cell - b * background` in detrended-z units (the cell keeps its offset), aligned with the
+  same `pulse_responses` path (window, phases, pulse categories, robust z and pre-outcome baseline subtraction) as the
+  detrended cells. Because z-scoring the residual by its own, smaller, scale would inflate a surviving response, the residual
+  response is multiplied back by the residual's robust scale, so both responses are in units of the detrended cell's z. The
+  notebook prints the mean 0-2 s response per pulse count for both. The "original" is the detrended cell, so the only
+  difference between the two is the background removal; section 2's responses differ from it through the detrending.
+- **Figures** (`shared_{scatter,partial_r,r2}_<tag>_<variant>_<settings>.png`,
+  `shared_residual_responses_<tag>_<variant>_<units>_win…_<settings>.png`; the settings tag is e.g.
+  `detrend60s_shifts100_min30s_allrois`). Runs shorter than the detrend window or twice `MIN_SHIFT_S` are listed and left
+  out (`TooShortForSharedSignalError`); a constant background raises.
+- **Caveats**: detrending matters (the window is in the file names); removing a real diffuse signal removes signal that
+  belongs to the cells; raw F is not neuropil-corrected whereas ΔF/F0 is; cells within a run are not independent.
+- **Tests**: `tests/test_funcimg_shared_signal.py` (synthetic cells = field + extra common signal + private noise: r ordering,
+  partial r ≈ 0 for field-only cells and > 0 with an extra common signal, LOO excludes the cell, shifts respect the minimum),
+  `tests/test_funcimg_shared_collect.py` (a reward signal only in the background vanishes from the residual and survives
+  when it is only in the cells; collection from disk, `cells_only`, left-out runs), `tests/test_funcimg_shared_plot.py`.
