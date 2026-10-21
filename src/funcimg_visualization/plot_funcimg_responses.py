@@ -140,6 +140,24 @@ def trace_baselines(
     return -trace_spacing(traces, percentiles) * np.arange(len(traces))
 
 
+def middle_frames(n_frames: int, n_shown: int | None) -> slice:
+    """The centred stretch of *n_shown* frames out of *n_frames* (all of them if fewer).
+
+    Args:
+        n_frames (int): Frames in the run.
+        n_shown (int | None): Frames to keep, e.g. ``8000``; None keeps every frame.
+
+    Raises:
+        ValueError: If *n_shown* is not positive.
+    """
+    if n_shown is None or n_shown >= n_frames:
+        return slice(0, n_frames)
+    if n_shown < 1:
+        raise ValueError(f"middle_frames_shown must be positive, not {n_shown}.")
+    start = (n_frames - n_shown) // 2
+    return slice(start, start + n_shown)
+
+
 def _x_axis(top: dict, x_units: str) -> tuple[np.ndarray, str, np.ndarray]:
     """Frame positions, axis label and outcome positions for ``x_units``."""
     times = top["outcomes"]["outcome_time"].to_numpy(float)
@@ -157,7 +175,12 @@ def _x_axis(top: dict, x_units: str) -> tuple[np.ndarray, str, np.ndarray]:
 
 
 def _draw_traces(
-    ax, top: dict, x_units: str, colors: list[str], clip_percentiles: tuple[float, float] | None
+    ax,
+    top: dict,
+    x_units: str,
+    colors: list[str],
+    clip_percentiles: tuple[float, float] | None,
+    frames: slice,
 ) -> None:
     """Stacked traces, one colour per ROI, with ``ROI <n>`` ticks and outcome markers above."""
     if len(top["cells"]) == 0:
@@ -165,7 +188,10 @@ def _draw_traces(
         ax.set_axis_off()
         return
     x, xlabel, events = _x_axis(top, x_units)
-    shown = clip_traces(top["dff"], clip_percentiles)
+    x = x[frames]
+    # an outcome outside the frames shown would stretch the axis, so it is not marked
+    events = np.where((events >= np.nanmin(x)) & (events <= np.nanmax(x)), events, np.nan)
+    shown = clip_traces(top["dff"][:, frames], clip_percentiles)
     # clipped traces end exactly at their percentiles, so the spacing is measured at the ends
     spacing_percentiles = (0, 100) if clip_percentiles else (0.5, 99.5)
     spacing = trace_spacing(shown, spacing_percentiles)
@@ -241,6 +267,7 @@ def plot_top_cells(
     title: str = "",
     variant: str = "",
     clip_percentiles: tuple[float, float] | None = (1, 99),
+    middle_frames_shown: int | None = None,
 ):
     """Stacked ΔF/F0 traces of a run's most responsive cells, and where they are.
 
@@ -256,7 +283,10 @@ def plot_top_cells(
         title (str): Figure title, e.g. the session and run.
         variant (str): Destriping variant, named in the traces' title.
         clip_percentiles (tuple[float, float] | None): Per-trace display range in percentiles,
-            e.g. ``(1, 99)``; None draws the traces unclipped.
+            e.g. ``(1, 99)``; None draws the traces unclipped. The percentiles are taken over the
+            frames shown.
+        middle_frames_shown (int | None): Draw only this many frames from the middle of the
+            run, e.g. ``8000``; outcomes outside them are not marked. Default None, every frame.
 
     Returns:
         matplotlib.figure.Figure: The figure.
@@ -265,13 +295,17 @@ def plot_top_cells(
         1, 2, figsize=(16, 9), gridspec_kw={"width_ratios": [3, 1]}, constrained_layout=True
     )
     colors = roi_colors(len(top["cells"]))
-    _draw_traces(ax_traces, top, x_units, colors, clip_percentiles)
+    n_frames = top["dff"].shape[1]
+    frames = middle_frames(n_frames, middle_frames_shown)
+    _draw_traces(ax_traces, top, x_units, colors, clip_percentiles, frames)
     n = len(top["cells"])
     ranking = RANKING_TITLES[top["rank_by"]]
     heading = f"{variant} green: top {n} ROIs by {ranking}".strip()
     if clip_percentiles:
         low, high = clip_percentiles
         heading += f"\nclipped to {_ordinal(low)}–{_ordinal(high)} percentile per ROI"
+    if frames.stop - frames.start < n_frames:
+        heading += f"; middle {frames.stop - frames.start} of {n_frames} frames"
     ax_traces.set_title(heading)
     _draw_fov(ax_fov, top, colors)
     fig.suptitle(title)
