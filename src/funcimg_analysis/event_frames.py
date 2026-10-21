@@ -128,7 +128,7 @@ def robust_z(traces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         defined scale (MAD of 0, or no finite value). Such cells are all NaN, never divided by 0.
     """
     traces = np.asarray(traces, dtype=float)
-    with _quiet_empty_means():
+    with quiet_empty_means():
         median = np.nanmedian(traces, axis=1, keepdims=True)
         scale = MAD_TO_SD * np.nanmedian(np.abs(traces - median), axis=1, keepdims=True)
     flat = ~(np.isfinite(scale[:, 0]) & (scale[:, 0] > 0))
@@ -175,7 +175,7 @@ def baseline_subtract(
         spanned = np.zeros(pre.shape[1:], dtype=bool)
         spanned[np.asarray(last_pre_frame_spans_event, dtype=bool), -1] = True
         pre = np.where(spanned[None], np.nan, pre)
-    with _quiet_empty_means():
+    with quiet_empty_means():
         baseline = np.nanmean(pre, axis=2, keepdims=True)
     return windows - baseline
 
@@ -198,7 +198,7 @@ def mean_by_category(
     for category in categories:
         trials = windows[:, labels == category]
         if trials.shape[1]:
-            with _quiet_empty_means():
+            with quiet_empty_means():
                 means[category] = np.nanmean(trials, axis=1)
     return means
 
@@ -224,7 +224,7 @@ def sem_by_category(
         if not trials.shape[1]:
             continue
         n_valid = np.sum(np.isfinite(trials), axis=1)
-        with _quiet_empty_means():
+        with quiet_empty_means():
             sd = np.nanstd(trials, axis=1, ddof=1)
         sems[category] = np.where(n_valid > 1, sd / np.sqrt(np.maximum(n_valid, 1)), np.nan)
     return sems
@@ -253,7 +253,7 @@ def pooled_mean_sem(per_run: list[dict[int, np.ndarray]], categories: list[int])
             continue
         n_runs = sum(len(v) > 0 for v in valid)
         n_valid = np.sum(np.isfinite(cells), axis=0)
-        with _quiet_empty_means():
+        with quiet_empty_means():
             mean = np.nanmean(cells, axis=0)
             sd = np.nanstd(cells, axis=0, ddof=1) if len(cells) > 1 else np.full(mean.shape, np.nan)
         sem = np.where(n_valid > 1, sd / np.sqrt(np.maximum(n_valid, 1)), np.nan)
@@ -266,7 +266,7 @@ def top_cells_by_max(dff: np.ndarray, n: int) -> np.ndarray:
 
     Cells whose ΔF/F0 is undefined throughout (F0 never valid) are left out.
     """
-    with _quiet_empty_means():
+    with quiet_empty_means():
         peaks = np.nanmax(np.asarray(dff, dtype=float), axis=1)
     order = [int(i) for i in np.argsort(-np.nan_to_num(peaks, nan=-np.inf), kind="stable")]
     return np.array([i for i in order if np.isfinite(peaks[i])][:n], dtype=int)
@@ -279,7 +279,7 @@ def top_cells_by_score(dff: np.ndarray, scores: np.ndarray, n: int) -> np.ndarra
     are left out.
     """
     scores = np.asarray(scores, dtype=float)
-    with _quiet_empty_means():
+    with quiet_empty_means():
         plottable = np.isfinite(np.nanmax(np.asarray(dff, dtype=float), axis=1))
     order = np.argsort(-np.nan_to_num(scores, nan=-np.inf), kind="stable")
     return np.array(
@@ -288,7 +288,7 @@ def top_cells_by_score(dff: np.ndarray, scores: np.ndarray, n: int) -> np.ndarra
 
 
 @contextmanager
-def _quiet_empty_means():
+def quiet_empty_means():
     """All-NaN slices give NaN, as intended, without numpy's RuntimeWarning."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
