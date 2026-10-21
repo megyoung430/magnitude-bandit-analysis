@@ -162,21 +162,31 @@ def _requested_views(views: dict, measures: tuple[str, ...]) -> tuple[dict, dict
     return out, flat_cells
 
 
+def load_fluorescence_settings(plane_dir):
+    """The ΔF/F0 settings recorded when the plane's cells were extracted.
+
+    Raises:
+        FileNotFoundError: If the plane has no Cellpose extraction record.
+    """
+    from mini2p_preprocessing.config import FluorescenceSettings
+
+    record_path = Path(plane_dir) / EXTRACTION_RECORD
+    if not record_path.is_file():
+        raise FileNotFoundError(f"{plane_dir} has no {EXTRACTION_RECORD}; extract it first.")
+    return FluorescenceSettings(**json.loads(record_path.read_text())["fluorescence_settings"])
+
+
 def plane_views(plane_dir) -> tuple[dict, object]:
     """Raw F and ΔF/F0 of both channels for every ROI of a plane, and the plane's traces.
 
     Raises:
         FileNotFoundError: If the plane has no Cellpose extraction record or no red traces.
     """
-    from mini2p_preprocessing.config import FluorescenceSettings
     from mini2p_preprocessing.fluorescence import compute_dff
     from mini2p_preprocessing.plane import load_plane_traces
 
     plane_dir = Path(plane_dir)
-    record_path = plane_dir / EXTRACTION_RECORD
-    if not record_path.is_file():
-        raise FileNotFoundError(f"{plane_dir} has no {EXTRACTION_RECORD}; extract it first.")
-    settings = FluorescenceSettings(**json.loads(record_path.read_text())["fluorescence_settings"])
+    settings = load_fluorescence_settings(plane_dir)
     traces = load_plane_traces(plane_dir)
     if traces.f_chan2 is None:
         raise FileNotFoundError(f"{plane_dir} has no red-channel traces (F_chan2.npy).")

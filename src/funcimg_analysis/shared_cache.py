@@ -22,6 +22,7 @@ _CODE_FILES = (
     "shared_signal_run.py",
     "event_frames.py",
     "run_responses.py",
+    "residual_dff.py",
 )
 CODE_VERSION = hashlib.sha256(
     b"".join((Path(__file__).parent / name).read_bytes() for name in _CODE_FILES)
