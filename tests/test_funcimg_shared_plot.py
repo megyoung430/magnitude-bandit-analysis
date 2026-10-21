@@ -145,3 +145,9 @@ def test_file_names_carry_the_settings_that_shape_the_figure():
     )
     name = residual_png_name("ses-224-224", "with_destriping", "s", (-10.0, 30.0), tag)
     assert "win-10to30s" in name and name.endswith(f"{tag}.png") and "_s_" in name
+
+
+def test_a_title_is_put_above_each_figures_own_description(runs):
+    for plot in (plot_scatter_cell_vs_background, plot_partial_r_histograms, plot_r2_histograms):
+        text = plot(runs, MEASURES, title="sub-03, ses-224").texts[0].get_text()
+        assert text.startswith("sub-03, ses-224\n") and len(text) > 30

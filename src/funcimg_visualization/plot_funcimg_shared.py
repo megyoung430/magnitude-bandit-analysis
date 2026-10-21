@@ -59,6 +59,11 @@ def _color(index: int) -> str:
     return RUN_COLORS[index % len(RUN_COLORS)]
 
 
+def _with_title(title: str, description: str) -> str:
+    """*description* under the caller's *title*, if any."""
+    return f"{title}\n{description}" if title else description
+
+
 def _panel_grid(axes, measures: tuple[str, ...]):
     """The ``(2, len(measures))`` axes (rows green, red): the given ones, or a new figure."""
     shape = (len(CHANNELS), len(measures))
@@ -76,7 +81,9 @@ def _panel_title(channel: str, measure: str) -> str:
     return f"{CHANNEL_TITLES[channel]}: {RAW_MEASURE_TITLES[measure]}"
 
 
-def plot_scatter_cell_vs_background(runs: list[dict], measures: tuple[str, ...], axes=None):
+def plot_scatter_cell_vs_background(
+    runs: list[dict], measures: tuple[str, ...], axes=None, title: str = ""
+):
     """Each cell's r with the leave-one-out cell average (y) against its r with the background (x).
 
     Points above the identity line are cells that resemble the other cells more than the
@@ -88,6 +95,7 @@ def plot_scatter_cell_vs_background(runs: list[dict], measures: tuple[str, ...],
             ``session`` and ``run``.
         measures (tuple[str, ...]): Raw measures (``"F"``, ``"dF/F0"``), one column each.
         axes: A ``(2, len(measures))`` array of axes (rows green, red), or None for a new figure.
+        title (str): Shown above the figure's own description.
 
     Returns:
         matplotlib.figure.Figure: The figure.
@@ -133,13 +141,18 @@ def plot_scatter_cell_vs_background(runs: list[dict], measures: tuple[str, ...],
             )
     axes[0, -1].legend(fontsize=8, frameon=False, loc="upper left")
     axes[0, 0].figure.suptitle(
-        "Cell vs other cells, against cell vs background\n"
-        "(descriptive; cells within a run are not independent)"
+        _with_title(
+            title,
+            "Cell vs other cells, against cell vs background\n"
+            "(descriptive; cells within a run are not independent)",
+        )
     )
     return axes[0, 0].figure
 
 
-def _histogram_panels(runs, measures, axes, values, xlabel, null_key=None, bins=None, suptitle=""):
+def _histogram_panels(
+    runs, measures, axes, values, xlabel, null_key=None, bins=None, suptitle="", title=""
+):
     """Per-run step histograms of ``values(stats)`` in the green/red x measure grid."""
     axes = _panel_grid(axes, measures)
     for row, channel in enumerate(CHANNELS):
@@ -167,11 +180,13 @@ def _histogram_panels(runs, measures, axes, values, xlabel, null_key=None, bins=
             ax.set_ylabel("Cells")
             ax.set_title(_panel_title(channel, measure), fontsize=10)
     axes[0, -1].legend(fontsize=8, frameon=False)
-    axes[0, 0].figure.suptitle(suptitle)
+    axes[0, 0].figure.suptitle(_with_title(title, suptitle))
     return axes[0, 0].figure
 
 
-def plot_partial_r_histograms(runs: list[dict], measures: tuple[str, ...], axes=None):
+def plot_partial_r_histograms(
+    runs: list[dict], measures: tuple[str, ...], axes=None, title: str = ""
+):
     """Partial r(cell, other cells | background) per run, with the chance level of each run.
 
     The dashed line of a run is the 95th percentile of the null: the same statistic with the
@@ -182,6 +197,7 @@ def plot_partial_r_histograms(runs: list[dict], measures: tuple[str, ...], axes=
         runs (list[dict]): See :func:`plot_scatter_cell_vs_background`.
         measures (tuple[str, ...]): Raw measures, one column each.
         axes: A ``(2, len(measures))`` array of axes, or None for a new figure.
+        title (str): Shown above the figure's own description.
 
     Returns:
         matplotlib.figure.Figure: The figure.
@@ -196,16 +212,18 @@ def plot_partial_r_histograms(runs: list[dict], measures: tuple[str, ...], axes=
         bins=np.linspace(-0.5, 1, 31),
         suptitle="Cells' shared signal after removing the background\n"
         "(dashed: 95th percentile of the shifted null)",
+        title=title,
     )
 
 
-def plot_r2_histograms(runs: list[dict], measures: tuple[str, ...], axes=None):
+def plot_r2_histograms(runs: list[dict], measures: tuple[str, ...], axes=None, title: str = ""):
     """R^2 of each cell regressed on the background (detrended z traces), per run.
 
     Args:
         runs (list[dict]): See :func:`plot_scatter_cell_vs_background`.
         measures (tuple[str, ...]): Raw measures, one column each.
         axes: A ``(2, len(measures))`` array of axes, or None for a new figure.
+        title (str): Shown above the figure's own description.
 
     Returns:
         matplotlib.figure.Figure: The figure.
@@ -218,6 +236,7 @@ def plot_r2_histograms(runs: list[dict], measures: tuple[str, ...], axes=None):
         "R² of cell ~ a + b · background",
         bins=np.linspace(0, 1, 26),
         suptitle="Variance of each cell explained by the background",
+        title=title,
     )
 
 
