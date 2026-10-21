@@ -13,11 +13,12 @@ import numpy as np
 from src.behavior_analysis.outcome_events import load_outcome_events
 from src.funcimg_analysis.background_io import load_background
 from src.funcimg_analysis.collect import check_same_window, collect_each_run, variant_runs
-from src.funcimg_analysis.event_frames import quiet_empty_means
+from src.funcimg_analysis.event_frames import pooled_mean_sem, quiet_empty_means
 from src.funcimg_analysis.frame_times import RunMismatchError
 from src.funcimg_analysis.residual_dff import MIN_F0_FRACTION, residual_dff_channel
 from src.funcimg_analysis.run_responses import (
     EXTRACTION_RECORD,
+    PULSE_CATEGORIES,
     load_fluorescence_settings,
     plane_views,
     pulse_responses,
@@ -31,50 +32,63 @@ N_EXAMPLE_CELLS = 4
 
 
 class NoUsableCellsError(Exception):
-    """Every ROI of a channel is excluded by the F0 check, so nothing is left to compare."""
+    """Every ROI of both channels is excluded by the F0 check, so nothing is left to compare."""
 
 
 def example_cells(slope: np.ndarray, kept: np.ndarray, n: int = N_EXAMPLE_CELLS) -> list[int]:
     """Kept cells spread evenly over the ranking of the slopes, from the largest to the smallest.
 
     The extremes show where the correction matters most and the middle where it matters little,
-    so a sanity check is not drawn only from the cells that change.
+    so a sanity check is not drawn only from the cells that change. No kept cell gives ``[]``.
     """
     candidates = np.flatnonzero(kept)
+    if not len(candidates):
+        return []
     order = candidates[np.argsort(-slope[candidates], kind="stable")]
     positions = np.unique(np.round(np.linspace(0, len(order) - 1, min(n, len(order)))).astype(int))
     return [int(order[i]) for i in positions]
 
 
 def _channel_results(
-    plane_dir, traces, views, background, fit_mask, min_f0_fraction
+    plane_dir, traces, background, fit_mask, min_f0_fraction, detrend_window_s
 ) -> dict[str, dict]:
-    """The correction of every channel, or ``NoUsableCellsError`` if one has no usable cell."""
+    """The correction of both channels; each says whether it has a usable cell.
+
+    Raises:
+        NoUsableCellsError: If neither channel has a usable cell.
+    """
     settings = load_fluorescence_settings(plane_dir)
     raw = {"green": traces.f, "red": traces.f_chan2}
     channels = {}
     for channel in CHANNELS:
-        channels[channel] = residual_dff_channel(
+        result = residual_dff_channel(
             raw[channel],
             background["F"][(channel, "F")],
             fit_mask,
             traces.fs,
             settings,
             min_f0_fraction,
+            detrend_window_s,
         )
-        if not channels[channel]["kept"].any():
-            raise NoUsableCellsError(
-                f"no usable cell in the {channel} channel: "
-                + "; ".join(f"ROI {c}: {r}" for c, r in channels[channel]["excluded"].items())
+        channels[channel] = {**result, "usable": bool(result["kept"].any())}
+    if not any(c["usable"] for c in channels.values()):
+        raise NoUsableCellsError(
+            "no usable cell in either channel: "
+            + "; ".join(
+                f"{channel} ROI {roi}: {reason}"
+                for channel, c in channels.items()
+                for roi, reason in c["excluded"].items()
             )
+        )
     return channels
 
 
 def _aligned(views, channels, frames, outcomes, window_s, phases) -> dict:
-    """Both ΔF/F0 measures of the kept cells of each channel, aligned to the outcomes."""
-    kept = {channel: channels[channel]["kept"] for channel in CHANNELS}
-    suite2p = {(c, "dF/F0"): views[(c, "dF/F0")][kept[c]] for c in CHANNELS}
-    corrected = {(c, "dF/F0"): channels[c]["dff"][kept[c]] for c in CHANNELS}
+    """Both ΔF/F0 measures of the kept cells of each usable channel, aligned to the outcomes."""
+    usable = [c for c in CHANNELS if channels[c]["usable"]]
+    kept = {channel: channels[channel]["kept"] for channel in usable}
+    suite2p = {(c, "dF/F0"): views[(c, "dF/F0")][kept[c]] for c in usable}
+    corrected = {(c, "dF/F0"): channels[c]["dff"][kept[c]] for c in usable}
     align = dict(window_s=window_s, phases=phases, measures=(MEASURE,))
     return {
         "suite2p": pulse_responses(suite2p, frames.time_s, outcomes, **align),
@@ -94,6 +108,23 @@ def _examples(views, channels) -> dict:
     return out
 
 
+def pool_residual(runs: list[dict], which: str) -> dict:
+    """Pool ``"suite2p"`` or ``"corrected"`` responses of the runs, each channel over its runs.
+
+    A channel that no run has a usable cell for is absent from the result.
+
+    Returns:
+        dict: ``{(channel, "dF/F0 z"): {pulses: {"mean", "sem", "n_cells", "n_runs"}}}``.
+    """
+    pooled = {}
+    for channel in CHANNELS:
+        view = (channel, MEASURE)
+        having = [run[which]["means"][view] for run in runs if view in run[which]["means"]]
+        if having:
+            pooled[view] = pooled_mean_sem(having, PULSE_CATEGORIES)
+    return pooled
+
+
 def collect_residual_dff(
     subject_dir,
     first_session: int,
@@ -111,6 +142,7 @@ def collect_residual_dff(
     fit_exclude_outcomes: bool = True,
     fit_exclude_window_s: tuple[float, float] | None = None,
     min_f0_fraction: float = MIN_F0_FRACTION,
+    detrend_window_s: float = 60.0,
 ) -> tuple[list[dict], list[tuple[str, str, str]]]:
     """Background-corrected ΔF/F0 of every run, next to Suite2p's, aligned to the outcomes.
 
@@ -134,6 +166,8 @@ def collect_residual_dff(
             outcome. Default None, meaning *window_s*.
         min_f0_fraction (float): A cell whose F0 is not positive or is below this fraction of its
             median F anywhere is excluded.
+        detrend_window_s (float): Running-percentile baseline (s) removed from F and the
+            background before each cell's slope is fitted (the shared-signal detrend).
 
     Returns:
         tuple: One result per run and ``(session, run, reason)`` for each run left out. A result
@@ -154,6 +188,7 @@ def collect_residual_dff(
         "fit_exclude_outcomes": fit_exclude_outcomes,
         "fit_exclude_window_s": fit_exclude_window_s,
         "min_f0_fraction": min_f0_fraction,
+        "detrend_window_s": detrend_window_s,
         "roi_margin_px": roi_margin_px,
         "kind": "residual_dff",
     }
@@ -196,7 +231,7 @@ def collect_residual_dff(
             else:
                 fit_mask = np.ones(n_frames, dtype=bool)
             channels = _channel_results(
-                plane_dir, traces, views, background, fit_mask, min_f0_fraction
+                plane_dir, traces, background, fit_mask, min_f0_fraction, detrend_window_s
             )
             return {
                 "channels": channels,

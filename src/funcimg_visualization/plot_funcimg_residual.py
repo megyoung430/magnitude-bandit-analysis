@@ -3,6 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.funcimg_analysis.event_frames import robust_z
 from src.funcimg_visualization.plot_funcimg_responses import (
     CHANNEL_TITLES,
     middle_frames,
@@ -62,15 +63,23 @@ def plot_dff_comparison(
         (suite2p, [0, 2], "Suite2p"),
         (corrected, [1, 3], "bg-corrected"),
     ):
+        present = {key: value for key, value in pooled.items()}
+        for channel in CHANNELS:
+            present.setdefault((channel, MEASURE), {})  # drawn empty, then labelled below
         plot_pulse_responses(
-            pooled, offsets, period_s, x_units, axes[:, columns], measures=(MEASURE,)
+            present, offsets, period_s, x_units, axes[:, columns], measures=(MEASURE,)
         )
         for column, channel in zip(columns, CHANNELS, strict=True):
-            axes[0, column].set_title(
+            ax = axes[0, column]
+            ax.set_title(
                 f"{name} dF/F0, {CHANNEL_TITLES[channel]}\nrobust z, baseline-subtracted",
                 fontsize=8,
             )
-            axes[0, column].set_ylabel("ΔF/F0 (robust z, baseline-subtracted)")
+            ax.set_ylabel("ΔF/F0 (robust z, baseline-subtracted)")
+            if not pooled.get((channel, MEASURE)):
+                ax.text(
+                    0.5, 0.5, "no usable cells", ha="center", va="center", transform=ax.transAxes
+                )
     low = min(ax.get_ylim()[0] for ax in axes[0])
     high = max(ax.get_ylim()[1] for ax in axes[0])
     for ax in axes[0]:
@@ -90,6 +99,10 @@ def plot_example_traces(
 ):
     """Suite2p's and the background-corrected ΔF/F0 of a few cells over the middle frames.
 
+    The two ΔF/F0 have different scales and baselines (the corrected F0 includes the cell's
+    neuropil, which Suite2p subtracts), so each trace is drawn as a robust z over the whole run
+    and the two overlaid on one axis per cell show the shapes, not the magnitudes.
+
     Args:
         example (dict): ``cells`` (ROI indices), ``suite2p`` and ``corrected`` (both
             ``(n_cells, n_frames)``).
@@ -102,16 +115,18 @@ def plot_example_traces(
         matplotlib.figure.Figure: The figure.
 
     Raises:
-        ValueError: If the two ΔF/F0 arrays differ in shape or do not match the frame times,
-            or *axes* has the wrong number of axes.
+        ValueError: If there is no example cell, the two ΔF/F0 arrays differ in shape or do not
+            match the frame times, or *axes* has the wrong number of axes.
     """
     suite2p, corrected = np.asarray(example["suite2p"]), np.asarray(example["corrected"])
+    n = len(example["cells"])
+    if n == 0:
+        raise ValueError("no example cell: every ROI of the channel is excluded.")
     if suite2p.shape != corrected.shape or suite2p.shape[1] != len(time_s):
         raise ValueError(
             f"Suite2p ({suite2p.shape}) and corrected ({corrected.shape}) ΔF/F0 must have the "
             f"same shape, with {len(time_s)} frames."
         )
-    n = len(example["cells"])
     if axes is None:
         _, axes = plt.subplots(
             n, 1, figsize=(12, 2.2 * n + 1), sharex=True, constrained_layout=True, squeeze=False
@@ -120,24 +135,32 @@ def plot_example_traces(
     if len(axes) != n:
         raise ValueError(f"Need {n} axes, one per example cell, got {len(axes)}.")
     frames = middle_frames(len(time_s), n_frames_shown)
-    for ax, roi, before, after in zip(axes, example["cells"], suite2p, corrected, strict=True):
+    before, after = robust_z(suite2p)[0], robust_z(corrected)[0]
+    for ax, roi, trace_a, trace_b in zip(axes, example["cells"], before, after, strict=True):
         ax.plot(
             time_s[frames],
-            before[frames],
+            trace_a[frames],
             color=SUITE2P_COLOR,
             linewidth=0.8,
             label="Suite2p dF/F0",
         )
         ax.plot(
             time_s[frames],
-            after[frames],
+            trace_b[frames],
             color=CORRECTED_COLOR,
             linewidth=0.8,
             label="bg-corrected dF/F0",
         )
-        ax.set_ylabel(f"ROI {roi}\nΔF/F0")
+        ax.set_ylabel(f"ROI {roi}\nrobust z", fontsize=8)
         ax.spines[["top", "right"]].set_visible(False)
     axes[0].legend(fontsize=8, frameon=False, ncols=2, loc="upper right")
     axes[-1].set_xlabel("pyControl time (s)")
-    axes[0].figure.suptitle(title or "Example cells: Suite2p vs background-corrected ΔF/F0")
-    return axes[0].figure
+    figure = axes[0].figure
+    figure.suptitle(title or "Example cells: Suite2p vs background-corrected ΔF/F0")
+    figure.text(
+        0.01, 0.005,
+        "Each ΔF/F0 is shown as a robust z. The corrected ΔF/F0's F0 includes the cell's "
+        "neuropil (Suite2p subtracts it), so the two baselines differ.",
+        fontsize=7, ha="left", va="bottom",
+    )  # fmt: skip
+    return figure

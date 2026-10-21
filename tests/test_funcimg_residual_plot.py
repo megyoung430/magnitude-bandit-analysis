@@ -69,21 +69,41 @@ def test_the_comparison_draws_into_given_axes_and_refuses_the_wrong_shape():
 def example(k=3, n_frames=400):
     rng = np.random.default_rng(0)
     dff = rng.normal(0, 0.1, (k, n_frames))
-    return {"cells": [7, 3, 9][:k], "suite2p": dff + 0.3, "corrected": dff}
+    return {"cells": [7, 3, 9][:k], "suite2p": 5 * dff + 0.3, "corrected": dff}
 
 
-def test_example_traces_draw_both_dffs_of_each_cell_over_the_middle_frames():
+def test_a_channel_without_usable_cells_says_so_in_its_panels():
+    green_only = {k: v for k, v in pooled(1.0).items() if k[0] == "green"}
+    fig = plot_dff_comparison(
+        green_only, {k: v for k, v in pooled(0.1).items() if k[0] == "green"}, OFFSETS, 0.133
+    )
+    assert len(fig.axes) == 4
+    red_axes = [fig.axes[2], fig.axes[3]]
+    assert all("no usable cells" in " ".join(t.get_text() for t in ax.texts) for ax in red_axes)
+    assert not any(line for line in fig.axes[0].texts)
+
+
+def test_example_traces_overlay_both_dffs_in_robust_z_on_one_axis_per_cell():
     time_s = 10 + 0.133 * np.arange(400)
     fig = plot_example_traces(example(), time_s, n_frames_shown=100)
     assert len(fig.axes) == 3
     for ax, roi in zip(fig.axes, [7, 3, 9], strict=True):
-        assert f"ROI {roi}" in ax.get_ylabel()
+        assert f"ROI {roi}" in ax.get_ylabel() and "robust z" in ax.get_ylabel()
         first, second = ax.lines[:2]
         assert len(first.get_xdata()) == len(second.get_xdata()) == 100
         assert first.get_xdata()[0] == pytest.approx(time_s[150])  # the centred 100 frames
         assert first.get_color() != second.get_color()
+        # the two traces differ 5-fold in scale and by an offset; in z they are the same trace
+        np.testing.assert_allclose(first.get_ydata(), second.get_ydata(), atol=1e-6)
+        assert abs(np.median(first.get_ydata())) < 0.5
     labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
     assert labels == ["Suite2p dF/F0", "bg-corrected dF/F0"]
+
+
+def test_example_traces_state_that_the_corrected_baseline_includes_the_neuropil():
+    fig = plot_example_traces(example(), 10 + 0.133 * np.arange(400))
+    text = " ".join(t.get_text() for t in fig.texts)
+    assert "neuropil" in text and "robust z" in text
 
 
 def test_example_traces_can_show_every_frame_and_need_matching_shapes():
@@ -93,6 +113,16 @@ def test_example_traces_can_show_every_frame_and_need_matching_shapes():
     bad = {**example(), "corrected": example()["corrected"][:, :300]}
     with pytest.raises(ValueError, match="same shape"):
         plot_example_traces(bad, time_s)
+
+
+def test_example_traces_draw_into_given_axes_and_refuse_no_cells():
+    time_s = 10 + 0.133 * np.arange(400)
+    _, axes = plt.subplots(3, 1)
+    assert plot_example_traces(example(), time_s, axes=axes) is axes[0].figure
+    with pytest.raises(ValueError, match="no example cell"):
+        plot_example_traces(
+            {"cells": [], "suite2p": np.empty((0, 400)), "corrected": np.empty((0, 400))}, time_s
+        )
 
 
 def test_file_name_carries_the_window_and_units():

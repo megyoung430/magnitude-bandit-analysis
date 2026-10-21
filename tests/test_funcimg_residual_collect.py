@@ -13,6 +13,7 @@ from src.funcimg_analysis import collect_residual  # noqa: E402
 from src.funcimg_analysis.collect import pool_runs  # noqa: E402
 from src.funcimg_analysis.collect_residual import (  # noqa: E402
     collect_residual_dff,
+    pool_residual,
     summary_table,
 )
 from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
@@ -33,6 +34,7 @@ def derivatives(tmp_path):
 def collect(derivatives, tmp_path, **overrides):
     settings = {
         "fit_exclude_window_s": (-0.3, 1.6),
+        "detrend_window_s": 15.0,
         "cache_dir": tmp_path / "cache",
         "results_cache_dir": tmp_path / "results",
     }
@@ -68,7 +70,7 @@ def test_slope_and_residual_correlation_are_reported_per_cell(derivatives, tmp_p
     runs, _ = collect(derivatives, tmp_path, fit_exclude_outcomes=False)
     green = runs[0]["channels"]["green"]
     assert green["slope"].shape == (N_CELLS,) and np.isfinite(green["slope"]).all()
-    assert np.abs(green["r_after"]).max() < 1e-6  # fitted on every frame: nothing shared is left
+    assert np.abs(green["r_after"]).max() < 0.1  # the fast part shared with the background is gone
     assert runs[0]["rois"].tolist() == list(range(N_CELLS))
     assert runs[0]["fit_fraction"] == 1.0
 
@@ -99,12 +101,59 @@ def test_a_dark_cell_is_excluded_and_never_reaches_the_responses(derivatives, tm
     assert summary_table(runs)[0]["n excluded"] == 1
 
 
-def test_a_run_with_no_usable_cell_in_a_channel_is_left_out_with_the_reason(derivatives, tmp_path):
-    f = plane_dir(derivatives) / "F.npy"
-    np.save(f, np.random.default_rng(6).normal(0, 0.1, np.load(f).shape))  # dark: F0 is below 0
+def darken(derivatives, name, run="run-01"):
+    """Make every ROI of one channel dark (F0 below 0), so that none is usable."""
+    path = plane_dir(derivatives, run) / name
+    np.save(path, np.random.default_rng(6).normal(0, 0.1, np.load(path).shape))
+
+
+def test_a_channel_without_a_usable_cell_does_not_drop_the_other_channel(derivatives, tmp_path):
+    darken(derivatives, "F_chan2.npy")
+    runs, skipped = collect(derivatives, tmp_path, runs=("run-01",))
+    assert skipped == [] and len(runs) == 1
+    run = runs[0]
+    assert run["channels"]["green"]["usable"] and not run["channels"]["red"]["usable"]
+    assert "F0" in run["channels"]["red"]["excluded"][0]
+    assert set(run["suite2p"]["means"]) == {("green", "dF/F0 z")}
+    assert set(run["corrected"]["means"]) == {("green", "dF/F0 z")}
+    red = [r for r in summary_table(runs) if r["channel"] == "red"][0]
+    assert red["n cells"] == N_CELLS and red["n excluded"] == N_CELLS and np.isnan(red["median b"])
+    assert np.isnan(run["channels"]["red"]["dff"]).all()  # nothing of it reaches a plot
+
+
+def test_the_channel_that_survives_can_be_red_too(derivatives, tmp_path):
+    darken(derivatives, "F.npy")
+    runs, _ = collect(derivatives, tmp_path, runs=("run-01",))
+    assert not runs[0]["channels"]["green"]["usable"] and runs[0]["channels"]["red"]["usable"]
+    assert set(runs[0]["corrected"]["means"]) == {("red", "dF/F0 z")}
+
+
+def test_a_run_with_no_usable_cell_in_either_channel_is_left_out_with_the_reasons(
+    derivatives, tmp_path
+):
+    darken(derivatives, "F.npy")
+    darken(derivatives, "F_chan2.npy")
     runs, skipped = collect(derivatives, tmp_path)
     assert [r["run"] for r in runs] == ["run-02"]
     assert skipped[0][1] == "run-01" and "no usable cell" in skipped[0][2]
+    assert "green" in skipped[0][2] and "red" in skipped[0][2]
+
+
+def test_pooling_uses_each_channels_runs_and_keeps_a_channel_only_some_runs_have(
+    derivatives, tmp_path
+):
+    darken(derivatives, "F_chan2.npy")  # run-01 has no red
+    runs, _ = collect(derivatives, tmp_path)
+    for which in ("suite2p", "corrected"):
+        pooled = pool_residual(runs, which)
+        assert pooled[("green", "dF/F0 z")][4]["n_runs"] == 2
+        assert pooled[("red", "dF/F0 z")][4]["n_runs"] == 1  # only run-02 has red
+
+
+def test_a_channel_nobody_has_is_absent_from_the_pooled_responses(derivatives, tmp_path):
+    darken(derivatives, "F_chan2.npy")
+    runs, _ = collect(derivatives, tmp_path, runs=("run-01",))
+    assert set(pool_residual(runs, "corrected")) == {("green", "dF/F0 z")}
 
 
 def test_example_traces_hold_both_dffs_of_the_same_cells(derivatives, tmp_path):
@@ -159,3 +208,6 @@ def test_a_second_collection_comes_from_the_cache(derivatives, tmp_path, monkeyp
     calls.clear()
     collect(derivatives, tmp_path, min_f0_fraction=0.2)  # another setting is another result
     assert len(calls) == 4
+    calls.clear()
+    collect(derivatives, tmp_path, min_f0_fraction=0.2, detrend_window_s=20.0)
+    assert len(calls) == 4  # so is another detrend window

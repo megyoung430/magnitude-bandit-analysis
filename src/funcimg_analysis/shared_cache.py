@@ -15,7 +15,9 @@ import numpy as np
 import pandas as pd
 
 CACHE_SUBDIR = "funcimg_shared"
-_CODE_FILES = (
+# every module whose code shapes a cached result (the shared-signal and the background-corrected
+# ΔF/F0 results), so that editing one never finds a stale file
+CODE_FILES = (
     "shared_signal.py",
     "shared_signal_null.py",
     "run_statistics.py",
@@ -23,10 +25,35 @@ _CODE_FILES = (
     "event_frames.py",
     "run_responses.py",
     "residual_dff.py",
+    "collect_residual.py",
 )
-CODE_VERSION = hashlib.sha256(
-    b"".join((Path(__file__).parent / name).read_bytes() for name in _CODE_FILES)
-).hexdigest()
+MINI2P_DISTRIBUTION = "mini2p-preprocessing"
+
+
+def mini2p_identity() -> str:
+    """The installed mini2p's version and install source (the commit, for a git install).
+
+    ΔF/F0 baselines come from mini2p, so a cached result is only valid for the mini2p that made it.
+    """
+    from importlib import metadata
+
+    try:
+        distribution = metadata.distribution(MINI2P_DISTRIBUTION)
+    except metadata.PackageNotFoundError:
+        return "mini2p not installed"
+    source = distribution.read_text("direct_url.json") or ""
+    return f"{distribution.version} {source}"
+
+
+def code_version(mini2p: str) -> str:
+    """A hash of the source of :data:`CODE_FILES` and of the *mini2p* identity."""
+    folder = Path(__file__).parent
+    hasher = hashlib.sha256(b"".join((folder / name).read_bytes() for name in CODE_FILES))
+    hasher.update(mini2p.encode())
+    return hasher.hexdigest()
+
+
+CODE_VERSION = code_version(mini2p_identity())
 
 
 def _feed(hasher, value) -> None:
