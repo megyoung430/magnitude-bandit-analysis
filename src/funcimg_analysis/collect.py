@@ -6,7 +6,6 @@ the reason it was left out, never dropped silently.
 """
 
 import re
-import zlib
 from collections.abc import Callable, Collection
 from pathlib import Path
 
@@ -34,11 +33,6 @@ from src.funcimg_analysis.run_responses import (
     check_measures,
     plane_views,
     pulse_responses,
-)
-from src.funcimg_analysis.shared_signal_run import (
-    Z_MEASURES,
-    TooShortForSharedSignalError,
-    analyse_shared_signal,
 )
 
 RANKINGS = ("max_dff", "p_cell")
@@ -103,15 +97,20 @@ def _missing(run_dir: Path, plane_dir: Path) -> str | None:
 
 
 def collect_each_run(
-    found: list, variant: str, load_outcomes: Callable, analyse: Callable[..., dict]
+    found: list,
+    variant: str,
+    load_outcomes: Callable,
+    analyse: Callable[..., dict],
+    also_skip: tuple[type[Exception], ...] = (),
 ) -> tuple[list[dict], list[tuple[str, str, str]]]:
     """Run *analyse* on every found run that can be analysed; list the others and why.
 
     *analyse* is called as ``analyse(session, run_dir, plane_dir, frames, outcomes)`` and
     returns the run's result dict, to which ``session`` and ``run`` are added. A run is left
     out, with the reason, if it lacks frame times or an extraction, belongs to another
-    acquisition, has an unreadable behaviour file or lacks what *analyse* reports as missing;
-    anything else is a bug and stops the analysis.
+    acquisition, has an unreadable behaviour file or lacks what *analyse* reports as missing
+    (a background, or any exception class in *also_skip*); anything else is a bug and stops the
+    analysis.
     """
     included, skipped = [], []
     for session, run_dir, plane_dir in found:
@@ -128,7 +127,7 @@ def collect_each_run(
                 OutcomeParseError,
                 FileNotFoundError,
                 BackgroundUnavailableError,
-                TooShortForSharedSignalError,
+                *also_skip,
             ) as error:
                 reason = str(error)
         skipped.append((session, run_dir.name, reason))
@@ -158,7 +157,7 @@ def _collect_runs(
         return {**result, **extra}
 
     included, skipped = collect_each_run(found, variant, load_outcomes, align)
-    _check_same_window(included)
+    check_same_window(included)
     return included, skipped
 
 
@@ -308,112 +307,18 @@ def collect_background_responses(
     return _with_trial_sem(pool_runs(included, measures), included), included, skipped
 
 
-def _cell_rows(traces, cells_only: bool) -> np.ndarray:
-    """ROI indices to analyse: all, or those Suite2p's classifier calls cells (``iscell[:, 0]``)."""
-    iscell = np.asarray(traces.iscell)[:, 0]
-    return np.flatnonzero(iscell > 0) if cells_only else np.arange(len(iscell))
+PERIOD_TOLERANCE = 0.01  # relative; a run's median frame interval varies by far less
 
 
-def _run_rng(seed: int, session: str, run: str) -> np.random.Generator:
-    """A generator fixed by the seed and the run's name, so a run's chance levels do not depend
-    on which other runs are collected."""
-    return np.random.default_rng([seed, zlib.crc32(f"{session}/{run}".encode())])
+def check_same_window(runs: list[dict]) -> None:
+    """Raise unless the runs share their window offsets and (nearly) their frame period.
 
-
-def collect_shared_signal(
-    subject_dir,
-    first_session: int,
-    last_session: int,
-    variant: str,
-    window_s: tuple[float, float],
-    phases: tuple[str, ...],
-    load_outcomes: Callable = load_outcome_events,
-    *,
-    runs: Collection[str] | None = None,
-    measures: tuple[str, ...] = Z_MEASURES,
-    roi_margin_px: int = 0,
-    cache_dir=None,
-    cells_only: bool = False,
-    detrend_window_s: float = 60.0,
-    n_shifts: int = 100,
-    min_shift_s: float = 30.0,
-    seed: int = 0,
-) -> tuple[list[dict], list[tuple[str, str, str]]]:
-    """Do the cells of each run share signal beyond the background, and does the response survive?
-
-    Per run, channel and measure (see ``analyse_shared_signal``): correlations of the cells with
-    the background and with each other, partial correlations, chance levels from circular
-    shifts, R^2 on the background, and the reward response of the detrended cells next to that
-    of the cells with the background's fit removed.
-
-    Args:
-        subject_dir (str | Path): ``derivatives/<cohort>/<subject>``.
-        first_session (int): First session number to include.
-        last_session (int): Last session number to include.
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
-        window_s (tuple[float, float]): Window around the outcome (s).
-        phases (tuple[str, ...]): Trial phases to include.
-        load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
-        runs (Collection[str] | None): Run folder names to include. Default None, every run.
-        measures (tuple[str, ...]): ``"F z"`` and/or ``"dF/F0 z"``.
-        roi_margin_px (int): Pixels excluded around every ROI from the background.
-        cache_dir (str | Path | None): Background trace cache (see ``load_background``).
-        cells_only (bool): Use only ROIs with ``iscell[:, 0] > 0``. Default False, every ROI.
-        detrend_window_s (float): Running-percentile baseline length (s).
-        n_shifts (int): Circular shifts per chance level.
-        min_shift_s (float): Smallest circular shift (s), in both directions.
-        seed (int): Seeds the shifts; each run draws its own from the seed and its name.
-
-    Returns:
-        tuple: One result per run (``analyse_shared_signal`` output plus ``session``, ``run``
-        and ``rois``, the ROI indices used), and ``(session, run, reason)`` for each run left
-        out.
-
-    Raises:
-        ValueError: If *measures* is empty or has a name other than ``F z`` and ``dF/F0 z``.
+    The pooled figures label the x axis with the first run's period, so runs with different
+    periods would be drawn on the wrong time axis.
     """
-    check_measures(measures, Z_MEASURES)
-
-    def analyse(session, run_dir, plane_dir, frames, outcomes):
-        views, traces = plane_views(plane_dir)
-        rois = _cell_rows(traces, cells_only)
-        background = load_background(plane_dir, roi_margin_px, cache_dir)["F"]
-        result = analyse_shared_signal(
-            {view: trace[rois] for view, trace in views.items()},
-            background,
-            frames.time_s,
-            outcomes,
-            rng=_run_rng(seed, session, run_dir.name),
-            window_s=window_s,
-            phases=phases,
-            measures=measures,
-            detrend_window_s=detrend_window_s,
-            min_shift_s=min_shift_s,
-            n_shifts=n_shifts,
-        )
-        return {**result, "rois": rois}
-
-    found = variant_runs(subject_dir, first_session, last_session, variant, runs)
-    included, skipped = collect_each_run(found, variant, load_outcomes, analyse)
-    _check_same_window([r["original"] for r in included])
-    return included, skipped
-
-
-def pool_shared_signal(runs: list[dict], measures: tuple[str, ...]) -> tuple[dict, dict]:
-    """Pool the original and the background-removed responses across runs.
-
-    Returns:
-        tuple[dict, dict]: ``pool_runs`` output for the detrended cells and for the residuals.
-    """
-    return (
-        pool_runs([r["original"] for r in runs], measures),
-        pool_runs([r["residual"] for r in runs], measures),
-    )
-
-
-def _check_same_window(runs: list[dict]) -> None:
     shapes = {tuple(run["offsets"]) for run in runs}
-    if len(shapes) > 1:
+    periods = np.array([run["period_s"] for run in runs], dtype=float)
+    if len(shapes) > 1 or (len(periods) and np.ptp(periods) > PERIOD_TOLERANCE * periods.mean()):
         raise ValueError("Runs have different frame periods, so their windows cannot be pooled.")
 
 

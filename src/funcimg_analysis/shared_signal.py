@@ -1,4 +1,4 @@
-"""Do cells share signal beyond the field-wide background? (pure)
+"""Building blocks for asking whether cells share signal beyond the field-wide background (pure).
 
 Traces are detrended (a slow running-percentile baseline subtracted) and robust-z-scored first,
 so that a slow drift or a different scale does not create correlations. Every correlation uses
@@ -8,7 +8,12 @@ therefore included, since the question is about the traces, not about the events
 The comparison that matters is a cell against the *leave-one-out* average of the other cells
 versus the same cell against the background: both sides use one noisy cell and one cleaner
 reference, whereas the whole-FOV average would be mostly background pixels.
+
+Chance levels live in :mod:`src.funcimg_analysis.shared_signal_null`, the statistics of a whole
+run in :mod:`src.funcimg_analysis.run_statistics`.
 """
+
+from collections.abc import Sequence
 
 import numpy as np
 from scipy.stats import wilcoxon
@@ -18,8 +23,7 @@ from src.funcimg_analysis.event_frames import quiet_empty_means, robust_z
 DETREND_PERCENTILE = 10.0
 MIN_WINDOW_FRAMES = 3
 MIN_FRAMES_FOR_CORRELATION = 3
-NULL_PERCENTILE = 95.0
-SHIFTED_TRACES = ("background", "average")
+SINGULAR_DETERMINANT = 1e-10  # below this a correlation matrix has no usable inverse
 
 
 def window_frames_from_s(window_s: float, period_s: float) -> int:
@@ -36,9 +40,12 @@ def running_percentile(
     """A centred running percentile of each row, NaN-safe, evaluated on a coarse grid.
 
     The percentile is taken over ``2 * (window_frames // 2) + 1`` frames around each grid frame
-    (clipped at the ends of the trace) and linearly interpolated between grid frames, which
-    keeps a 60 s window over tens of thousands of frames cheap. A stretch of NaN longer than the
-    window leaves NaN in the baseline there.
+    and linearly interpolated between grid frames, which keeps a 60 s window over tens of
+    thousands of frames cheap. Within half a window of either end of the trace the window is
+    clipped to the frames that exist, so the baseline there is estimated from about half as many
+    frames, all on one side, and is less reliable (it follows the first or last stretch of the
+    trace rather than being centred on it). A stretch of NaN longer than the window leaves NaN
+    in the baseline there.
 
     Args:
         traces (np.ndarray): ``(n_rows, n_frames)``.
@@ -63,15 +70,27 @@ def running_percentile(
     stride = max(1, window_frames // 10) if stride_frames is None else stride_frames
     half = window_frames // 2
     grid = np.unique(np.append(np.arange(0, n_frames, stride), n_frames - 1))
-    with quiet_empty_means():
-        at_grid = np.stack(
-            [
-                np.nanpercentile(traces[:, max(0, c - half) : c + half + 1], percentile, axis=1)
-                for c in grid
-            ],
-            axis=1,
-        )
+    at_grid = np.stack(
+        [_window_percentile(traces[:, max(0, c - half) : c + half + 1], percentile) for c in grid],
+        axis=1,
+    )
     return _interpolate_grid(at_grid, grid, n_frames)
+
+
+def _window_percentile(window: np.ndarray, percentile: float) -> np.ndarray:
+    """Per-row percentile of ``(n_rows, n_window)``, ignoring NaN.
+
+    Rows without NaN take numpy's vectorised ``percentile``; ``nanpercentile`` loops over rows
+    and is an order of magnitude slower, so it is kept for the rows that need it.
+    """
+    out = np.full(len(window), np.nan)
+    clean = np.isfinite(window).all(axis=1)
+    if clean.any():
+        out[clean] = np.percentile(window[clean], percentile, axis=1)
+    if not clean.all():
+        with quiet_empty_means():
+            out[~clean] = np.nanpercentile(window[~clean], percentile, axis=1)
+    return out
 
 
 def _interpolate_grid(at_grid: np.ndarray, grid: np.ndarray, n_frames: int) -> np.ndarray:
@@ -108,7 +127,7 @@ def detrended_z(
 # --- correlations -------------------------------------------------------------------------------
 
 
-def _as_rows(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def as_rows(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """*a* and *b* as float ``(n, n_frames)`` arrays; a single trace is broadcast over rows."""
     a, b = np.atleast_2d(np.asarray(a, dtype=float)), np.atleast_2d(np.asarray(b, dtype=float))
     if a.shape[1] != b.shape[1]:
@@ -121,9 +140,20 @@ def _as_rows(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 def _moments(a: np.ndarray, b: np.ndarray) -> dict[str, np.ndarray]:
     """Per-row count, means, variances and covariance over frames finite in both rows."""
-    a, b = _as_rows(a, b)
+    a, b = as_rows(a, b)
     ok = np.isfinite(a) & np.isfinite(b)
     n = ok.sum(axis=1)
+    if ok.all():  # the usual case: no masking, far fewer temporaries
+        mean_a, mean_b = a.mean(axis=1), b.mean(axis=1)
+        da, db = a - mean_a[:, None], b - mean_b[:, None]
+        return {
+            "n": n,
+            "mean_a": mean_a,
+            "mean_b": mean_b,
+            "var_a": np.einsum("ij,ij->i", da, da) / n,
+            "var_b": np.einsum("ij,ij->i", db, db) / n,
+            "cov": np.einsum("ij,ij->i", da, db) / n,
+        }
     with np.errstate(invalid="ignore", divide="ignore"):
         mean_a = np.where(ok, a, 0).sum(axis=1) / n
         mean_b = np.where(ok, b, 0).sum(axis=1) / n
@@ -139,7 +169,8 @@ def _moments(a: np.ndarray, b: np.ndarray) -> dict[str, np.ndarray]:
         }
 
 
-def _has_spread(mean: np.ndarray, variance: np.ndarray) -> np.ndarray:
+def has_spread(mean: np.ndarray, variance: np.ndarray) -> np.ndarray:
+    """Whether a row varies by more than rounding error of its mean."""
     return np.sqrt(variance) > 1e-12 * np.abs(mean)
 
 
@@ -160,36 +191,86 @@ def row_correlation(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     m = _moments(a, b)
     defined = (
         (m["n"] >= MIN_FRAMES_FOR_CORRELATION)
-        & _has_spread(m["mean_a"], m["var_a"])
-        & _has_spread(m["mean_b"], m["var_b"])
+        & has_spread(m["mean_a"], m["var_a"])
+        & has_spread(m["mean_b"], m["var_b"])
     )
     with np.errstate(invalid="ignore", divide="ignore"):
         r = m["cov"] / np.sqrt(m["var_a"] * m["var_b"])
     return np.where(defined, np.clip(r, -1, 1), np.nan)
 
 
-def partial_row_correlation(a: np.ndarray, b: np.ndarray, control: np.ndarray) -> np.ndarray:
-    """Correlation of *a* and *b* per row after regressing *control* (with intercept) out of both.
+def _common_frames(variables: Sequence[np.ndarray]) -> list[np.ndarray]:
+    """The traces as ``(n, n_frames)`` arrays, NaN wherever any of them is not finite."""
+    rows = [np.atleast_2d(np.asarray(v, dtype=float)) for v in variables]
+    if len({r.shape[1] for r in rows}) != 1:
+        raise ValueError(f"traces have different numbers of frames: {[r.shape[1] for r in rows]}.")
+    n = max(r.shape[0] for r in rows)
+    if any(r.shape[0] not in (1, n) for r in rows):
+        raise ValueError(f"cannot pair traces of {[r.shape[0] for r in rows]} rows.")
+    rows = [np.broadcast_to(r, (n, r.shape[1])) for r in rows]
+    ok = np.logical_and.reduce([np.isfinite(r) for r in rows])
+    return [np.where(ok, r, np.nan) for r in rows]
 
-    Equal to correlating the two residual traces. All three are restricted to the frames finite
-    in all of them, so the control is removed from exactly the frames that are correlated.
+
+def correlation_matrices(variables: Sequence[np.ndarray]) -> np.ndarray:
+    """Per-row correlation matrix of several traces over the frames finite in all of them.
+
+    Args:
+        variables (Sequence[np.ndarray]): Each ``(n, n_frames)`` or ``(n_frames,)``.
+
+    Returns:
+        np.ndarray: ``(n, m, m)`` for *m* variables; NaN where a pair is undefined.
+    """
+    rows = _common_frames(variables)
+    m = len(rows)
+    out = np.ones((rows[0].shape[0], m, m))
+    for i in range(m):
+        for j in range(i + 1, m):
+            out[:, i, j] = out[:, j, i] = row_correlation(rows[i], rows[j])
+    return out
+
+
+def partial_from_matrix(matrix: np.ndarray) -> np.ndarray:
+    """Partial correlation of variables 0 and 1 given all others, from correlation matrices.
+
+    Args:
+        matrix (np.ndarray): ``(..., m, m)`` correlation matrices, ``m >= 3``.
+
+    Returns:
+        np.ndarray: ``(...)``; NaN where the matrix is undefined or (nearly) singular, e.g. a
+        cell that is exactly a linear function of a control.
+    """
+    matrix = np.asarray(matrix, dtype=float)
+    with np.errstate(invalid="ignore"):
+        determinant = np.linalg.det(matrix)  # NaN for a matrix with an undefined pair
+    unusable = ~(np.abs(determinant) > SINGULAR_DETERMINANT)  # also True for NaN
+    safe = np.where(unusable[..., None, None], np.eye(matrix.shape[-1]), matrix)
+    precision = np.linalg.inv(safe)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        partial = -precision[..., 0, 1] / np.sqrt(precision[..., 0, 0] * precision[..., 1, 1])
+    return np.where(unusable, np.nan, np.clip(partial, -1, 1))
+
+
+def partial_row_correlation(
+    a: np.ndarray, b: np.ndarray, control: np.ndarray | Sequence[np.ndarray]
+) -> np.ndarray:
+    """Correlation of *a* and *b* per row after regressing the control(s) (with intercept) out.
+
+    Equal to correlating the two residual traces. All traces are restricted to the frames finite
+    in all of them, so the controls are removed from exactly the frames that are correlated.
 
     Args:
         a (np.ndarray): ``(n, n_frames)``.
         b (np.ndarray): ``(n, n_frames)`` or ``(n_frames,)``.
-        control (np.ndarray): ``(n_frames,)`` or ``(n, n_frames)``, e.g. the background.
+        control (np.ndarray | Sequence[np.ndarray]): One control, or a list/tuple of them. Each
+            is ``(n_frames,)`` (shared, e.g. the background) or ``(n, n_frames)`` (one per row,
+            e.g. each cell's own neuropil).
 
     Returns:
         np.ndarray: ``(n,)``; NaN where undefined (e.g. a row perfectly explained by the control).
     """
-    a, b = _as_rows(a, b)
-    c, _ = _as_rows(control, a)
-    ok = np.isfinite(a) & np.isfinite(b) & np.isfinite(c)
-    a, b, c = (np.where(ok, x, np.nan) for x in (a, b, c))
-    r_ab, r_ac, r_bc = row_correlation(a, b), row_correlation(a, c), row_correlation(b, c)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        partial = (r_ab - r_ac * r_bc) / np.sqrt((1 - r_ac**2) * (1 - r_bc**2))
-    return np.clip(partial, -1, 1)
+    controls = list(control) if isinstance(control, list | tuple) else [control]
+    return partial_from_matrix(correlation_matrices([a, b, *controls]))
 
 
 def leave_one_out_mean(z: np.ndarray) -> np.ndarray:
@@ -208,20 +289,116 @@ def leave_one_out_mean(z: np.ndarray) -> np.ndarray:
         return (total - values) / (count - finite)
 
 
+# --- reliabilities ------------------------------------------------------------------------------
+
+
+def spearman_brown(r_half: np.ndarray) -> np.ndarray:
+    """Reliability of the whole from the correlation of its two halves, ``2r / (1 + r)``.
+
+    NaN where the halves do not correlate positively (there is no reliability to speak of), and
+    never above 1.
+    """
+    r = np.asarray(r_half, dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        stepped = np.minimum(2 * r / (1 + r), 1.0)
+    return np.where(r > 0, stepped, np.nan)
+
+
+def background_reliability(half_1: np.ndarray, half_2: np.ndarray) -> tuple[float, float]:
+    """Split-half reliability of the background from two non-overlapping sets of its pixels.
+
+    Args:
+        half_1 (np.ndarray): ``(n_frames,)`` detrended z trace of the first set of pixels.
+        half_2 (np.ndarray): The same for the second set.
+
+    Returns:
+        tuple[float, float]: r(half 1, half 2) and the Spearman-Brown reliability of the whole
+        background (NaN if r is not positive).
+
+    Raises:
+        ValueError: If the traces differ in their number of frames.
+    """
+    r_halves = float(row_correlation(half_1[None, :], half_2)[0])
+    return r_halves, float(spearman_brown(np.array(r_halves))[()])
+
+
+def leave_one_out_reliability(
+    z: np.ndarray, rng: np.random.Generator, n_splits: int = 10
+) -> np.ndarray:
+    """Reliability of each cell's leave-one-out average, by split halves of the other cells.
+
+    For each cell the other cells are split at random into two halves that differ by at most one
+    cell, the halves are averaged, and r(half 1, half 2) is stepped up by the Spearman-Brown
+    formula. The correlation is averaged over *n_splits* random splits first. The reliability
+    says how much of the average's variance is signal common to the cells rather than the
+    private noise of the few cells averaged, and is what attenuates r(cell, average).
+
+    Args:
+        z (np.ndarray): ``(n_cells, n_frames)`` detrended z traces.
+        rng (np.random.Generator): Draws the splits.
+        n_splits (int): Number of random splits.
+
+    Returns:
+        np.ndarray: ``(n_cells,)``, NaN where the halves do not correlate positively.
+
+    Raises:
+        ValueError: If there are fewer than three cells (the others cannot be split).
+    """
+    z = np.asarray(z, dtype=float)
+    n = z.shape[0]
+    if n < 3:
+        raise ValueError("A split-half reliability of the other cells needs at least three cells.")
+    finite = np.isfinite(z)
+    values = np.where(finite, z, 0.0)
+    all_finite = bool(finite.all())
+    half_size = (n - 1) // 2
+    r_splits = []
+    for _ in range(n_splits):
+        # row i marks, among the cells other than i, the half_size cells that form half A
+        draw = rng.random((n, n))
+        np.fill_diagonal(draw, np.inf)
+        in_a = (np.argsort(np.argsort(draw, axis=1), axis=1) < half_size).astype(float)
+        in_b = 1.0 - in_a
+        np.fill_diagonal(in_b, 0.0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            if all_finite:
+                mean_a, mean_b = in_a @ values / half_size, in_b @ values / (n - 1 - half_size)
+            else:
+                mean_a = in_a @ values / (in_a @ finite)
+                mean_b = in_b @ values / (in_b @ finite)
+        r_splits.append(row_correlation(mean_a, mean_b))
+    with quiet_empty_means():
+        mean_r = np.nanmean(np.stack(r_splits), axis=0)
+    return spearman_brown(mean_r)
+
+
 # --- regression on the background ---------------------------------------------------------------
 
 
-def fit_background(cells: np.ndarray, background: np.ndarray) -> dict[str, np.ndarray]:
+def fit_background(
+    cells: np.ndarray, background: np.ndarray, fit_mask: np.ndarray | None = None
+) -> dict[str, np.ndarray]:
     """OLS of each cell on the background, ``cell ~ intercept + slope * background``.
 
-    Fitted on the frames finite in both. Returns ``slope``, ``intercept`` and ``r2`` per cell
-    (NaN where the cell or the background has no variance there).
+    Fitted on the frames finite in both, and in *fit_mask* when given. Returns ``slope``,
+    ``intercept`` and ``r2`` per cell (NaN where the cell or the background has no variance
+    over the frames used).
+
+    Args:
+        cells (np.ndarray): ``(n_cells, n_frames)``.
+        background (np.ndarray): ``(n_frames,)``.
+        fit_mask (np.ndarray | None): Boolean ``(n_frames,)``, True for the frames to fit on.
+            Default None, every frame.
     """
+    cells, background = np.asarray(cells, dtype=float), np.asarray(background, dtype=float)
+    if fit_mask is not None:
+        outside = ~np.asarray(fit_mask, dtype=bool)
+        cells, background = np.where(outside, np.nan, cells), np.where(outside, np.nan, background)
     m = _moments(cells, background)
     defined = (
         (m["n"] >= MIN_FRAMES_FOR_CORRELATION)
-        & _has_spread(m["mean_a"], m["var_a"])
-        & _has_spread(m["mean_b"], m["var_b"])
+        & has_spread(m["mean_a"], m["var_a"])
+        & has_spread(m["mean_b"], m["var_b"])
     )
     with np.errstate(invalid="ignore", divide="ignore"):
         slope = np.where(defined, m["cov"] / m["var_b"], np.nan)
@@ -229,95 +406,19 @@ def fit_background(cells: np.ndarray, background: np.ndarray) -> dict[str, np.nd
     return {"slope": slope, "intercept": intercept, "r2": row_correlation(cells, background) ** 2}
 
 
-def remove_background(cells: np.ndarray, background: np.ndarray) -> np.ndarray:
-    """Each cell minus ``slope * background``; the cell's own offset is kept.
+def remove_background(
+    cells: np.ndarray, background: np.ndarray, fit_mask: np.ndarray | None = None
+) -> np.ndarray:
+    """Each cell minus ``slope * background``, with the slope fitted on the frames in *fit_mask*.
 
     Subtracting only the slope term (not the intercept) leaves the cell's baseline where it was,
-    so the usual robust-z and pre-event baseline subtraction apply to the result unchanged.
+    so the usual robust-z and pre-event baseline subtraction apply to the result unchanged. The
+    slope is applied to every frame, also those left out of the fit. Fitting outside the outcome
+    windows keeps a reward response that the background happens to share from pulling the slope
+    towards itself.
     """
-    slope = fit_background(cells, background)["slope"]
+    slope = fit_background(cells, background, fit_mask)["slope"]
     return np.asarray(cells, dtype=float) - slope[:, None] * np.asarray(background, dtype=float)
-
-
-# --- chance levels ------------------------------------------------------------------------------
-
-
-def shift_offsets(
-    n_frames: int, min_shift_frames: int, n_shifts: int, rng: np.random.Generator
-) -> np.ndarray:
-    """Random circular shifts, each at least *min_shift_frames* from zero in both directions.
-
-    Raises:
-        ValueError: If a setting is below 1 or the trace is shorter than twice the minimum.
-    """
-    if min_shift_frames < 1 or n_shifts < 1:
-        raise ValueError("min_shift_frames and n_shifts must be at least 1.")
-    if n_frames < 2 * min_shift_frames:
-        raise ValueError(
-            f"{n_frames} frames are too few for circular shifts of at least {min_shift_frames} "
-            "frames in both directions."
-        )
-    return rng.integers(min_shift_frames, n_frames - min_shift_frames + 1, size=n_shifts)
-
-
-def null_r(cells: np.ndarray, other: np.ndarray, offsets: np.ndarray) -> np.ndarray:
-    """r(cell, *other* circularly shifted by each offset): ``(n_shifts, n_cells)``."""
-    other = np.asarray(other, dtype=float)
-    return np.stack([row_correlation(cells, np.roll(other, k, axis=-1)) for k in offsets])
-
-
-def null_partial_r(
-    cells: np.ndarray,
-    average: np.ndarray,
-    background: np.ndarray,
-    offsets: np.ndarray,
-    shifted: str,
-) -> np.ndarray:
-    """Partial r(cell, average | background) with one of the two reference traces shifted.
-
-    Args:
-        cells (np.ndarray): ``(n_cells, n_frames)``.
-        average (np.ndarray): Leave-one-out averages, ``(n_cells, n_frames)``.
-        background (np.ndarray): ``(n_frames,)``.
-        offsets (np.ndarray): Circular shifts (frames).
-        shifted (str): ``"background"`` (the control is wrong, so little is removed) or
-            ``"average"`` (the cell-to-average relation is broken while the control is real).
-
-    Returns:
-        np.ndarray: ``(n_shifts, n_cells)``.
-
-    Raises:
-        ValueError: If *shifted* is neither of those.
-    """
-    if shifted not in SHIFTED_TRACES:
-        raise ValueError(f"shifted must be one of {SHIFTED_TRACES}, not {shifted!r}.")
-    background, average = np.asarray(background, dtype=float), np.asarray(average, dtype=float)
-    if shifted == "background":
-        return np.stack(
-            [partial_row_correlation(cells, average, np.roll(background, k)) for k in offsets]
-        )
-    return np.stack(
-        [partial_row_correlation(cells, np.roll(average, k, axis=-1), background) for k in offsets]
-    )
-
-
-def null_percentile(null: np.ndarray, q: float = NULL_PERCENTILE, statistic=None):
-    """The *q*-th percentile of a null ``(n_shifts, n_cells)``.
-
-    Args:
-        null (np.ndarray): One row per shift.
-        q (float): Percentile.
-        statistic (Callable | None): Reduces across cells within each shift (called as
-            ``statistic(null, axis=1)``, e.g. ``np.nanmedian``), giving one number for the run.
-            Default None, meaning a percentile per cell across shifts.
-
-    Returns:
-        np.ndarray | float: ``(n_cells,)``, or a float with *statistic*.
-    """
-    with quiet_empty_means():
-        if statistic is None:
-            return np.nanpercentile(null, q, axis=0)
-        return float(np.nanpercentile(statistic(null, axis=1), q))
 
 
 # --- comparison across cells --------------------------------------------------------------------
@@ -341,71 +442,6 @@ def paired_comparison(a: np.ndarray, b: np.ndarray) -> dict:
     difference = a[ok] - b[ok]
     p = float(wilcoxon(difference, zero_method="zsplit").pvalue)
     return {"median_difference": float(np.median(difference)), "p": p, "n": n}
-
-
-# --- all statistics of one run ------------------------------------------------------------------
-
-
-def shared_signal_stats(z: np.ndarray, background_z: np.ndarray, offsets: np.ndarray) -> dict:
-    """Every statistic of one run, channel and measure.
-
-    Args:
-        z (np.ndarray): ``(n_cells, n_frames)`` detrended robust-z traces.
-        background_z (np.ndarray): ``(n_frames,)`` the background, detrended and z-scored.
-        offsets (np.ndarray): Circular shifts (frames) for the chance levels.
-
-    Returns:
-        dict: ``n_cells``, ``n_undefined`` (cells whose r with the background or the average
-        is undefined), ``r_bg_avg`` and its null ``null_r_bg_avg`` ``(n_shifts,)``; per cell
-        ``r_loo``, ``r_bg``, ``partial_r``, ``r2`` and ``slope``; their nulls ``null_r_bg``,
-        ``null_r_loo``, ``null_partial_background`` and ``null_partial_average``, each
-        ``(n_shifts, n_cells)``.
-
-    Raises:
-        ValueError: If the background and the cells differ in their number of frames.
-    """
-    z, background_z = np.asarray(z, dtype=float), np.asarray(background_z, dtype=float)
-    if z.shape[1] != background_z.shape[0]:
-        raise ValueError(
-            f"cells have {z.shape[1]} frames but the background has {background_z.shape[0]}."
-        )
-    with quiet_empty_means():
-        average = np.nanmean(z, axis=0)
-    loo = leave_one_out_mean(z)
-    r_bg, r_loo = row_correlation(z, background_z), row_correlation(z, loo)
-    fit = fit_background(z, background_z)
-    return {
-        "n_cells": z.shape[0],
-        "n_undefined": int((~(np.isfinite(r_bg) & np.isfinite(r_loo))).sum()),
-        "r_bg_avg": float(row_correlation(average, background_z)[0]),
-        "null_r_bg_avg": null_r(average, background_z, offsets)[:, 0],
-        "r_loo": r_loo,
-        "r_bg": r_bg,
-        "partial_r": partial_row_correlation(z, loo, background_z),
-        "r2": fit["r2"],
-        "slope": fit["slope"],
-        "null_r_bg": null_r(z, background_z, offsets),
-        "null_r_loo": null_r(z, loo, offsets),
-        "null_partial_background": null_partial_r(z, loo, background_z, offsets, "background"),
-        "null_partial_average": null_partial_r(z, loo, background_z, offsets, "average"),
-    }
-
-
-def summary_row(stats: dict) -> dict:
-    """The numbers of one run, channel and measure for the printed table."""
-    with quiet_empty_means():
-        return {
-            "cells": stats["n_cells"],
-            "undefined": stats["n_undefined"],
-            "r(bg, avg)": stats["r_bg_avg"],
-            "median r(cell, LOO)": float(np.nanmedian(stats["r_loo"])),
-            "median r(cell, bg)": float(np.nanmedian(stats["r_bg"])),
-            "median partial r": float(np.nanmedian(stats["partial_r"])),
-            "null 95th (median partial r)": null_percentile(
-                stats["null_partial_average"], NULL_PERCENTILE, np.nanmedian
-            ),
-            "median R2": float(np.nanmedian(stats["r2"])),
-        }
 
 
 # --- responses ----------------------------------------------------------------------------------

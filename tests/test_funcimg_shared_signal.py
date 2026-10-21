@@ -4,23 +4,25 @@ import numpy as np
 import pytest
 from numpy.lib.stride_tricks import sliding_window_view
 
+from src.funcimg_analysis.run_statistics import shared_signal_stats, summary_row
 from src.funcimg_analysis.shared_signal import (
     detrend,
     detrended_z,
     fit_background,
     leave_one_out_mean,
     mean_response,
-    null_partial_r,
-    null_percentile,
-    null_r,
     paired_comparison,
     partial_row_correlation,
     remove_background,
     row_correlation,
     running_percentile,
-    shared_signal_stats,
+)
+from src.funcimg_analysis.shared_signal_null import (
+    null_partial_r,
+    null_percentile,
+    null_r,
+    run_null_percentile,
     shift_offsets,
-    summary_row,
 )
 
 N_FRAMES = 3000
@@ -262,7 +264,7 @@ def test_the_partial_r_of_cells_with_only_field_signal_is_inside_the_null_spread
     loo = leave_one_out_mean(cells)
     offsets = shift_offsets(N_FRAMES, 450, 100, np.random.default_rng(2))
     null = null_partial_r(cells, loo, field, offsets, "average")
-    assert np.median(partial_row_correlation(cells, loo, field)) < null_percentile(
+    assert np.median(partial_row_correlation(cells, loo, field)) < run_null_percentile(
         null, 95, np.nanmedian
     )
 
@@ -273,7 +275,7 @@ def test_extra_common_signal_puts_the_real_partial_r_above_the_null():
     loo = leave_one_out_mean(cells)
     offsets = shift_offsets(N_FRAMES, 450, 100, np.random.default_rng(3))
     null = null_partial_r(cells, loo, field, offsets, "average")
-    assert np.median(partial_row_correlation(cells, loo, field)) > null_percentile(
+    assert np.median(partial_row_correlation(cells, loo, field)) > run_null_percentile(
         null, 95, np.nanmedian
     )
 
@@ -283,10 +285,11 @@ def test_null_partial_r_rejects_an_unknown_shifted_trace():
         null_partial_r(np.zeros((2, 50)), np.zeros((2, 50)), np.zeros(50), np.array([5]), "cells")
 
 
-def test_null_percentile_is_per_cell_by_default_and_per_run_with_a_statistic():
+def test_null_percentile_is_per_cell_and_run_null_percentile_is_one_number_per_run():
     null = np.arange(100.0)[:, None] * np.array([[1.0, 2.0]])
     np.testing.assert_allclose(null_percentile(null, 95), [94.05, 188.1])
-    per_run = null_percentile(null, 95, np.nanmedian)
+    per_run = run_null_percentile(null, 95, np.nanmedian)
+    assert isinstance(per_run, float)
     assert per_run == pytest.approx(np.percentile(np.median(null, axis=1), 95))
 
 
@@ -320,8 +323,13 @@ def test_cells_resemble_each_other_beyond_the_background_only_with_a_shared_extr
     offsets = shift_offsets(N_FRAMES, 450, 50, np.random.default_rng(4))
     field_only, field = make_cells(rng, n_cells=12, common_weight=0.0)
     extra, field2 = make_cells(rng, n_cells=12, common_weight=1.5)
-    only = shared_signal_stats(field_only, field, offsets)
-    more = shared_signal_stats(extra, field2, offsets)
+    kinds = ("r_bg", "r_loo", "partial_average", "partial_background", "r_bg_avg")
+    only = shared_signal_stats(
+        field_only, field, offsets, rng=np.random.default_rng(0), null_kinds=()
+    )
+    more = shared_signal_stats(
+        extra, field2, offsets, rng=np.random.default_rng(0), null_kinds=kinds
+    )
     # field only: a cell resembles the background about as much as the other cells
     assert np.median(only["r_loo"]) - np.median(only["r_bg"]) < 0.15
     assert np.median(more["r_loo"]) - np.median(more["r_bg"]) > 0.2
@@ -338,17 +346,20 @@ def test_stats_count_flat_cells_as_undefined_and_need_a_background_of_the_same_l
     cells, field = make_cells(rng, n_cells=5)
     cells[2] = np.nan
     offsets = shift_offsets(N_FRAMES, 450, 5, np.random.default_rng(5))
-    stats = shared_signal_stats(cells, field, offsets)
+    rng_ = np.random.default_rng(0)
+    stats = shared_signal_stats(cells, field, offsets, rng=rng_, null_kinds=("r_bg",))
     assert stats["n_undefined"] == 1 and np.isnan(stats["r_loo"][2])
     with pytest.raises(ValueError, match="frames"):
-        shared_signal_stats(cells, field[:-1], offsets)
+        shared_signal_stats(cells, field[:-1], offsets, rng=rng_, null_kinds=())
 
 
 def test_summary_row_collects_the_numbers_for_the_table():
     rng = np.random.default_rng(18)
     cells, field = make_cells(rng, n_cells=10, common_weight=1.0)
     offsets = shift_offsets(N_FRAMES, 450, 50, np.random.default_rng(6))
-    stats = shared_signal_stats(cells, field, offsets)
+    stats = shared_signal_stats(
+        cells, field, offsets, rng=np.random.default_rng(0), null_kinds=("partial_average",)
+    )
     row = summary_row(stats)
     assert row["cells"] == 10
     assert row["r(bg, avg)"] == pytest.approx(stats["r_bg_avg"])
@@ -359,6 +370,7 @@ def test_summary_row_collects_the_numbers_for_the_table():
         np.percentile(np.nanmedian(stats["null_partial_average"], axis=1), 95)
     )
     assert row["median R2"] == pytest.approx(np.nanmedian(stats["r2"]))
+    assert np.isnan(row["null 95th (neuropil-controlled)"])  # that null was not requested
 
 
 # --- mean response in a time range --------------------------------------------------------------
