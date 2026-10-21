@@ -138,9 +138,9 @@ def plot_reward_cells(run: dict, measure_name: str, n_cells: int, title: str = "
     colors = roi_colors(len(top))
     n_rows = max(1, math.ceil(len(top) / N_COLUMNS))
     fig = plt.figure(figsize=(24, 13), constrained_layout=True)
-    grid = fig.add_gridspec(1, 2, width_ratios=[3, 1.3])
-    cells = grid[0].subgridspec(n_rows, N_COLUMNS)
-    side = grid[1].subgridspec(2, 1)
+    grid = fig.add_gridspec(2, 2, width_ratios=[3, 1.3], height_ratios=[30, 1])
+    cells = grid[0, 0].subgridspec(n_rows, N_COLUMNS)
+    side = grid[0, 1].subgridspec(2, 1)
     first = None
     for i, (cell, color) in enumerate(zip(top, colors, strict=True)):
         ax = fig.add_subplot(
@@ -171,5 +171,7 @@ def plot_reward_cells(run: dict, measure_name: str, n_cells: int, title: str = "
         fig.suptitle(f"{heading} (ranked on half A, shown on half B)", fontsize=11)
     else:
         fig.suptitle(f"{heading}\n{NOT_CROSS_VALIDATED}", fontsize=11, color="#B00020")
-    fig.text(0.01, 0.005, _summary(run, measure), fontsize=7, ha="left", va="bottom")
+    note = fig.add_subplot(grid[1, :], label="summary")
+    note.set_axis_off()
+    note.text(0, 0.5, _summary(run, measure), fontsize=8, ha="left", va="center")
     return fig

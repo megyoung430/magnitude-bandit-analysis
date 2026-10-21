@@ -50,6 +50,12 @@ def make_run(rank_on="split_half", n_cells=N_CELLS):
     }
 
 
+def _all_text(fig):
+    """The figure's own texts and the text of its summary axis."""
+    summary = next(ax for ax in fig.axes if ax.get_label() == "summary")
+    return " ".join(t.get_text() for t in [*fig.texts, *summary.texts])
+
+
 def panels(fig):
     return [ax for ax in fig.axes if ax.get_label() == "cell"]
 
@@ -111,14 +117,14 @@ def test_the_heatmap_shows_every_ranked_cell_sorted_by_the_rank_index_on_the_hel
 
 def test_ranking_on_all_trials_says_so_loudly():
     fig = plot_reward_cells(make_run(rank_on="all"), "dF/F0", n_cells=20)
-    texts = " ".join(t.get_text() for t in fig.texts).lower()
+    texts = _all_text(fig).lower()
     assert "selection bias" in texts and "not cross-validated" in texts
     assert all("A " not in ax.get_title() for ax in panels(fig))
 
 
 def test_the_cross_validated_figure_reports_stability_and_the_null_counts():
     run = make_run()
-    text = " ".join(t.get_text() for t in plot_reward_cells(run, "dF/F0", 20).texts)
+    text = _all_text(plot_reward_cells(run, "dF/F0", 20))
     null = run["measures"]["dF/F0"]["null"]
     assert f"{null['n_exceed_a']} of {null['n_cells']}" in text
     assert f"{null['n_exceed_b_of_a']}" in text and "rank correlation" in text
