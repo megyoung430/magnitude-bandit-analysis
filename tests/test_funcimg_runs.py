@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ from src.funcimg_analysis.frame_times import (
     load_frame_times,
     names_match_source,
     processed_tiff_names,
+    same_tiff_name,
     write_frame_times,
 )
 from src.funcimg_analysis.run_responses import (
@@ -377,3 +379,55 @@ def test_the_per_run_result_reports_trials_without_a_baseline_and_counts_the_res
     result = pulse_responses(views, times, table, (-0.27, 1.0), ("task",))  # 2 pre-event frames
     assert result["n_trials_no_baseline"] == 0 and result["n_trials"] == {2: 8}
     assert result["n_events_dropped"] == 0
+
+
+def mini2p_processed_names(stem):
+    """The four names mini2p's own naming functions give a run's processed TIFFs."""
+    from mini2p_preprocessing.config import (
+        DistortionSettings,
+        PipelineSettings,
+        corrected_tiff_path,
+        undistorted_tiff_path,
+        with_destriping,
+    )
+
+    base = PipelineSettings(distortion=DistortionSettings(mode="off"))
+    names = []
+    for destripe in (False, True):
+        settings = with_destriping(base, destripe)
+        for path_for in (corrected_tiff_path, undistorted_tiff_path):
+            names.append(path_for(Path("out"), Path(f"/raw/{stem}.tif"), settings).name)
+    return names
+
+
+def test_the_name_pattern_accepts_exactly_the_names_mini2p_writes():
+    pytest.importorskip("mini2p_preprocessing")
+    names = mini2p_processed_names("71rtask_00039")
+    assert len(set(names)) == 4
+    for name in names:
+        assert names_match_source("71rtask_00039.tif", [name]), name
+        assert not names_match_source("71rtask_00040.tif", [name]), name
+
+
+def test_stems_are_compared_exactly_but_extensions_ignore_case():
+    assert names_match_source("71rtask_00039.tif", ["71rtask_00039_dynamic_bidiphase.TIF"])
+    assert names_match_source("71rtask_00039.TIF", ["71rtask_00039_dynamic_bidiphase.tiff"])
+    assert not names_match_source("71rtask_00039.tif", ["71RTASK_00039_dynamic_bidiphase.tif"])
+    assert not names_match_source("71rtask_00039.tif", ["71rtask_00039_Dynamic_Bidiphase.tif"])
+
+
+def test_the_batch_record_and_the_file_names_agree_on_case():
+    assert same_tiff_name("71rtask_00039.TIF", "71rtask_00039.tif")
+    assert not same_tiff_name("71RTASK_00039.tif", "71rtask_00039.tif")
+    assert not same_tiff_name("71rtask_00040.tif", "71rtask_00039.tif")
+
+
+def test_a_record_that_differs_only_in_the_extension_case_is_accepted(tmp_path):
+    write_manifest(tmp_path / "without_destriping", "/raw/71rtask_00039.TIF")
+    check_run_source("71rtask_00039.tif", tmp_path, variants=("without_destriping",))
+
+
+def test_a_record_that_differs_in_the_stem_case_is_refused(tmp_path):
+    write_manifest(tmp_path / "without_destriping", "/raw/71RTASK_00039.tif")
+    with pytest.raises(RunMismatchError, match="71RTASK_00039.tif"):
+        check_run_source("71rtask_00039.tif", tmp_path, variants=("without_destriping",))

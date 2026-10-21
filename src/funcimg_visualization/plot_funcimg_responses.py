@@ -362,9 +362,47 @@ def _draw_fov(ax, top: dict, colors: list[str]) -> None:
     ax.set_title("Mean image; top cells outlined" + note)
 
 
-def top_cells_pdf_name(n: int, rank_by: str, tag: str, variant: str, x_units: str) -> str:
-    """File name of the PDF of one ranking's top cells, e.g. ``top30_cells_by_p_cell_<tag>_...``."""
-    return f"top{n}_cells_by_{rank_by}_{tag}_{variant}_{x_units}.pdf"
+def top_cells_pdf_name(
+    n: int,
+    rank_by: str,
+    tag: str,
+    variant: str,
+    x_units: str,
+    middle_frames_shown: int | None = None,
+    clip_percentiles: tuple[float, float] | None = None,
+) -> str:
+    """File name of the PDF of one ranking's top cells.
+
+    The display settings are part of the name, so a figure made with other settings does not
+    overwrite it: ``top30_cells_by_p_cell_<tag>_<variant>_frames_mid8000_clip1-99.pdf``. A
+    setting that is None adds nothing.
+    """
+    name = f"top{n}_cells_by_{rank_by}_{tag}_{variant}_{x_units}"
+    if middle_frames_shown is not None:
+        name += f"_mid{middle_frames_shown}"
+    if clip_percentiles is not None:
+        low, high = clip_percentiles
+        name += f"_clip{low:g}-{high:g}"
+    return name + ".pdf"
+
+
+def window_tag(window_s: tuple[float, float]) -> str:
+    """The window around the outcome for a file name, e.g. ``win-10to30s``."""
+    start, stop = window_s
+    return f"win{start:g}to{stop:g}s"
+
+
+def pulse_responses_png_name(
+    file_tag: str,
+    variant: str,
+    measure_tag: str,
+    x_units: str,
+    window_s: tuple[float, float],
+) -> str:
+    """File name of the pooled response figure; the window is part of it."""
+    return (
+        f"pulse_responses_{file_tag}_{variant}_{measure_tag}_{x_units}_{window_tag(window_s)}.png"
+    )
 
 
 def _ordinal(value: float) -> str:

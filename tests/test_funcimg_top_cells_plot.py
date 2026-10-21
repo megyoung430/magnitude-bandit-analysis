@@ -15,10 +15,12 @@ from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
     clip_traces,
     middle_frames,
     plot_top_cells,
+    pulse_responses_png_name,
     roi_colors,
     top_cells_pdf_name,
     trace_baselines,
     trace_spacing,
+    window_tag,
 )
 
 TAB10 = [
@@ -270,6 +272,43 @@ def test_each_ranking_has_its_own_pdf_name():
     by_max = top_cells_pdf_name(30, "max_dff", *args)
     assert by_p == "top30_cells_by_p_cell_20-20_with_destriping_s.pdf"
     assert by_max == "top30_cells_by_max_dff_20-20_with_destriping_s.pdf"
+
+
+def test_the_pdf_name_carries_the_middle_frames_and_clip_settings():
+    args = (30, "p_cell", "20-20", "with_destriping", "frames")
+    stem = "top30_cells_by_p_cell_20-20_with_destriping_frames"
+    assert top_cells_pdf_name(*args) == f"{stem}.pdf"
+    assert top_cells_pdf_name(*args, middle_frames_shown=8000) == f"{stem}_mid8000.pdf"
+    assert top_cells_pdf_name(*args, clip_percentiles=(1, 99)) == f"{stem}_clip1-99.pdf"
+    both = top_cells_pdf_name(*args, middle_frames_shown=8000, clip_percentiles=(1, 99))
+    assert both == f"{stem}_mid8000_clip1-99.pdf"
+    half = top_cells_pdf_name(*args, clip_percentiles=(0.5, 99.5))
+    assert half == f"{stem}_clip0.5-99.5.pdf"
+
+
+def test_pdf_names_differ_when_a_display_setting_differs():
+    args = (30, "max_dff", "t", "v", "s")
+    names = {
+        top_cells_pdf_name(*args),
+        top_cells_pdf_name(*args, middle_frames_shown=8000),
+        top_cells_pdf_name(*args, middle_frames_shown=4000),
+        top_cells_pdf_name(*args, clip_percentiles=(1, 99)),
+        top_cells_pdf_name(*args, clip_percentiles=(5, 95)),
+    }
+    assert len(names) == 5
+
+
+def test_the_window_is_named_in_seconds():
+    assert window_tag((-10.0, 30.0)) == "win-10to30s"
+    assert window_tag((-0.5, 1.5)) == "win-0.5to1.5s"
+    assert window_tag((0.0, 1.0)) == "win0to1s"
+
+
+def test_pooled_and_background_png_names_carry_the_window():
+    pooled = pulse_responses_png_name("ses-224-224_run-01", "with_destriping", "Fz", "s", (-10, 30))
+    assert pooled == "pulse_responses_ses-224-224_run-01_with_destriping_Fz_s_win-10to30s.png"
+    other = pulse_responses_png_name("ses-224-224_run-01", "with_destriping", "Fz", "s", (-5, 20))
+    assert other != pooled
 
 
 def test_middle_frames_is_a_centred_slice_or_everything():
