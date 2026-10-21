@@ -9,9 +9,11 @@ pytest.importorskip("h5py")  # the optional funcimg extra
 from src.funcimg_analysis.frame_times import (
     FRAME_TIMES_FILE,
     RunMismatchError,
+    batch_source_tiffs,
     check_run_source,
     load_frame_times,
     names_match_source,
+    processed_tiff_names,
     write_frame_times,
 )
 from src.funcimg_analysis.run_responses import RAW_VIEWS, Z_VIEWS, pulse_responses
@@ -131,13 +133,55 @@ DESTRIPED = (
 )
 
 
-def test_names_match_a_source_that_is_their_stem_plus_underscore():
-    assert names_match_source("71rtask_00039.tif", ["71rtask_00039_a.tif", "71rtask_00039_b.tif"])
+def test_names_match_a_source_followed_by_a_known_processing_suffix():
+    stem = "71rtask_00039"
+    good = [
+        f"{stem}_dynamic_bidiphase.tif",
+        f"{stem}_dynamic_bidiphase_undistorted.tif",
+        f"{stem}_dynamic_bidiphase_destriped.tif",
+        f"{stem}_dynamic_bidiphase_destriped_undistorted.TIF",
+        f"{stem}_dynamic_bidiphase.tiff",
+    ]
+    assert names_match_source("71rtask_00039.tif", good)
     assert not names_match_source("71rtask_00039.tif", [])
     assert not names_match_source(
-        "71rtask_00039.tif", ["71rtask_00039_a.tif", "71rtask_00040_a.tif"]
+        "71rtask_00039.tif", [good[0], "71rtask_00040_dynamic_bidiphase.tif"]
     )
-    assert not names_match_source("71rtask_00039.tif", ["71rtask_000390_a.tif"])  # needs the "_"
+    assert not names_match_source("71rtask_00039.tif", ["71rtask_000390_dynamic_bidiphase.tif"])
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "71rtask_00039_retry_dynamic_bidiphase.tif",
+        "71rtask_00039_00002_dynamic_bidiphase.tif",
+        "71rtask_00039_a.tif",
+        "71rtask_00039_dynamic_bidiphase_other.tif",
+    ],
+)
+def test_names_with_something_else_after_the_stem_are_not_accepted(name):
+    assert not names_match_source("71rtask_00039.tif", [name])
+
+
+def test_tiff_and_capitalised_extensions_count_as_processed_tiffs(tmp_path):
+    touch_tiffs(tmp_path, "a.tiff", "b.TIF", "c.TIFF", "d.tif.json", "._e.tif", "f.png")
+    assert processed_tiff_names(tmp_path) == ["a.tiff", "b.TIF", "c.TIFF"]
+
+
+def test_a_stray_tiff_extension_variant_is_not_overlooked(tmp_path):
+    touch_tiffs(tmp_path / "with_destriping", *DESTRIPED, "71rtask_00040_dynamic_bidiphase.tiff")
+    with pytest.raises(RunMismatchError, match="71rtask_00040"):
+        check_run_source("71rtask_00039.tif", tmp_path, variants=("with_destriping",))
+
+
+def test_a_record_in_any_checked_variant_folder_is_read(tmp_path):
+    write_manifest(tmp_path / "other_variant", "/raw/71rtask_00040.tif")
+    touch_tiffs(tmp_path / "other_variant", "71rtask_00039_dynamic_bidiphase.tif")
+    with pytest.raises(RunMismatchError, match="71rtask_00040.tif"):
+        check_run_source("71rtask_00039.tif", tmp_path, variants=("other_variant",))
+    assert batch_source_tiffs(tmp_path, variants=("other_variant",)) == {
+        "other_variant": "71rtask_00040.tif"
+    }
 
 
 def test_a_variant_with_a_record_is_checked_by_it(tmp_path):
@@ -154,8 +198,10 @@ def test_a_variant_without_a_record_is_accepted_by_its_tiff_names_with_a_warning
 
 
 def test_a_variant_without_a_record_and_with_another_stem_is_refused(tmp_path):
-    touch_tiffs(tmp_path / "with_destriping", DESTRIPED[0], "71rtask_00040_destriped.tif")
-    with pytest.raises(RunMismatchError, match="71rtask_00040_destriped.tif"):
+    touch_tiffs(
+        tmp_path / "with_destriping", DESTRIPED[0], "71rtask_00040_dynamic_bidiphase_destriped.tif"
+    )
+    with pytest.raises(RunMismatchError, match="71rtask_00040_dynamic_bidiphase_destriped.tif"):
         check_run_source("71rtask_00039.tif", tmp_path, variants=("with_destriping",))
 
 

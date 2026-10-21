@@ -7,6 +7,7 @@ work in frames or in seconds.
 """
 
 import json
+import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,16 +29,18 @@ FRAME_TIMES_FILE = "frame_times.npz"
 # The batch preprocessing's record of which raw TIFF each variant of a run was made from.
 BATCH_MANIFEST = "source_tiff.json"
 VARIANTS = ("without_destriping", "with_destriping")
+TIFF_SUFFIXES = (".tif", ".tiff")
+PROCESSED_SUFFIX = r"_dynamic_bidiphase(_destriped)?(_undistorted)?"
 
 
 class RunMismatchError(ValueError):
     """A run's traces, frame clock and behaviour cannot be shown to be one acquisition."""
 
 
-def batch_source_tiffs(run_dir) -> dict[str, str]:
-    """File name of the raw TIFF each variant of *run_dir* was made from, per the batch."""
+def batch_source_tiffs(run_dir, variants=VARIANTS) -> dict[str, str]:
+    """File name of the raw TIFF each of *variants* of *run_dir* was made from, per the batch."""
     names = {}
-    for variant in VARIANTS:
+    for variant in variants:
         manifest = Path(run_dir) / variant / BATCH_MANIFEST
         if manifest.is_file():
             names[variant] = Path(json.loads(manifest.read_text())["source_tiff"]).name
@@ -45,7 +48,7 @@ def batch_source_tiffs(run_dir) -> dict[str, str]:
 
 
 def processed_tiff_names(variant_dir) -> list[str]:
-    """Sorted names of the ``.tif`` files directly in *variant_dir*.
+    """Sorted names of the ``.tif`` / ``.tiff`` files directly in *variant_dir*.
 
     macOS AppleDouble files (``._*``) are metadata copies, not images, so they are skipped.
     """
@@ -55,17 +58,22 @@ def processed_tiff_names(variant_dir) -> list[str]:
     return sorted(
         f.name
         for f in folder.iterdir()
-        if f.is_file() and f.suffix.lower() == ".tif" and not f.name.startswith("._")
+        if f.is_file() and f.suffix.lower() in TIFF_SUFFIXES and not f.name.startswith("._")
     )
 
 
 def names_match_source(tiff_name: str, names) -> bool:
-    """Whether *names* is non-empty and every name is the source TIFF's stem plus ``_...``.
+    """Whether *names* is non-empty and each is the source stem plus a suffix the batch writes.
 
-    The trailing ``_`` keeps ``71rtask_00039`` from claiming ``71rtask_000390_...``.
+    The batch (``mini2p_preprocessing.config``) names its outputs
+    ``<stem>_dynamic_bidiphase[_destriped][_undistorted].tif``; anything else after the stem
+    (``_retry_...``, a further acquisition number) is not accepted, and the exact stem keeps
+    ``71rtask_00039`` from claiming ``71rtask_000390_...``.
     """
-    prefix = Path(tiff_name).stem + "_"
-    return len(names) > 0 and all(name.startswith(prefix) for name in names)
+    pattern = re.compile(
+        re.escape(Path(tiff_name).stem) + PROCESSED_SUFFIX + r"\.tiff?", re.IGNORECASE
+    )
+    return len(names) > 0 and all(pattern.fullmatch(name) for name in names)
 
 
 def _check_variant_by_names(tiff_name: str, run_dir: Path, variant: str) -> None:
@@ -73,7 +81,8 @@ def _check_variant_by_names(tiff_name: str, run_dir: Path, variant: str) -> None
     if not names_match_source(tiff_name, names):
         raise RunMismatchError(
             f"{run_dir / variant} has no {BATCH_MANIFEST}, and its TIFFs {names} are not all "
-            f"named {Path(tiff_name).stem}_*.tif (or there are none); cannot confirm its TIFF."
+            f"named {Path(tiff_name).stem}_dynamic_bidiphase[...].tif (or there are none); "
+            "cannot confirm its TIFF."
         )
     warnings.warn(
         f"{run_dir.name}, {variant}: no {BATCH_MANIFEST}; the source {tiff_name} was inferred "
@@ -98,8 +107,8 @@ def check_run_source(tiff_name: str, run_dir, variants=VARIANTS) -> None:
             variant without a record has no TIFFs or one with another name.
     """
     run_dir = Path(run_dir)
-    recorded = batch_source_tiffs(run_dir)
-    wrong = {v: name for v, name in recorded.items() if v in variants and name != tiff_name}
+    recorded = batch_source_tiffs(run_dir, variants)
+    wrong = {v: name for v, name in recorded.items() if name != tiff_name}
     if wrong:
         raise RunMismatchError(
             f"{run_dir}: the batch made {wrong} from another TIFF than {tiff_name}; the run "
