@@ -25,7 +25,7 @@ destriping variants of the mini2p preprocessing.
   with another's frame clock and behaviour. A variant folder without a `source_tiff.json` (e.g. `with_destriping` when
   the batch wrote no record) is accepted if it has processed `.tif`/`.tiff` files and every one is named
   `<source stem>_dynamic_bidiphase[_destriped][_undistorted]` (the batch's output names; `._` AppleDouble files ignored,
-  `_retry_...` or a further acquisition number refused); the record is read from whichever variant folder is checked; a `UserWarning` names the run, variant and TIFFs used. No TIFF,
+  `_retry_...` or a further acquisition number refused; stems and the processed suffix are compared exactly, extensions ignore case, the same rule as for the batch record's TIFF name); the record is read from whichever variant folder is checked; a `UserWarning` names the run, variant and TIFFs used. No TIFF,
   another stem, or a record naming another TIFF is still refused. Variant folders that do not exist are not checked, but
   at least one listed variant must exist. The warning is raised once per run and step (frame times, pooled responses, top
   cells), not per frame.
@@ -48,23 +48,34 @@ destriping variants of the mini2p preprocessing.
   with MAD 0 (or no finite value) has no scale: its z is NaN, it adds nothing to the pool, and it is listed per run
   (`flat_cells`, printed by the notebook). Only the requested `measures` are computed (`F`, `dF/F0`, `F z`, `dF/F0 z`; the notebook's `MEASURES`, default z;
   titles and y labels say "robust z, baseline-subtracted" and that F is not neuropil-corrected; file names carry the
-  measure set). A z measure needs frames before the outcome (a window starting at 0 s raises unless raw measures are
-  asked for). For an event that falls before its nearest frame's start, the frame at offset -1 was being acquired when it
-  occurred and is left out of that trial's baseline.
+  measure set). `measures` are validated against `MEASURES` (`F`, `dF/F0`, `F z`, `dF/F0 z`; the background accepts `F`, `F z`) by
+  `check_measures`, which raises a `ValueError` naming the unknown names and listing the valid ones, in `pulse_responses`,
+  `pool_runs` and both `collect_*` functions (before any run is read). A z measure needs at least 2 frames before the outcome
+  (a window starting at 0 s, or with one pre-event frame, raises unless raw measures are asked for). For an event that falls
+  before its nearest frame's start, the frame at offset -1 was being acquired when it occurred and is left out of that
+  trial's baseline; a trial left with no baseline frame at all is excluded from `n_trials` and counted in the run's
+  `n_trials_no_baseline` (printed by the notebook; with the 2-frame minimum it is 0 unless the guard is relaxed).
 - **Top cells**: per run, the `N_TOP` cells with the largest green ΔF/F0 anywhere in the trace, stacked traces with the
   outcomes marked by pulse count, and their outlines on the mean image. One PDF page per run per variant. Each ROI has one
   colour (matplotlib `tab10`, cycling in rank order, best ROI on top) shared by its trace and its outline and number in the
-  field of view; traces are 0.8 pt, with `ROI <n>` as y tick labels at each baseline, drawn clipped to each ROI's
+  field of view; traces are 0.8 pt, with `ROI <n> (p=<p(cell)>, max <max>)` as y tick labels at each baseline, drawn clipped to each ROI's
   own 1st-99th percentile (`clip_percentiles`, `CLIP_PERCENTILES` in the notebook; None = unclipped; display only, the
-  ranking uses the unclipped values) and spaced by one constant distance: the largest, over adjacent rows, of the lower
+  ranking uses the unclipped values; validated: two numbers, `0 <= low < high <= 100`). Clipping flattens every peak above
+  the 99th percentile, so the label carries the ROI's true full-run maximum ΔF/F0 and a small tick on the x axis, in the ROI's
+  colour, marks the frame of that maximum when it is among the frames shown. Rows are spaced by one constant distance: the largest, over adjacent rows, of the lower
   trace's high percentile minus the upper trace's low percentile, plus 10 % (with clipping, nothing overlaps; unclipped
   uses the 0.5th and 99.5th percentiles, so only a brief transient can reach the next row). A floor keeps flat traces
-  apart. With no top cells the panel says so; a top ROI hidden by overlaps in the label image is listed in the FOV title.
+  apart. A ROI with no finite value in the frames shown (possible with `middle_frames_shown`) is an empty row labelled
+  "(no data in shown frames)" that takes no part in the spacing or y limits (without this the y limits were NaN and
+  `set_ylim` raised). With no top cells the panel says so; a top ROI hidden by overlaps in the label image is listed in the
+  FOV title.
 - **Top-cell rankings**: `top_cells(..., rank_by="max_dff" | "p_cell")`. `p_cell` is Suite2p's classifier
   probability (`iscell.npy` column 1); mini2p's `classify_rois` runs Suite2p's built-in classifier on the Cellpose ROIs,
   so it is advisory. Ties go to the lower ROI index; ROIs without a probability or without a defined ΔF/F0 are left
   out. The notebook (`N_TOP = 30`, `RANKINGS`) writes one PDF per ranking, `top30_cells_by_p_cell_<tag>_<variant>_<units>.pdf`
-  and `top30_cells_by_max_dff_….pdf`; the traces' title names the ranking and each label reads `ROI 12 (p=0.93)`.
+  and `top30_cells_by_max_dff_….pdf`, followed by the display settings when set (`_frames_mid8000_clip1-99`; nothing for
+  None), so figures made with other settings are not overwritten; the traces' title names the ranking and each label reads
+  `ROI 12 (p=0.93, max 2.4)`. The notebook closes the PDF in a `finally`, so an error never leaves a truncated file.
 - **Optional dependency** `funcimg` (`h5py`, `mini2p-preprocessing` from GitHub); nothing else in the repo needs it.
 - **rsync fix**: `_align_chunks` clamps each chunk's mean squared error at 0. The expansion used to compute it cancels to a
   tiny negative number for an exact match of intervals of seconds in ms, which raised in `_classify_chunks` on the first
@@ -82,7 +93,9 @@ set `OVERWRITE_FRAME_TIMES` after a change to the sync code. With every chunk an
 raise (zero errors are replaced by the smallest non-zero one); it never returns a wrong alignment, and the real imaging
 session aligns. The `funcimg` extra brings in suite2p and torch, and CI installs all extras.
 
-0 pulses is aligned to the no-reward cue, 1-4 pulses to reward onset. Raw F is not baseline-subtracted. Ranking by max
+0 pulses is aligned to the no-reward cue, 1-4 pulses to reward onset. Raw F is not baseline-subtracted. A long window
+(e.g. (−10, 30) s) can include the previous or next trial's outcome in the baseline or the response when trials are closer
+together than the window; `n_events_dropped` shows outcomes lost at run ends or sync gaps. Ranking by max
 ΔF/F0 favours cells with one bright frame; check the traces. Cells of different runs of the same field of view may be the
 same neurons, and trials of a session are not independent. Outputs go to `results/figures/funcimg/` (git-ignored).
 
@@ -93,7 +106,8 @@ session number (`ses-baseplating`, `ses-test`) are skipped. `RUNS = None` uses e
 only those run folders of each session, in all three steps (frame times, pooled responses, top cells). Runs not named
 are neither pooled nor listed as left out; naming a run that no session in the range has raises an error listing the
 runs that exist. Figure titles and file names carry the sessions and runs (`pulse_responses_ses-220-220_run-02_…`), so
-a single-run figure does not overwrite the all-runs one.
+a single-run figure does not overwrite the all-runs one. The pooled and background PNGs also carry the window
+(`pulse_responses_<tag>_<variant>_<measures>_<units>_win-10to30s.png`).
 
 ## Middle frames of the top-cell traces
 
@@ -101,7 +115,9 @@ a single-run figure does not overwrite the all-runs one.
 from the pooled figures (`X_UNITS`): each run's traces show only its middle 8000 frames (`middle_frames`, centred;
 all frames when the run is shorter or the setting is None). The per-ROI clipping percentiles and the row spacing are
 taken over the frames shown, outcomes outside them are not marked, and the title says "middle 8000 of N frames". The
-ranking still uses the whole run.
+ranking still uses the whole run. `middle_frames_shown` must be None or an integer (a bool or float raises `TypeError`) and
+positive (checked before the "shorter than the run" shortcut). With `x_units="s"`, if none of the frames shown has a
+pyControl time the panel is empty, a `UserWarning` is raised and the title says so.
 
 ## Background (non-ROI) fluorescence
 
