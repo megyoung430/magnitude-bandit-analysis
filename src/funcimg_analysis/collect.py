@@ -6,7 +6,7 @@ the reason it was left out, never dropped silently.
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 
 import numpy as np
@@ -30,8 +30,33 @@ from src.funcimg_analysis.run_responses import (
 SESSION = re.compile(r"^ses-(\d+)_")
 
 
-def variant_runs(subject_dir, first_session: int, last_session: int, variant: str):
-    """``(session, run dir, plane dir)`` of each run folder of *variant* in range, in order."""
+def variant_runs(
+    subject_dir,
+    first_session: int,
+    last_session: int,
+    variant: str,
+    runs: Collection[str] | None = None,
+):
+    """``(session, run dir, plane dir)`` of each run folder of *variant* in range, in order.
+
+    Args:
+        subject_dir (str | Path): ``derivatives/<cohort>/<subject>``.
+        first_session (int): First session number to include.
+        last_session (int): Last session number to include.
+        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        runs (Collection[str] | None): Run folder names to keep, e.g. ``("run-02",)``, in every
+            session of the range. Default None, meaning every run.
+
+    Returns:
+        list[tuple[str, Path, Path]]: Sorted by session number, then run name.
+
+    Raises:
+        TypeError: If *runs* is a single string rather than a collection of names.
+        ValueError: If *runs* names no run of *variant* in the session range (the runs that
+            exist are listed).
+    """
+    if isinstance(runs, str):
+        raise TypeError(f"runs must be a tuple of run names, e.g. ({runs!r},), not a string")
     found = []
     for session_dir in sorted(Path(subject_dir).glob("ses-*")):
         match = SESSION.match(session_dir.name)
@@ -41,7 +66,17 @@ def variant_runs(subject_dir, first_session: int, last_session: int, variant: st
             plane_dir = run_dir / variant / "suite2p" / "plane0"
             if (plane_dir / "ops.npy").is_file():
                 found.append((session_dir.name, run_dir, plane_dir))
-    return sorted(found, key=lambda r: (int(SESSION.match(r[0]).group(1)), r[1].name))
+    found.sort(key=lambda r: (int(SESSION.match(r[0]).group(1)), r[1].name))
+    if runs is None:
+        return found
+    kept = [r for r in found if r[1].name in set(runs)]
+    if found and not kept:
+        available = ", ".join(sorted({r[1].name for r in found}))
+        raise ValueError(
+            f"no run named {', '.join(sorted(runs))} in sessions {first_session}-{last_session} "
+            f"({variant}); the runs there are {available}"
+        )
+    return kept
 
 
 def _missing(run_dir: Path, plane_dir: Path) -> str | None:
@@ -60,6 +95,8 @@ def collect_pulse_responses(
     window_s: tuple[float, float],
     phases: tuple[str, ...],
     load_outcomes: Callable = load_outcome_events,
+    *,
+    runs: Collection[str] | None = None,
 ) -> tuple[dict, list[dict], list[tuple[str, str, str]]]:
     """Pool every cell's reward response across the runs of *variant*.
 
@@ -71,16 +108,18 @@ def collect_pulse_responses(
         window_s (tuple[float, float]): Window around the outcome (s).
         phases (tuple[str, ...]): Trial phases to include.
         load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
+        runs (Collection[str] | None): Run folder names to include, e.g. ``("run-02",)``; runs
+            not named are neither pooled nor listed as left out. Default None, meaning every run.
+            Keyword-only.
 
     Returns:
         tuple: ``{view: {pulses: {"mean", "sem", "n_cells", "n_runs"}}}`` pooled over cells;
         one result per included run (see ``pulse_responses``, plus ``session`` and ``run``);
         and ``(session, run, reason)`` for each run left out.
     """
+    found = variant_runs(subject_dir, first_session, last_session, variant, runs)
     runs, skipped = [], []
-    for session, run_dir, plane_dir in variant_runs(
-        subject_dir, first_session, last_session, variant
-    ):
+    for session, run_dir, plane_dir in found:
         reason = _missing(run_dir, plane_dir)
         if reason is None:
             try:

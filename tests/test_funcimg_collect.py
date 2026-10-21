@@ -11,7 +11,11 @@ import pytest  # noqa: E402
 
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
-from src.funcimg_analysis.collect import collect_pulse_responses, top_cells  # noqa: E402
+from src.funcimg_analysis.collect import (  # noqa: E402
+    collect_pulse_responses,
+    top_cells,
+    variant_runs,
+)
 from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
     plot_pulse_responses,
@@ -87,9 +91,16 @@ def outcomes_for(tsv_path):
     return pd.DataFrame({"outcome_time": times, "num_rew_pulses": PULSES, "phase": "task"})
 
 
-def collect(subject_dir):
+def collect(subject_dir, runs=None):
     return collect_pulse_responses(
-        subject_dir, 224, 224, "without_destriping", (-1.0, 2.0), ("task",), outcomes_for
+        subject_dir,
+        224,
+        224,
+        "without_destriping",
+        (-1.0, 2.0),
+        ("task",),
+        outcomes_for,
+        runs=runs,
     )
 
 
@@ -157,3 +168,25 @@ def test_top_cells_mark_the_trials_of_the_chosen_phases(derivatives):
     assert len(top["outcomes"]) == len(PULSES) - 1
     top = top_cells(plane, run_dir, 2, two_phases, phases=("task", "port_finding"))
     assert len(top["outcomes"]) == len(PULSES)
+
+
+def test_chosen_runs_are_the_only_ones_found(derivatives):
+    found = variant_runs(derivatives, 224, 224, "without_destriping", runs=("run-02", "run-03"))
+    assert [run_dir.name for _, run_dir, _ in found] == ["run-02", "run-03"]
+
+
+def test_only_the_chosen_runs_are_pooled_and_others_are_not_reported(derivatives):
+    pooled, runs, skipped = collect(derivatives, runs=("run-02",))
+    assert [r["run"] for r in runs] == ["run-02"]
+    assert skipped == []
+    assert pooled[("green", "F")][2]["n_runs"] == 1
+
+
+def test_choosing_a_run_that_does_not_exist_names_the_runs_that_do(derivatives):
+    with pytest.raises(ValueError, match="run-09.*run-01, run-02, run-03"):
+        variant_runs(derivatives, 224, 224, "without_destriping", runs=("run-09",))
+
+
+def test_a_single_run_name_must_be_given_as_a_collection(derivatives):
+    with pytest.raises(TypeError, match="tuple"):
+        variant_runs(derivatives, 224, 224, "without_destriping", runs="run-02")

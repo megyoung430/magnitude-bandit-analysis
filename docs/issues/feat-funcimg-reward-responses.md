@@ -57,3 +57,12 @@ session aligns. The `funcimg` extra brings in suite2p and torch, and CI installs
 0 pulses is aligned to the no-reward cue, 1-4 pulses to reward onset. Raw F is not baseline-subtracted. Ranking by max
 ΔF/F0 favours cells with one bright frame; check the traces. Cells of different runs of the same field of view may be the
 same neurons, and trials of a session are not independent. Outputs go to `results/figures/funcimg/` (git-ignored).
+
+## Choosing sessions and runs
+
+`SESSION_FIRST, SESSION_LAST` pick the session range (the same number twice for one session); folders without a
+session number (`ses-baseplating`, `ses-test`) are skipped. `RUNS = None` uses every run; `RUNS = ("run-02",)` uses
+only those run folders of each session, in all three steps (frame times, pooled responses, top cells). Runs not named
+are neither pooled nor listed as left out; naming a run that no session in the range has raises an error listing the
+runs that exist. Figure titles and file names carry the sessions and runs (`pulse_responses_ses-220-220_run-02_…`), so
+a single-run figure does not overwrite the all-runs one.
