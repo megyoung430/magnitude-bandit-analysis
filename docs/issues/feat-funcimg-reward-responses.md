@@ -94,3 +94,11 @@ only those run folders of each session, in all three steps (frame times, pooled 
 are neither pooled nor listed as left out; naming a run that no session in the range has raises an error listing the
 runs that exist. Figure titles and file names carry the sessions and runs (`pulse_responses_ses-220-220_run-02_…`), so
 a single-run figure does not overwrite the all-runs one.
+
+## Middle frames of the top-cell traces
+
+`TRACES_X_UNITS` (default `"frames"`) and `TRACES_MIDDLE_FRAMES` (default 8000) set the top-cell trace panels apart
+from the pooled figures (`X_UNITS`): each run's traces show only its middle 8000 frames (`middle_frames`, centred;
+all frames when the run is shorter or the setting is None). The per-ROI clipping percentiles and the row spacing are
+taken over the frames shown, outcomes outside them are not marked, and the title says "middle 8000 of N frames". The
+ranking still uses the whole run.

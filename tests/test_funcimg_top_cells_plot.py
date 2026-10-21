@@ -10,6 +10,7 @@ from matplotlib.colors import to_hex, to_rgba  # noqa: E402
 
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
     clip_traces,
+    middle_frames,
     plot_top_cells,
     roi_colors,
     top_cells_pdf_name,
@@ -240,3 +241,35 @@ def test_each_ranking_has_its_own_pdf_name():
     by_max = top_cells_pdf_name(30, "max_dff", *args)
     assert by_p == "top30_cells_by_p_cell_20-20_with_destriping_s.pdf"
     assert by_max == "top30_cells_by_max_dff_20-20_with_destriping_s.pdf"
+
+
+def test_middle_frames_is_a_centred_slice_or_everything():
+    assert middle_frames(10_000, 8000) == slice(1000, 9000)
+    assert middle_frames(10_001, 8000) == slice(1000, 9000)
+    assert middle_frames(5000, 8000) == slice(0, 5000)
+    assert middle_frames(5000, None) == slice(0, 5000)
+    with pytest.raises(ValueError, match="positive"):
+        middle_frames(5000, 0)
+
+
+def test_only_the_middle_frames_are_drawn_and_named_in_the_title():
+    top = synthetic_top()
+    shown = middle_frames(N_FRAMES, 100)
+    fig = plot_top_cells(top, x_units="frames", middle_frames_shown=100)
+    first = trace_lines(fig)[0]
+    assert np.array_equal(first.get_xdata(), np.arange(N_FRAMES)[shown])
+    assert f"middle 100 of {N_FRAMES} frames" in fig.axes[0].get_title()
+    plt.close(fig)
+
+
+def test_outcome_markers_outside_the_middle_frames_are_not_drawn():
+    top = synthetic_top()
+    fig = plot_top_cells(top, x_units="frames", middle_frames_shown=100)
+    shown = middle_frames(N_FRAMES, 100)
+    markers = [
+        line.get_xdata()[0]
+        for line in fig.axes[0].lines
+        if len(line.get_xdata()) == 2 and line.get_xdata()[0] == line.get_xdata()[1]
+    ]
+    assert all(shown.start <= x < shown.stop for x in markers if np.isfinite(x))
+    plt.close(fig)
