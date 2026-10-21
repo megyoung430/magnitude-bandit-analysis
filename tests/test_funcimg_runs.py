@@ -14,7 +14,7 @@ from src.funcimg_analysis.frame_times import (
     names_match_source,
     write_frame_times,
 )
-from src.funcimg_analysis.run_responses import VIEWS, pulse_responses
+from src.funcimg_analysis.run_responses import RAW_VIEWS, Z_VIEWS, pulse_responses
 from src.funcimg_import.runs import session_run_files
 from tests.funcimg_fixtures import DAQ_RATE, daq_session
 
@@ -202,7 +202,7 @@ def test_pulse_responses_average_each_cell_over_its_trials():
     green = np.zeros((3, n_frames))
     for frame, count in zip(event_frames, pulses, strict=True):
         green[:, frame : frame + 3] += count + 1  # a response that grows with reward size
-    views = {view: green for view in VIEWS}
+    views = {view: green for view in RAW_VIEWS}
     table = outcomes(frame_times[event_frames] + 0.01, pulses)
     table.loc[len(table)] = [1.0, 1, "task"]  # before imaging started: dropped
     table.loc[len(table)] = [frame_times[300], 3, "port_finding"]  # not a task trial
@@ -216,6 +216,29 @@ def test_pulse_responses_average_each_cell_over_its_trials():
 
 
 def test_traces_and_frame_times_of_different_lengths_are_refused():
-    views = {view: np.zeros((2, 100)) for view in VIEWS}
+    views = {view: np.zeros((2, 100)) for view in RAW_VIEWS}
     with pytest.raises(ValueError, match="100 frames.*120"):
         pulse_responses(views, np.arange(120.0), outcomes([10.0], [2]), (-1, 1), ("task",))
+
+
+def test_z_responses_do_not_depend_on_a_cell_s_scale_and_start_at_zero():
+    n_frames, period = 600, 0.133
+    frame_times = 5.0 + period * np.arange(n_frames)
+    event_frames = np.arange(60, 540, 60)
+    rng = np.random.default_rng(0)
+    shape = rng.normal(0, 1, n_frames)
+    for frame in event_frames:
+        shape[frame : frame + 4] += 6
+    cells = np.vstack([100 + shape, 1000 + 10 * shape, np.full(n_frames, 3.0)])  # last: flat
+    views = {view: cells for view in RAW_VIEWS}
+    table = outcomes(frame_times[event_frames] + 0.01, np.full(len(event_frames), 2))
+    result = pulse_responses(views, frame_times, table, (-0.5, 1.0), phases=("task",))
+    z = result["means"][("green", "dF/F0 z")][2]
+    assert np.allclose(z[0], z[1])
+    assert np.isnan(z[2]).all()
+    assert result["flat_cells"][("green", "dF/F0 z")] == [2]
+    before = result["offsets"] < 0
+    assert np.allclose(z[:2, before].mean(axis=1), 0)  # the mean of per-trial zeroed baselines
+    assert set(Z_VIEWS) <= set(result["means"])
+    raw = result["means"][("green", "dF/F0")][2]
+    assert not np.allclose(raw[0], raw[1])

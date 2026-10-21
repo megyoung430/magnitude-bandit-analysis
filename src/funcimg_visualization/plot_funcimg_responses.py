@@ -8,6 +8,12 @@ import numpy as np
 # 0 pulses (no reward) in red; 1-4 pulses from teal to dark blue, as in the photometry figures.
 PULSE_COLORS = {0: "#C44E52", 1: "#41B6C4", 2: "#1D91C0", 3: "#225EA8", 4: "#0C2C84"}
 CHANNEL_TITLES = {"green": "Green (functional)", "red": "Red (structural)"}
+MEASURE_LABELS = {
+    "F": ("raw F", "F (a.u.)"),
+    "dF/F0": ("ΔF/F0", "ΔF/F0"),
+    "F z": ("F, robust z, baseline-subtracted", "F (robust z, baseline-subtracted)"),
+    "dF/F0 z": ("ΔF/F0, robust z, baseline-subtracted", "ΔF/F0 (robust z, baseline-subtracted)"),
+}
 
 
 def _x(offsets: np.ndarray, period_s: float, x_units: str) -> tuple[np.ndarray, str]:
@@ -25,6 +31,7 @@ def plot_pulse_responses(
     x_units: str = "s",
     axes=None,
     title: str = "",
+    measures: tuple[str, str] = ("F z", "dF/F0 z"),
 ):
     """Mean ± SEM across cells of each view, one line per number of reward pulses.
 
@@ -33,8 +40,11 @@ def plot_pulse_responses(
         offsets (np.ndarray): Window offsets in frames (0 = outcome frame).
         period_s (float): Frame period, for an x axis in seconds.
         x_units (str): ``"s"`` or ``"frames"``.
-        axes: A 2 x 2 array of axes (rows F, ΔF/F0; columns green, red), or None for a new figure.
+        axes: A 2 x 2 array of axes (rows *measures*; columns green, red), or None for a new
+            figure.
         title (str): Figure title.
+        measures (tuple[str, str]): The two rows: ``"F"``, ``"dF/F0"`` or their robust-z,
+            baseline-subtracted versions ``"F z"``, ``"dF/F0 z"`` (the default).
 
     Returns:
         matplotlib.figure.Figure: The figure.
@@ -44,7 +54,7 @@ def plot_pulse_responses(
     fig = np.asarray(axes).flat[0].figure
     x, xlabel = _x(np.asarray(offsets), period_s, x_units)
     for col, channel in enumerate(("green", "red")):
-        for row, measure in enumerate(("F", "dF/F0")):
+        for row, measure in enumerate(measures):
             ax = np.asarray(axes)[row, col]
             for pulses, stats in sorted(pooled[(channel, measure)].items()):
                 label = f"{pulses} pulses ({stats['n_cells']} cells, {stats['n_runs']} runs)"
@@ -58,8 +68,9 @@ def plot_pulse_responses(
                     linewidth=0,
                 )
             ax.axvline(0, color="0.5", linewidth=0.8, linestyle="--")
-            ax.set_title(f"{CHANNEL_TITLES[channel]}: {'raw F' if measure == 'F' else 'ΔF/F0'}")
-            ax.set_ylabel("F (a.u.)" if measure == "F" else "ΔF/F0")
+            name, ylabel = MEASURE_LABELS[measure]
+            ax.set_title(f"{CHANNEL_TITLES[channel]}: {name}")
+            ax.set_ylabel(ylabel)
             if row == 1:
                 ax.set_xlabel(xlabel)
     np.asarray(axes)[0, 1].legend(fontsize=8, frameon=False)

@@ -17,6 +17,7 @@ from src.funcimg_analysis.collect import (  # noqa: E402
     variant_runs,
 )
 from src.funcimg_analysis.frame_times import FRAME_TIMES_FILE  # noqa: E402
+from src.funcimg_analysis.run_responses import VIEWS  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
     plot_pulse_responses,
     plot_top_cells,
@@ -112,7 +113,8 @@ def test_cells_of_every_run_are_pooled_and_skipped_runs_say_why(derivatives):
     assert green[2]["n_cells"] == 2 * N_CELLS and green[2]["n_runs"] == 2
     zero = int(np.flatnonzero(runs[0]["offsets"] == 0)[0])
     assert green[4]["mean"][zero] > green[2]["mean"][zero] > green[0]["mean"][zero]
-    assert set(pooled) == {("green", "F"), ("green", "dF/F0"), ("red", "F"), ("red", "dF/F0")}
+    assert set(pooled) == set(VIEWS)  # raw F, dF/F0 and their robust z, per channel
+    assert "flat_cells" in runs[0]
 
 
 def test_a_run_whose_traces_do_not_match_its_frame_clock_is_skipped(derivatives):
@@ -202,3 +204,16 @@ def test_a_run_without_a_record_is_pooled_with_one_warning_naming_it(derivatives
         _, runs, _ = collect(derivatives)
     assert [r["run"] for r in runs] == ["run-01", "run-02"]
     assert len(caught) == 1 and "run-02" in str(caught[0].message)
+
+
+def test_pooled_figures_show_robust_z_by_default_and_raw_views_on_request(derivatives):
+    pooled, runs, _ = collect(derivatives)
+    fig = plot_pulse_responses(pooled, runs[0]["offsets"], runs[0]["period_s"])
+    assert "robust z, baseline-subtracted" in fig.axes[0].get_title()
+    assert "robust z, baseline-subtracted" in fig.axes[0].get_ylabel()
+    plt.close(fig)
+    fig = plot_pulse_responses(
+        pooled, runs[0]["offsets"], runs[0]["period_s"], measures=("F", "dF/F0")
+    )
+    assert fig.axes[0].get_ylabel() == "F (a.u.)" and fig.axes[2].get_ylabel() == "ΔF/F0"
+    plt.close(fig)

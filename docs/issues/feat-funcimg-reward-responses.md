@@ -40,6 +40,14 @@ destriping variants of the mini2p preprocessing.
   QC audit. Each cell is averaged over its trials per pulse count; the figure shows mean ± SEM across all cells of all
   runs (each cell counts once). Runs without frame times or an extraction, or whose trace length differs from the frame
   clock, are listed with the reason.
+- **Z-scored population responses** (`event_frames.robust_z`, `baseline_subtract`): cells with the same trend but
+  different raw F or ΔF/F0 scale average out, so the default views are robust z-scores: per cell and run,
+  `(x - median) / (1.4826 * MAD)` over the whole trace (NaN-safe), then each trial's mean over the pre-event part of the
+  window (offsets < 0) is subtracted before averaging over trials; mean ± SEM across cells as for the raw views. A cell
+  with MAD 0 (or no finite value) has no scale: its z is NaN, it adds nothing to the pool, and it is listed per run
+  (`flat_cells`, printed by the notebook). Views are `RAW_VIEWS` (`F`, `dF/F0`) and `Z_VIEWS` (`F z`, `dF/F0 z`), both
+  computed; the notebook's `MEASURES` chooses which two rows `plot_pulse_responses` draws (default z; titles and y
+  labels say "robust z, baseline-subtracted"). Needs a window starting before 0 s.
 - **Top cells**: per run, the `N_TOP` cells with the largest green ΔF/F0 anywhere in the trace, stacked traces with the
   outcomes marked by pulse count, and their outlines on the mean image. One PDF page per run per variant. Each ROI has one
   colour (matplotlib `tab10`, cycling in rank order, best ROI on top) shared by its trace and its outline and number in the
