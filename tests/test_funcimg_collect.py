@@ -217,3 +217,28 @@ def test_pooled_figures_show_robust_z_by_default_and_raw_views_on_request(deriva
     )
     assert fig.axes[0].get_ylabel() == "F (a.u.)" and fig.axes[2].get_ylabel() == "ΔF/F0"
     plt.close(fig)
+
+
+def set_p_cell(plane_dir, p_cell):
+    iscell = np.ones((N_CELLS, 2))
+    iscell[:, 1] = p_cell
+    np.save(plane_dir / "iscell.npy", iscell)
+
+
+def test_top_cells_can_be_ranked_by_the_classifier_probability(derivatives):
+    run_dir = derivatives / "ses-224_date-20260809" / "funcimg" / "run-01"
+    plane = run_dir / "without_destriping" / "suite2p" / "plane0"
+    set_p_cell(plane, [0.2, 0.9, 0.9, 0.5])
+    top = top_cells(plane, run_dir, 3, outcomes_for, rank_by="p_cell")
+    assert top["cells"].tolist() == [1, 2, 3]  # the 0.9 tie goes to the lower ROI index
+    assert top["p_cell"].tolist() == [0.9, 0.9, 0.5]
+    assert top["dff"].shape == (3, N_FRAMES) and top["rank_by"] == "p_cell"
+    by_max = top_cells(plane, run_dir, 3, outcomes_for)
+    assert by_max["rank_by"] == "max_dff" and len(by_max["p_cell"]) == 3
+
+
+def test_an_unknown_ranking_is_refused(derivatives):
+    run_dir = derivatives / "ses-224_date-20260809" / "funcimg" / "run-01"
+    plane = run_dir / "without_destriping" / "suite2p" / "plane0"
+    with pytest.raises(ValueError, match="rank_by"):
+        top_cells(plane, run_dir, 3, outcomes_for, rank_by="brightness")

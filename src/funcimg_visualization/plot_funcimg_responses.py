@@ -8,6 +8,7 @@ import numpy as np
 # 0 pulses (no reward) in red; 1-4 pulses from teal to dark blue, as in the photometry figures.
 PULSE_COLORS = {0: "#C44E52", 1: "#41B6C4", 2: "#1D91C0", 3: "#225EA8", 4: "#0C2C84"}
 CHANNEL_TITLES = {"green": "Green (functional)", "red": "Red (structural)"}
+RANKING_TITLES = {"max_dff": "maximum dF/F", "p_cell": "p(cell)"}
 MEASURE_LABELS = {
     "F": ("raw F", "F (a.u.)"),
     "dF/F0": ("ΔF/F0", "ΔF/F0"),
@@ -146,7 +147,10 @@ def _draw_traces(ax, top: dict, x_units: str, colors: list[str]) -> None:
     for pulses in sorted(set(top["outcomes"]["num_rew_pulses"])):
         ax.plot([], [], color=PULSE_COLORS[pulses], label=f"{pulses} pulses")
     ax.legend(loc="upper right", fontsize=7, frameon=False, ncols=5)
-    ax.set_yticks(baselines, [f"ROI {cell}" for cell in top["cells"]])
+    ax.set_yticks(
+        baselines,
+        [f"ROI {cell} (p={p:.2f})" for cell, p in zip(top["cells"], top["p_cell"], strict=True)],
+    )
     ax.set_ylim(baselines[-1] + np.nanmin(dff[-1]) - 0.1 * spacing, marker_bottom + 0.6 * spacing)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("ROI")
@@ -174,11 +178,17 @@ def _draw_fov(ax, top: dict, colors: list[str]) -> None:
     ax.set_title("Mean image; top cells outlined")
 
 
+def top_cells_pdf_name(n: int, rank_by: str, tag: str, variant: str, x_units: str) -> str:
+    """File name of the PDF of one ranking's top cells, e.g. ``top30_cells_by_p_cell_<tag>_...``."""
+    return f"top{n}_cells_by_{rank_by}_{tag}_{variant}_{x_units}.pdf"
+
+
 def plot_top_cells(top: dict, x_units: str = "s", title: str = "", variant: str = ""):
     """Stacked ΔF/F0 traces of a run's most responsive cells, and where they are.
 
     Each ROI has one colour, used for its trace and for its outline and number in the field of
-    view. The best ROI is on top; ``ROI <n>`` tick labels mark each trace's baseline. Outcomes
+    view. The best ROI is on top; ``ROI <n> (p=<p(cell)>)`` tick labels mark each trace's
+    baseline. Outcomes
     are marked above the traces, coloured by number of reward pulses.
 
     Args:
@@ -196,7 +206,8 @@ def plot_top_cells(top: dict, x_units: str = "s", title: str = "", variant: str 
     colors = roi_colors(len(top["cells"]))
     _draw_traces(ax_traces, top, x_units, colors)
     n = len(top["cells"])
-    ax_traces.set_title(f"{variant} green: top {n} ROIs by maximum dF/F".strip())
+    ranking = RANKING_TITLES[top["rank_by"]]
+    ax_traces.set_title(f"{variant} green: top {n} ROIs by {ranking}".strip())
     _draw_fov(ax_fov, top, colors)
     fig.suptitle(title)
     return fig

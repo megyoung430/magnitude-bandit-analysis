@@ -11,6 +11,7 @@ from matplotlib.colors import to_hex, to_rgba  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_responses import (  # noqa: E402
     plot_top_cells,
     roi_colors,
+    top_cells_pdf_name,
     trace_baselines,
 )
 
@@ -21,7 +22,7 @@ TAB10 = [
 N_FRAMES, N_ROIS = 300, 12
 
 
-def synthetic_top(n_rois=N_ROIS, with_big_transient=True):
+def synthetic_top(n_rois=N_ROIS, with_big_transient=True, rank_by="max_dff"):
     """Noisy ΔF/F0 traces of ROIs 5, 6, ... (largest first), one with a large transient."""
     rng = np.random.default_rng(0)
     dff = rng.normal(0, 0.2, (n_rois, N_FRAMES))
@@ -36,6 +37,8 @@ def synthetic_top(n_rois=N_ROIS, with_big_transient=True):
     return {
         "cells": cells,
         "peaks": np.nanmax(dff, axis=1),
+        "p_cell": np.linspace(0.99, 0.5, n_rois),
+        "rank_by": rank_by,
         "dff": dff,
         "time_s": time_s,
         "period_s": 0.133,
@@ -83,7 +86,9 @@ def test_y_ticks_are_roi_labels_at_each_baseline_with_the_best_roi_on_top(figure
     top = synthetic_top()
     labels = [t.get_text() for t in ax.get_yticklabels()]
     order = np.argsort(-ax.get_yticks())  # top of the axis first
-    assert [labels[i] for i in order] == [f"ROI {c}" for c in top["cells"]]
+    expected = [f"ROI {c} (p={p:.2f})" for c, p in zip(top["cells"], top["p_cell"], strict=True)]
+    assert [labels[i] for i in order] == expected
+    assert labels[order[0]] == "ROI 5 (p=0.99)"
     assert ax.get_ylabel() == "ROI"
     assert not ax.texts
 
@@ -116,6 +121,9 @@ def test_x_label_names_the_units(x_units, label):
 
 def test_titles_name_the_variant_and_count_and_the_run(figure):
     assert figure.axes[0].get_title() == f"with_destriping green: top {N_ROIS} ROIs by maximum dF/F"
+    fig = plot_top_cells(synthetic_top(rank_by="p_cell"), variant="with_destriping")
+    assert fig.axes[0].get_title() == f"with_destriping green: top {N_ROIS} ROIs by p(cell)"
+    plt.close(fig)
     assert figure.get_suptitle() == "ses run"
 
 
@@ -126,3 +134,11 @@ def test_outcome_markers_sit_above_the_traces_and_a_legend_lists_the_pulses(figu
     assert all(min(m.get_ydata()) >= top_of_traces for m in markers)
     legend = [t.get_text() for t in ax.get_legend().get_texts()]
     assert legend == ["0 pulses", "2 pulses", "4 pulses"]
+
+
+def test_each_ranking_has_its_own_pdf_name():
+    args = ("20-20", "with_destriping", "s")
+    by_p = top_cells_pdf_name(30, "p_cell", *args)
+    by_max = top_cells_pdf_name(30, "max_dff", *args)
+    assert by_p == "top30_cells_by_p_cell_20-20_with_destriping_s.pdf"
+    assert by_max == "top30_cells_by_max_dff_20-20_with_destriping_s.pdf"

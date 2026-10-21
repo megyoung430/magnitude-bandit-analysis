@@ -216,6 +216,21 @@ def top_cells_by_max(dff: np.ndarray, n: int) -> np.ndarray:
     return np.array([i for i in order if np.isfinite(peaks[i])][:n], dtype=int)
 
 
+def top_cells_by_score(dff: np.ndarray, scores: np.ndarray, n: int) -> np.ndarray:
+    """The *n* cells with the highest score, best first; ties go to the lower cell index.
+
+    Cells without a score, or whose ΔF/F0 is undefined throughout (they cannot be plotted),
+    are left out.
+    """
+    scores = np.asarray(scores, dtype=float)
+    with _quiet_empty_means():
+        plottable = np.isfinite(np.nanmax(np.asarray(dff, dtype=float), axis=1))
+    order = np.argsort(-np.nan_to_num(scores, nan=-np.inf), kind="stable")
+    return np.array(
+        [int(i) for i in order if plottable[i] and np.isfinite(scores[i])][:n], dtype=int
+    )
+
+
 @contextmanager
 def _quiet_empty_means():
     """All-NaN slices give NaN, as intended, without numpy's RuntimeWarning."""

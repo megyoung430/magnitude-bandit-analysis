@@ -54,6 +54,11 @@ destriping variants of the mini2p preprocessing.
   field of view; traces are 0.8 pt, with `ROI <n>` as y tick labels at each baseline, spaced by 1.1 x the 99.5th
   percentile of the per-trace range (max - min). That spacing keeps traces from overlapping, but with ~20 traces the
   percentile is close to the largest range, so one very large transient widens the spacing for all.
+- **Top-cell rankings**: `top_cells(..., rank_by="max_dff" | "p_cell")`. `p_cell` is Suite2p's classifier
+  probability (`iscell.npy` column 1); mini2p's `classify_rois` runs Suite2p's built-in classifier on the Cellpose ROIs,
+  so it is advisory. Ties go to the lower ROI index; ROIs without a probability or without a defined ΔF/F0 are left
+  out. The notebook (`N_TOP = 30`, `RANKINGS`) writes one PDF per ranking, `top30_cells_by_p_cell_<tag>_<variant>_<units>.pdf`
+  and `top30_cells_by_max_dff_….pdf`; the traces' title names the ranking and each label reads `ROI 12 (p=0.93)`.
 - **Optional dependency** `funcimg` (`h5py`, `mini2p-preprocessing` from GitHub); nothing else in the repo needs it.
 - **rsync fix**: `_align_chunks` clamps each chunk's mean squared error at 0. The expansion used to compute it cancels to a
   tiny negative number for an exact match of intervals of seconds in ms, which raised in `_classify_chunks` on the first

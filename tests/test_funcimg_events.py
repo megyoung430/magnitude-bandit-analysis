@@ -11,6 +11,7 @@ from src.funcimg_analysis.event_frames import (
     pooled_mean_sem,
     robust_z,
     top_cells_by_max,
+    top_cells_by_score,
     window_offsets,
 )
 
@@ -119,3 +120,16 @@ def test_baseline_subtraction_zeroes_each_trials_pre_event_mean():
 def test_baseline_subtraction_needs_pre_event_frames():
     with pytest.raises(ValueError, match="pre-event"):
         baseline_subtract(np.zeros((1, 2, 5)), pre_frames=0)
+
+
+def test_cells_are_ranked_by_score_with_ties_broken_by_roi_index():
+    dff = np.zeros((5, 10))
+    dff[4] = np.nan  # no ΔF/F0 at all: cannot be plotted
+    scores = np.array([0.5, 0.9, 0.5, 0.9, 1.0])
+    assert top_cells_by_score(dff, scores, 3).tolist() == [1, 3, 0]
+    assert top_cells_by_score(dff, scores, 10).tolist() == [1, 3, 0, 2]
+
+
+def test_cells_without_a_score_are_left_out_of_a_score_ranking():
+    dff = np.ones((3, 4))
+    assert top_cells_by_score(dff, np.array([0.2, np.nan, 0.7]), 3).tolist() == [2, 0]
