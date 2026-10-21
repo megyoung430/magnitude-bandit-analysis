@@ -139,8 +139,8 @@ def _summary(run: dict, measure: dict) -> str:
         )
     return (
         f"{counts} {_index_meaning(run)} No SEM ribbon where a pulse count has fewer than "
-        f"{MIN_TRIALS_FOR_SEM} trials; n per pulse count in each legend. Outline colours repeat every 10 cells (tab10): "
-        "the ROI number identifies the cell."
+        f"{MIN_TRIALS_FOR_SEM} trials; n per pulse count in each legend. Outline colours repeat "
+        "every 10 cells (tab10): the ROI number identifies the cell."
     )
 
 
