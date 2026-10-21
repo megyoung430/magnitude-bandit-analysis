@@ -158,3 +158,12 @@ def test_shortest_alignable_train_is_the_one_the_aligner_accepts():
     RsyncAligner(pulses_A[:11], pulses_B, raise_exception=False)  # long enough to try
     with pytest.raises(ValueError, match="at least 11"):
         RsyncAligner(pulses_A[:10], pulses_B)
+
+
+def test_identical_long_intervals_do_not_give_a_negative_error():
+    # Intervals of seconds, in ms: exact matches can come out as tiny negative errors by
+    # floating-point cancellation; they are zero.
+    rng = np.random.default_rng(4)
+    pulses_s = np.round(np.cumsum(rng.uniform(0.6, 9.5, 185)), 4)
+    aligner = RsyncAligner(pulses_s + 6.3, pulses_s, units_A=1000, units_B=1000)
+    assert np.allclose(aligner.A_to_B(pulses_s[10:20] + 6.3), pulses_s[10:20])

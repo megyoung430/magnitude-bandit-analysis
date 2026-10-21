@@ -35,6 +35,10 @@ reference-tests = [
     "dm-haiku>=0.0.13",
     "ml-collections>=0.1.1",
 ]
+funcimg = [
+    "h5py>=3.11",
+    "mini2p-preprocessing",
+]
 
 [dependency-groups]
 dev = [
@@ -67,3 +71,6 @@ select = ["E", "F", "W", "I", "B"]
 "src/photometry_import/pyphotometry.py" = ["B905"]
 # Docstrings and explanatory strings in the photometry notebook run past 100 columns.
 "scripts/photometry/*.ipynb" = ["E501"]
+
+[tool.uv.sources]
+mini2p-preprocessing = { git = "https://github.com/megyoung430/mini2p.git" }

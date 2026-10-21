@@ -98,6 +98,8 @@ def _align_chunks(
             + np.sum(chunk_A**2)
             - 2 * np.correlate(intervals_B, chunk_A, mode="valid")
         ) / chunk_size
+        # The expansion can cancel to a tiny negative value for an exact match; it is zero.
+        mse = np.maximum(mse, 0.0)
         starts_B[i] = np.argmin(mse)
         sorted_mse = np.sort(mse)
         min_mse[i] = sorted_mse[0]
