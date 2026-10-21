@@ -288,3 +288,39 @@ def test_z_responses_do_not_depend_on_a_cell_s_scale_and_start_at_zero():
     assert set(Z_VIEWS) <= set(result["means"])
     raw = result["means"][("green", "dF/F0")][2]
     assert not np.allclose(raw[0], raw[1])
+
+
+def z_test_session(event_shift_s):
+    n_frames, period = 600, 0.133
+    frame_times = 5.0 + period * np.arange(n_frames)
+    event_frames = np.arange(60, 540, 60)
+    trace = np.random.default_rng(0).normal(0, 1, n_frames)
+    trace[event_frames - 1] += 50  # the frame before the event's nearest frame
+    table = outcomes(frame_times[event_frames] + event_shift_s, np.full(len(event_frames), 2))
+    return {view: trace[None, :] for view in RAW_VIEWS}, frame_times, table
+
+
+def test_the_frame_holding_an_early_event_is_not_part_of_the_baseline():
+    views, times, table = z_test_session(-0.05)  # the event falls inside frame -1
+    result = pulse_responses(views, times, table, (-0.5, 1.0), ("task",))
+    z = result["means"][("green", "F z")][2][0]
+    far = (result["offsets"] >= -3) & (result["offsets"] <= -2)
+    assert abs(z[far].mean()) < 1
+    assert z[result["offsets"] == -1][0] > 3  # the bump is visible against the clean baseline
+
+
+def test_a_window_starting_at_zero_gives_raw_views_and_refuses_z_views():
+    views, times, table = z_test_session(0.01)
+    result = pulse_responses(views, times, table, (0.0, 1.0), ("task",), measures=("F", "dF/F0"))
+    assert set(result["means"]) == set(RAW_VIEWS) and result["flat_cells"] == {}
+    with pytest.raises(ValueError, match="pre-event"):
+        pulse_responses(views, times, table, (0.0, 1.0), ("task",))
+    with pytest.raises(ValueError, match="pre-event"):
+        pulse_responses(views, times, table, (0.0, 1.0), ("task",), measures=("F z",))
+
+
+def test_only_the_requested_measures_are_computed():
+    views, times, table = z_test_session(0.01)
+    result = pulse_responses(views, times, table, (-0.5, 1.0), ("task",), measures=("dF/F0 z",))
+    assert set(result["means"]) == {("green", "dF/F0 z"), ("red", "dF/F0 z")}
+    assert list(result["flat_cells"]) == [("green", "dF/F0 z"), ("red", "dF/F0 z")]

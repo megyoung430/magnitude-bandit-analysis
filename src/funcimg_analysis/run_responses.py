@@ -29,6 +29,7 @@ RAW_VIEWS = (("green", "F"), ("green", "dF/F0"), ("red", "F"), ("red", "dF/F0"))
 # Robust z over each cell's whole trace, then each trial's pre-event mean subtracted.
 Z_VIEWS = tuple((channel, f"{measure} z") for channel, measure in RAW_VIEWS)
 VIEWS = RAW_VIEWS + Z_VIEWS
+MEASURES = ("F", "dF/F0", "F z", "dF/F0 z")
 PULSE_CATEGORIES = [0, 1, 2, 3, 4]
 EXTRACTION_RECORD = "cellpose_extraction.json"
 
@@ -40,6 +41,7 @@ def pulse_responses(
     window_s: tuple[float, float],
     phases: tuple[str, ...],
     categories: list[int] = PULSE_CATEGORIES,
+    measures: tuple[str, ...] = MEASURES,
 ) -> dict:
     """Each cell's mean window around the outcome, per pulse count, for every view.
 
@@ -51,15 +53,18 @@ def pulse_responses(
         window_s (tuple[float, float]): Window around the outcome (s), rounded to whole frames.
         phases (tuple[str, ...]): Trial phases to include, e.g. ``("task",)``.
         categories (list[int]): Pulse counts to report.
+        measures (tuple[str, ...]): Which of ``F``, ``dF/F0``, ``F z``, ``dF/F0 z`` to compute,
+            for each channel in *views*. The z measures need frames before the outcome.
 
     Returns:
         dict: ``offsets`` (frames), ``period_s``, ``means`` (``{view: {pulses: (n_cells,
-        n_window)}}`` for the raw and z views), ``n_trials`` per pulse count, ``n_cells``,
+        n_window)}}`` for the requested measures), ``n_trials`` per pulse count, ``n_cells``,
         ``n_events_dropped`` (outcomes without a complete window of imaged frames) and
         ``flat_cells`` (``{z view: ROI indices}`` with no defined scale, whose z is NaN).
 
     Raises:
         RunMismatchError: If a view's frame count differs from the frame times'.
+        ValueError: If a z measure is requested but the window has no frames before the outcome.
     """
     n_frames = len(frame_times_s)
     for view, traces in views.items():
@@ -68,21 +73,30 @@ def pulse_responses(
                 f"{view} has {traces.shape[1]} frames but there are {n_frames} frame times; "
                 "the traces and the frame clock are not from the same acquisition."
             )
-    views, flat_cells = _with_z_views(views)
     period = frame_period_s(frame_times_s)
     pre, post = int(round(-window_s[0] / period)), int(round(window_s[1] / period))
+    wants_z = any(measure.endswith(" z") for measure in measures)
+    if wants_z and pre < 1:
+        raise ValueError(
+            f"Window {window_s} s has no pre-event frames, which the z measures need for their "
+            "baseline; start it before 0 s or ask for raw measures only."
+        )
+    views, flat_cells = _requested_views(views, measures)
     trials = outcomes[outcomes["phase"].isin(phases)]
-    index, _, near_frame = event_frames(frame_times_s, trials["outcome_time"].to_numpy(float))
+    index, offset_s, near_frame = event_frames(
+        frame_times_s, trials["outcome_time"].to_numpy(float)
+    )
     valid = np.isfinite(frame_times_s)
     first = next(iter(views.values()))
     _, complete = frame_windows(first[:1], index[near_frame], pre, post, valid)
     kept = np.flatnonzero(near_frame)[complete]
     pulses = trials["num_rew_pulses"].to_numpy(int)[kept]
+    event_before_frame = offset_s[kept] < 0  # the frame before it was being acquired
     means = {}
     for view, traces in views.items():
         windows, _ = frame_windows(traces, index[kept], pre, post, valid)
         if view in Z_VIEWS:
-            windows = baseline_subtract(windows, pre)
+            windows = baseline_subtract(windows, pre, event_before_frame)
         means[view] = mean_by_category(windows, pulses, categories)
     counts = {c: int(np.sum(pulses == c)) for c in categories if np.any(pulses == c)}
     return {
@@ -96,13 +110,18 @@ def pulse_responses(
     }
 
 
-def _with_z_views(views: dict) -> tuple[dict, dict]:
-    """*views* plus the robust-z version of each raw view, and the cells that have no scale."""
-    out, flat_cells = dict(views), {}
+def _requested_views(views: dict, measures: tuple[str, ...]) -> tuple[dict, dict]:
+    """The requested raw and robust-z views of *views*, and the cells with no scale per z view."""
+    out, flat_cells = {}, {}
     for channel, measure in RAW_VIEWS:
-        if (channel, measure) in views:
-            out[(channel, f"{measure} z")], flat = robust_z(views[(channel, measure)])
-            flat_cells[(channel, f"{measure} z")] = np.flatnonzero(flat).tolist()
+        if (channel, measure) not in views:
+            continue
+        if measure in measures:
+            out[(channel, measure)] = views[(channel, measure)]
+        if f"{measure} z" in measures:
+            z_view = (channel, f"{measure} z")
+            out[z_view], flat = robust_z(views[(channel, measure)])
+            flat_cells[z_view] = np.flatnonzero(flat).tolist()
     return out, flat_cells
 
 

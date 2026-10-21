@@ -242,3 +242,17 @@ def test_an_unknown_ranking_is_refused(derivatives):
     plane = run_dir / "without_destriping" / "suite2p" / "plane0"
     with pytest.raises(ValueError, match="rank_by"):
         top_cells(plane, run_dir, 3, outcomes_for, rank_by="brightness")
+
+
+def test_only_the_chosen_measures_are_pooled_and_a_window_from_zero_suits_raw_ones(derivatives):
+    pooled, runs, _ = collect_pulse_responses(
+        derivatives,
+        224,
+        224,
+        "without_destriping",
+        (0.0, 1.0),
+        ("task",),
+        outcomes_for,
+        measures=("F", "dF/F0"),
+    )
+    assert {m for _, m in pooled} == {"F", "dF/F0"} and len(runs) == 2
