@@ -15,7 +15,11 @@ import pytest  # noqa: E402
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
 from src.funcimg_analysis import background_io  # noqa: E402
-from src.funcimg_analysis.background import background_mask, chunked_mask_mean  # noqa: E402
+from src.funcimg_analysis.background import (  # noqa: E402
+    background_halves,
+    background_mask,
+    chunked_mask_mean,
+)
 from src.funcimg_analysis.background_io import BackgroundUnavailableError, load_background  # noqa: E402
 from src.funcimg_analysis.collect import (  # noqa: E402
     collect_background_responses,
@@ -236,6 +240,35 @@ def test_a_chunk_size_below_one_raises():
 def test_a_mask_of_the_wrong_shape_raises():
     with pytest.raises(ValueError, match="shape"):
         chunked_mask_mean(np.zeros((3, LY, LX), np.int16), np.ones((LY, LX + 1), bool), 2)
+
+
+def test_the_halves_split_the_background_into_two_disjoint_checkerboard_sets_that_cover_it():
+    mask = literal_background()
+    halves = background_halves(mask)
+    assert halves.shape == (2, LY, LX)
+    assert not (halves[0] & halves[1]).any()
+    np.testing.assert_array_equal(halves[0] | halves[1], mask)
+    ys, xs = np.nonzero(halves[0])
+    assert ((ys + xs) % 2 == 0).all()
+    ys, xs = np.nonzero(halves[1])
+    assert ((ys + xs) % 2 == 1).all()
+
+
+def test_a_background_too_small_to_split_into_two_halves_raises():
+    mask = np.zeros((LY, LX), bool)
+    mask[3, 3] = True
+    with pytest.raises(ValueError, match="two halves"):
+        background_halves(mask)
+
+
+def test_several_masks_are_averaged_in_one_pass():
+    rng = np.random.default_rng(3)
+    movie = rng.integers(0, 3000, (N_FRAMES, LY, LX)).astype(np.int16)
+    masks = np.stack([literal_background(), *background_halves(literal_background())])
+    together = chunked_mask_mean(movie, masks, 77)
+    assert together.shape == (3, N_FRAMES)
+    for row, mask in zip(together, masks, strict=True):
+        np.testing.assert_allclose(row, chunked_mask_mean(movie, mask, 77))
 
 
 # --- loading and the cache ----------------------------------------------------------------------
@@ -590,3 +623,30 @@ def test_the_background_png_name_carries_the_window():
     assert name == "background_responses_ses-224-224_run-01_with_destriping_s_win-10to30s.png"
     other = background_responses_png_name("ses-224-224_run-01", "with_destriping", "s", (-5, 20))
     assert other != name
+
+
+def test_load_background_returns_the_trace_of_each_half_and_the_whole(derivatives, tmp_path):
+    plane = plane_of(derivatives)
+    mask = literal_background()
+    halves = background_halves(mask)
+    rng = np.random.default_rng(5)
+    even, odd = 200 + rng.integers(-3, 4, N_FRAMES), 300 + rng.integers(-3, 4, N_FRAMES)
+    movie = np.full((N_FRAMES, LY, LX), 5000, dtype=np.int16)
+    movie[:, halves[0]] = even[:, None]
+    movie[:, halves[1]] = odd[:, None]
+    movie.tofile(plane / "data.bin")
+    bg = load_background(plane, cache_dir=tmp_path / "cache")
+    np.testing.assert_allclose(bg["F_halves"][("green", "F")][0], even)
+    np.testing.assert_allclose(bg["F_halves"][("green", "F")][1], odd)
+    expected = movie[:, mask].astype(float).mean(axis=1)
+    np.testing.assert_allclose(bg["F"][("green", "F")], expected)  # the whole is unchanged
+    assert bg["F_halves"][("red", "F")].shape == (2, N_FRAMES)
+
+
+def test_a_background_of_one_pixel_is_left_out_because_it_cannot_be_split(derivatives, tmp_path):
+    plane = plane_of(derivatives)
+    edit_ops(plane, yrange=[3, 4], xrange=[3, 4])  # a 1 x 1 crop that no ROI covers
+    stat = np.array([], dtype=object)
+    np.save(plane / "stat.npy", stat, allow_pickle=True)
+    with pytest.raises(BackgroundUnavailableError, match="two halves"):
+        load_background(plane, cache_dir=tmp_path / "cache")

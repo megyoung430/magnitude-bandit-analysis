@@ -13,7 +13,11 @@ from pathlib import Path
 
 import numpy as np
 
-from src.funcimg_analysis.background import background_mask, chunked_mask_mean
+from src.funcimg_analysis.background import (
+    background_halves,
+    background_mask,
+    chunked_mask_mean,
+)
 from src.funcimg_analysis.frame_times import RunMismatchError
 
 CHUNK_FRAMES = 200
@@ -94,11 +98,11 @@ def _cached(cache_file: Path, compute: Callable[[], dict]) -> dict:
 
 
 def _read_traces(
-    paths: dict[str, Path], n_frames: int, shape: tuple[int, int], mask: np.ndarray, chunk: int
+    paths: dict[str, Path], n_frames: int, shape: tuple[int, int], masks: np.ndarray, chunk: int
 ) -> dict[str, np.ndarray]:
     # both binaries are opened (and their sizes checked) before either is read
     movies = {channel: _open_movie(path, n_frames, shape) for channel, path in paths.items()}
-    return {channel: chunked_mask_mean(movie, mask, chunk) for channel, movie in movies.items()}
+    return {channel: chunked_mask_mean(movie, masks, chunk) for channel, movie in movies.items()}
 
 
 def load_background(
@@ -114,7 +118,9 @@ def load_background(
         chunk_frames (int): Frames read at a time.
 
     Returns:
-        dict: ``F`` (``{("green", "F"): (n_frames,), ("red", "F"): ...}``), ``mask``,
+        dict: ``F`` (``{("green", "F"): (n_frames,), ("red", "F"): ...}``), ``F_halves`` (the same
+        keys, ``(2, n_frames)``: the F of two disjoint checkerboard halves of the background
+        pixels, for its split-half reliability), ``mask``,
         ``n_pixels``, ``labels`` (ROI label image) and ``mean_images`` (``green``, ``red``).
 
     Raises:
@@ -132,6 +138,11 @@ def load_background(
     yrange, xrange = (_ops_value(ops, key, plane_dir) for key in ("yrange", "xrange"))
     mask = background_mask(stat, shape, yrange, xrange, roi_margin_px)
     mean_images = _mean_images(ops, plane_dir, shape)
+    try:
+        halves = background_halves(mask)
+    except ValueError as error:
+        raise BackgroundUnavailableError(f"{plane_dir}: {error}") from error
+    all_masks = np.concatenate([mask[None], halves])  # the whole, then the two halves
     paths = {channel: _binary_path(ops, plane_dir, channel) for channel in CHANNEL_FILES}
     if cache_dir is None:
         from src.settings import get_settings
@@ -145,10 +156,11 @@ def load_background(
     )
     traces = _cached(
         cache_file,
-        lambda: _read_traces(paths, int(ops["nframes"]), shape, mask, chunk_frames),
+        lambda: _read_traces(paths, int(ops["nframes"]), shape, all_masks, chunk_frames),
     )
     return {
-        "F": {(channel, "F"): traces[channel] for channel in CHANNEL_FILES},
+        "F": {(channel, "F"): traces[channel][0] for channel in CHANNEL_FILES},
+        "F_halves": {(channel, "F"): traces[channel][1:] for channel in CHANNEL_FILES},
         "mask": mask,
         "n_pixels": int(mask.sum()),
         "labels": labels_from_stat(stat, *shape),

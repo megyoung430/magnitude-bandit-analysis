@@ -23,6 +23,7 @@ from src.funcimg_analysis.event_frames import (
     robust_z,
     sem_by_category,
     trials_without_baseline,
+    window_frame_counts,
     window_offsets,
 )
 from src.funcimg_analysis.frame_times import RunMismatchError
@@ -98,7 +99,7 @@ def pulse_responses(
                 "the traces and the frame clock are not from the same acquisition."
             )
     period = frame_period_s(frame_times_s)
-    pre, post = int(round(-window_s[0] / period)), int(round(window_s[1] / period))
+    pre, post = window_frame_counts(window_s, period)
     wants_z = any(measure.endswith(" z") for measure in measures)
     if wants_z and pre < MIN_PRE_FRAMES_FOR_Z:
         raise ValueError(
