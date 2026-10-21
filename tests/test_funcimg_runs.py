@@ -16,7 +16,14 @@ from src.funcimg_analysis.frame_times import (
     processed_tiff_names,
     write_frame_times,
 )
-from src.funcimg_analysis.run_responses import RAW_VIEWS, Z_VIEWS, pulse_responses
+from src.funcimg_analysis.run_responses import (
+    BACKGROUND_MEASURES,
+    MEASURES,
+    RAW_VIEWS,
+    Z_VIEWS,
+    check_measures,
+    pulse_responses,
+)
 from src.funcimg_import.runs import session_run_files
 from tests.funcimg_fixtures import DAQ_RATE, daq_session
 
@@ -324,3 +331,49 @@ def test_only_the_requested_measures_are_computed():
     result = pulse_responses(views, times, table, (-0.5, 1.0), ("task",), measures=("dF/F0 z",))
     assert set(result["means"]) == {("green", "dF/F0 z"), ("red", "dF/F0 z")}
     assert list(result["flat_cells"]) == [("green", "dF/F0 z"), ("red", "dF/F0 z")]
+
+
+@pytest.mark.parametrize("measures", [("dF/Fo",), ("f z", "x"), ("F z", "dF/Fo"), ("",)])
+def test_unknown_measures_are_refused_listing_the_valid_names(measures):
+    views, times, table = z_test_session(0.01)
+    with pytest.raises(ValueError, match="unknown measure") as caught:
+        pulse_responses(views, times, table, (-0.5, 1.0), ("task",), measures=measures)
+    message = str(caught.value)
+    assert all(f"'{name}'" in message.split("valid")[1] for name in MEASURES)
+    assert all(repr(m) in message.split("valid")[0] for m in measures if m not in MEASURES)
+    assert all(repr(m) not in message.split("valid")[0] for m in measures if m in MEASURES)
+
+
+def test_a_partly_wrong_measure_set_names_only_the_wrong_one():
+    with pytest.raises(ValueError, match=r"unknown measure\(s\) \['dF/Fo'\]"):
+        check_measures(("F z", "dF/Fo"))
+
+
+def test_no_measures_and_a_bare_string_are_refused():
+    with pytest.raises(ValueError, match="at least one"):
+        check_measures(())
+    with pytest.raises(TypeError, match="tuple"):
+        check_measures("F z")
+
+
+def test_valid_measures_pass_and_the_background_set_is_narrower():
+    check_measures(MEASURES)
+    check_measures(("F", "F z"), BACKGROUND_MEASURES)
+    with pytest.raises(ValueError, match="unknown measure"):
+        check_measures(("dF/F0",), BACKGROUND_MEASURES)
+
+
+@pytest.mark.parametrize("window", [(0.0, 1.0), (-0.13, 1.0)])  # 0 and 1 pre-event frames
+def test_a_z_measure_needs_at_least_two_pre_event_frames(window):
+    views, times, table = z_test_session(-0.05)
+    with pytest.raises(ValueError, match="at least 2 pre-event frames"):
+        pulse_responses(views, times, table, window, ("task",), measures=("F z",))
+    raw = pulse_responses(views, times, table, window, ("task",), measures=("F",))
+    assert raw["n_trials"] == {2: 8} and raw["n_trials_no_baseline"] == 0
+
+
+def test_the_per_run_result_reports_trials_without_a_baseline_and_counts_the_rest():
+    views, times, table = z_test_session(-0.05)
+    result = pulse_responses(views, times, table, (-0.27, 1.0), ("task",))  # 2 pre-event frames
+    assert result["n_trials_no_baseline"] == 0 and result["n_trials"] == {2: 8}
+    assert result["n_events_dropped"] == 0

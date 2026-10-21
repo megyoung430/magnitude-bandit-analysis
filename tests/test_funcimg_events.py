@@ -13,6 +13,7 @@ from src.funcimg_analysis.event_frames import (
     sem_by_category,
     top_cells_by_max,
     top_cells_by_score,
+    trials_without_baseline,
     window_offsets,
 )
 
@@ -158,3 +159,10 @@ def test_sem_across_trials_per_category():
     assert sems[0][0].tolist() == pytest.approx([1.0, 0.0])
     assert sems[1][0][0] == pytest.approx(1.0) and np.isnan(sems[1][0][1])  # one value: no SEM
     assert 2 not in sems
+
+
+def test_a_trial_has_no_baseline_when_its_only_pre_frame_spans_the_event():
+    spans = np.array([False, True, True])
+    assert trials_without_baseline(1, spans).tolist() == [False, True, True]
+    assert trials_without_baseline(2, spans).tolist() == [False, False, False]
+    assert trials_without_baseline(0, spans).tolist() == [True, True, True]

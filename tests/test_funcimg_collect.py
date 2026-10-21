@@ -12,7 +12,9 @@ import pytest  # noqa: E402
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
 from src.funcimg_analysis.collect import (  # noqa: E402
+    collect_background_responses,
     collect_pulse_responses,
+    pool_runs,
     top_cells,
     variant_runs,
 )
@@ -271,3 +273,43 @@ def test_the_pulse_figure_needs_at_least_one_measure(derivatives):
     pooled, runs, _ = collect(derivatives)
     with pytest.raises(ValueError, match="at least one measure"):
         plot_pulse_responses(pooled, runs[0]["offsets"], runs[0]["period_s"], measures=())
+
+
+@pytest.mark.parametrize("measures", [("nonsense",), ("F z", "dF/Fo")])
+def test_unknown_measures_are_refused_before_any_run_is_read(derivatives, measures):
+    with pytest.raises(ValueError, match="unknown measure"):
+        collect_pulse_responses(
+            derivatives,
+            224,
+            224,
+            "without_destriping",
+            (-1.0, 2.0),
+            ("task",),
+            outcomes_for,
+            measures=measures,
+        )
+    with pytest.raises(ValueError, match="unknown measure"):
+        pool_runs([], measures)
+    with pytest.raises(ValueError, match="unknown measure"):  # no ΔF/F0 for a background
+        collect_background_responses(
+            derivatives,
+            224,
+            224,
+            "without_destriping",
+            (-1.0, 2.0),
+            ("task",),
+            outcomes_for,
+            measures=("dF/F0",),
+        )
+
+
+def test_unknown_measures_are_refused_even_when_no_run_is_found(tmp_path):
+    with pytest.raises(ValueError, match="unknown measure"):
+        collect_pulse_responses(
+            tmp_path, 1, 2, "without_destriping", (-1.0, 2.0), ("task",), measures=("x",)
+        )
+
+
+def test_each_run_reports_its_trials_without_a_baseline(derivatives):
+    _, runs, _ = collect(derivatives)
+    assert [r["n_trials_no_baseline"] for r in runs] == [0, 0]

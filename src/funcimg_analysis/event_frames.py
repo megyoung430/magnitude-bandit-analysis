@@ -136,6 +136,21 @@ def robust_z(traces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return (traces - median) / safe, flat
 
 
+def trials_without_baseline(pre_frames: int, last_pre_frame_spans_event: np.ndarray) -> np.ndarray:
+    """Which events have no pre-event frame left for a baseline (see :func:`baseline_subtract`).
+
+    Args:
+        pre_frames (int): Number of frames before the event's frame.
+        last_pre_frame_spans_event (np.ndarray): Per event, True if the frame at offset -1 is
+            left out of its baseline because the event occurred while it was being acquired.
+
+    Returns:
+        np.ndarray: Boolean per event, True where no pre-event frame remains.
+    """
+    spanned = np.asarray(last_pre_frame_spans_event, dtype=bool)
+    return pre_frames - spanned.astype(int) < 1
+
+
 def baseline_subtract(
     windows: np.ndarray, pre_frames: int, last_pre_frame_spans_event: np.ndarray | None = None
 ) -> np.ndarray:
