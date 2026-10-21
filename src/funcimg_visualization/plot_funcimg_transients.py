@@ -3,6 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.funcimg_analysis.event_frames import robust_z
 from src.funcimg_analysis.transients import most_skewed
 from src.funcimg_visualization.plot_funcimg_responses import middle_frames
 
@@ -71,48 +72,61 @@ def plot_transient_histograms(runs: list[dict], axes=None, title: str = ""):
 
 
 def plot_transient_examples(
-    run: dict, stats: dict, n: int = 6, n_frames_shown: int | None = 2000, title: str = ""
+    run: dict,
+    stats: dict,
+    n: int = 6,
+    n_frames_shown: int | None = 2000,
+    axes=None,
+    title: str = "",
 ):
     """Corrected ΔF/F0 of the *n* most positively skewed green cells, each with its red below.
 
-    Fast rise and slow decay in green, and nothing like it in red, is what a transient looks like;
-    motion artefacts show in both channels. Cells without a finite red skewness are not shown.
+    Both channels are drawn as robust z over the whole run on one shared y scale, so the green
+    transients and the red noise floor can be compared directly. Fast rise and slow decay in
+    green, and nothing like it in red, is what a transient looks like; motion artefacts show in
+    both channels. Cells without a finite red skewness are not shown.
 
     Args:
         run (dict): One ``collect_residual_dff`` result.
         stats (dict): ``run_transients`` of the run.
         n (int): Number of cells.
         n_frames_shown (int | None): Frames drawn, centred in the run; None draws every frame.
+        axes: ``2 * n`` axes (green, red, green, ...), or None for a new figure.
         title (str): Figure title.
 
     Returns:
-        matplotlib.figure.Figure: Two axes per cell, green over red, sharing the x axis.
+        matplotlib.figure.Figure: Two axes per cell, green over red, on a shared y axis.
+
+    Raises:
+        ValueError: If *axes* does not have ``2 * n`` axes.
     """
     paired = np.where(np.isfinite(stats["red"]["skew"]), stats["green"]["skew"], np.nan)
     cells = most_skewed(paired, n)
     time_s = np.asarray(run["time_s"])
     frames = middle_frames(len(time_s), n_frames_shown)
-    fig, axes = plt.subplots(
-        2 * len(cells), 1, figsize=(12, 1.3 * 2 * len(cells) + 1), sharex=True,
-        constrained_layout=True, squeeze=False,
-    )  # fmt: skip
-    axes = axes[:, 0]
+    z = {c: robust_z(run["channels"][c]["dff"])[0] for c in ("green", "red")}
+    if axes is None:
+        _, axes = plt.subplots(
+            2 * len(cells), 1, figsize=(12, 1.3 * 2 * len(cells) + 1), sharex=True, sharey=True,
+            constrained_layout=True, squeeze=False,
+        )  # fmt: skip
+    axes = np.asarray(axes).reshape(-1)
+    if len(axes) != 2 * len(cells):
+        raise ValueError(f"Need {2 * len(cells)} axes, two per cell, got {len(axes)}.")
     for pair, cell in enumerate(cells):
         for ax, channel, color in (
             (axes[2 * pair], "green", GREEN),
             (axes[2 * pair + 1], "red", RED),
         ):
-            ax.plot(
-                time_s[frames],
-                run["channels"][channel]["dff"][cell][frames],
-                color=color,
-                linewidth=0.7,
-            )
+            ax.plot(time_s[frames], z[channel][cell][frames], color=color, linewidth=0.7)
             ax.spines[["top", "right"]].set_visible(False)
             ax.tick_params(labelsize=7)
         skew = stats["green"]["skew"][cell]
-        axes[2 * pair].set_ylabel(f"ROI {cell}\ngreen (skew {skew:.1f})", fontsize=7)
-        axes[2 * pair + 1].set_ylabel("red", fontsize=7)
+        axes[2 * pair].set_ylabel(f"ROI {cell}\ngreen robust z (skew {skew:.1f})", fontsize=7)
+        axes[2 * pair + 1].set_ylabel("red robust z", fontsize=7)
+    for ax in axes[1:]:
+        ax.sharey(axes[0])  # a given set of axes may not share y yet
     axes[-1].set_xlabel("pyControl time (s)")
-    fig.suptitle(title or "Most positively skewed green cells, with the same cells' red channel")
-    return fig
+    figure = axes[0].figure
+    figure.suptitle(title or "Most positively skewed green cells, with the same cells' red channel")
+    return figure

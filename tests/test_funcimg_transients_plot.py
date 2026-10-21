@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+from src.funcimg_analysis.event_frames import robust_z  # noqa: E402
 from src.funcimg_analysis.transients import run_transients  # noqa: E402
 from src.funcimg_visualization.plot_funcimg_transients import (  # noqa: E402
     GREEN,
@@ -91,7 +92,8 @@ def test_examples_show_the_six_most_skewed_green_cells_each_with_its_red_trace_b
         assert f"ROI {cell}" in green_ax.get_ylabel() and "red" in red_ax.get_ylabel()
         (g,), (r,) = green_ax.lines, red_ax.lines
         assert len(g.get_xdata()) == len(r.get_xdata()) == 500
-        np.testing.assert_allclose(g.get_ydata(), run["channels"]["green"]["dff"][cell][1750:2250])
+        z_green = robust_z(run["channels"]["green"]["dff"])[0][cell][1750:2250]
+        np.testing.assert_allclose(g.get_ydata(), z_green)
         assert g.get_color() == GREEN and r.get_color() == RED
 
 
@@ -111,3 +113,36 @@ def test_file_name_carries_the_thresholds():
         transients_png_name("histograms", "ses-224-224_run-01", "without_destriping", 3.0, 1.0)
         == "transients_histograms_ses-224-224_run-01_without_destriping_z3_gap1s.png"
     )
+
+
+def test_example_traces_are_in_robust_z_on_one_shared_y_scale():
+    rng = np.random.default_rng(0)
+    run = {
+        "time_s": 20.0 + PERIOD * np.arange(N_FRAMES),
+        "channels": {
+            "green": {"dff": 0.1 * add_transients(noise(rng), rng, n_planted=40)},
+            "red": {"dff": 100 * noise(rng)},  # a very different raw scale
+        },
+    }
+    stats = run_transients(run, **SETTINGS)
+    fig = plot_transient_examples(run, stats, n=3, n_frames_shown=500)
+    assert len({ax.get_ylim() for ax in fig.axes}) == 1
+    assert all("robust z" in ax.get_ylabel() for ax in fig.axes)
+    red = fig.axes[1].lines[0].get_ydata()
+    assert np.abs(red).max() < 8  # not 100 x larger than the green's scale
+
+
+def test_examples_draw_into_given_axes():
+    rng = np.random.default_rng(0)
+    run = {
+        "time_s": 20.0 + PERIOD * np.arange(N_FRAMES),
+        "channels": {
+            "green": {"dff": add_transients(noise(rng), rng, 40)},
+            "red": {"dff": noise(rng)},
+        },
+    }
+    stats = run_transients(run, **SETTINGS)
+    _, axes = plt.subplots(4, 1)
+    assert plot_transient_examples(run, stats, n=2, axes=axes) is axes[0].figure
+    with pytest.raises(ValueError, match="Need 6 axes"):
+        plot_transient_examples(run, stats, n=3, axes=axes)

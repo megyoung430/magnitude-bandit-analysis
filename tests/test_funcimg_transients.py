@@ -138,3 +138,13 @@ def test_a_run_is_summarised_per_channel_with_only_the_cells_kept_in_both_for_pa
     assert set(out) == {"green", "red", "period_s"} and len(out["green"]["skew"]) == N_CELLS
     assert np.isnan(out["red"]["skew"][3]) and np.isfinite(out["green"]["skew"][3])
     assert out["period_s"] == pytest.approx(PERIOD)
+
+
+def test_the_table_says_how_many_rois_each_channel_kept_because_survivors_skew_bright():
+    rng = np.random.default_rng(10)
+    green = stats(add_transients(noise(rng), rng, n_planted=10))
+    red_traces = noise(rng)
+    red_traces[:12] = np.nan  # twelve ROIs have no usable red
+    table = channel_comparison(green, stats(red_traces))
+    assert table["n ROIs"] == N_CELLS
+    assert table["n cells green"] == N_CELLS and table["n cells red"] == N_CELLS - 12

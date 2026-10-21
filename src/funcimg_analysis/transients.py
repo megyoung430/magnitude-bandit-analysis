@@ -153,7 +153,9 @@ def channel_comparison(green: dict, red: dict) -> dict:
         red (dict): The same for the red channel.
 
     Returns:
-        dict: Median skewness of each channel, the fraction of green cells whose skewness is above
+        dict: The number of ROIs and of cells with a trace in each channel (a channel's cells are
+        the ROIs that passed the F0 check, which favours bright ones), median skewness of each
+        channel, the fraction of green cells whose skewness is above
         the 95th percentile of the red cells' (5 % expected if green behaved like red), and the
         median positive and negative event rates (per minute) of each channel.
     """
@@ -161,6 +163,7 @@ def channel_comparison(green: dict, red: dict) -> dict:
         red_95 = np.nanpercentile(red["skew"], 95)
         green_skew = green["skew"][np.isfinite(green["skew"])]
         table = {
+            "n ROIs": len(green["skew"]),
             "n cells green": len(green_skew),
             "n cells red": int(np.isfinite(red["skew"]).sum()),
             "median skew green": float(np.nanmedian(green["skew"])),
