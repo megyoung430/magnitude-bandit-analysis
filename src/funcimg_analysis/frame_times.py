@@ -7,6 +7,7 @@ work in frames or in seconds.
 """
 
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,27 +44,76 @@ def batch_source_tiffs(run_dir) -> dict[str, str]:
     return names
 
 
+def processed_tiff_names(variant_dir) -> list[str]:
+    """Sorted names of the ``.tif`` files directly in *variant_dir*.
+
+    macOS AppleDouble files (``._*``) are metadata copies, not images, so they are skipped.
+    """
+    folder = Path(variant_dir)
+    if not folder.is_dir():
+        return []
+    return sorted(
+        f.name
+        for f in folder.iterdir()
+        if f.is_file() and f.suffix.lower() == ".tif" and not f.name.startswith("._")
+    )
+
+
+def names_match_source(tiff_name: str, names) -> bool:
+    """Whether *names* is non-empty and every name is the source TIFF's stem plus ``_...``.
+
+    The trailing ``_`` keeps ``71rtask_00039`` from claiming ``71rtask_000390_...``.
+    """
+    prefix = Path(tiff_name).stem + "_"
+    return len(names) > 0 and all(name.startswith(prefix) for name in names)
+
+
+def _check_variant_by_names(tiff_name: str, run_dir: Path, variant: str) -> None:
+    names = processed_tiff_names(run_dir / variant)
+    if not names_match_source(tiff_name, names):
+        raise RunMismatchError(
+            f"{run_dir / variant} has no {BATCH_MANIFEST}, and its TIFFs {names} are not all "
+            f"named {Path(tiff_name).stem}_*.tif (or there are none); cannot confirm its TIFF."
+        )
+    warnings.warn(
+        f"{run_dir.name}, {variant}: no {BATCH_MANIFEST}; the source {tiff_name} was inferred "
+        f"from file names {names}.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def check_run_source(tiff_name: str, run_dir, variants=VARIANTS) -> None:
-    """Refuse unless the batch made every listed variant of *run_dir* from *tiff_name*.
+    """Refuse unless every listed variant of *run_dir* was made from *tiff_name*.
 
     The run numbering here and in the batch are worked out separately; a stray file in
     either can shift it, and runs of equal length would not reveal that. The batch's own
-    record settles which acquisition a run folder holds.
+    record settles which acquisition a variant holds. A variant without a record is accepted
+    only if it has processed TIFFs and all are named after *tiff_name*, with a warning.
+    Listed variants with no folder were never processed and are not checked, but at least
+    one listed variant must have a folder.
 
     Raises:
-        RunMismatchError: If no variant has a batch record, or one names another TIFF.
+        RunMismatchError: If no listed variant has a folder, a record names another TIFF, or a
+            variant without a record has no TIFFs or one with another name.
     """
-    recorded = {v: name for v, name in batch_source_tiffs(run_dir).items() if v in variants}
-    if not recorded:
-        raise RunMismatchError(
-            f"{run_dir} has no {BATCH_MANIFEST} for {list(variants)}; cannot confirm its TIFF."
-        )
-    wrong = {v: name for v, name in recorded.items() if name != tiff_name}
+    run_dir = Path(run_dir)
+    recorded = batch_source_tiffs(run_dir)
+    wrong = {v: name for v, name in recorded.items() if v in variants and name != tiff_name}
     if wrong:
         raise RunMismatchError(
             f"{run_dir}: the batch made {wrong} from another TIFF than {tiff_name}; the run "
             "numbering disagrees, so these frames would be paired with the wrong acquisition."
         )
+    present = [v for v in variants if (run_dir / v).is_dir()]
+    if not present:
+        raise RunMismatchError(
+            f"{run_dir} has no variant folder among {list(variants)}, so no {BATCH_MANIFEST} "
+            "or TIFF names to confirm its TIFF."
+        )
+    for variant in present:
+        if variant not in recorded:
+            _check_variant_by_names(tiff_name, run_dir, variant)
 
 
 @dataclass(frozen=True)

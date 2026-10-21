@@ -190,3 +190,15 @@ def test_choosing_a_run_that_does_not_exist_names_the_runs_that_do(derivatives):
 def test_a_single_run_name_must_be_given_as_a_collection(derivatives):
     with pytest.raises(TypeError, match="tuple"):
         variant_runs(derivatives, 224, 224, "without_destriping", runs="run-02")
+
+
+def test_a_run_without_a_record_is_pooled_with_one_warning_naming_it(derivatives):
+    variant_dir = (
+        derivatives / "ses-224_date-20260809" / "funcimg" / "run-02" / "without_destriping"
+    )
+    (variant_dir / "source_tiff.json").unlink()
+    (variant_dir / "71rtask_00001_dynamic_bidiphase.tif").write_bytes(b"")
+    with pytest.warns(UserWarning, match="inferred from file names") as caught:
+        _, runs, _ = collect(derivatives)
+    assert [r["run"] for r in runs] == ["run-01", "run-02"]
+    assert len(caught) == 1 and "run-02" in str(caught[0].message)

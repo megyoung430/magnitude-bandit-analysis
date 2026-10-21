@@ -9,7 +9,9 @@ pytest.importorskip("h5py")  # the optional funcimg extra
 from src.funcimg_analysis.frame_times import (
     FRAME_TIMES_FILE,
     RunMismatchError,
+    check_run_source,
     load_frame_times,
+    names_match_source,
     write_frame_times,
 )
 from src.funcimg_analysis.run_responses import VIEWS, pulse_responses
@@ -115,6 +117,75 @@ def test_tiffs_are_found_whatever_the_case_of_their_extension(raw_session):
     assert [r.tiff.name for r in session_run_files(session_dir, "71rtask")][
         1
     ] == "71rtask_00040.TIF"
+
+
+def touch_tiffs(folder, *names):
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (folder / name).write_bytes(b"")
+
+
+DESTRIPED = (
+    "71rtask_00039_dynamic_bidiphase_destriped.tif",
+    "71rtask_00039_dynamic_bidiphase_destriped_undistorted.tif",
+)
+
+
+def test_names_match_a_source_that_is_their_stem_plus_underscore():
+    assert names_match_source("71rtask_00039.tif", ["71rtask_00039_a.tif", "71rtask_00039_b.tif"])
+    assert not names_match_source("71rtask_00039.tif", [])
+    assert not names_match_source(
+        "71rtask_00039.tif", ["71rtask_00039_a.tif", "71rtask_00040_a.tif"]
+    )
+    assert not names_match_source("71rtask_00039.tif", ["71rtask_000390_a.tif"])  # needs the "_"
+
+
+def test_a_variant_with_a_record_is_checked_by_it(tmp_path):
+    write_manifest(tmp_path / "without_destriping", "/raw/71rtask_00039.tif")
+    check_run_source("71rtask_00039.tif", tmp_path, variants=("without_destriping",))
+
+
+def test_a_variant_without_a_record_is_accepted_by_its_tiff_names_with_a_warning(tmp_path):
+    touch_tiffs(tmp_path / "with_destriping", *DESTRIPED)
+    with pytest.warns(UserWarning, match="inferred from file names") as caught:
+        check_run_source("71rtask_00039.tif", tmp_path, variants=("with_destriping",))
+    message = str(caught[0].message)
+    assert tmp_path.name in message and "with_destriping" in message and DESTRIPED[0] in message
+
+
+def test_a_variant_without_a_record_and_with_another_stem_is_refused(tmp_path):
+    touch_tiffs(tmp_path / "with_destriping", DESTRIPED[0], "71rtask_00040_destriped.tif")
+    with pytest.raises(RunMismatchError, match="71rtask_00040_destriped.tif"):
+        check_run_source("71rtask_00039.tif", tmp_path, variants=("with_destriping",))
+
+
+def test_a_variant_without_a_record_or_a_tiff_is_refused(tmp_path):
+    (tmp_path / "with_destriping").mkdir()
+    with pytest.raises(RunMismatchError, match="source_tiff.json"):
+        check_run_source("71rtask_00039.tif", tmp_path, variants=("with_destriping",))
+
+
+def test_apple_double_files_are_not_processed_tiffs(tmp_path):
+    touch_tiffs(tmp_path / "with_destriping", *DESTRIPED, "._" + DESTRIPED[0])
+    with pytest.warns(UserWarning, match="inferred"):
+        check_run_source("71rtask_00039.tif", tmp_path, variants=("with_destriping",))
+
+
+def test_names_do_not_rescue_a_record_naming_another_tiff(tmp_path):
+    write_manifest(tmp_path / "with_destriping", "/raw/71rtask_00040.tif")
+    touch_tiffs(tmp_path / "with_destriping", *DESTRIPED)
+    with pytest.raises(RunMismatchError, match="71rtask_00040.tif"):
+        check_run_source("71rtask_00039.tif", tmp_path)
+
+
+def test_one_variant_by_record_and_the_other_by_names(tmp_path, recwarn):
+    write_manifest(tmp_path / "without_destriping", "/raw/71rtask_00039.tif")
+    touch_tiffs(tmp_path / "without_destriping", "71rtask_00039_dynamic_bidiphase.tif")
+    touch_tiffs(tmp_path / "with_destriping", *DESTRIPED)
+    write_manifest(tmp_path, "/raw/71rtask_00038.tif")  # an older run's record at the top level
+    check_run_source("71rtask_00039.tif", tmp_path)
+    inferred = [w for w in recwarn if "inferred" in str(w.message)]
+    assert len(inferred) == 1 and "with_destriping" in str(inferred[0].message)
 
 
 def outcomes(times, pulses, phase="task"):
