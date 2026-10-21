@@ -19,6 +19,7 @@ from tests.funcimg_reward_fixtures import (
     frame_times,
     make_cells,
     outcomes,
+    small_run,
 )
 
 # --- the response index -------------------------------------------------------------------------
@@ -144,11 +145,43 @@ def planted_run(n_cells=100, n_planted=20, amplitude=1.0, seed=2):
     return make_cells(rng, frames, pulses, n_cells, n_planted, amplitude)
 
 
-def test_on_pure_noise_about_five_percent_of_cells_exceed_their_null():
-    result = run(planted_run(n_cells=300, n_planted=0))["measures"]["dF/F0"]
-    fraction = result["null"]["n_exceed_a"] / 300
-    assert 0.01 < fraction < 0.11
-    assert result["null"]["expected_a"] == pytest.approx(15.0)
+def noise_runs(n_runs=4, n_cells=300):
+    """Null counts of several pure-noise datasets, pooled."""
+    nulls = []
+    for seed in range(n_runs):
+        noise = planted_run(n_cells=n_cells, n_planted=0, seed=seed)
+        nulls.append(run(noise, seed=seed)["measures"]["dF/F0"]["null"])
+    return nulls
+
+
+def test_on_pure_noise_five_to_six_percent_of_cells_exceed_their_null_on_either_half():
+    nulls = noise_runs()
+    n_cells = sum(n["n_cells"] for n in nulls)
+    assert 0.035 < sum(n["n_exceed_a"] for n in nulls) / n_cells < 0.085
+    assert 0.035 < sum(n["n_exceed_b"] for n in nulls) / n_cells < 0.085
+    assert nulls[0]["expected_a"] == pytest.approx(15.0)
+
+
+def test_on_pure_noise_the_cells_chosen_on_half_a_exceed_their_half_b_null_only_by_chance():
+    nulls = noise_runs()
+    chosen = sum(n["n_exceed_a"] for n in nulls)
+    both = sum(n["n_exceed_b_of_a"] for n in nulls)
+    expected = sum(n["expected_b_of_a"] for n in nulls)
+    assert expected == pytest.approx(0.05 * chosen)
+    assert both <= expected + 3 * np.sqrt(expected) + 2  # about 5 % of those chosen, not more
+
+
+def test_at_about_twenty_trials_the_null_stays_calibrated_and_the_halves_are_tiny():
+    exceed, cells = 0, 0
+    for seed in range(12):
+        traces, times, outs = small_run(seed, n_events=20)
+        result = analyse_reward_cells(
+            {"m": traces}, times, outs, rng=np.random.default_rng(seed), **SETTINGS
+        )
+        null = result["measures"]["m"]["null"]
+        exceed, cells = exceed + null["n_exceed_a"], cells + null["n_cells"]
+        assert result["n_trials_by_half"]["a"] == dict.fromkeys(range(5), 2)  # tiny halves
+    assert 0.03 < exceed / cells < 0.09
 
 
 def test_with_planted_responsive_cells_far_more_than_five_percent_exceed():
@@ -178,6 +211,53 @@ def test_cross_validated_top_cells_of_pure_noise_have_no_response_on_the_held_ou
     # 200 cells ranked on the trials they are judged on averages about 0.17; held out, about 0
     assert abs(np.mean(held_out)) < 0.04  # no selection bias
     assert np.mean(selected) > 0.12 and np.mean(selected) > abs(np.mean(held_out)) + 0.08
+
+
+def test_each_half_reports_its_trials_per_pulse_count_and_they_add_up():
+    result = run(planted_run())
+    by_half = result["n_trials_by_half"]
+    assert set(by_half) == {"a", "b"}
+    for pulses, total in result["n_trials"].items():
+        assert by_half["a"][pulses] + by_half["b"][pulses] == total
+        assert abs(by_half["a"][pulses] - by_half["b"][pulses]) <= 1
+    assert set(run(planted_run(), rank_on="all")["n_trials_by_half"]) == {"all"}
+
+
+def test_the_halves_stay_balanced_overall_when_every_pulse_count_has_an_odd_number_of_trials():
+    pulses = np.repeat(np.arange(5), 21)[np.random.default_rng(0).permutation(105)]
+    for seed in range(10):
+        half_a = split_halves(pulses, np.random.default_rng(seed))
+        assert abs(int(half_a.sum()) - int((~half_a).sum())) <= 1  # the extra trials alternate
+
+
+def test_four_vs_zero_needs_three_trials_per_group_in_each_half_and_says_what_to_do():
+    traces, times, outs = small_run(0, n_events=20)  # 4 trials per pulse count: 2 per half
+    settings = {**SETTINGS, "contrast": "4_vs_0"}
+    with pytest.raises(TooFewTrialsError, match="at least 3") as error:
+        analyse_reward_cells({"m": traces}, times, outs, rng=np.random.default_rng(0), **settings)
+    assert "rewarded" in str(error.value) and "more sessions" in str(error.value)
+    ok = analyse_reward_cells(
+        {"m": traces}, times, outs, rng=np.random.default_rng(0), **SETTINGS
+    )  # the rewarded contrast pools 1-4 pulses: 8 trials per half
+    assert ok["contrast"] == "rewarded"
+
+
+def test_the_minimum_is_a_setting():
+    traces, times, outs = small_run(0, n_events=20)
+    settings = {**SETTINGS, "contrast": "4_vs_0"}
+    result = analyse_reward_cells(
+        {"m": traces}, times, outs, rng=np.random.default_rng(0), min_trials_per_group=2, **settings
+    )
+    assert result["contrast"] == "4_vs_0"
+
+
+def test_the_ranked_response_is_the_one_the_index_measures():
+    rewarded = run(planted_run())["measures"]["dF/F0"]
+    np.testing.assert_array_equal(rewarded["ranked_mean"], rewarded["rewarded_mean"])
+    four_zero = run(planted_run(), contrast="4_vs_0")["measures"]["dF/F0"]
+    np.testing.assert_allclose(
+        four_zero["ranked_mean"], four_zero["means"][4] - four_zero["means"][0]
+    )
 
 
 def test_ranking_on_all_trials_plots_all_trials_and_says_it_is_not_cross_validated():
@@ -245,7 +325,7 @@ def test_each_measure_gets_its_own_analysis():
 
 def test_too_few_trials_in_a_half_raise_instead_of_returning_a_noisy_index():
     outs, frames, pulses = outcomes(np.random.default_rng(1), np.array([100, 200, 300, 400]))
-    with pytest.raises(TooFewTrialsError, match="at least 2"):
+    with pytest.raises(TooFewTrialsError, match="at least 3"):
         analyse_reward_cells(
             {"m": np.ones((3, N_FRAMES))},
             frame_times(),

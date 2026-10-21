@@ -42,7 +42,8 @@ from src.funcimg_analysis.shared_signal_null import NULL_PERCENTILE, null_percen
 CONTRASTS = ("rewarded", "4_vs_0")
 RANK_ON = ("split_half", "all")
 CHANCE_FRACTION = 1 - NULL_PERCENTILE / 100  # exceeding a 95th percentile happens 5 % of the time
-MIN_TRIALS_PER_GROUP = 2  # a standard deviation needs two trials
+MIN_TRIALS_FOR_SD = 2  # a standard deviation needs two trials
+DEFAULT_MIN_TRIALS_PER_GROUP = 3  # per group and half; fewer make the index too noisy to rank
 FRAME_TOLERANCE = 1e-9  # s; a frame starting on a range edge belongs to the range
 
 
@@ -154,21 +155,23 @@ def response_index(
         if contrast == "rewarded":
             mean, variance, n = _moments(per_trial[:, use & (pulses >= 1)])
             index = mean / np.sqrt(variance)
-            defined = (n >= MIN_TRIALS_PER_GROUP) & (variance > 0)
+            defined = (n >= MIN_TRIALS_FOR_SD) & (variance > 0)
         else:
             mean_4, var_4, n_4 = _moments(per_trial[:, use & (pulses == 4)])
             mean_0, var_0, n_0 = _moments(per_trial[:, use & (pulses == 0)])
             spread = np.sqrt(var_4 / n_4 + var_0 / n_0)
             index = (mean_4 - mean_0) / spread
-            defined = (n_4 >= MIN_TRIALS_PER_GROUP) & (n_0 >= MIN_TRIALS_PER_GROUP) & (spread > 0)
+            defined = (n_4 >= MIN_TRIALS_FOR_SD) & (n_0 >= MIN_TRIALS_FOR_SD) & (spread > 0)
     return np.where(defined, index, np.nan)
 
 
-def check_enough_trials(pulses: np.ndarray, masks: dict[str, np.ndarray], contrast: str) -> None:
-    """Raise unless every mask has at least two trials in each group the contrast compares.
+def check_enough_trials(
+    pulses: np.ndarray, masks: dict[str, np.ndarray], contrast: str, minimum: int
+) -> None:
+    """Raise unless every mask has at least *minimum* trials in each group the contrast compares.
 
     Raises:
-        TooFewTrialsError: Naming the mask and the group that is short.
+        TooFewTrialsError: Naming the mask and the group that is short, and what to do about it.
     """
     pulses = np.asarray(pulses)
     groups = {
@@ -178,10 +181,16 @@ def check_enough_trials(pulses: np.ndarray, masks: dict[str, np.ndarray], contra
     for name, mask in masks.items():
         for group, in_group in groups[contrast].items():
             n = int((mask & in_group).sum())
-            if n < MIN_TRIALS_PER_GROUP:
+            if n < minimum:
+                advice = (
+                    'use the "rewarded" contrast (it pools the 1-4 pulse trials) or collect more '
+                    "sessions"
+                    if contrast == "4_vs_0"
+                    else "collect more sessions or include more phases"
+                )
                 raise TooFewTrialsError(
-                    f"{n} {group} trial(s) in {name}; the response index needs at least "
-                    f"{MIN_TRIALS_PER_GROUP}."
+                    f"{n} {group} trial(s) in {name} ({contrast}); the response index needs at "
+                    f"least {minimum} per group and half to be rankable: {advice}."
                 )
 
 
@@ -190,21 +199,24 @@ def split_halves(pulses: np.ndarray, rng: np.random.Generator) -> np.ndarray:
 
     Alternating (rather than a random split) pairs each trial with its neighbour in time, so slow
     changes over the run are shared by both halves, and each half gets (nearly) the same number
-    of trials of every pulse count. Which half starts each pulse count is drawn from *rng*.
+    of trials of every pulse count. A pulse count with an odd number of trials gives its extra
+    trial to the half it starts with; the starting half alternates from one pulse count to the
+    next, so the extras balance across the halves. Which half the first pulse count starts with
+    is drawn from *rng*.
 
     Args:
         pulses (np.ndarray): Reward pulses of each trial, in time order.
-        rng (np.random.Generator): Chooses the starting half of every pulse count.
+        rng (np.random.Generator): Chooses the starting half of the first pulse count.
 
     Returns:
         np.ndarray: Boolean per trial, True for half A.
     """
     pulses = np.asarray(pulses)
     half_a = np.zeros(len(pulses), dtype=bool)
-    for category in np.unique(pulses):
+    first = int(rng.integers(2))
+    for k, category in enumerate(np.unique(pulses)):
         trials = np.flatnonzero(pulses == category)
-        start = int(rng.integers(2))
-        half_a[trials] = (np.arange(len(trials)) + start) % 2 == 0
+        half_a[trials] = (np.arange(len(trials)) + first + k) % 2 == 0
     return half_a
 
 
@@ -301,10 +313,13 @@ def _plotted_responses(
     pulses = trials.pulses[plot_mask]
     with quiet_empty_means():
         rewarded_mean = np.nanmean(windows[:, pulses >= 1], axis=1)
+    means = mean_by_category(windows, pulses, PULSE_CATEGORIES)
+    ranked_mean = rewarded_mean if ranges.contrast == "rewarded" else means[4] - means[0]
     return {
-        "means": mean_by_category(windows, pulses, PULSE_CATEGORIES),
+        "means": means,
         "sems": sem_by_category(windows, pulses, PULSE_CATEGORIES),
         "rewarded_mean": rewarded_mean,
+        "ranked_mean": ranked_mean,  # the response the index measures: what the heatmap shows
     }
 
 
@@ -365,6 +380,7 @@ def analyse_reward_cells(
     n_shifts: int,
     min_shift_s: float,
     rng: np.random.Generator,
+    min_trials_per_group: int = DEFAULT_MIN_TRIALS_PER_GROUP,
 ) -> dict:
     """Rank the cells of a run by their reward response, cross-validated, with a shifted null.
 
@@ -383,22 +399,27 @@ def analyse_reward_cells(
         n_shifts (int): Circular shifts of the outcomes for the null.
         min_shift_s (float): Smallest circular shift (s), in both directions.
         rng (np.random.Generator): Draws the split and the shifts.
+        min_trials_per_group (int): Fewest trials of each group the contrast compares, in each
+            half (or in all trials), below which the run is refused. Default 3.
 
     Returns:
         dict: ``period_s``, ``offsets`` (frames of the plotted window), ``pulses``, ``halves``
         (True for half A), ``rank_mask`` and ``plot_mask`` (the trials ranked and plotted),
-        ``rank_on``, ``cross_validated``, ``contrast``, ``n_trials`` and ``n_trials_plot`` per
-        pulse count, ``n_events_dropped``, and per measure under ``measures``: ``index_a`` and
-        ``index_b`` (or ``index_all``), ``rank_index``, ``order`` (cells with a rank index,
-        highest first), ``rank_correlation`` of the two halves, ``null`` (counts above the
-        shifted null, with the counts expected by chance), ``means``, ``sems`` and
-        ``rewarded_mean`` of the plotted trials, and ``flat_cells`` (no scale).
+        ``rank_on``, ``cross_validated``, ``contrast``, ``n_trials``, ``n_trials_plot`` and
+        ``n_trials_by_half`` (``{"a": ..., "b": ...}`` or ``{"all": ...}``) per pulse count,
+        ``n_events_dropped``, and per measure under ``measures``: ``index_a`` and ``index_b``
+        (or ``index_all``), ``rank_index``, ``order`` (cells with a rank index, highest first),
+        ``rank_correlation`` of the two halves, ``null`` (counts above the shifted null, with
+        the counts expected by chance), ``means``, ``sems``, ``rewarded_mean`` and
+        ``ranked_mean`` (the response the index measures: the rewarded mean, or 4-pulse minus
+        0-pulse) of the plotted trials, and ``flat_cells`` (no scale).
 
     Raises:
         ValueError: If *contrast* or *rank_on* is unknown, a range has no frames, or the run is
             too short for the circular shifts.
         RunMismatchError: If a trace's length differs from the frame times'.
-        TooFewTrialsError: If a half has fewer than two trials of a group the contrast needs.
+        TooFewTrialsError: If a half has fewer than *min_trials_per_group* trials of a group the
+            contrast needs.
     """
     if rank_on not in RANK_ON:
         raise ValueError(f"rank_on must be one of {RANK_ON}, not {rank_on!r}.")
@@ -424,7 +445,7 @@ def analyse_reward_cells(
     everything = np.ones(len(pulses), dtype=bool)
     split = rank_on == "split_half"
     masks = {"a": halves, "b": ~halves} if split else {"all": everything}
-    check_enough_trials(pulses, masks, contrast)
+    check_enough_trials(pulses, masks, contrast, min_trials_per_group)
     shifts = shift_offsets(n_frames, math.ceil(min_shift_s / period), n_shifts, rng)
     run_trials = _Trials(index[kept], offset_s[kept] < 0, pulses, masks)
     ranges = _Ranges(window_offsets(pre, post), period, baseline_s, response_s, contrast)
@@ -442,6 +463,7 @@ def analyse_reward_cells(
         "contrast": contrast,
         "n_trials": _trial_counts(pulses, everything),
         "n_trials_plot": _trial_counts(pulses, plot_mask),
+        "n_trials_by_half": {name: _trial_counts(pulses, mask) for name, mask in masks.items()},
         "n_events_dropped": int(len(trials) - len(kept)),
         "measures": {
             name: _analyse_measure(trace, run_trials, ranges, shifts, plot_frames, plot_mask)

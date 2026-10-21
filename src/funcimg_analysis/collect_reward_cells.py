@@ -17,6 +17,7 @@ from src.funcimg_analysis.collect_shared import run_seed
 from src.funcimg_analysis.event_frames import frame_period_s
 from src.funcimg_analysis.reward_cells import (
     CONTRASTS,
+    DEFAULT_MIN_TRIALS_PER_GROUP,
     RANK_ON,
     TooFewTrialsError,
     analyse_reward_cells,
@@ -61,6 +62,7 @@ def collect_reward_cells(
     residual_runs: list[dict] | None = None,
     runs: Collection[str] | None = None,
     seed: int = 0,
+    min_trials_per_group: int = DEFAULT_MIN_TRIALS_PER_GROUP,
 ) -> tuple[list[dict], list[tuple[str, str, str]]]:
     """Rank each run's green cells by reward response, for Suite2p's and the corrected ΔF/F0.
 
@@ -84,6 +86,8 @@ def collect_reward_cells(
         runs (Collection[str] | None): Run folder names to include. Default None, every run.
         seed (int): Seeds the split and the shifts; each run draws its own from the seed and
             its name.
+        min_trials_per_group (int): Fewest trials of each group the contrast compares, in each
+            half; a run with fewer is left out with advice. Default 3.
 
     Returns:
         tuple: One result per run (``analyse_reward_cells`` output plus ``session``, ``run``,
@@ -112,9 +116,12 @@ def collect_reward_cells(
         if BG_CORRECTED in measures:
             if (session, run_dir.name) not in corrected:
                 raise MissingResidualError("no background-corrected ΔF/F0 for this run.")
-            sources[BG_CORRECTED] = lambda: corrected[(session, run_dir.name)]["channels"]["green"][
-                "dff"
-            ]
+            green = corrected[(session, run_dir.name)]["channels"]["green"]
+            if not green["usable"]:
+                raise MissingResidualError(
+                    "no usable cell in the green channel for the background-corrected ΔF/F0."
+                )
+            sources[BG_CORRECTED] = lambda: green["dff"]
         result = analyse_reward_cells(
             {name: sources[name]() for name in measures},
             frames.time_s,
@@ -128,6 +135,7 @@ def collect_reward_cells(
             n_shifts=n_shifts,
             min_shift_s=min_shift_s,
             rng=np.random.default_rng(run_seed(seed, session, run_dir.name)),
+            min_trials_per_group=min_trials_per_group,
         )
         return {
             **result,

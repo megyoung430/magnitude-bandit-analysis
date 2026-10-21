@@ -49,6 +49,7 @@ def residual(derivatives, tmp_path, **overrides):
         ("task",),
         lambda _: outcomes(),
         fit_exclude_window_s=(-0.3, 1.6),
+        detrend_window_s=15.0,
         cache_dir=tmp_path / "cache",
         results_cache_dir=tmp_path / "results",
         **overrides,
@@ -155,3 +156,29 @@ def test_nothing_is_written_beside_the_data(derivatives, tmp_path):
     before = sorted(derivatives.rglob("*"))
     collect(derivatives, tmp_path, residual_runs=residual_runs)
     assert sorted(derivatives.rglob("*")) == before
+
+
+def test_the_minimum_number_of_trials_is_passed_on_and_a_short_run_is_listed_with_advice(
+    derivatives, tmp_path
+):
+    residual_runs = residual(derivatives, tmp_path)
+    ok, _ = collect(derivatives, tmp_path, residual_runs=residual_runs, contrast="4_vs_0")
+    assert len(ok) == 2  # 8 trials per pulse count: 4 per half
+    runs, skipped = collect(
+        derivatives,
+        tmp_path,
+        residual_runs=residual_runs,
+        contrast="4_vs_0",
+        min_trials_per_group=5,
+    )
+    assert runs == [] and "at least 5" in skipped[0][2] and "rewarded" in skipped[0][2]
+
+
+def test_a_run_whose_green_channel_has_no_usable_cell_is_left_out_of_the_corrected_measure(
+    derivatives, tmp_path
+):
+    path = plane_dir(derivatives) / "F.npy"
+    np.save(path, np.random.default_rng(6).normal(0, 0.1, np.load(path).shape))  # dark green
+    runs, skipped = collect(derivatives, tmp_path)
+    assert [r["run"] for r in runs] == ["run-02"]
+    assert skipped[0][1] == "run-01" and "green" in skipped[0][2]
