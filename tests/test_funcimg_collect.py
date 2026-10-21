@@ -210,6 +210,7 @@ def test_pooled_figures_show_robust_z_by_default_and_raw_views_on_request(deriva
     pooled, runs, _ = collect(derivatives)
     fig = plot_pulse_responses(pooled, runs[0]["offsets"], runs[0]["period_s"])
     assert "robust z, baseline-subtracted" in fig.axes[0].get_title()
+    assert "not neuropil-corrected" in fig.axes[0].get_title()
     assert "robust z, baseline-subtracted" in fig.axes[0].get_ylabel()
     plt.close(fig)
     fig = plot_pulse_responses(
