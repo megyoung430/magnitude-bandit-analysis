@@ -12,12 +12,13 @@ problem come from :func:`src.behavior_import.task_types.problem_layout`.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
+from functools import cache
 from pathlib import Path
-from types import MappingProxyType
 
 import matplotlib as mpl
 import numpy as np
+from matplotlib import font_manager
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
@@ -41,18 +42,61 @@ PLATFORM_COLOR = "#e4e9ec"
 LABEL_FONTSIZE = 12
 LEGEND_FONTSIZE = 10
 
-# Applied only while a schematic is drawn and saved; other figures keep the shared style.
-# Arial where installed; Liberation Sans has Arial's letter widths on Linux. Text stays editable
-# in saved PDF and SVG files.
+# Arial where installed; Liberation Sans has Arial's letter widths on Linux; DejaVu Sans ships
+# with matplotlib, so one of them is always found.
 SCHEMATIC_FONTS = ("Arial", "Liberation Sans", "DejaVu Sans")
-SCHEMATIC_RC = MappingProxyType(
-    {
-        "font.family": list(SCHEMATIC_FONTS),
+
+
+def first_installed_font(names: Sequence[str]) -> str:
+    """The first of *names* that matplotlib can find on this machine.
+
+    Args:
+        names (Sequence[str]): Font family names, in order of preference.
+
+    Returns:
+        str: The first installed one.
+
+    Raises:
+        ValueError: If none of them is installed.
+    """
+    for name in names:
+        try:
+            font_manager.findfont(
+                font_manager.FontProperties(family=name), fallback_to_default=False
+            )
+        except ValueError:
+            continue
+        return name
+    raise ValueError(f"none of the fonts {list(names)} is installed")
+
+
+@cache
+def schematic_font() -> str:
+    """The font of all schematic text: the first installed of :data:`SCHEMATIC_FONTS`.
+
+    One name only: matplotlib looks up every name in a family list each time it draws text, and
+    logs a warning for each one that is missing.
+
+    Returns:
+        str: ``"Arial"`` where it is installed.
+    """
+    return first_installed_font(SCHEMATIC_FONTS)
+
+
+def schematic_rc() -> dict:
+    """rcParams applied only while a schematic is drawn and saved; other figures keep theirs.
+
+    Text is in :func:`schematic_font` and stays editable in saved PDF and SVG files.
+
+    Returns:
+        dict: rcParams for ``mpl.rc_context``.
+    """
+    return {
+        "font.family": [schematic_font()],
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
         "svg.fonttype": "none",
     }
-)
 
 
 def _choice_tower_set(choice_towers: Collection[str]) -> frozenset[str]:
@@ -177,7 +221,7 @@ def draw_maze_schematic(
 
     Whoever saves the figure decides how its text is stored. :func:`plot_maze_schematic` keeps
     it editable; when saving a figure of your own, wrap the save in
-    ``mpl.rc_context(SCHEMATIC_RC)`` for the same.
+    ``mpl.rc_context(schematic_rc())`` for the same.
 
     Args:
         choice_towers (Collection[str]): The choice towers, e.g. ``["A2", "B1", "C3"]``.
@@ -194,13 +238,13 @@ def draw_maze_schematic(
         ValueError: As for :func:`port_fills`.
     """
     fills = port_fills(choice_towers, initiation_tower)
-    with mpl.rc_context(SCHEMATIC_RC), axes_or_new(ax, figsize=(4.8, 3.0)) as ax:
+    with mpl.rc_context(schematic_rc()), axes_or_new(ax, figsize=(4.8, 3.0)) as ax:
         _draw_platform(ax)
         for port in ARMS9:
             _draw_tower(ax, port, fills[port])
         if title is not None:
             # the title artist exists before this function, so set its font directly
-            ax.set_title(title, pad=6, fontfamily=list(SCHEMATIC_FONTS))
+            ax.set_title(title, pad=6, fontfamily=[schematic_font()])
         if legend:
             ax.legend(
                 handles=role_legend_handles(),
@@ -241,6 +285,6 @@ def plot_maze_schematic(
     Raises:
         ValueError: As for :func:`port_fills`.
     """
-    with mpl.rc_context(SCHEMATIC_RC):  # the PDF/SVG font embedding is read when saving
+    with mpl.rc_context(schematic_rc()):  # the PDF/SVG font embedding is read when saving
         ax = draw_maze_schematic(choice_towers, initiation_tower, title=title)
         save_or_show(ax.figure, save_path, formats=formats)
