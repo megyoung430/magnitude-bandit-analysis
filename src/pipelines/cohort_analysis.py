@@ -1425,7 +1425,8 @@ def check_exclusion_in_cohorts(
     problems, loaded = [], {}
     for cohort_id in cohort_ids:
         loaded[cohort_id] = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
-        trials = loaded[cohort_id].trials_by_problem
+        # unpacked rather than read by name, so any (trials, log) pair works
+        trials, _ = loaded[cohort_id]
         grouped = regroup_by_task_type(trials, number_within_task_type(trials)) if trials else {}
         try:
             checked_exclusion(_drifting_of(grouped), exclude_mice)
@@ -1469,12 +1470,9 @@ def _run_one_cohort(
         "from_cache": settings.get("from_cache", False),
     }
     if loaded is not None:
-        planning["trials_by_problem"] = loaded.trials_by_problem
-        settings = {
-            **settings,
-            "trials_by_problem": loaded.trials_by_problem,
-            "import_log": loaded.log,
-        }
+        trials, log = loaded
+        planning["trials_by_problem"] = trials
+        settings = {**settings, "trials_by_problem": trials, "import_log": log}
     if dry_run and pooled_only:
         plan = plan_cohort_pooled_only(cohort_id, exclude_mice=exclude_mice, **planning)
         print(f"[PLAN] dry run, nothing written. {plan}")
