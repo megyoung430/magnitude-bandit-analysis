@@ -201,6 +201,14 @@ def stats_line(average: str, unit: str, counts: Sequence[tuple[int, str, str]]) 
     return f"{average} across {unit}, {numbers}"
 
 
+def error_drawn(*errors) -> bool:
+    """Whether any of *errors* (arrays or numbers of SE/SD values) is finite, i.e. drawn.
+
+    A title states "± SE" only when an error bar or band is actually drawn.
+    """
+    return any(np.isfinite(np.asarray(e, dtype=float)).any() for e in errors)
+
+
 class Title(NamedTuple):
     """A figure or panel title split into what is drawn and what goes to the caption.
 

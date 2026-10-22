@@ -19,7 +19,15 @@ from src.behavior_analysis.average_choice_probs import (  # noqa: F401
     compute_curve_from_windows,
     curves_by_problem_from_windows_dict,
 )
-from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
+from src.behavior_visualization.plot_helpers import (
+    Title,
+    axes_or_new,
+    despine,
+    error_drawn,
+    save_or_show,
+    set_title,
+    stats_line,
+)
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR_MAP
 
 _CURVE_LABELS = {"prev_best": "Previous Best", "next_best": "New Best", "third": "Third Arm"}
@@ -161,17 +169,16 @@ def _plot_fraction_removed(ax: plt.Axes, x: np.ndarray, frac_removed: np.ndarray
     return ax2
 
 
-def _figure_title(across: dict, title_extra: str) -> str:
-    title = (
-        "Reversal-Aligned Choices\n"
-        f"(mean ± se across problems | "
-        f"n={across.get('num_subjects', 0)} subjects, "
-        f"n={across.get('num_reversals', 0)} reversals, "
-        f"n={across.get('num_problems', 0)} problems)\n"
-    )
-    if title_extra:
-        title += str(title_extra)
-    return title
+def _figure_title(across: dict, title_extra: str) -> Title:
+    """Heading and statistics on the figure; *title_extra* goes to the caption."""
+    has_se = error_drawn(*across.get("se", {}).values())
+    counts = [
+        (across.get("num_problems", 0), "problem", "problems"),
+        (across.get("num_subjects", 0), "mouse", "mice"),
+        (across.get("num_reversals", 0), "reversal", "reversals"),
+    ]
+    stats = stats_line("mean ± SE" if has_se else "mean", "problems", counts)
+    return Title("Reversal-Aligned Choices", stats, (str(title_extra),) if title_extra else ())
 
 
 def plot_choice_probs_with_fraction_removed_panel(
@@ -189,12 +196,12 @@ def plot_choice_probs_with_fraction_removed_panel(
         across (dict): Averaged across dict from :func:`average_across_problem_curves`, with
             ``"mean"`` and ``"se"`` (each ``{"prev_best", "next_best", "third"}`` to a curve of
             shape ``(n_offsets,)``) and the counts ``"num_subjects"``, ``"num_reversals"``,
-            ``"num_problems"`` used in the title.
+            ``"num_problems"`` stated in the title.
         frac_removed (np.ndarray): Fraction-removed curve from
             :func:`fraction_removed_by_problem`, shape ``(n_offsets,)``.
         ax (plt.Axes | None): Axes to draw into; a new 10 x 6 inch figure is created if
             ``None``. Default None.
-        title_extra (str): Optional extra string appended to the title. Default ``""``.
+        title_extra (str): Optional extra line for the figure's caption. Default ``""``.
 
     Returns:
         plt.Axes: The left (choice-probability) axes; the twin axis shares its figure.
@@ -205,7 +212,7 @@ def plot_choice_probs_with_fraction_removed_panel(
         _plot_choice_curves(ax, x, across)
         _style_choice_axis(ax, x)
         ax2 = _plot_fraction_removed(ax, x, frac_removed)
-        ax.set_title(_figure_title(across, title_extra), pad=20)
+        set_title(ax, _figure_title(across, title_extra), pad=20)
         handles, labels = ax.get_legend_handles_labels()
         handles2, labels2 = ax2.get_legend_handles_labels()
         ax.legend(handles + handles2, labels + labels2, loc="upper left", fontsize=10)
@@ -231,7 +238,7 @@ def plot_choice_probs_with_fraction_removed_axis(
         save_path (str | Path | None): If provided, saves ``.pdf`` and ``.png`` at this path
             (extension-less base). If ``None`` or empty, the figure is shown interactively.
             Default None.
-        title_extra (str): Optional extra string appended to the figure title. Default ``""``.
+        title_extra (str): Optional extra line for the figure's caption. Default ``""``.
     """
     ax = plot_choice_probs_with_fraction_removed_panel(
         x, across, frac_removed, title_extra=title_extra

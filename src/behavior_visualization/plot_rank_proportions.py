@@ -192,7 +192,7 @@ def _draw_line(ax, y, color, label, *, rng, jitter, linewidth, **style):
 
 def _bar_stats(ses, unit, counts, average="mean"):
     """Statistics line of a bar panel: "± SE" only when an error bar is drawn."""
-    shown = f"{average} ± SE" if np.isfinite(np.asarray(ses, dtype=float)).any() else average
+    shown = f"{average} ± SE" if _helpers.error_drawn(ses) else average
     return _helpers.stats_line(shown, unit, counts)
 
 

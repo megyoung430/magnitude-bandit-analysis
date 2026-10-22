@@ -39,6 +39,7 @@ from src.behavior_analysis.cumulative_reversal_removal import (
 )
 from src.behavior_visualization.plot_helpers import (
     Title,
+    error_drawn,
     save_or_show,
     set_suptitle,
     set_title,
@@ -66,17 +67,12 @@ Y_LABEL = "Choice Probability"
 # ---------------------------------------------------------------------------
 
 
-def _has_se(across: dict) -> bool:
-    """Whether any SE band is drawn (an SE needs two or more mice)."""
-    return any(np.isfinite(np.asarray(s, dtype=float)).any() for s in across.get("se", {}).values())
-
-
 def _title(across: dict, caption: tuple[str, ...] = ()) -> Title:
     counts = [
         (across.get("num_subjects", 0), "mouse", "mice"),
         (across.get("num_reversals", 0), "reversal", "reversals"),
     ]
-    average = "mean ± SE" if _has_se(across) else "mean"
+    average = "mean ± SE" if error_drawn(*across.get("se", {}).values()) else "mean"
     return Title("Good Reversal-Aligned Choices", stats_line(average, "mice", counts), caption)
 
 
