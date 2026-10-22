@@ -169,7 +169,7 @@ def test_the_caption_names_the_test_correction_statistics_and_stars():
         "Two-sided Wilcoxon signed-rank tests across mice (n = 8), "
         "Holm-corrected for 3 comparisons: "
     )
-    assert f"Best vs Second W = {bs.statistic:g}, p = 0.008 (corrected 0.023, *)" in text
+    assert f"Best vs Second W = {bs.statistic:g}, p = 0.0078 (corrected 0.023, *)" in text
     assert "Second vs Third W = " in text
     assert "exact" in text
     assert text.endswith("Stars: * p < 0.05, ** p < 0.01, *** p < 0.001; n.s., not significant.")
@@ -199,3 +199,20 @@ def test_untested_comparisons_say_why_in_the_caption():
     text = describe_rank_tests(tests)
     assert "not tested (fewer than 2 mice)" in text
     assert "W =" not in text
+    assert "Stars:" not in text  # no marks are drawn, so there is nothing to explain
+
+
+@pytest.mark.parametrize(
+    ("p", "text"),
+    [
+        (0.0234, "0.023"),
+        (0.0146, "0.015"),
+        (0.00146, "0.0015"),
+        (0.0099, "0.0099"),
+        (0.00049, "< 0.001"),
+    ],
+)
+def test_p_values_below_0_01_keep_two_significant_digits(p, text):
+    from src.behavior_analysis.rank_significance import format_p
+
+    assert format_p(p) == text

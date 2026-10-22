@@ -180,17 +180,20 @@ def minimum_exact_p(n: int) -> float:
 # --- caption text ---------------------------------------------------------------------------
 
 
-def _format_p(p: float) -> str:
-    return "< 0.001" if p < 0.001 else f"{p:.3f}"
+def format_p(p: float) -> str:
+    """*p* for a caption: 3 decimals, 4 below 0.01 (so 0.0015 is not read as 0.001), ``< 0.001``."""
+    if p < 0.001:
+        return "< 0.001"
+    return f"{p:.4f}" if p < 0.01 else f"{p:.3f}"
 
 
 def _phrase(label: str, test: PairedTest, show_n: bool) -> str:
     name = f"{label} (n = {test.n})" if show_n else label
     if not test.tested:
         return f"{name} not tested ({test.reason})"
-    p = _format_p(test.p)
+    p = format_p(test.p)
     p_text = f"p {p}" if p.startswith("<") else f"p = {p}"
-    holm = _format_p(test.p_holm)
+    holm = format_p(test.p_holm)
     return f"{name} W = {test.statistic:g}, {p_text} (corrected {holm}, {test.stars})"
 
 
@@ -222,7 +225,8 @@ def describe_rank_tests(tests: Mapping[str, PairedTest]) -> str:
 
     Returns:
         str: The test, the number of mice, each comparison's W, raw and corrected p and mark,
-        the p-value method, why nothing can be significant when that is so, and the star key.
+        the p-value method, why nothing can be significant when that is so, and the star key
+        (left out when nothing was tested, as no marks are drawn).
     """
     labels = {key: label for key, *_, label in COMPARISONS}
     tested = [t for t in tests.values() if t.tested]
@@ -247,5 +251,6 @@ def describe_rank_tests(tests: Mapping[str, PairedTest]) -> str:
     unreachable = _unreachable_sentence(tested) if tested else None
     if unreachable:
         sentences.append(unreachable)
-    sentences.append(STARS_LEGEND)
+    if tested:
+        sentences.append(STARS_LEGEND)
     return " ".join(sentences)
