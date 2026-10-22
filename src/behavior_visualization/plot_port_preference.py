@@ -29,10 +29,16 @@ from matplotlib.patches import RegularPolygon
 import src.behavior_visualization.plot_style  # noqa: F401  # applies rcParams
 from src.behavior_analysis.poke_events import ARMS9
 from src.behavior_visualization.plot_helpers import (
+    Title,
     axes_or_new,
+    count_text,
     despine,
+    error_drawn,
     mouse_color_map,
     save_or_show,
+    set_suptitle,
+    set_title,
+    stats_line,
 )
 
 # The maze geometry is shared with the other maze heatmaps so the cells line up with them.
@@ -55,10 +61,6 @@ BAR_COLOR = "#9db4c0"
 UNDEFINED_COLOR = "#d9d9d9"
 DIVERGING_CMAP = "RdBu_r"
 MIN_LOG2_LIMIT = 1.0  # the colour scale always spans at least a factor of 2 either way
-
-
-def _mice_phrase(n_mice: int) -> str:
-    return f"{n_mice} mouse" if n_mice == 1 else f"{n_mice} mice"
 
 
 # ---------------------------------------------------------------- X versus plus bars
@@ -118,15 +120,15 @@ def plot_category_ratios(
     mouse_legend: bool = True,
     save_path: str | Path | None = None,
 ) -> None:
-    """One-panel figure of :func:`plot_category_ratios_panel`; saves PNG and PDF or shows.
+    """One-panel figure of :func:`plot_category_ratios_panel`; saves it (with its caption) or shows.
 
     Args:
         per_mouse (pd.DataFrame): As for :func:`plot_category_ratios_panel`; also holds the
             excluded mice, whose ratios are NaN.
         summary (pd.DataFrame): As for :func:`plot_category_ratios_panel`.
-        scope_label (str): Names the data in the title, e.g. ``"all drifting problems"``.
-        n_excluded (int): Mice left out because only one category was offered to them; the title
-            says so and they are not counted in n. Default 0.
+        scope_label (str): Names the data in the caption, e.g. ``"all drifting problems"``.
+        n_excluded (int): Mice left out because only one category was offered to them; the
+            caption says so and they are not counted in n. Default 0.
         mouse_legend (bool): List the mice by name next to the plot. Switch off for many mice;
             their lines are still drawn. Default True.
         save_path (str | Path | None): Base path without extension; None shows the figure.
@@ -142,14 +144,14 @@ def plot_category_ratios(
     n_included = n_mice - n_excluded
     ax = plot_category_ratios_panel(per_mouse, summary)
     fig = ax.figure
-    average = "mean ± se" if n_included >= 2 else "mean"
-    title = (
-        f"Port Preference: X vs Plus [{scope_label}]\n"
-        f"({average} across mice | n={_mice_phrase(n_included)})"
-    )
+    average = "mean ± SE" if error_drawn(summary["se"]) else "mean"
+    caption = [f"Data: {scope_label}."]
     if n_excluded:
-        title += f"\n{_mice_phrase(n_excluded)} excluded: only one category offered"
-    ax.set_title(title, pad=12)
+        caption.append(
+            f"{count_text(n_excluded, 'mouse', 'mice')} excluded: only one category offered."
+        )
+    stats = stats_line(average, "mice", [(n_included, "mouse", "mice")])
+    set_title(ax, Title("Port Preference: X vs Plus", stats, tuple(caption)), pad=12)
     if mouse_legend and n_included:  # excluded mice have no line to label
         ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False, title="Mouse")
     fig.tight_layout()
@@ -282,7 +284,7 @@ def _add_log2_colorbar(fig: plt.Figure, axes, limit: float) -> None:
 
 
 def _outline_note(current_ports, previous_ports) -> str:
-    """The outline key for the heatmap title: blue always, green and red when drawn."""
+    """The outline key for the heatmap caption: blue always, green and red when drawn."""
     parts = []
     if current_ports:
         parts.append("green = choice ports")
@@ -301,12 +303,12 @@ def plot_port_ratio_heatmaps(
     current_ports: Mapping[str, Collection[str]] | None = None,
     previous_ports: Mapping[str, Collection[str] | None] | None = None,
 ) -> None:
-    """One maze heatmap per mouse on a shared log2 scale; saves PNG and PDF or shows.
+    """One maze heatmap per mouse on a shared log2 scale; saves it (with its caption) or shows.
 
     Args:
         port_ratios (pd.DataFrame): Columns ``mouse``, ``port``, ``ratio``, ``n_trials``: all
             nine ports for every mouse (``add_ratio`` of the pooled per-port counts).
-        scope_label (str): Names the data in the title, e.g. ``"problem-03"``.
+        scope_label (str): Names the data in the caption, e.g. ``"problem-03"``.
         save_path (str | Path | None): Base path without extension; None shows the figure.
         initiation_ports (Mapping[str, set[str]] | None): ``{mouse: initiation ports}`` to
             outline in blue. Default None: no outlines.
@@ -342,12 +344,12 @@ def plot_port_ratio_heatmaps(
         for j in range(len(mice), nrows * ncols):
             axes[j // ncols, j % ncols].axis("off")
         _add_log2_colorbar(fig, axes.ravel().tolist(), limit)
-        fig.suptitle(
-            f"Port Preference Per Mouse [{scope_label}]\n"
-            f"({Y_LABEL} | grey: n/a = never offered, no best = never best | "
-            f"{_outline_note(current_ports, previous_ports)} | n={_mice_phrase(len(mice))})",
-            fontsize=11,
+        caption = (
+            f"Data: {scope_label}; {count_text(len(mice), 'mouse', 'mice')}.",
+            f"Colour: {Y_LABEL}; grey: n/a = never offered, no best = never best.",
+            f"Outlines: {_outline_note(current_ports, previous_ports)}.",
         )
+        set_suptitle(fig, Title("Port Preference Per Mouse", None, caption), fontsize=11)
     except BaseException:
         plt.close(fig)
         raise
