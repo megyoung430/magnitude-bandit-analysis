@@ -542,3 +542,14 @@ def test_the_script_hands_the_cohorts_to_the_pipeline(script, monkeypatch):
     assert seen["cohorts"] == [1, 3] and seen["use_cache"] is False
     script.main(["--cohorts", "4"])
     assert seen["use_cache"] is True
+
+
+def test_the_script_passes_paper_ready_to_the_pipeline(script, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        script, "run_all_cohorts_drifting", lambda cohorts, **kw: seen.update(cohorts=cohorts, **kw)
+    )
+    script.main(["--cohorts", "1", "3", "--paper-ready"])
+    assert seen["paper_ready"] is True
+    script.main(["--cohorts", "1"])
+    assert seen["paper_ready"] is False
