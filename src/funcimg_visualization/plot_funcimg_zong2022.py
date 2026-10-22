@@ -8,6 +8,7 @@ other imaging figures.
 import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy import ndimage
 
 from src.funcimg_analysis.event_frames import mean_by_category, sem_by_category
 from src.funcimg_visualization.plot_funcimg_responses import (
@@ -22,9 +23,13 @@ TRACE_TITLES = {"dff_clear": "ΔF/F clear", "e_clear": "E clear (scaled events)"
 GROUP_TITLES = {"snr_pass": "cells with SNR above threshold", "all": "all cells"}
 
 
-def zong2022_png_name(kind: str, file_tag: str, run_tag: str, variant: str) -> str:
-    """File name of a figure: ``<kind>_<file tag>_<session>_<run>_<variant>.png``."""
-    return f"{kind}_{file_tag}_{run_tag}_{variant}.png"
+def zong2022_png_name(kind: str, tag: str, variant: str) -> str:
+    """File name of a figure: ``<kind>_<tag>_<variant>.png``.
+
+    *tag* is the pooled tag for figures over all runs and the run's own tag for per-run figures,
+    so a name never carries both.
+    """
+    return f"{kind}_{tag}_{variant}.png"
 
 
 def _axis(ax, figsize):
@@ -175,17 +180,17 @@ def plot_score_vs_null(table, kind: str, ax=None, title: str = ""):
     return ax.figure
 
 
-def _fov(ax, mean_image, labels, rois, colors):
+def _fov(ax, mean_image, labels, rois, names, colors):
     low, high = np.nanpercentile(mean_image, [1, 99.5])
     ax.imshow(mean_image, cmap="gray", vmin=low, vmax=high)
-    for roi, color in zip(rois, colors, strict=True):
+    for roi, name, color in zip(rois, names, colors, strict=True):
         edge = outline(np.where(labels == roi + 1, labels, 0))
         overlay = np.zeros((*labels.shape, 4))
         overlay[edge] = matplotlib.colors.to_rgba(color)
         ax.imshow(overlay)
         ys, xs = np.nonzero(labels == roi + 1)
         if len(ys):
-            ax.text(xs.mean(), ys.mean(), str(roi), color=color, fontsize=6, ha="center")
+            ax.text(xs.mean(), ys.mean(), str(name), color=color, fontsize=6, ha="center")
     ax.set_axis_off()
     ax.set_title("Mean image; cells outlined")
 
@@ -218,7 +223,8 @@ def plot_top_responsive(
         offsets: Window offsets in frames.
         period_s (float): Frame period.
         mean_image (np.ndarray): Image for the field of view.
-        labels (np.ndarray): ROI label image (ROI ``i`` drawn as ``i + 1``).
+        labels (np.ndarray): ROI label image, row ``i`` of the traces drawn as ``i + 1``.
+            Cells are named by the table's ``cellpose_label`` column.
         x_units (str): ``"s"`` or ``"frames"``.
         title (str): Figure title.
     """
@@ -240,15 +246,16 @@ def plot_top_responsive(
                             color=PULSE_COLORS[p], alpha=0.2, lw=0)  # fmt: skip
         ax.axvline(0, color="0.5", lw=0.8, ls="--")
         row = table.iloc[roi]
-        ax.set_title(f"ROI {roi} | SNR {row['snr']:.1f} | score {row[f'{kind}_score']:.2f}",
-                     fontsize=9, color=color)  # fmt: skip
+        name = f"ROI {table['cellpose_label'].iloc[roi]} | SNR {row['snr']:.1f}"
+        ax.set_title(f"{name} | score {row[f'{kind}_score']:.2f}", fontsize=9, color=color)
         if k // n_cols == n_rows - 1:
             ax.set_xlabel(xlabel)
         if k % n_cols == 0:
             ax.set_ylabel("ΔF/F clear")
         if k == 0:
             ax.legend(title="pulses", frameon=False, fontsize=7, ncols=2)
-    _fov(fig.add_subplot(grid[:, n_cols:]), mean_image, labels, rois, colors)
+    names = [table["cellpose_label"].iloc[roi] for roi in rois]
+    _fov(fig.add_subplot(grid[:, n_cols:]), mean_image, labels, rois, names, colors)
     fig.suptitle(title or f"Most responsive cells ({kind.replace('_', ' ')})")
     return fig
 
@@ -300,34 +307,41 @@ def plot_motion_summary(drift, offsets: dict, nonrigid: np.ndarray | None, perio
     return ax_pc.figure
 
 
-def plot_zdrift(i_top, i_bottom, labels: np.ndarray, pcs, n_cols: int = 3, title: str = ""):
-    """Ibottom - Itop of chosen PCs with the ROI outlines, one panel per PC.
+def plot_zdrift(i_top, i_bottom, labels: np.ndarray, pcs, n_cols: int = 2, title: str = ""):
+    """Ibottom - Itop of chosen PCs, each as a plain panel and a panel with the ROI contours.
 
     If a cell's nucleus and cytoplasm have opposite signs (one light, one dark) the difference
-    cannot be calcium and points to z drift; both should brighten and dim together.
+    cannot be calcium and points to z drift; both should brighten and dim together. The plain
+    panel shows the pixels untouched; the other has a thin contour just outside each ROI, so the
+    ROI's own pixels stay visible.
 
     Args:
         i_top: ``(n_pcs, Ly, Lx)`` mean of the highest-scoring frames of each PC.
         i_bottom: Same, lowest-scoring frames.
         labels (np.ndarray): ROI label image cut to the same crop as the images.
         pcs: 0-based PCs to draw.
-        n_cols (int): Panels per row.
+        n_cols (int): PCs per row; each takes two panels.
         title (str): Figure title.
     """
     pcs = list(pcs)
     n_rows = int(np.ceil(len(pcs) / n_cols))
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows), squeeze=False,
-                             constrained_layout=True)  # fmt: skip
-    edge = outline(labels)
+    fig, axes = plt.subplots(n_rows, 2 * n_cols, figsize=(5 * 2 * n_cols, 5 * n_rows),
+                             squeeze=False, constrained_layout=True)  # fmt: skip
+    # one pixel of dilation puts the 0.5 contour 1.5 px outside the ROI edge
+    ring = ndimage.binary_dilation(labels > 0).astype(float)
     for ax in axes.reshape(-1):
         ax.set_axis_off()
-    for ax, pc in zip(axes.reshape(-1), pcs, strict=False):
+    for k, pc in enumerate(pcs):
+        plain, outlined = (
+            axes[k // n_cols, 2 * (k % n_cols)],
+            axes[k // n_cols, 2 * (k % n_cols) + 1],
+        )
         diff = np.asarray(i_bottom[pc], float) - np.asarray(i_top[pc], float)
         limit = np.nanpercentile(np.abs(diff), 99.5) or 1.0
-        ax.imshow(diff, cmap="gray", vmin=-limit, vmax=limit)
-        overlay = np.zeros((*edge.shape, 4))
-        overlay[edge] = (1.0, 0.8, 0.0, 0.7)
-        ax.imshow(overlay)
-        ax.set_title(f"PC {pc + 1}: Ibottom - Itop")
+        for ax in (plain, outlined):
+            ax.imshow(diff, cmap="gray", vmin=-limit, vmax=limit)
+        plain.set_title(f"PC {pc + 1}: Ibottom - Itop")
+        outlined.contour(ring, levels=[0.5], colors=[(1.0, 0.8, 0.0)], linewidths=0.6)
+        outlined.set_title(f"PC {pc + 1}: with ROI outlines")
     fig.suptitle(title or "z-drift review: nucleus and cytoplasm should not have opposite signs")
     return fig

@@ -6,6 +6,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
 pytest.importorskip("mini2p_preprocessing")  # the run fixture needs the funcimg extra
@@ -50,19 +51,36 @@ def image_axes(fig):
     return [ax for ax in fig.axes if ax.images]
 
 
-def test_the_png_name_carries_kind_tag_run_and_variant():
-    name = zong2022_png_name("clear_responses", "ses-224-224_run-01", "ses-224_run-01", "v")
-    assert name == "clear_responses_ses-224-224_run-01_ses-224_run-01_v.png"
+def test_the_png_name_carries_kind_one_tag_and_variant():
+    name = zong2022_png_name("clear_responses", "ses-224-224_run-01", "v")
+    assert name == "clear_responses_ses-224-224_run-01_v.png"
 
 
-def test_zdrift_has_one_panel_per_requested_pc(result):
+def test_zdrift_gives_each_pc_a_plain_panel_and_a_panel_with_contours(result):
     motion = result["motion"]
     y0, y1, x0, x1 = motion["crop"]
     labels = result["labels"][y0:y1, x0:x1]
     fig = plot_zdrift(motion["i_top"], motion["i_bottom"], labels, pcs=[0, 1, 2], n_cols=2)
-    assert len(image_axes(fig)) == 3  # one panel per PC, each with the outline overlay
-    titled = [ax.get_title() for ax in fig.axes if ax.get_title()]
-    assert titled == ["PC 1: Ibottom - Itop", "PC 2: Ibottom - Itop", "PC 3: Ibottom - Itop"]
+    panels = image_axes(fig)
+    assert len(panels) == 6
+    plain = [ax for ax in panels if not ax.collections]
+    outlined = [ax for ax in panels if ax.collections]
+    assert len(plain) == 3 and len(outlined) == 3  # contours are line collections, not images
+    assert all(len(ax.images) == 1 for ax in panels)  # nothing is drawn over the image pixels
+    assert [ax.get_title() for ax in plain] == [f"PC {k}: Ibottom - Itop" for k in (1, 2, 3)]
+    assert all("outlines" in ax.get_title() for ax in outlined)
+
+
+def test_zdrift_contours_lie_just_outside_the_rois_not_on_their_pixels():
+    labels = np.zeros((40, 40), int)
+    labels[15:25, 15:25] = 1
+    image = np.random.default_rng(0).normal(size=(1, 40, 40))
+    fig = plot_zdrift(image, image * 0, labels, pcs=[0])
+    (outlined,) = [ax for ax in image_axes(fig) if ax.collections]
+    paths = [path for c in outlined.collections for path in c.get_paths()]
+    x, y = np.vstack([path.vertices for path in paths]).T
+    inside = (x > 14.5) & (x < 24.5) & (y > 14.5) & (y < 24.5)
+    assert not inside.any()  # the contour surrounds the ROI (pixels 15..24), it does not cross it
 
 
 def test_zdrift_shows_the_difference_of_the_two_images_symmetrically(result):
@@ -100,6 +118,21 @@ def test_motion_summary_has_three_panels_and_handles_missing_nonrigid_shifts(res
         motion["drift"], motion["offsets"], nonrigid_motion(xoff1, xoff1), 0.133
     )
     assert len(fig2.axes[2].lines) == 1
+
+
+def test_top_responsive_names_cells_by_their_cellpose_label():
+    table = pd.DataFrame({"snr": [5.0, 6.0], "cellpose_label": [3, 7], "reward_score": [0.4, 0.8]})
+    labels = np.zeros((20, 20), int)
+    labels[2:6, 2:6], labels[10:14, 10:14] = 1, 2  # renumbered by row
+    windows = np.random.default_rng(0).normal(size=(2, 4, 30))
+    fig = plot_top_responsive(
+        windows, np.array([0, 1, 2, 3]), [1], table, "reward", np.arange(-10, 20), 0.133,
+        np.random.default_rng(1).random((20, 20)), labels,
+    )  # fmt: skip
+    titles = [ax.get_title() for ax in fig.axes if ax.get_title().startswith("ROI")]
+    assert titles == ["ROI 7 | SNR 6.0 | score 0.80"]  # row 1 is Cellpose label 7
+    numbers = [t.get_text() for ax in fig.axes for t in ax.texts]
+    assert numbers == ["7"]
 
 
 def test_top_responsive_titles_carry_the_snr_and_the_score(result):
