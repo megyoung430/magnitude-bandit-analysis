@@ -15,14 +15,10 @@ mice; those are in the cohort folders. See src/pipelines/all_cohorts_drifting.py
 --exclude-mice also writes the same analyses without the named mice (of any of the cohorts) into
 all-cohorts-without-<mice>/ next to all-cohorts/, every figure marked "without <mice>".
 
---paper-ready also draws every figure in a Nature/Cell style (pdf, svg, png and a caption file)
-into results/figures/open-field/paper-ready/all-cohorts[-without-<mice>]/.
-
 --from-cache loads each cohort from its newest cached import without reading the server (for
 when it is unmounted or unreachable); sessions added since then are missing:
 
-    uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 \\
-        --paper-ready --from-cache
+    uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 --from-cache
 """
 
 import argparse
@@ -58,11 +54,6 @@ def parse_args(argv=None) -> argparse.Namespace:
         metavar="MOUSE",
         help="also write the pool without these mice into all-cohorts-without-<mice>/",
     )
-    parser.add_argument(
-        "--paper-ready",
-        action="store_true",
-        help="also draw the figures in the Nature/Cell style into figures/open-field/paper-ready/",
-    )
     return parser.parse_args(argv)
 
 
@@ -76,7 +67,6 @@ def main(argv=None) -> None:
             use_cache=not args.no_cache,
             from_cache=args.from_cache,
             exclude_mice=args.exclude_mice,
-            paper_ready=args.paper_ready,
         )
     except ExcludedMiceError as err:
         # a wrong mouse name is a usage error: one line, no traceback

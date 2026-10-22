@@ -6,7 +6,6 @@ from src.behavior_import.import_log import CacheSource, ImportLog
 from src.pipelines.cache_provenance import (
     FROM_CACHE_FILE,
     cache_sources,
-    from_cache_caption,
     from_cache_description,
     write_from_cache_notes,
 )
@@ -38,23 +37,6 @@ def test_the_description_lists_each_cohort():
     (three,) = [line for line in text.splitlines() if line.startswith("cohort-03")]
     assert "current import code" in three and "last 3 path parts" in three
     assert "port_finding_sessions" in three
-
-
-def test_the_caption_of_one_cohort_gives_its_date():
-    caption = from_cache_caption({"cohort-03": source()})
-    assert caption == "Data from the cached import of 2026-10-01; sessions added since are missing."
-
-
-def test_the_caption_of_several_cohorts_gives_each_date():
-    caption = from_cache_caption({"cohort-01": source(OCT_5), "cohort-03": source()})
-    assert caption == (
-        "Data from the cached imports of 2026-10-05 (cohort-01), 2026-10-01 (cohort-03); "
-        "sessions added since are missing."
-    )
-
-
-def test_no_sources_give_no_caption():
-    assert from_cache_caption({}) is None
 
 
 def test_the_note_is_written_into_each_folder_and_removed_by_a_run_from_the_server(tmp_path):

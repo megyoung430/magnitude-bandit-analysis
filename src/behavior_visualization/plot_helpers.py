@@ -19,11 +19,7 @@ import numpy as np
 import pandas as pd
 from matplotlib._pylab_helpers import Gcf  # private matplotlib API; may need updating on an upgrade
 
-from src.behavior_visualization.paper_style import PAPER_DPI, in_paper_mode, polish
 from src.behavior_visualization.plot_style import MOUSE_COLORS
-
-# Formats of a paper-ready figure: vector for editing, PNG for quick looks.
-PAPER_FORMATS = ("pdf", "svg", "png")
 
 # Dots per inch by file format; a format not listed here is saved at matplotlib's default.
 DEFAULT_DPI = MappingProxyType({"png": 300})
@@ -167,30 +163,6 @@ def current_figure_banner() -> str | None:
     return _FIGURE_BANNER.get()
 
 
-# Set only by caption_note; a line added to every paper-ready caption written inside it.
-_CAPTION_NOTE: ContextVar[str | None] = ContextVar("caption_note", default=None)
-
-
-@contextmanager
-def caption_note(text: str | None) -> Iterator[None]:
-    """End the caption of every paper-ready figure saved inside the block with *text*.
-
-    For facts about a whole run that belong with each figure but not on it (e.g. that its data
-    come from an old cached import). Blocks nest; the innermost text wins.
-
-    Args:
-        text (str | None): The caption line; ``None`` adds nothing.
-
-    Yields:
-        None: Use as ``with caption_note(line): ...``.
-    """
-    token = _CAPTION_NOTE.set(text)
-    try:
-        yield
-    finally:
-        _CAPTION_NOTE.reset(token)
-
-
 @contextmanager
 def _banner_drawn(fig: plt.Figure) -> Iterator[None]:
     """Draw the active banner on *fig* for the block and take it off again afterwards."""
@@ -206,36 +178,10 @@ def _banner_drawn(fig: plt.Figure) -> Iterator[None]:
         banner.remove()
 
 
-def _write_paper_files(fig: plt.Figure, base: str | Path) -> list[Path]:
-    """Polish *fig* and save it as pdf, svg and png plus ``<base>.caption.txt``.
-
-    The scope banner, every title that polish moves out of the figure and the active
-    :func:`caption_note` are written to the caption file, which is also written (empty) when
-    there is nothing to say, so each figure has one. Returns the three figure paths.
-    """
-    caption = polish(fig, banner=current_figure_banner())
-    note = _CAPTION_NOTE.get()
-    if note:
-        caption = f"{caption}\n{note}" if caption else note
-    paths = []
-    for fmt in PAPER_FORMATS:
-        path = Path(f"{base}.{fmt}")
-        fig.savefig(path, dpi=PAPER_DPI, bbox_inches="tight", pad_inches=0.02)
-        paths.append(path)
-    Path(f"{base}.caption.txt").write_text(caption)
-    return paths
-
-
 def _write_figure_files(
     fig: plt.Figure, base: str | Path, formats: Iterable[str], dpi: Mapping[str, int]
 ) -> list[Path]:
-    """Save *fig* as ``<base>.<format>`` for each of *formats*, in order; return the paths.
-
-    Inside :func:`~src.behavior_visualization.paper_style.paper_figures` the figure is instead
-    polished and written in the paper formats, whatever *formats* and *dpi* say.
-    """
-    if in_paper_mode():
-        return _write_paper_files(fig, base)
+    """Save *fig* as ``<base>.<format>`` for each of *formats*, in order; return the paths."""
     paths = []
     with _banner_drawn(fig):
         for fmt in formats:

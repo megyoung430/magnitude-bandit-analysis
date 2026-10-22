@@ -286,12 +286,9 @@ class RankRecorder:
 
     def __init__(self, monkeypatch):
         self.windows_calls, self.count_calls, self.p_calls = [], [], []
-        self.proportion_calls, self.significance_calls = [], []
         monkeypatch.setattr(cohort_analysis, "get_good_reversal_info", self.windows)
         monkeypatch.setattr(cohort_analysis, "get_rank_counts_by_value", self.counts)
         monkeypatch.setattr(cohort_analysis, "pvalue_paired_t_best_vs_second_vs_third", self.p)
-        monkeypatch.setattr(cohort_analysis, "proportions_by_mouse", self.proportions)
-        monkeypatch.setattr(cohort_analysis, "rank_comparison_tests", self.significance)
 
     def windows(self, trials, include_first_block):
         assert include_first_block is True
@@ -307,14 +304,6 @@ class RankRecorder:
     def p(self, counts, pool_trials_within_subject):
         self.p_calls.append((counts, pool_trials_within_subject))
         return {"best_vs_second": 0.5}
-
-    def proportions(self, counts, pool_trials_within_subject):
-        self.proportion_calls.append((counts, pool_trials_within_subject))
-        return {"proportions-of": (pool_trials_within_subject,)}
-
-    def significance(self, per_mouse):
-        self.significance_calls.append(per_mouse)
-        return {"tests-of": per_mouse}
 
 
 def test_pooled_drifting_ranks_are_computed_within_each_problem_then_combined(monkeypatch):
@@ -339,12 +328,7 @@ def test_pooled_drifting_ranks_cover_both_bases_and_modes_with_p_values(monkeypa
     for basis in results:
         assert set(results[basis]) == {True, False}
         assert results[basis][True]["p_values"] == {"best_vs_second": 0.5}
-        # the paper-ready Wilcoxon tests use the per-mouse proportions of the same pooling mode
-        for mode in (True, False):
-            assert results[basis][mode]["significance"] == {"tests-of": {"proportions-of": (mode,)}}
     assert [mode for _, mode in rec.p_calls] == [True, False, True, False]
-    assert [mode for _, mode in rec.proportion_calls] == [True, False, True, False]
-    assert [counts for counts, _ in rec.proportion_calls] == [c for c, _ in rec.p_calls]
 
 
 def test_pooled_drifting_ranks_skip_a_basis_without_windows(monkeypatch):
