@@ -12,10 +12,13 @@ from src.funcimg_analysis import zong2022_io  # noqa: E402
 from src.funcimg_analysis.zong2022_io import (  # noqa: E402
     aligned_labels,
     cached,
+    code_version,
+    default_diameter_px,
     extract_channels,
     file_signature,
     read_frames,
     registration_offsets,
+    renumber_labels,
     seg_paths,
     stat_from_labels,
     write_derivatives,
@@ -249,3 +252,65 @@ def test_extraction_cache_is_keyed_on_the_inputs_files(tmp_path, plane, monkeypa
     os.utime(plane_dir / "data.bin", ns=(stamp, stamp))
     zong2022_io.extract_cached(labels, plane_dir, 12, cache)
     assert len(calls) == 2
+
+
+# --- row numbers and Cellpose labels -------------------------------------------
+
+
+def test_labels_with_gaps_are_renumbered_consecutively_keeping_the_originals():
+    labels = np.zeros((10, 10), int)
+    labels[1:3, 1:3], labels[4:6, 4:6], labels[7:9, 7:9] = 1, 3, 4
+    renumbered, original = renumber_labels(labels)
+    assert original.tolist() == [1, 3, 4]
+    assert sorted(np.unique(renumbered[renumbered > 0])) == [1, 2, 3]
+    assert (renumbered[labels == 3] == 2).all() and (renumbered[labels == 4] == 3).all()
+    assert (renumbered[labels == 0] == 0).all()
+
+
+def test_extraction_rows_follow_the_renumbered_labels(plane):
+    plane_dir, movie = plane
+    labels = three_square_labels()
+    labels = np.select([labels == 2, labels == 3], [3, 7], default=labels)  # labels 1, 3, 7
+    renumbered, original = renumber_labels(labels)
+    assert original.tolist() == [1, 3, 7]
+    ops = np.load(plane_dir / "ops.npy", allow_pickle=True).item()
+    out = extract_channels(stat_from_labels(renumbered, ops, 12), ops, plane_dir)
+    assert out["f"].shape[0] == 3
+    # row k is the k-th square: the pixel values grow with y and x, so rows order by position
+    squares = [(10, 18, 10, 18), (30, 40, 30, 38), (50, 58, 55, 63)]
+    for row, (y0, y1, x0, x1) in enumerate(squares):
+        np.testing.assert_allclose(
+            out["f"][row], movie[:, y0:y1, x0:x1].mean(axis=(1, 2)), rtol=0.03
+        )
+
+
+def test_the_roi_diameter_is_mini2ps_default_not_a_copy_of_it():
+    from mini2p_preprocessing.config import RegistrationSettings
+
+    assert default_diameter_px() == RegistrationSettings().diameter_px
+
+
+def test_code_version_refuses_a_missing_module():
+    with pytest.raises(FileNotFoundError, match="nope.py"):
+        code_version(("nope.py",))
+
+
+def test_the_cache_key_changes_with_the_library_versions(tmp_path, monkeypatch):
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return {"v": 1}
+
+    cached(tmp_path, "extraction", {"a": 1}, compute)
+    monkeypatch.setattr(zong2022_io, "library_versions", lambda: {"suite2p": "9.9"})
+    cached(tmp_path, "extraction", {"a": 1}, compute)
+    assert len(calls) == 2
+
+
+def test_each_cache_depends_only_on_the_modules_that_affect_it():
+    assert zong2022_io.CACHE_CODE["extraction"] == ("zong2022_io.py",)
+    assert "zong2022_signal.py" not in zong2022_io.CACHE_CODE["extraction"]
+    assert "zong2022_signal.py" in zong2022_io.CACHE_CODE["signal"]
+    with pytest.raises(KeyError):
+        cached("/nonexistent", "unknown-kind", {}, dict)

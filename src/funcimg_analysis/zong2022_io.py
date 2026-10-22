@@ -6,7 +6,9 @@ extracted traces go to a disposable cache in the repo and, only on request, to a
 folder beside ``suite2p``.
 """
 
+import functools
 import hashlib
+import importlib.metadata
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -19,14 +21,37 @@ from src.funcimg_analysis.shared_cache import cached_result
 CACHE_ROOT = "zong2022"
 DERIVATIVES_FOLDER = "zong2022"
 OFFSET_KEYS = ("xoff", "yoff", "xoff1", "yoff1")
-_CODE_FILES = ("zong2022_io.py", "zong2022_motion.py", "zong2022_signal.py", "zong2022_run.py")
-CODE_VERSION = hashlib.sha256(
-    b"".join(
-        (Path(__file__).parent / name).read_bytes()
-        for name in _CODE_FILES
-        if (Path(__file__).parent / name).is_file()
-    )
-).hexdigest()
+# The modules whose source decides each cache's contents; editing any of them invalidates it.
+CACHE_CODE = {
+    "extraction": ("zong2022_io.py",),
+    "signal": ("zong2022_signal.py", "zong2022_run.py"),
+    "motion": ("zong2022_io.py", "zong2022_motion.py", "zong2022_run.py"),
+}
+
+
+@functools.cache
+def code_version(names: tuple[str, ...]) -> str:
+    """A hash of the source of the named modules of this package.
+
+    Raises:
+        FileNotFoundError: If a named module does not exist (a renamed module must not silently
+            drop out of the cache key).
+    """
+    sources = []
+    for name in names:
+        path = Path(__file__).parent / name
+        if not path.is_file():
+            raise FileNotFoundError(f"Cache key names {name}, but {path} does not exist.")
+        sources.append(path.read_bytes())
+    return hashlib.sha256(b"".join(sources)).hexdigest()
+
+
+def library_versions() -> dict[str, str]:
+    """Versions of the libraries whose behaviour the cached results depend on."""
+    return {
+        "suite2p": importlib.metadata.version("suite2p"),
+        "mini2p": importlib.metadata.version("mini2p-preprocessing"),
+    }
 
 
 # ---- Cellpose masks ----------------------------------------------------------------------------
@@ -44,6 +69,31 @@ def seg_paths(run_dir) -> tuple[Path, Path]:
     fields = BatchSettings.model_fields
     run_dir = Path(run_dir)
     return run_dir / fields["cellpose_seg"].default, run_dir / fields["cellpose_image"].default
+
+
+def default_diameter_px() -> int:
+    """mini2p's ROI diameter (``RegistrationSettings.diameter_px``), used for ROI statistics."""
+    from mini2p_preprocessing.config import RegistrationSettings
+
+    return int(RegistrationSettings.model_fields["diameter_px"].default)
+
+
+def renumber_labels(labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Relabel the ROIs 1..n in increasing order of their Cellpose label.
+
+    Aligning the masks can drop whole ROIs, leaving gaps in the label numbers, while the
+    extraction yields one row per remaining ROI in increasing label order. After this,
+    row ``i`` of every trace is label ``i + 1`` of the returned image.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: The renumbered label image and each row's original
+        Cellpose label.
+    """
+    original = np.unique(labels[labels > 0])
+    renumbered = np.zeros(labels.shape, dtype=int)
+    inside = labels > 0
+    renumbered[inside] = np.searchsorted(original, labels[inside]) + 1
+    return renumbered, original
 
 
 def alignment_settings(ops: dict, diameter_px: int):
@@ -165,7 +215,10 @@ def cached(cache_dir, kind: str, parts: dict, compute: Callable[[], dict]) -> di
     settings, an array's digest) and of this pipeline's source, so an edited setting, input file
     or piece of code never finds a stale result. Deleting the cache only costs time.
     """
-    text = json.dumps({"code": CODE_VERSION, **parts}, sort_keys=True, default=str)
+    code = code_version(CACHE_CODE[kind])  # an unknown kind raises KeyError before any work
+    text = json.dumps(
+        {"code": code, "libraries": library_versions(), **parts}, sort_keys=True, default=str
+    )
     key = hashlib.sha256(text.encode()).hexdigest()[:32]
     return cached_result(Path(cache_dir) / kind, key, compute)
 
