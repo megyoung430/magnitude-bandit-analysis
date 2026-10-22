@@ -147,9 +147,14 @@ from src.behavior_import.task_types import (
 )
 from src.behavior_import.warning_records import record_warnings
 from src.behavior_visualization.paper_style import in_paper_mode, paper_figures
-from src.behavior_visualization.plot_helpers import figure_banner
+from src.behavior_visualization.plot_helpers import caption_note, figure_banner
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
+from src.pipelines.cache_provenance import (
+    cache_sources,
+    from_cache_caption,
+    write_from_cache_notes,
+)
 from src.pipelines.incremental import (
     NoSessionsSelectedError,
     SessionSelection,
@@ -1095,11 +1100,21 @@ def run_cohort(
         {} if pooled_only else _previous_ports_by_problem(trials_by_problem, grouped, selections)
     )
     figures, tables = _figures_dir(results_root, cohort), _tables_dir(results_root, cohort)
+    # written first, so even a run that fails part-way marks its folders as made from the cache
+    sources = cache_sources({cohort: log})
+    note_folders = [figures, tables]
+    if paper_ready and drifting:
+        note_folders.append(paper_ready_root(results_root) / cohort)
+    write_from_cache_notes(note_folders, sources)
 
     run_warnings: list = []
     diagnostic_tables: dict = {}
     try:
-        with each_reversal_warning_once(), record_warnings() as run_warnings:
+        with (
+            each_reversal_warning_once(),
+            caption_note(from_cache_caption(sources)),
+            record_warnings() as run_warnings,
+        ):
             if log is None:
                 warnings.warn(NO_IMPORT_LOG_WARNING, stacklevel=2)
             port_finding = assign_port_finding_sessions(
@@ -1388,11 +1403,11 @@ def check_exclusion_in_cohorts(
     data_root,
     use_cache: bool,
     from_cache: bool = False,
-) -> None:
+) -> dict[int, ImportedTrials]:
     """Check that every cohort has all of *exclude_mice* among its drifting mice.
 
-    Imports each cohort (from the cache when it is there) and discards it, so that a wrong name
-    stops a multi-cohort run before the first cohort starts its long work.
+    Imports each cohort (from the cache when it is there), so that a wrong name stops a
+    multi-cohort run before the first cohort starts its long work.
 
     Args:
         cohort_ids (Iterable[int]): The cohorts a run will cover.
@@ -1401,12 +1416,16 @@ def check_exclusion_in_cohorts(
         use_cache (bool): As for :func:`run_cohort`.
         from_cache (bool): As for :func:`run_cohort`. Default ``False``.
 
+    Returns:
+        dict[int, ImportedTrials]: The imported cohorts, for a caller that keeps them.
+
     Raises:
         ExcludedMiceError: Naming every cohort the mice do not fit, and why.
     """
-    problems = []
+    problems, loaded = [], {}
     for cohort_id in cohort_ids:
-        trials, _ = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
+        loaded[cohort_id] = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
+        trials = loaded[cohort_id].trials_by_problem
         grouped = regroup_by_task_type(trials, number_within_task_type(trials)) if trials else {}
         try:
             checked_exclusion(_drifting_of(grouped), exclude_mice)
@@ -1414,6 +1433,7 @@ def check_exclusion_in_cohorts(
             problems.append(f"{cohort_name(cohort_id)}: {err}")
     if problems:
         raise ExcludedMiceError("\n".join(problems))
+    return loaded
 
 
 def _drifting_of(grouped: dict) -> dict:
@@ -1436,14 +1456,25 @@ def _run_one_cohort(
     pooled_only: bool,
     exclude_mice,
     settings: dict,
+    loaded: ImportedTrials | None = None,
 ):
-    """One cohort of :func:`run_cohorts`: full, partial or dry-run; the result or ``None``."""
+    """One cohort of :func:`run_cohorts`: full, partial or dry-run; the result or ``None``.
+
+    *loaded* is the cohort as already imported, so it is not loaded again.
+    """
     name = cohort_name(cohort_id)
     planning = {
         "data_root": settings.get("data_root"),
         "use_cache": settings.get("use_cache", True),
         "from_cache": settings.get("from_cache", False),
     }
+    if loaded is not None:
+        planning["trials_by_problem"] = loaded.trials_by_problem
+        settings = {
+            **settings,
+            "trials_by_problem": loaded.trials_by_problem,
+            "import_log": loaded.log,
+        }
     if dry_run and pooled_only:
         plan = plan_cohort_pooled_only(cohort_id, exclude_mice=exclude_mice, **planning)
         print(f"[PLAN] dry run, nothing written. {plan}")
@@ -1539,19 +1570,32 @@ def run_cohorts(
     if selecting:
         check_selection_options(last_sessions, since)
     exclude_mice = optional_mouse_ids(exclude_mice)  # once, so a generator reaches every cohort
+    from_cache = settings.get("from_cache", False)
+    preloaded = {}
     if exclude_mice is not None:
-        check_exclusion_in_cohorts(
+        checked = check_exclusion_in_cohorts(
             cohort_ids,
             exclude_mice,
             settings.get("data_root"),
             settings.get("use_cache", True),
-            settings.get("from_cache", False),
+            from_cache,
         )
+        # A from-cache load cannot change between the check and the run, and loading again
+        # would repeat its warning; a load from the server is redone so that it is current.
+        # Otherwise the cohorts would all be held in memory for the whole run.
+        preloaded = checked if from_cache else {}
     results, failures, unmatched, planned = {}, {}, {}, 0
     for cohort_id in cohort_ids:
         try:
             result = _run_one_cohort(
-                cohort_id, last_sessions, since, dry_run, pooled_only, exclude_mice, settings
+                cohort_id,
+                last_sessions,
+                since,
+                dry_run,
+                pooled_only,
+                exclude_mice,
+                settings,
+                preloaded.get(cohort_id),
             )
             if dry_run:
                 planned += 1

@@ -118,13 +118,23 @@ uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 
 hung mount cannot stall it). For each cohort it loads the cached import of
 `<BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N`, preferring one made with the
 current `src/behavior_import` code and otherwise the newest. `BANDIT_DATA_ROOT` must still be
-set to the same path as when the cache was filled, but it need not exist. A
-`StaleCacheWarning` (also in `warnings_log.csv`) gives the date of the cached import, how many
-`.tsv` files it covered and whether the import code has changed since: sessions added on the
-server since then are missing, and import-code changes since then are not applied. With no
-cached import of a cohort the run stops and lists the cached roots and dates; a cache that the
-current code cannot read stops it too. Run without `--from-cache` once the server is back.
-`--from-cache` cannot be combined with `--no-cache`.
+set, but it need not exist; if no cached import has exactly that path (the share mounted
+elsewhere, or reached through a symbolic link), the one ending in the same
+`<experiment>/rawdata/cohort-0N` is used, and if several do the run stops and lists them.
+
+A `StaleCacheWarning` (also in the cohort's `warnings_log.csv`) gives the date of the cached
+import, how many `.tsv` files it covered and whether the import code has changed since:
+sessions added on the server since then are missing, and import-code changes since then are
+not applied. Every output folder the run writes gets a `from-cache.txt` listing this per
+cohort, and every paper-ready caption ends with "Data from the cached import of <date>;
+sessions added since are missing." A later run that reads the server removes `from-cache.txt`
+from the folders it rewrites.
+
+With no cached import of a cohort the run stops and lists the cached roots and dates. A cached
+import made before a field was added to the import log is used with that field at its
+default (the warning names it); one that the current code cannot read at all stops the run.
+Run without `--from-cache` once the server is back. In `run_all_drifting_problems.py`,
+`--from-cache` cannot be combined with `--no-cache` (`run_cohorts.py` has no `--no-cache`).
 
 ### Resumable cohort cross-validation and recovery runs
 

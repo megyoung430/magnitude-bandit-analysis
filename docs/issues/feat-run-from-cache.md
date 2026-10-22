@@ -26,7 +26,9 @@ Results change: none unless --from-cache is passed.
 - `from_cache` on `load_cohort`, `run_cohort`, `run_cohort_incremental`, the two `plan_*`
   functions, `check_exclusion_in_cohorts`, `run_cohorts` (via its settings) and
   `run_all_cohorts_drifting`.
-- `--from-cache` on both scripts; exclusive with `--no-cache`.
+- `--from-cache` on both scripts; exclusive with `--no-cache` in `run_all_drifting_problems.py`.
+- `ImportLog.cache_source` (`CacheSource`); `src/pipelines/cache_provenance.py` writes
+  `from-cache.txt` and the caption line; `plot_helpers.caption_note`.
 
 ## Acceptance criteria
 
@@ -36,8 +38,16 @@ Results change: none unless --from-cache is passed.
   root, and works with the raw folder gone.
 - The `StaleCacheWarning` gives the date, the number of `.tsv` files, whether the import code
   matches, and that newer sessions are missing; it is in the import log and `warnings_log.csv`.
-- An unreadable or outdated cache entry raises `CachedImportError` naming it; no fall-through to
-  the share.
+- A cached log missing a field with a default gets the default (named in the warning); one
+  without a default, or an entry that cannot be unpickled, raises `CachedImportError` naming it;
+  no fall-through to the share. Unreadable metadata skips that entry with a warning.
+- With no exact root match, a unique match on the last three path parts is used and the warning
+  says so; several such roots raise and list them.
+- No os-level access (`stat`, `lstat`, `listdir`, `scandir`, `access`, `open`) under the data
+  root during the from-cache cohort, dry-run and all-cohorts runs.
+- `from-cache.txt` in every output folder of a from-cache run (cohort figures and tables,
+  `paper-ready/<cohort>/`, `all-cohorts[-without-…]/` figures and tables, and their paper-ready
+  folders), and the caption line in every paper caption; neither in a run from the server.
 - The cohort pooled paper-ready run and the all-cohorts paper-ready run give identical CSVs and
   PNGs (bar `warnings_log.csv`) from the cache with the raw folder renamed away, also after an
   import-code change.
@@ -45,8 +55,10 @@ Results change: none unless --from-cache is passed.
 ## Decisions
 
 - The root is compared with `os.path.abspath`, never `resolve()`: resolving queries every folder
-  on the path, which stalls on a hung mount. A cache filled through a symlinked path is therefore
-  found only via that same resolved path.
+  on the path, which stalls on a hung mount. A cache filled through another mount point or a
+  symlinked path is found by the tail fallback.
+- `--exclude-mice` with `--from-cache` reuses the check's load for the run; from the server the
+  cohort is still reloaded so that the run sees current files and memory holds one cohort.
 - The warning is shown on every from-cache load (filter `"always"`), so each run's log has it.
 - Metadata of incomplete joblib entries (no `output.pkl` or `metadata.json`) is skipped;
   unparseable metadata of a complete entry raises.

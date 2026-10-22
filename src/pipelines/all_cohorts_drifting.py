@@ -56,7 +56,12 @@ from src.behavior_analysis.port_finding_sessions import assign_port_finding_sess
 from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table, with_cohort
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
-from src.behavior_visualization.plot_helpers import figure_banner
+from src.behavior_visualization.plot_helpers import caption_note, figure_banner
+from src.pipelines.cache_provenance import (
+    cache_sources,
+    from_cache_caption,
+    write_from_cache_notes,
+)
 from src.pipelines.cohort_analysis import (
     DEFAULT_RESULTS_ROOT,
     DRIFTING_SELECTION,
@@ -362,6 +367,7 @@ def _write_pool(
     run_at: datetime,
     excluded: tuple[str, ...] = (),
     paper_dir: Path | None = None,
+    sources: dict | None = None,
 ) -> AllCohortsResult:
     """Run and write the all-drifting-problems analyses of *problems* into the two folders.
 
@@ -380,6 +386,9 @@ def _write_pool(
         excluded (tuple[str, ...]): Mice left out of *problems*; empty for the plain pool.
         paper_dir (Path | None): If given, the figures are drawn a second time in the paper
             style into this folder (emptied first). Default None.
+        sources (dict | None): ``{cohort: CacheSource}`` of cohorts loaded from the cache
+            without the server; each folder then gets ``from-cache.txt`` and each paper caption
+            a line saying so. Empty or ``None``: the folders' notes are removed. Default None.
 
     Returns:
         AllCohortsResult: The folders, the mice per cohort of *problems*, rank results and tables.
@@ -391,13 +400,20 @@ def _write_pool(
     print(f"[INFO] {label}: {len(problems)} problems, {mice_by_cohort}")
 
     _clear_previous_outputs(figures_dir, tables_dir)
+    sources = sources or {}
+    write_from_cache_notes([figures_dir, tables_dir], sources)
     with each_reversal_warning_once(), figure_banner(scope) if scope else nullcontext():
         rank_results, tables = _draw_pool(
             problems, sessions, figures_dir, selection, shown_ids, label, scope
         )
     if paper_dir is not None:
         shutil.rmtree(paper_dir, ignore_errors=True)
-        with each_reversal_warning_once(), paper_scope(scope):
+        write_from_cache_notes([paper_dir], sources)  # the folder was just emptied
+        with (
+            each_reversal_warning_once(),
+            paper_scope(scope),
+            caption_note(from_cache_caption(sources)),
+        ):
             _draw_pool(problems, sessions, paper_dir, selection, shown_ids, label, scope)
     tables_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
@@ -478,6 +494,7 @@ def run_all_cohorts_drifting(
     excluded = optional_mouse_ids(exclude_mice) or ()  # a tuple, so a generator is read once
     problems_without = exclude_mice_from_problems(pooled.problems, excluded) if excluded else {}
     run_at = run_at or datetime.now()
+    sources = cache_sources({cohort_name(c): log for c, log in logs.items()})
     sessions = _sessions_per_problem(imported, logs)
     root = Path(results_root)
     folders = {kind: root / kind / TASK / ALL_COHORTS_FOLDER for kind in ("figures", "tables")}
@@ -492,6 +509,7 @@ def run_all_cohorts_drifting(
         selection=drifting_selection,
         run_at=run_at,
         paper_dir=paper_root / ALL_COHORTS_FOLDER if paper_root else None,
+        sources=sources,
     )
     if not excluded:
         return plain
@@ -506,5 +524,6 @@ def run_all_cohorts_drifting(
         run_at=run_at,
         excluded=excluded,
         paper_dir=paper_root / name if paper_root else None,
+        sources=sources,
     )
     return plain._replace(without=without)
