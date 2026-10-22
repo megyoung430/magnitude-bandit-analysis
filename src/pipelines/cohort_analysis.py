@@ -711,6 +711,15 @@ def load_cohort(
     )
 
 
+def _load_cohort_for_run(
+    cohort_id: int, data_root, use_cache: bool, from_cache: bool
+) -> ImportedTrials:
+    """Load one cohort, forwarding *from_cache* only when it is enabled."""
+    if from_cache:
+        return load_cohort(cohort_id, data_root, use_cache, from_cache)
+    return load_cohort(cohort_id, data_root, use_cache)
+
+
 # ---------------------------------------------------------------------------
 # The pooled drifting sets
 # ---------------------------------------------------------------------------
@@ -1255,7 +1264,7 @@ def plan_cohort_incremental(
         NoSessionsSelectedError: If no session matches.
     """
     if trials_by_problem is None:
-        trials_by_problem, _ = load_cohort(cohort_id, data_root, use_cache, from_cache)
+        trials_by_problem, _ = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort_name(cohort_id)}")
     grouped = regroup_by_task_type(trials_by_problem, number_within_task_type(trials_by_problem))
@@ -1293,7 +1302,7 @@ def plan_cohort_pooled_only(
     """
     cohort = cohort_name(cohort_id)
     if trials_by_problem is None:
-        trials_by_problem, _ = load_cohort(cohort_id, data_root, use_cache, from_cache)
+        trials_by_problem, _ = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort}")
     grouped = regroup_by_task_type(trials_by_problem, number_within_task_type(trials_by_problem))
@@ -1351,7 +1360,7 @@ def run_cohort_incremental(
     exclude_mice = optional_mouse_ids(exclude_mice)
     log = import_log
     if trials_by_problem is None:
-        trials_by_problem, log = load_cohort(cohort_id, data_root, use_cache, from_cache)
+        trials_by_problem, log = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
     selection = plan_cohort_incremental(
         cohort_id,
         last_sessions=last_sessions,
@@ -1397,7 +1406,7 @@ def check_exclusion_in_cohorts(
     """
     problems = []
     for cohort_id in cohort_ids:
-        trials, _ = load_cohort(cohort_id, data_root, use_cache, from_cache)
+        trials, _ = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
         grouped = regroup_by_task_type(trials, number_within_task_type(trials)) if trials else {}
         try:
             checked_exclusion(_drifting_of(grouped), exclude_mice)
