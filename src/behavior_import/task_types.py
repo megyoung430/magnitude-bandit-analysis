@@ -252,7 +252,8 @@ def problem_layout(
     if len(rows) > 1:
         raise ValueError(f"{mouse}'s {task_type} problem {problem} has {len(rows)} rows in the map")
     row = rows.iloc[0]
-    # read back from problem_map.csv, empty towers are NaN and a range such as "3" is a number
+    # A map loaded from problem_map.csv stores missing towers as NaN and a one-session range
+    # such as "3" as a number, so test for NaN and convert the returned fields to str.
     if pd.isna(row["choice_towers"]) or not str(row["choice_towers"]):
         raise ValueError(f"{mouse}'s {task_type} problem {problem} logged no choice towers")
     return ProblemLayout(
