@@ -17,6 +17,12 @@ all-cohorts-without-<mice>/ next to all-cohorts/, every figure marked "without <
 
 --paper-ready also draws every figure in a Nature/Cell style (pdf, svg, png and a caption file)
 into results/figures/open-field/paper-ready/all-cohorts[-without-<mice>]/.
+
+--from-cache loads each cohort from its newest cached import without reading the server (for
+when it is unmounted or unreachable); sessions added since then are missing:
+
+    uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 \\
+        --paper-ready --from-cache
 """
 
 import argparse
@@ -33,8 +39,17 @@ DRIFTING = DRIFTING_SELECTION
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cohorts", type=int, nargs="+", required=True, metavar="N")
-    parser.add_argument(
+    cache = parser.add_mutually_exclusive_group()
+    cache.add_argument(
         "--no-cache", action="store_true", help="re-import the raw files instead of the cache"
+    )
+    cache.add_argument(
+        "--from-cache",
+        action="store_true",
+        help=(
+            "use the newest cached import of each cohort without reading the server; sessions "
+            "added since then are missing"
+        ),
     )
     parser.add_argument(
         "--exclude-mice",
@@ -59,6 +74,7 @@ def main(argv=None) -> None:
             results_root=RESULTS_ROOT,
             drifting_selection=DRIFTING,
             use_cache=not args.no_cache,
+            from_cache=args.from_cache,
             exclude_mice=args.exclude_mice,
             paper_ready=args.paper_ready,
         )

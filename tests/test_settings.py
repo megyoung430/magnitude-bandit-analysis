@@ -26,3 +26,21 @@ def test_unmounted_data_root_fails_loudly(tmp_path, monkeypatch):
     monkeypatch.setenv("BANDIT_DATA_ROOT", str(tmp_path / "not-mounted"))
     with pytest.raises(ValidationError, match="data_root"):
         Settings(_env_file=None)
+
+
+def test_unchecked_settings_accept_an_unmounted_data_root(tmp_path, monkeypatch):
+    from src.settings import UncheckedSettings
+
+    monkeypatch.setenv("BANDIT_DATA_ROOT", str(tmp_path / "not-mounted"))
+    monkeypatch.setenv("BANDIT_CACHE_DIR", str(tmp_path / "cache"))
+    settings = UncheckedSettings(_env_file=None)
+    assert settings.data_root == tmp_path / "not-mounted"
+    assert settings.cache_dir == tmp_path / "cache"
+
+
+def test_unchecked_settings_still_need_the_data_root_set(monkeypatch):
+    from src.settings import UncheckedSettings
+
+    monkeypatch.delenv("BANDIT_DATA_ROOT", raising=False)
+    with pytest.raises(ValidationError, match="data_root"):
+        UncheckedSettings(_env_file=None)

@@ -69,3 +69,28 @@ def test_a_figure_with_nothing_to_say_still_gets_an_empty_caption_file(tmp_path)
 def test_outside_paper_mode_the_formats_are_the_callers(tmp_path):
     save_or_show(long_title_figure(), tmp_path / "fig")
     assert {p.name for p in tmp_path.iterdir()} == {"fig.pdf", "fig.png"}
+
+
+def test_a_caption_note_ends_every_caption_and_stays_off_the_figure(tmp_path):
+    from src.behavior_visualization.plot_helpers import caption_note
+
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    with paper_figures(), caption_note("Data from the cached import of 2026-10-01."):
+        save_or_show(long_title_figure(), tmp_path / "fig")
+        save_or_show(fig, tmp_path / "plain")
+    caption = (tmp_path / "fig.caption.txt").read_text().splitlines()
+    assert caption[-1] == "Data from the cached import of 2026-10-01."
+    assert "n = 3 mice" in caption[0]
+    assert (tmp_path / "plain.caption.txt").read_text() == caption[-1]
+    assert "cached import" not in (tmp_path / "fig.svg").read_text()
+
+
+def test_a_caption_note_of_none_adds_nothing(tmp_path):
+    from src.behavior_visualization.plot_helpers import caption_note
+
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    with paper_figures(), caption_note(None):
+        save_or_show(fig, tmp_path / "plain")
+    assert (tmp_path / "plain.caption.txt").read_text() == ""

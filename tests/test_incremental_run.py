@@ -242,7 +242,7 @@ def test_a_selection_matching_no_session_stops_the_run_with_nothing_written(
 def only_blocked_in_cohort_1(monkeypatch):
     """Cohort 1 has just its first problem (dated January 1-2); cohort 2 has all three."""
 
-    def load(cohort_id, data_root, use_cache):
+    def load(cohort_id, data_root, use_cache, from_cache=False):
         cohort = blocked_then_two_drifting()
         return ({1: cohort[1]} if cohort_id == 1 else cohort), None
 
@@ -303,7 +303,7 @@ def test_a_full_run_is_unchanged_by_the_incremental_options(
 def test_a_crashed_cohort_is_reported_together_with_the_no_match_error(
     tmp_path, monkeypatch, calls, cohort_extras
 ):
-    def load(cohort_id, data_root, use_cache):
+    def load(cohort_id, data_root, use_cache, from_cache=False):
         if cohort_id == 1:
             raise OSError("raw folder unreadable")
         return {1: blocked_then_two_drifting()[1]}, None

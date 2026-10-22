@@ -14,13 +14,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-class Settings(BaseSettings):
-    """Machine-specific settings; each field is read from ``BANDIT_<FIELD>`` or ``.env``.
+class UncheckedSettings(BaseSettings):
+    """The machine-specific settings without checking that ``data_root`` exists.
+
+    For runs that read only the import cache (``--from-cache``): they need the configured paths
+    but must not touch the share, which may be unmounted or unresponsive.
 
     Attributes:
-        data_root (DirectoryPath): Directory holding the experiment folders (set with
-            ``BANDIT_DATA_ROOT``). Required, and it must exist, so an unmounted share fails
-            at load time.
+        data_root (Path): Directory holding the experiment folders (set with
+            ``BANDIT_DATA_ROOT``). Required, but not checked.
         cache_dir (Path): Disposable on-disk cache for slow steps such as importing raw
             sessions (``BANDIT_CACHE_DIR``). Default ``<repo>/.cache``.
     """
@@ -32,10 +34,24 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # DirectoryPath must exist: an unmounted share fails here, not deep in import_data
-    data_root: DirectoryPath
+    data_root: Path
     # disposable on-disk cache for slow steps such as importing raw sessions
     cache_dir: Path = REPO_ROOT / ".cache"
+
+
+class Settings(UncheckedSettings):
+    """Machine-specific settings; each field is read from ``BANDIT_<FIELD>`` or ``.env``.
+
+    Attributes:
+        data_root (DirectoryPath): Directory holding the experiment folders (set with
+            ``BANDIT_DATA_ROOT``). Required, and it must exist, so an unmounted share fails
+            at load time.
+        cache_dir (Path): Disposable on-disk cache for slow steps such as importing raw
+            sessions (``BANDIT_CACHE_DIR``). Default ``<repo>/.cache``.
+    """
+
+    # DirectoryPath must exist: an unmounted share fails here, not deep in import_data
+    data_root: DirectoryPath
 
 
 @lru_cache
@@ -49,3 +65,16 @@ def get_settings() -> Settings:
         pydantic.ValidationError: If ``BANDIT_DATA_ROOT`` is unset or not an existing directory.
     """
     return Settings()
+
+
+@lru_cache
+def get_unchecked_settings() -> UncheckedSettings:
+    """Load the settings once per process without checking that the data root exists.
+
+    Returns:
+        UncheckedSettings: The cached settings object.
+
+    Raises:
+        pydantic.ValidationError: If ``BANDIT_DATA_ROOT`` is unset.
+    """
+    return UncheckedSettings()

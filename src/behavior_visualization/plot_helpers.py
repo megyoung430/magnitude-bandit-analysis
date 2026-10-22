@@ -167,6 +167,30 @@ def current_figure_banner() -> str | None:
     return _FIGURE_BANNER.get()
 
 
+# Set only by caption_note; a line added to every paper-ready caption written inside it.
+_CAPTION_NOTE: ContextVar[str | None] = ContextVar("caption_note", default=None)
+
+
+@contextmanager
+def caption_note(text: str | None) -> Iterator[None]:
+    """End the caption of every paper-ready figure saved inside the block with *text*.
+
+    For facts about a whole run that belong with each figure but not on it (e.g. that its data
+    come from an old cached import). Blocks nest; the innermost text wins.
+
+    Args:
+        text (str | None): The caption line; ``None`` adds nothing.
+
+    Yields:
+        None: Use as ``with caption_note(line): ...``.
+    """
+    token = _CAPTION_NOTE.set(text)
+    try:
+        yield
+    finally:
+        _CAPTION_NOTE.reset(token)
+
+
 @contextmanager
 def _banner_drawn(fig: plt.Figure) -> Iterator[None]:
     """Draw the active banner on *fig* for the block and take it off again afterwards."""
@@ -185,11 +209,14 @@ def _banner_drawn(fig: plt.Figure) -> Iterator[None]:
 def _write_paper_files(fig: plt.Figure, base: str | Path) -> list[Path]:
     """Polish *fig* and save it as pdf, svg and png plus ``<base>.caption.txt``.
 
-    The scope banner and every title that polish moves out of the figure are written to the
-    caption file, which is also written (empty) when there is nothing to say, so each figure has
-    one. Returns the three figure paths.
+    The scope banner, every title that polish moves out of the figure and the active
+    :func:`caption_note` are written to the caption file, which is also written (empty) when
+    there is nothing to say, so each figure has one. Returns the three figure paths.
     """
     caption = polish(fig, banner=current_figure_banner())
+    note = _CAPTION_NOTE.get()
+    if note:
+        caption = f"{caption}\n{note}" if caption else note
     paths = []
     for fmt in PAPER_FORMATS:
         path = Path(f"{base}.{fmt}")

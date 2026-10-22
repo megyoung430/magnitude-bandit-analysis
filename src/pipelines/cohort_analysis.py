@@ -147,9 +147,14 @@ from src.behavior_import.task_types import (
 )
 from src.behavior_import.warning_records import record_warnings
 from src.behavior_visualization.paper_style import in_paper_mode, paper_figures
-from src.behavior_visualization.plot_helpers import figure_banner
+from src.behavior_visualization.plot_helpers import caption_note, figure_banner
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
+from src.pipelines.cache_provenance import (
+    cache_sources,
+    from_cache_caption,
+    write_from_cache_notes,
+)
 from src.pipelines.incremental import (
     NoSessionsSelectedError,
     SessionSelection,
@@ -176,7 +181,7 @@ from src.pipelines.sessions_per_problem import (
 from src.pipelines.sessions_per_problem import (
     TABLE_NAME as SESSIONS_PER_PROBLEM_TABLE,
 )
-from src.settings import REPO_ROOT, get_settings
+from src.settings import REPO_ROOT, get_settings, get_unchecked_settings
 
 TASK = "open-field"
 EXPERIMENT_FOLDER = "3x3_field_magnitude_bandit"
@@ -679,7 +684,9 @@ def run_warnings_log(
     return warnings_log_table([*(log.warnings if log else ()), *run_warnings], index)
 
 
-def load_cohort(cohort_id: int, data_root, use_cache: bool) -> ImportedTrials:
+def load_cohort(
+    cohort_id: int, data_root, use_cache: bool, from_cache: bool = False
+) -> ImportedTrials:
     """Import a cohort's raw files, classifying the task type of every session.
 
     Args:
@@ -687,16 +694,35 @@ def load_cohort(cohort_id: int, data_root, use_cache: bool) -> ImportedTrials:
         data_root (Path | None): Folder holding ``3x3_field_magnitude_bandit``; ``None`` for the
             ``BANDIT_DATA_ROOT`` setting.
         use_cache (bool): Use the on-disk import cache (keyed on the raw files).
+        from_cache (bool): Load the newest cached import of the cohort without reading the raw
+            files (see :func:`~src.behavior_import.load_trials.load_trials_with_log`); the data
+            root then need not exist. Default ``False``.
 
     Returns:
         ImportedTrials: ``(trials_by_problem, import_log)`` of
         :func:`~src.behavior_import.load_trials.load_trials_with_log`.
     """
-    root = Path(data_root) if data_root is not None else get_settings().data_root
+    if data_root is not None:
+        root = Path(data_root)
+    else:
+        # the checked settings test that the data root exists, which touches the share
+        root = (get_unchecked_settings() if from_cache else get_settings()).data_root
     # task types are read at import, so a task-type change starts a new problem
     return load_trials_with_log(
-        cohort_raw_dir(root, cohort_id), use_cache=use_cache, classify_task_types=True
+        cohort_raw_dir(root, cohort_id),
+        use_cache=use_cache,
+        classify_task_types=True,
+        from_cache=from_cache,
     )
+
+
+def _load_cohort_for_run(
+    cohort_id: int, data_root, use_cache: bool, from_cache: bool
+) -> ImportedTrials:
+    """Load one cohort, forwarding *from_cache* only when it is enabled."""
+    if from_cache:
+        return load_cohort(cohort_id, data_root, use_cache, from_cache)
+    return load_cohort(cohort_id, data_root, use_cache)
 
 
 # ---------------------------------------------------------------------------
@@ -957,6 +983,7 @@ def run_cohort(
     choice: ChoiceProbabilitySettings = DEFAULT_CHOICE,
     reversal_trial_window: int = REVERSAL_TRIAL_WINDOW,
     use_cache: bool = True,
+    from_cache: bool = False,
     trials_by_problem: dict | None = None,
     import_log: ImportLog | None = None,
     only_problems: Collection[tuple[str, int]] | None = None,
@@ -1001,6 +1028,9 @@ def run_cohort(
             Default ``REVERSAL_TRIAL_WINDOW`` (100). Keyword-only.
         use_cache (bool): Use the on-disk import cache (keyed on the raw files). Default
             ``True``. Keyword-only.
+        from_cache (bool): Load the newest cached import of the cohort without reading the
+            share; sessions added since are missing (see :func:`load_cohort`). Default
+            ``False``. Keyword-only.
         trials_by_problem (dict | None): Already-loaded ``{problem: {subject: sessions}}``, to
             skip the load. Default ``None``: load the cohort. Keyword-only.
         import_log (ImportLog | None): The import log of *trials_by_problem*. Without it,
@@ -1045,7 +1075,7 @@ def run_cohort(
     cohort = cohort_name(cohort_id)
     log = import_log
     if trials_by_problem is None:
-        trials_by_problem, log = load_cohort(cohort_id, data_root, use_cache)
+        trials_by_problem, log = load_cohort(cohort_id, data_root, use_cache, from_cache)
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort}")
 
@@ -1070,11 +1100,21 @@ def run_cohort(
         {} if pooled_only else _previous_ports_by_problem(trials_by_problem, grouped, selections)
     )
     figures, tables = _figures_dir(results_root, cohort), _tables_dir(results_root, cohort)
+    # written first, so even a run that fails part-way marks its folders as made from the cache
+    sources = cache_sources({cohort: log})
+    note_folders = [figures, tables]
+    if paper_ready and drifting:
+        note_folders.append(paper_ready_root(results_root) / cohort)
+    write_from_cache_notes(note_folders, sources)
 
     run_warnings: list = []
     diagnostic_tables: dict = {}
     try:
-        with each_reversal_warning_once(), record_warnings() as run_warnings:
+        with (
+            each_reversal_warning_once(),
+            caption_note(from_cache_caption(sources)),
+            record_warnings() as run_warnings,
+        ):
             if log is None:
                 warnings.warn(NO_IMPORT_LOG_WARNING, stacklevel=2)
             port_finding = assign_port_finding_sessions(
@@ -1210,6 +1250,7 @@ def plan_cohort_incremental(
     since: str | None = None,
     data_root: Path | None = None,
     use_cache: bool = True,
+    from_cache: bool = False,
     trials_by_problem: dict | None = None,
     exclude_mice: Iterable[str] | None = None,
 ) -> SessionSelection:
@@ -1224,6 +1265,7 @@ def plan_cohort_incremental(
         since (str | None): Sessions dated on or after this ``YYYY-MM-DD`` date. Keyword-only.
         data_root (Path | None): As for :func:`run_cohort`. Keyword-only.
         use_cache (bool): As for :func:`run_cohort`. Keyword-only.
+        from_cache (bool): As for :func:`run_cohort`. Keyword-only.
         trials_by_problem (dict | None): Already-loaded trials, to skip the load. Keyword-only.
         exclude_mice (Iterable[str] | None): The mice of the run's extra pooled set, checked
             against the cohort here so that a dry run reports a bad name too. Keyword-only.
@@ -1237,7 +1279,7 @@ def plan_cohort_incremental(
         NoSessionsSelectedError: If no session matches.
     """
     if trials_by_problem is None:
-        trials_by_problem, _ = load_cohort(cohort_id, data_root, use_cache)
+        trials_by_problem, _ = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort_name(cohort_id)}")
     grouped = regroup_by_task_type(trials_by_problem, number_within_task_type(trials_by_problem))
@@ -1251,6 +1293,7 @@ def plan_cohort_pooled_only(
     exclude_mice: Iterable[str] | None = None,
     data_root: Path | None = None,
     use_cache: bool = True,
+    from_cache: bool = False,
     trials_by_problem: dict | None = None,
 ) -> str:
     """What a pooled-only run of one cohort would regenerate, as text.
@@ -1262,6 +1305,7 @@ def plan_cohort_pooled_only(
         exclude_mice (Iterable[str] | None): The mice of the extra pooled set. Keyword-only.
         data_root (Path | None): As for :func:`run_cohort`. Keyword-only.
         use_cache (bool): As for :func:`run_cohort`. Keyword-only.
+        from_cache (bool): As for :func:`run_cohort`. Keyword-only.
         trials_by_problem (dict | None): Already-loaded trials, to skip the load. Keyword-only.
 
     Returns:
@@ -1273,7 +1317,7 @@ def plan_cohort_pooled_only(
     """
     cohort = cohort_name(cohort_id)
     if trials_by_problem is None:
-        trials_by_problem, _ = load_cohort(cohort_id, data_root, use_cache)
+        trials_by_problem, _ = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
     if not trials_by_problem:
         raise ValueError(f"No problems found for {cohort}")
     grouped = regroup_by_task_type(trials_by_problem, number_within_task_type(trials_by_problem))
@@ -1291,6 +1335,7 @@ def run_cohort_incremental(
     since: str | None = None,
     data_root: Path | None = None,
     use_cache: bool = True,
+    from_cache: bool = False,
     trials_by_problem: dict | None = None,
     import_log: ImportLog | None = None,
     exclude_mice: Iterable[str] | None = None,
@@ -1311,6 +1356,7 @@ def run_cohort_incremental(
         since (str | None): Sessions dated on or after this ``YYYY-MM-DD`` date. Keyword-only.
         data_root (Path | None): As for :func:`run_cohort`. Keyword-only.
         use_cache (bool): As for :func:`run_cohort`. Keyword-only.
+        from_cache (bool): As for :func:`run_cohort`. Keyword-only.
         trials_by_problem (dict | None): Already-loaded trials, to skip the load. Keyword-only.
         import_log (ImportLog | None): The log of *trials_by_problem*; ignored when the cohort
             is loaded here. Keyword-only.
@@ -1329,7 +1375,7 @@ def run_cohort_incremental(
     exclude_mice = optional_mouse_ids(exclude_mice)
     log = import_log
     if trials_by_problem is None:
-        trials_by_problem, log = load_cohort(cohort_id, data_root, use_cache)
+        trials_by_problem, log = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
     selection = plan_cohort_incremental(
         cohort_id,
         last_sessions=last_sessions,
@@ -1342,6 +1388,7 @@ def run_cohort_incremental(
     return run_cohort(
         cohort_id,
         use_cache=use_cache,
+        from_cache=from_cache,
         trials_by_problem=trials_by_problem,
         import_log=log,
         only_problems=selection.problems,
@@ -1351,25 +1398,35 @@ def run_cohort_incremental(
 
 
 def check_exclusion_in_cohorts(
-    cohort_ids: Iterable[int], exclude_mice: tuple[str, ...], data_root, use_cache: bool
-) -> None:
+    cohort_ids: Iterable[int],
+    exclude_mice: tuple[str, ...],
+    data_root,
+    use_cache: bool,
+    from_cache: bool = False,
+) -> dict[int, ImportedTrials]:
     """Check that every cohort has all of *exclude_mice* among its drifting mice.
 
-    Imports each cohort (from the cache when it is there) and discards it, so that a wrong name
-    stops a multi-cohort run before the first cohort starts its long work.
+    Imports each cohort (from the cache when it is there), so that a wrong name stops a
+    multi-cohort run before the first cohort starts its long work.
 
     Args:
         cohort_ids (Iterable[int]): The cohorts a run will cover.
         exclude_mice (tuple[str, ...]): The mouse ids to leave out.
         data_root (Path | None): As for :func:`run_cohort`.
         use_cache (bool): As for :func:`run_cohort`.
+        from_cache (bool): As for :func:`run_cohort`. Default ``False``.
+
+    Returns:
+        dict[int, ImportedTrials]: The imported cohorts, for a caller that keeps them.
 
     Raises:
         ExcludedMiceError: Naming every cohort the mice do not fit, and why.
     """
-    problems = []
+    problems, loaded = [], {}
     for cohort_id in cohort_ids:
-        trials, _ = load_cohort(cohort_id, data_root, use_cache)
+        loaded[cohort_id] = _load_cohort_for_run(cohort_id, data_root, use_cache, from_cache)
+        # unpacked rather than read by name, so any (trials, log) pair works
+        trials, _ = loaded[cohort_id]
         grouped = regroup_by_task_type(trials, number_within_task_type(trials)) if trials else {}
         try:
             checked_exclusion(_drifting_of(grouped), exclude_mice)
@@ -1377,6 +1434,7 @@ def check_exclusion_in_cohorts(
             problems.append(f"{cohort_name(cohort_id)}: {err}")
     if problems:
         raise ExcludedMiceError("\n".join(problems))
+    return loaded
 
 
 def _drifting_of(grouped: dict) -> dict:
@@ -1399,13 +1457,22 @@ def _run_one_cohort(
     pooled_only: bool,
     exclude_mice,
     settings: dict,
+    loaded: ImportedTrials | None = None,
 ):
-    """One cohort of :func:`run_cohorts`: full, partial or dry-run; the result or ``None``."""
+    """One cohort of :func:`run_cohorts`: full, partial or dry-run; the result or ``None``.
+
+    *loaded* is the cohort as already imported, so it is not loaded again.
+    """
     name = cohort_name(cohort_id)
     planning = {
         "data_root": settings.get("data_root"),
         "use_cache": settings.get("use_cache", True),
+        "from_cache": settings.get("from_cache", False),
     }
+    if loaded is not None:
+        trials, log = loaded
+        planning["trials_by_problem"] = trials
+        settings = {**settings, "trials_by_problem": trials, "import_log": log}
     if dry_run and pooled_only:
         plan = plan_cohort_pooled_only(cohort_id, exclude_mice=exclude_mice, **planning)
         print(f"[PLAN] dry run, nothing written. {plan}")
@@ -1501,15 +1568,32 @@ def run_cohorts(
     if selecting:
         check_selection_options(last_sessions, since)
     exclude_mice = optional_mouse_ids(exclude_mice)  # once, so a generator reaches every cohort
+    from_cache = settings.get("from_cache", False)
+    preloaded = {}
     if exclude_mice is not None:
-        check_exclusion_in_cohorts(
-            cohort_ids, exclude_mice, settings.get("data_root"), settings.get("use_cache", True)
+        checked = check_exclusion_in_cohorts(
+            cohort_ids,
+            exclude_mice,
+            settings.get("data_root"),
+            settings.get("use_cache", True),
+            from_cache,
         )
+        # A from-cache load cannot change between the check and the run, and loading again
+        # would repeat its warning; a load from the server is redone so that it is current.
+        # Otherwise the cohorts would all be held in memory for the whole run.
+        preloaded = checked if from_cache else {}
     results, failures, unmatched, planned = {}, {}, {}, 0
     for cohort_id in cohort_ids:
         try:
             result = _run_one_cohort(
-                cohort_id, last_sessions, since, dry_run, pooled_only, exclude_mice, settings
+                cohort_id,
+                last_sessions,
+                since,
+                dry_run,
+                pooled_only,
+                exclude_mice,
+                settings,
+                preloaded.get(cohort_id),
             )
             if dry_run:
                 planned += 1
