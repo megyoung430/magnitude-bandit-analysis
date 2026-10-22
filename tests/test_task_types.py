@@ -6,8 +6,10 @@ import pytest
 from src.behavior_import.task_types import (
     BLOCKED,
     DRIFTING,
+    ProblemLayout,
     classify_task_name,
     number_within_task_type,
+    problem_layout,
     problem_map_table,
     regroup_by_task_type,
     session_task_type,
@@ -209,3 +211,60 @@ def test_problem_map_reads_choice_towers_listed_per_trial():
     sessions = {"ses-1_date-20260101": {**session(DRIFTING_NAME), "choice_towers": per_trial}}
     (row,) = problem_map_table({1: {"A": sessions}}).to_dict("records")
     assert row["choice_towers"] == "A1;B1;C3"
+
+
+# --- layout of one problem ---------------------------------------------------
+
+
+def two_problem_map():
+    """Mouse A: blocked problem 1 (overall 1), then drifting problem 1 (overall 2)."""
+    blocked = {
+        f"ses-{n}_date-2026010{n}": {
+            **session(BLOCKED_NAME),
+            "choice_towers": {"A1", "C1", "C3"},
+        }
+        for n in (1, 2)
+    }
+    drifting = {
+        f"ses-{n}_date-2026010{n}": {
+            **session(DRIFTING_NAME),
+            "choice_towers": {"A2", "B1", "C3"},
+            "initiation_tower": "B2",
+        }
+        for n in (3, 4, 5)
+    }
+    return problem_map_table({1: {"A": blocked}, 2: {"A": drifting}})
+
+
+def test_problem_layout_numbers_problems_within_the_task_type():
+    layout = problem_layout(two_problem_map(), mouse="A", task_type=DRIFTING, problem=1)
+    assert layout == ProblemLayout(
+        initiation_tower="B2", choice_towers=("A2", "B1", "C3"), session_range="3-5"
+    )
+
+
+def test_problem_layout_of_the_other_task_type():
+    layout = problem_layout(two_problem_map(), mouse="A", task_type=BLOCKED, problem=1)
+    assert layout.choice_towers == ("A1", "C1", "C3")
+    assert layout.session_range == "1-2"
+
+
+def test_a_missing_problem_names_what_the_mouse_has():
+    with pytest.raises(LookupError, match=r"drifting problem 2.*\[1\]"):
+        problem_layout(two_problem_map(), mouse="A", task_type=DRIFTING, problem=2)
+
+
+def test_a_missing_mouse_names_the_mice_there_are():
+    with pytest.raises(LookupError, match=r"MY_71_R.*\['A'\]"):
+        problem_layout(two_problem_map(), mouse="MY_71_R", task_type=DRIFTING, problem=1)
+
+
+def test_an_unknown_task_type_is_rejected():
+    with pytest.raises(ValueError, match="open field"):
+        problem_layout(two_problem_map(), mouse="A", task_type="open field", problem=1)
+
+
+def test_a_problem_without_choice_towers_is_rejected():
+    no_towers = problem_map_table(mouse([DRIFTING_NAME]))
+    with pytest.raises(ValueError, match="no choice towers"):
+        problem_layout(no_towers, mouse="A", task_type=DRIFTING, problem=1)

@@ -101,8 +101,16 @@ def ring_specs(colors: list[str], *, base_radius: float, width: float) -> list[R
     ]
 
 
-def _octagon_vertices(center: tuple[float, float], radius: float) -> np.ndarray:
-    """Corners of the port octagon (flat sides up, down, left, right), counter-clockwise."""
+def octagon_vertices(center: tuple[float, float], radius: float) -> np.ndarray:
+    """Corners of the port octagon (flat sides up, down, left, right), counter-clockwise.
+
+    Args:
+        center (tuple[float, float]): ``(x, y)`` centre of the octagon.
+        radius (float): Centre-to-corner distance.
+
+    Returns:
+        np.ndarray: The eight corners, shape ``(8, 2)``.
+    """
     angles = np.pi / 2 + OCTAGON_ROTATION + 2 * np.pi * np.arange(8) / 8
     return np.column_stack(
         [center[0] + radius * np.cos(angles), center[1] + radius * np.sin(angles)]
@@ -120,8 +128,8 @@ def ring_patch(center: tuple[float, float], spec: RingSpec, gid: str) -> PathPat
     Returns:
         PathPatch: The band, ready for ``ax.add_patch``.
     """
-    outer = _octagon_vertices(center, spec.outer)
-    inner = _octagon_vertices(center, spec.inner)[::-1]
+    outer = octagon_vertices(center, spec.outer)
+    inner = octagon_vertices(center, spec.inner)[::-1]
     vertices = np.vstack([outer, outer[:1], inner, inner[:1]])
     codes = [MplPath.MOVETO] + [MplPath.LINETO] * 7 + [MplPath.CLOSEPOLY]
     codes = codes + [MplPath.MOVETO] + [MplPath.LINETO] * 7 + [MplPath.CLOSEPOLY]

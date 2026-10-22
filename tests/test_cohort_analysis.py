@@ -15,6 +15,7 @@ from src.behavior_import.import_log import ImportLog
 from src.behavior_import.load_trials import ImportedTrials
 from src.behavior_import.task_types import BLOCKED, DRIFTING
 from src.pipelines.cohort_analysis import (
+    cohort_id_from_name,
     cohort_name,
     cohort_raw_dir,
     pooled_drifting_rank_results,
@@ -119,6 +120,17 @@ def test_cohort_name_and_raw_dir():
     assert cohort_name(3) == "cohort-03"
     root = Path("/data")
     assert cohort_raw_dir(root, 4) == root / "3x3_field_magnitude_bandit/rawdata/cohort-04"
+
+
+@pytest.mark.parametrize("name, cohort_id", [("cohort-01", 1), ("cohort-12", 12), ("cohort-3", 3)])
+def test_cohort_id_from_name_inverts_cohort_name(name, cohort_id):
+    assert cohort_id_from_name(name) == cohort_id
+
+
+@pytest.mark.parametrize("name", ["cohort01", "MY_71_R", "cohort-00", "cohort-01a"])
+def test_cohort_id_from_name_rejects_other_names(name):
+    with pytest.raises(ValueError, match="cohort"):
+        cohort_id_from_name(name)
 
 
 def test_cohort_name_rejects_non_positive_ids():
