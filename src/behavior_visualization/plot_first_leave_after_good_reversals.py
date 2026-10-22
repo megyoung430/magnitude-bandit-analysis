@@ -14,10 +14,14 @@ from matplotlib.lines import Line2D
 
 from src.behavior_analysis.first_leave_fractions import first_leave_fractions
 from src.behavior_visualization.plot_helpers import (
+    Title,
     axes_or_new,
     despine,
+    error_drawn,
     palette_color,
     save_or_show,
+    set_title,
+    stats_line,
 )
 
 # Notebooks star-import this module and expect MOUSE_COLORS from it.
@@ -79,7 +83,7 @@ def _plot_subject_lines(ax: plt.Axes, per_subject_counts: dict) -> list[Line2D]:
     return handles
 
 
-def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int) -> None:
+def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int, errs: list) -> None:
     # Known issue: n_subjects counts every subject in the input, including those
     # without reversals that are not drawn.
     despine(ax)
@@ -87,12 +91,9 @@ def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int) -> Non
     ax.set_xticklabels(_LABELS, fontsize=12)
     ax.set_ylabel("Fraction of Good Reversals", fontsize=12)
     ax.set_ylim(0.0, 1.07)
-    ax.set_title(
-        "First Choice After Leaving Previous Best\n"
-        f"(mean ± se across subjects | n={n_subjects} subjects "
-        f"and n={mean['num_reversals']} reversals)",
-        pad=20,
-    )
+    counts = [(n_subjects, "mouse", "mice"), (mean["num_reversals"], "reversal", "reversals")]
+    stats = stats_line("mean ± SE" if error_drawn(errs) else "mean", "mice", counts)
+    set_title(ax, Title("First Choice After Leaving Previous Best", stats), pad=20)
 
 
 def plot_first_leave_panel(
@@ -125,7 +126,7 @@ def plot_first_leave_panel(
         _plot_mean_bars(ax, x, means, errs)
         handles = _plot_subject_lines(ax, per_subject_counts)
         ax.legend(handles=handles, fontsize=10, loc="upper right")
-        _style_axes(ax, x, mean, len(per_subject_counts))
+        _style_axes(ax, x, mean, len(per_subject_counts), errs)
         if p_value is not None:
             ax.text(0.5, 1.02, f"p-value: {p_value:.3f}", ha="center", va="bottom", fontsize=12)
     return ax

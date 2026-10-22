@@ -18,10 +18,14 @@ from matplotlib.lines import Line2D
 from src.behavior_analysis.long_pokes_by_session import PokesBySession, summarize_pokes_by_session
 from src.behavior_import.sort_by_session import get_short_session_label
 from src.behavior_visualization.plot_helpers import (
+    Title,
     axes_or_new,
     despine,
+    error_drawn,
     mouse_color_map,
     save_or_show,
+    set_title,
+    stats_line,
 )
 
 _BAR_COLOR = "#999999"
@@ -113,12 +117,10 @@ def _style_axes(
     ax.tick_params(axis="y", labelsize=13)
     ax.set_ylim(0, y_text)
     despine(ax)
-    if title is None:
-        title = (
-            "Mean Non-Choice Long Pokes Across Sessions\n"
-            f" (mean ± se across subjects | n={len(summary.mice)} subjects)"
-        )
-    ax.set_title(title, fontsize=16, pad=25)
+    average = "mean ± SE" if error_drawn(summary.se) else "mean"
+    stats = stats_line(average, "mice", [(len(summary.mice), "mouse", "mice")])
+    heading = "Mean Non-Choice Long Pokes Across Sessions" if title is None else title
+    set_title(ax, Title(heading, stats), fontsize=16, pad=25)
 
 
 def plot_num_pokes_panel(
@@ -143,8 +145,9 @@ def plot_num_pokes_panel(
             when None an unseeded generator is used, so the jitter differs on every call.
             Default None.
         xlabel (str): X-axis label. Default ``"Session"``.
-        title (str | None): Axes title; the default (None) is the across-sessions title with
-            the subject count.
+        title (str | None): Heading of the axes title; the default (None) is the
+            across-sessions heading. The statistics line with the mouse count is added either
+            way.
         tick_label (Callable[[str], str]): Maps a session key to its x-tick label. Default the
             short ``ses-XX`` form (``get_short_session_label``); use
             :func:`relative_session_label` for ``rel_ses-NN`` keys.

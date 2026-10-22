@@ -139,7 +139,7 @@ def test_axis_text_and_ticks(capture):
     assert [t.get_text() for t in labels] == ["ses-01", "ses-02", "ses-10"]
     assert all(t.get_rotation() == 45 and t.get_fontsize() == 12 for t in labels)
     assert ax.get_title() == (
-        "Mean Non-Choice Long Pokes Across Sessions\n (mean ± se across subjects | n=2 subjects)"
+        "Mean Non-Choice Long Pokes Across Sessions\nmean ± SE across mice, n = 2 mice"
     )
     assert ax.title.get_fontsize() == 16
     assert not ax.spines["top"].get_visible() and not ax.spines["right"].get_visible()
@@ -151,7 +151,7 @@ def test_mouse_without_finite_data_has_no_line_or_legend_entry(capture):
     (ax,) = fig.axes
     assert len(mouse_lines(ax)) == 1
     assert [t.get_text() for t in ax.get_legend().get_texts()] == ["m1"]
-    assert "n=2 subjects" in ax.get_title()
+    assert "n = 2 mice" in ax.get_title()
 
 
 def test_more_mice_than_colours_cycle_the_palette(capture):
