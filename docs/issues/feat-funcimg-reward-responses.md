@@ -230,3 +230,97 @@ by `shared_cache.py`), `plot_funcimg_shared.py` (figures).
   (reward only in the background vanishes and is not overcorrected below 0, only in the cells survives, leaks, red analysed
   against the red background, refusals), `test_funcimg_shared_collect.py` (from disk, `cells_only`, left-out runs, cache),
   `test_funcimg_shared_plot.py`.
+
+## Background-corrected ΔF/F0 and the transient check
+
+Notebook section 2d (`BG_CORRECTED_DFF = True`; settings `RESIDUAL_VARIANTS` = `("without_destriping",)`,
+`MIN_F0_FRACTION` = 0.1, `TRANSIENT_CHECK`, `TRANSIENT_Z` = 3, `MIN_EVENT_GAP_S` = 1, `EXAMPLE_TRANSIENT_CELLS` = 6; the fit
+window and the detrend window are 2c's `FIT_EXCLUDE_WINDOW_S` and `DETREND_WINDOW_S`). Code: `residual_dff.py` (pure),
+`collect_residual.py` (from disk, cached in `.cache/funcimg_shared/`), `transients.py` (pure), `plot_funcimg_residual.py`,
+`plot_funcimg_transients.py`.
+
+- **Correction**: per cell and channel `F_corr = F - b * (background - mean(background))`, `b` the OLS slope of the
+  **detrended** F on the detrended background (`fit_background` on running-10th-percentile detrended traces, window
+  `DETREND_WINDOW_S`, as in 2c), fitted on the frames outside the outcome windows (`fit_frames`, the helper 2c uses, so the
+  same `NoFitFramesError` applies) and applied to the raw fluctuation on every frame. The cell keeps its own offset. Fitting
+  on the raw traces let shared slow bleaching at different rates dominate: `b` came out 2 to 3 times the fast coupling (true
+  1.0) and the background's outcome response was over-subtracted until inverted; tested with different bleaching rates
+  (`b` recovers 1, a response shared only with the background is removed, not inverted, a private response survives).
+- **ΔF/F0** of `F_corr` with mini2p's baseline and the `FluorescenceSettings` recorded in `cellpose_extraction.json`
+  (`load_fluorescence_settings`, shared with `plane_views`). The correction **replaces** the neuropil subtraction: the
+  baseline step of `compute_dff` is used without subtracting `Fneu` (a test checks equality with `compute_dff(F_corr, 0)`).
+- **Exclusions**: a cell is excluded, with the reason, if its F0 is ≤ 0 or below `MIN_F0_FRACTION` x its median F in any
+  frame, or if its F has no variance (no slope); a non-finite F raises. Both measures are compared on the same remaining
+  cells of a channel. A channel with no usable cell is reported (`usable = False`, its panels say so) and does not drop the
+  run's other channel; a run with none in either channel is left out with the reasons. `pool_residual` pools each channel over
+  the runs that have it.
+- **Reported**: per run and channel the number of cells and exclusions, the median `b` and the median r(F_corr, background)
+  over all frames (not exactly 0, the slope being fitted without the outcome windows; exactly 0 when
+  `FIT_EXCLUDE_OUTCOMES = False`, tested), plus a list of the excluded cells.
+- **Cache**: results are keyed (`shared_cache`) on the source of every module that shapes them (`CODE_FILES`, now including
+  `collect_residual.py`) and on the installed mini2p (version and install source), so a mini2p update recomputes.
+- **Figures**: pooled pulse-count responses (robust z, baseline-subtracted, same window and phases as section 2) of Suite2p's
+  and the corrected ΔF/F0 on shared y limits, and example cells over the middle frames. Each is z-scored by its own scale,
+  so a response that survives a correction that removes shared variance looks larger (the 2c residual figure rescales
+  instead); the markdown says so.
+- **Example cells** are spread over the ranking of `b` (largest, ..., smallest), not the cells that change most; both
+  ΔF/F0 are overlaid as robust z (their scales and baselines differ: the corrected F0 includes the neuropil).
+- **Transient check** on the corrected ΔF/F0 of green and red (red has no indicator, so it is the noise reference): each trace
+  detrended with a running **median** and robust-z-scored (the 10th percentile used for the correlations follows the noise's
+  lower tail and makes positive excursions about 25 % more frequent than negative ones even for symmetric noise, tested);
+  skewness, the robust skewness `((p99 - median) - (median - p1)) / MAD`, and the rates per minute of positive (> +z) and
+  negative (< -z) events, an event being a threshold crossing at least `MIN_EVENT_GAP_S` after the previous one. The table
+  gives the number of ROIs and of cells with a trace per channel (survivors of the F0 check skew bright), median skewness
+  (green, red), the fraction of green cells above the red 95th percentile of skewness, and the median event rates;
+  example traces are robust z on one shared y scale. Assumes a calcium indicator in green only; green bleed-through into red
+  makes the red reference conservative; figures are overlaid histograms (skewness, positive minus negative rate) and example traces of the most
+  positively skewed green cells with their red channel. Caveats are in the notebook: red is dimmer, and motion artefacts also
+  skew traces, so the example traces decide.
+- **Tests**: `test_funcimg_residual_dff.py` (fluctuation removed, offset kept, fit mask honoured, equality with
+  `compute_dff`, flags), `test_funcimg_residual_collect.py`, `test_funcimg_residual_plot.py`, `test_funcimg_transients.py`
+  (planted exponential transients give skew and excess positive events in green, ~0 in noise red, symmetric noise ~0, event
+  gap honoured, drift), `test_funcimg_transients_plot.py`.
+
+## Most reward-responsive cells, cross-validated
+
+Notebook section 3b (`REWARD_CELLS = True`; `RESPONSIVE_CONTRAST` = `"rewarded"` or `"4_vs_0"`, `RESPONSIVE_MEASURES` =
+Suite2p's and the background-corrected ΔF/F0 of the green channel, `RESPONSE_S` = (0, 2), `BASELINE_S` = (-2, 0),
+`PLOT_WINDOW_S` = (-2, 5), `N_REWARD_CELLS` = 20, `RANK_ON` = `"split_half"` or `"all"`, `MIN_TRIALS_PER_GROUP` = 3,
+`SPLIT_SEED`; `N_SHIFTS` and
+`MIN_SHIFT_S` are 2c's). Code: `reward_cells.py` (pure), `collect_reward_cells.py`, `plot_funcimg_reward_cells.py`.
+
+- **Trial response**: the mean over the frames starting in `[0, 2)` s of the outcome's frame minus the mean over `[-2, 0)` s,
+  on the robust-z ΔF/F0 (the index is scale-free); the frame the outcome fell in is left out of the baseline where the outcome
+  came before its start, as in section 2.
+- **Index**: `"rewarded"`: mean / SD (ddof 1) over the rewarded trials of the chosen half; `"4_vs_0"`: Welch's t of the 4-pulse
+  against the 0-pulse trials (tested against `scipy.stats.ttest_ind`). NaN, not inf, where fewer than two trials have a value
+  or there is no spread. The first does not grow with the number of trials, the second does.
+- **Split**: trials alternate A, B, A, ... in time within each pulse count; the half the first pulse count starts with is
+  drawn from the seeded generator and the starting half alternates across pulse counts, so the extra trial of an odd-sized pulse
+  count is balanced (halves differ by at most one trial overall, tested). A half with fewer than `MIN_TRIALS_PER_GROUP` (3)
+  trials of a group the contrast needs raises `TooFewTrialsError` and the run is left out, with advice (use `"rewarded"`,
+  which pools 1-4 pulses, or collect more sessions). `"4_vs_0"` needs 3 four-pulse and 3 zero-pulse trials per half.
+- **What the index measures**: `"rewarded"` is any response to reward, not specific to the number of pulses; under `"4_vs_0"`
+  the heatmap shows the 4-pulse minus 0-pulse difference that was ranked (`ranked_mean`).
+- **Trial counts**: `n_trials_by_half` (per pulse count, per half) is in the notebook table and in every panel's legend; a
+  panel draws no SEM ribbon for a pulse count with fewer than 3 trials, and the figure text says so. At ~20 trials (2 per pulse
+  count per half) the null stays calibrated (tested, 3-9 %); power is low.
+- **Null**: the outcomes (all trials together) are shifted circularly by `shift_offsets` (at least `MIN_SHIFT_S`, `N_SHIFTS`
+  shifts, seeded from the seed and the run's name, as in 2c); pulse counts and halves stay attached to their trials, and
+  windows wrap around the end of the trace. A cell exceeds its null if its index is above the 95th percentile of its own
+  shifted indices. The 5 % level is approximate: simulations of pure noise give 5 to 6.5 %. Reported: cells above the null on half A (expected 5 % of the cells with an index), those also above their
+  half-B null (expected 5 % of the cells chosen on half A, which is the right chance level for a second test of a selected set),
+  and the Spearman rank correlation of the half-A and half-B indices.
+- **Figure**: per measure and run, the top cells' panels (mean ± SEM over half-B trials per pulse count, title ROI, index A,
+  index B, p(cell), title colour = the cell's outline colour in the field of view), a heatmap of all ranked cells, the mean
+  image with the top cells outlined, and the null counts under the panels (tab10 outline colours repeat every 10 cells; the ROI
+  number identifies the cell). `plot_reward_cells` draws into a given figure, `plot_transient_examples` into given axes. `RANK_ON = "all"` ranks and plots all trials and
+  prints "SELECTION BIAS ... not cross-validated" in red in the title.
+- **Selection-bias test**: over 8 synthetic datasets of pure noise (200 cells), the top 20 cells ranked on half A average
+  about 0 (|mean| < 0.04) on half B, against about 0.17 when ranked and scored on the same trials.
+- **Tests**: `test_funcimg_reward_cells.py` (index, Welch t, masks, NaN handling, frame windows and wrapping, halves, null about
+  5 % on noise and well above with planted cells, planted cells recovered, selection bias), `test_funcimg_reward_cells_collect.py`,
+  `test_funcimg_reward_cells_plot.py`.
+- **Refactors**: `outcome_fit_mask` and `fit_frames` (shared by 2c and 2d) are public in `shared_signal_run.py`;
+  `run_seed` in `collect_shared.py` and `draw_fov` in `plot_funcimg_responses.py` are public; `shared_cache` hashes
+  `residual_dff.py` into every cached result.

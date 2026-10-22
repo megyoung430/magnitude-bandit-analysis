@@ -68,7 +68,7 @@ def _z_rows(traces: np.ndarray, window_frames: int, what: str) -> np.ndarray:
     return z
 
 
-def _fit_mask(
+def outcome_fit_mask(
     frame_times_s: np.ndarray,
     outcomes: pd.DataFrame,
     phases: tuple[str, ...],
@@ -80,6 +80,28 @@ def _fit_mask(
     index, _, kept = event_frames(frame_times_s, times)
     pre, post = window_frame_counts(window_s, period_s)
     return ~outcome_window_mask(len(frame_times_s), index[kept], pre, post)
+
+
+def fit_frames(
+    frame_times_s: np.ndarray,
+    outcomes: pd.DataFrame,
+    phases: tuple[str, ...],
+    window_s: tuple[float, float],
+    period_s: float,
+) -> np.ndarray:
+    """The frames to fit the background's slope on: those outside every outcome window.
+
+    Raises:
+        NoFitFramesError: If less than 10 % of the frames are left.
+    """
+    mask = outcome_fit_mask(frame_times_s, outcomes, phases, window_s, period_s)
+    if mask.mean() < MIN_FIT_FRACTION:
+        raise NoFitFramesError(
+            f"the outcome windows cover {100 * (1 - mask.mean()):.0f}% of the frames, "
+            "leaving too few to fit the background's slope on; shorten fit_exclude_window_s "
+            "or set fit_exclude_outcomes=False."
+        )
+    return mask
 
 
 def _robust_scale(traces: np.ndarray) -> np.ndarray:
@@ -198,15 +220,9 @@ def analyse_shared_signal(
         )
     fit_mask = None
     if fit_exclude_outcomes:
-        fit_mask = _fit_mask(
+        fit_mask = fit_frames(
             frame_times_s, outcomes, phases, fit_exclude_window_s or window_s, period
         )
-        if fit_mask.mean() < MIN_FIT_FRACTION:
-            raise NoFitFramesError(
-                f"the outcome windows cover {100 * (1 - fit_mask.mean()):.0f}% of the frames, "
-                "leaving too few to fit the background's slope on; shorten fit_exclude_window_s "
-                "or set fit_exclude_outcomes=False."
-            )
     offsets = shift_offsets(n_frames, min_shift_frames, n_shifts, rng)
     raw_measures = {measure.removesuffix(" z") for measure in measures}
     wanted = [key for key in views if key[1] in raw_measures]
