@@ -157,7 +157,8 @@ def test_show_without_save_path_and_save_with_one(capture, tmp_path):
     assert len(capture.shown) == 1 and not plt.fignum_exists(fig.number)
     base = tmp_path / "deep" / "Median Block Lengths"
     plot_block_lengths(summary(), jitter=0, save_path=base)
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert base.parent.is_dir()

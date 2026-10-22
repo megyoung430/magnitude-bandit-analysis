@@ -132,8 +132,7 @@ def test_excluding_the_whole_of_a_cohort_leaves_a_one_cohort_pool(imported, tmp_
     assert "cohort-03" not in (figures / "cohorts.txt").read_text()
     # one cohort left: no figure by cohort
     assert {p.name for p in (figures / "sessions-per-problem").iterdir()} == {
-        "Sessions per Drifting Problem.png",
-        "Sessions per Drifting Problem.pdf",
+        f"Sessions per Drifting Problem.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
     }
 
 

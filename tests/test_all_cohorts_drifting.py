@@ -52,11 +52,11 @@ SUBFOLDERS = {
     "port-preference",
     "sessions-per-problem",
 }
+FIGURE_FILES = ("caption.txt", "pdf", "png", "svg")
 SESSIONS_FIGURES = {
-    "Sessions per Drifting Problem.png",
-    "Sessions per Drifting Problem.pdf",
-    "Sessions per Drifting Problem by Cohort.png",
-    "Sessions per Drifting Problem by Cohort.pdf",
+    f"{stem}.{ext}"
+    for stem in ("Sessions per Drifting Problem", "Sessions per Drifting Problem by Cohort")
+    for ext in FIGURE_FILES
 }
 MICE_A, MICE_B = ("a1", "a2", "a3"), ("b1", "b2")
 ALL_MICE = {*MICE_A, *MICE_B}
@@ -273,8 +273,7 @@ def test_one_cohort_gets_no_figure_by_cohort(monkeypatch, imported, tmp_path):
     run_all_cohorts_drifting([3], results_root=tmp_path, trials_by_cohort=imported, run_at=RUN_AT)
     folder = tmp_path / "figures/open-field/all-cohorts/sessions-per-problem"
     assert {p.name for p in folder.iterdir()} == {
-        "Sessions per Drifting Problem.png",
-        "Sessions per Drifting Problem.pdf",
+        f"Sessions per Drifting Problem.{ext}" for ext in FIGURE_FILES
     }
     assert capture.saved
 

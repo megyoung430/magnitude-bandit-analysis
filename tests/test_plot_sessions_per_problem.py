@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from src.behavior_analysis.sessions_per_problem import summarize_sessions_per_problem
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_sessions_per_problem import (
     MEAN_LABEL,
     RUNNING_LABEL,
@@ -110,13 +111,18 @@ def test_ticks_are_integers_with_n_mice_under_each_problem_and_the_axis_starts_a
     assert ax.get_ylim()[1] >= 9
 
 
-def test_the_title_names_the_scope_and_the_count_that_is_plotted(summary):
+def test_the_title_has_the_heading_and_statistics_and_the_caption_the_scope_and_count(summary):
     ax = plot_sessions_per_problem_panel(summary, scope_label="cohort 3")
-    assert "Sessions per Drifting Problem" in ax.get_title()
-    assert "cohort 3" in ax.get_title() and "bandit sessions" in ax.get_title()
+    n_mice = len(summary.mice)
+    assert ax.get_title() == (
+        f"Sessions per Drifting Problem\nmean ± SE across mice, n = {n_mice} mice"
+    )
+    caption = figure_caption(ax.figure)
+    assert "Data: cohort 3." in caption and "Sessions counted: bandit sessions." in caption
+    assert "completed problems only" in caption
     total = summarize_sessions_per_problem(table_of(ROWS), include_port_finding=True)
-    title = plot_sessions_per_problem_panel(total, scope_label="cohort 3").get_title()
-    assert "port-finding-only" in title
+    ax = plot_sessions_per_problem_panel(total, scope_label="cohort 3")
+    assert "port-finding-only" in figure_caption(ax.figure)
 
 
 def test_the_legend_names_the_mice_the_mean_and_the_running_problems(summary):
@@ -168,7 +174,10 @@ def test_each_cohort_is_a_line_of_its_mean_with_its_own_colour(by_cohort):
     assert list(lines["cohort-01 (2 mice)"].get_ydata()) == pytest.approx([5.0, 6.0])
     assert list(lines["cohort-03 (1 mouse)"].get_ydata()) == [10.0]  # problem 2 is still running
     assert lines["cohort-01 (2 mice)"].get_color() != lines["cohort-03 (1 mouse)"].get_color()
-    assert "by Cohort" in ax.get_title() and "cohorts 1, 3" in ax.get_title()
+    assert ax.get_title() == (
+        "Sessions per Drifting Problem by Cohort\nmean ± SE across mice, n = 3 mice"
+    )
+    assert "Data: cohorts 1, 3." in figure_caption(ax.figure)
     assert ax.get_ylim()[0] == 0 and list(ax.get_xticks()) == [1, 2]
 
 
@@ -190,15 +199,16 @@ def test_a_cohort_without_a_completed_problem_is_named_so_in_the_legend():
 # --- saving ---------------------------------------------------------------------------------
 
 
-def test_the_figure_is_saved_as_png_and_pdf(summary, tmp_path):
+def test_the_figure_is_saved_in_every_format_with_a_caption(summary, tmp_path):
     plot_sessions_per_problem(summary, tmp_path / "out" / "Sessions per Drifting Problem", "c")
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [
-        "Sessions per Drifting Problem.pdf",
-        "Sessions per Drifting Problem.png",
+        f"Sessions per Drifting Problem.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
     ]
     assert not plt.get_fignums()
 
 
-def test_the_cohort_figure_is_saved_as_png_and_pdf(by_cohort, tmp_path):
+def test_the_cohort_figure_is_saved_in_every_format_with_a_caption(by_cohort, tmp_path):
     plot_sessions_per_problem_by_cohort(by_cohort, tmp_path / "by cohort", "cohorts 1, 3")
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["by cohort.pdf", "by cohort.png"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        f"by cohort.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
+    ]

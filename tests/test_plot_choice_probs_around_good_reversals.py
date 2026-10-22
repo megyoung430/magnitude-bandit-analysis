@@ -208,8 +208,7 @@ def test_public_plot_saves_pdf_and_png_and_closes_figure(across, tmp_path, skip)
         X, across, add_cumulative_axis=False, skip_n_trials_after_reversal=skip, save_path=save_path
     )
     assert sorted(p.name for p in save_path.parent.iterdir()) == [
-        "choice probs.pdf",
-        "choice probs.png",
+        f"choice probs.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
     ]
     assert not plt.get_fignums()
 
@@ -242,7 +241,9 @@ def test_public_plot_with_cumulative_axis_saves_the_removal_figure(across, tmp_p
         all_unclassified_idx=NONE,
         save_path=save_path,
     )
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["cum.pdf", "cum.png"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        f"cum.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
+    ]
     assert plt.get_fignums() == []  # no stray plain figure is left open
 
 

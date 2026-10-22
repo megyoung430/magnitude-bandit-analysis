@@ -237,7 +237,8 @@ def test_save_path_writes_pdf_then_png_and_creates_parent(capture, tmp_path):
     base = tmp_path / "new_dir" / "Choice Probabilities"
     plot_choice_probs_with_fraction_removed_axis(AX, ACROSS, FRAC, save_path=base)
     assert capture.shown == []
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert base.parent.is_dir()

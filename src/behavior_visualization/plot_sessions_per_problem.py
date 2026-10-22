@@ -19,6 +19,7 @@ from matplotlib.ticker import MaxNLocator
 
 from src.behavior_analysis.sessions_per_problem import SessionsPerProblem
 from src.behavior_visualization.plot_helpers import (
+    Title,
     axes_or_new,
     despine,
     jitter_rng,
@@ -26,6 +27,8 @@ from src.behavior_visualization.plot_helpers import (
     mouse_color_map,
     palette_color,
     save_or_show,
+    set_title,
+    stats_line,
 )
 
 MEAN_LABEL = "Mean ± SE (completed problems)"
@@ -40,6 +43,20 @@ def _count_phrase(summary: SessionsPerProblem) -> str:
     return (
         "bandit + port-finding-only sessions" if summary.counts_port_finding else "bandit sessions"
     )
+
+
+def _title(heading: str, scope_label: str, summaries: list[SessionsPerProblem]) -> Title:
+    """Heading and statistics on the figure; scope, sessions counted and the rule in the caption."""
+    n_mice = sum(len(s.mice) for s in summaries)
+    has_se = any(np.isfinite(s.se).any() for s in summaries)
+    stats = stats_line("mean ± SE" if has_se else "mean", "mice", [(n_mice, "mouse", "mice")])
+    caption = (
+        f"Data: {scope_label}.",
+        f"Sessions counted: {_count_phrase(summaries[0])}.",
+        "Means and SEs use completed problems only; the n at each problem is the number of mice "
+        "behind its mean.",
+    )
+    return Title(heading, stats, caption)
 
 
 def _style_axes(ax: plt.Axes, problems: list[int], labels: list[str], top: float) -> None:
@@ -177,7 +194,7 @@ def plot_sessions_per_problem_panel(
 
     Args:
         summary (SessionsPerProblem): From ``summarize_sessions_per_problem``.
-        scope_label (str): The cohort(s) named in the title, e.g. ``"cohort 3"``.
+        scope_label (str): The cohort(s) named in the caption, e.g. ``"cohort 3"``.
         ax (plt.Axes | None): Axes to draw into; a new 11 x 6 inch figure is created if None.
             Default None.
         mouse_legend (bool): Name the mice in the legend; their lines are drawn either way.
@@ -209,12 +226,8 @@ def plot_sessions_per_problem_panel(
             labels,
             _top(*summary.by_mouse.values(), summary.mean + np.nan_to_num(summary.se)),
         )
-        ax.set_title(
-            "Sessions per Drifting Problem\n"
-            f"({scope_label} | {_count_phrase(summary)} | mean ± se across mice, "
-            "completed problems only)",
-            fontsize=14,
-            pad=15,
+        set_title(
+            ax, _title("Sessions per Drifting Problem", scope_label, [summary]), fontsize=14, pad=15
         )
         ax.legend(handles=_legend_handles(summary, colors, mouse_legend), **_LEGEND)
     return ax
@@ -231,7 +244,7 @@ def plot_sessions_per_problem(
 
     Args:
         summary (SessionsPerProblem): From ``summarize_sessions_per_problem``.
-        save_path (str | Path | None): Base path without extension for the ``.pdf`` and ``.png``
+        save_path (str | Path | None): Base path without extension for the figure and caption
             files (the parent folder is created); ``None`` shows the figure instead.
         scope_label (str): The cohort(s) named in the title, e.g. ``"cohort 3"``.
         mouse_legend (bool): As for :func:`plot_sessions_per_problem_panel`. Default True.
@@ -275,7 +288,7 @@ def plot_sessions_per_problem_by_cohort_panel(
     Args:
         summaries (Mapping[str, SessionsPerProblem]): ``{cohort name: summary}``, all on the
             same problem axis (pass ``problems=`` to ``summarize_sessions_per_problem``).
-        scope_label (str): The cohorts named in the title, e.g. ``"cohorts 1, 3"``.
+        scope_label (str): The cohorts named in the caption, e.g. ``"cohorts 1, 3"``.
         ax (plt.Axes | None): Axes to draw into; a new 11 x 6 inch figure is created if None.
             Default None.
 
@@ -294,7 +307,6 @@ def plot_sessions_per_problem_by_cohort_panel(
     problems = list(next(iter(summaries.values())).problems)
     if len({s.counts_port_finding for s in summaries.values()}) > 1:
         raise ValueError("the cohort summaries must all count the same sessions")
-    phrase = _count_phrase(next(iter(summaries.values())))
     with axes_or_new(ax, figsize=_FIGSIZE) as ax:
         for i, (cohort, summary) in enumerate(summaries.items()):
             color = palette_color(i)
@@ -314,12 +326,10 @@ def plot_sessions_per_problem_by_cohort_panel(
             [str(k) for k in problems],
             _top(*(s.mean + np.nan_to_num(s.se) for s in summaries.values())),
         )
-        ax.set_title(
-            "Sessions per Drifting Problem by Cohort\n"
-            f"({scope_label} | {phrase} | mean ± se across mice, completed problems only)",
-            fontsize=14,
-            pad=15,
+        title = _title(
+            "Sessions per Drifting Problem by Cohort", scope_label, list(summaries.values())
         )
+        set_title(ax, title, fontsize=14, pad=15)
         ax.legend(**_LEGEND)
     return ax
 
@@ -331,7 +341,7 @@ def plot_sessions_per_problem_by_cohort(
 
     Args:
         summaries (Mapping[str, SessionsPerProblem]): ``{cohort name: summary}``.
-        save_path (str | Path | None): Base path without extension for the ``.pdf`` and ``.png``
+        save_path (str | Path | None): Base path without extension for the figure and caption
             files (the parent folder is created); ``None`` shows the figure instead.
         scope_label (str): The cohorts named in the title.
     """

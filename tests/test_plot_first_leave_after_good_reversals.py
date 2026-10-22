@@ -127,7 +127,8 @@ def test_show_without_save_path_closes_the_figure(capture):
 def test_save_path_creates_parent_and_writes_pdf_then_png(capture, tmp_path):
     base = tmp_path / "nested" / "First Leave"
     plot_first_leave_after_good_reversals(MEAN, SE, COUNTS, 0.5, save_path=base)
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert capture.shown == [] and base.parent.is_dir()

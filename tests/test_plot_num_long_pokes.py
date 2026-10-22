@@ -172,7 +172,8 @@ def test_show_when_no_path_and_figure_closed(capture):
 def test_save_path_writes_pdf_and_png(capture, tmp_path):
     base = tmp_path / "Pokes"
     plot_num_pokes_across_mice(POKES, 6, save_path=base)
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert capture.shown == []
