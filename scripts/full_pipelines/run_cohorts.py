@@ -42,6 +42,12 @@ with --last-sessions/--since too (the extra set is regenerated whenever the pool
 cohort in --cohorts must have all the named mice among its drifting mice, so name the cohort
 that holds them. Names are checked against the cohort before anything is written.
 
+Add --paper-ready to also draw the pooled drifting figures (and those of the set without the
+excluded mice) in a Nature/Cell style, as pdf, svg and png with a caption file, into
+results/figures/open-field/paper-ready/<cohort>/drifting/all-drifting-problems[-without-<mice>]/:
+
+    uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --paper-ready
+
 Raw data is read from <BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N. Figures
 go to results/figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/ and tables to
 results/tables/open-field/cohort-0N/ (see src/pipelines/cohort_analysis.py). Every problem also
@@ -116,6 +122,14 @@ def parse_args(argv=None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--paper-ready",
+        action="store_true",
+        help=(
+            "also draw the pooled drifting figures in the Nature/Cell style into "
+            "figures/open-field/paper-ready/ (pdf, svg, png and a caption file each)"
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help=(
@@ -145,6 +159,7 @@ def main(argv=None) -> None:
             dry_run=args.dry_run,
             pooled_only=args.pooled_only,
             exclude_mice=args.exclude_mice,
+            paper_ready=args.paper_ready,
             results_root=RESULTS_ROOT,
             blocked_selection=BLOCKED,
             drifting_selection=DRIFTING,

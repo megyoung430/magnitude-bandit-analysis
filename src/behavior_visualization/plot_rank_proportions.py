@@ -31,7 +31,11 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from src.behavior_analysis import rank_proportions as _summary
+from src.behavior_analysis import rank_significance as _significance
 from src.behavior_visualization import plot_helpers as _helpers
+from src.behavior_visualization.paper_style import KEEP_ANNOTATION_GID as _KEEP
+from src.behavior_visualization.paper_style import add_caption_note as _add_caption_note
+from src.behavior_visualization.paper_style import in_paper_mode as _in_paper_mode
 
 # Read at call time (not copied): notebooks reassign this module's MOUSE_COLORS to extend the
 # palette, and they star-import it.
@@ -71,6 +75,7 @@ def plot_rank_proportions(
     average_by_block=False,
     pool_trials_within_subject=False,
     mouse_legend=True,
+    significance=None,
 ):
     """Dispatcher that creates one or more rank-proportion figures.
 
@@ -104,6 +109,9 @@ def plot_rank_proportions(
             The by-block grid ignores it. Default False.
         mouse_legend (bool): Name the mice in the legend of the across-mice figure; their lines
             are drawn either way. Default True.
+        significance (dict | None): Draw the across-mice figure with significance brackets and
+            stars instead of p-values (see :func:`plot_average_across_mice`); give it instead of
+            *average_across_mice_pvalues*. Default None.
 
     Returns:
         None
@@ -127,6 +135,7 @@ def plot_rank_proportions(
             save_path=_view_path(save_path, "by Average Across Mice"),
             pool_trials_within_subject=pool_trials_within_subject,
             mouse_legend=mouse_legend,
+            significance=significance,
         )
     if average_by_block:
         plot_rank_proportions_average_by_block(
@@ -225,6 +234,118 @@ def _annotate_pvalues(ax, labelled_x, pvalues):
 
 
 # ---------------------------------------------------------------------------
+# Significance brackets (the paper-ready figures)
+# ---------------------------------------------------------------------------
+
+SIGNIFICANCE_GID = "significance-bracket"
+# (comparison key, left bar, right bar)
+_COMPARISON_BARS = (("best_vs_second", 0, 1), ("best_vs_third", 0, 2), ("second_vs_third", 1, 2))
+# Heights in data units; the y axis spans a little over 0 to 1.
+_BRACKET_GAP = 0.04  # highest data point to the lowest bracket's ticks
+_BRACKET_TICK = 0.025  # length of the downward ticks at the bracket ends
+_BRACKET_STEP = 0.09  # between stacked brackets: room for a mark and a tick
+_MARK_ROOM = 0.07  # above the top bracket, for its mark
+_BRACKET_INSET = 0.07  # x inset of the bracket ends, so brackets meeting at a bar stay apart
+_BRACKET_WIDTH = 0.5
+_MARK_SIZE = 7
+_PROPORTION_TICKS = np.linspace(0.0, 1.0, 6)
+
+
+def _bracket_levels(spans):
+    """Stack level of each ``(left, right)`` span: the lowest one no overlapping span holds.
+
+    Shorter spans are placed first, so a bracket over two neighbours goes above both.
+    """
+    order = sorted(range(len(spans)), key=lambda i: (spans[i][1] - spans[i][0], spans[i][0]))
+    levels = [0] * len(spans)
+    placed = []
+    for i in order:
+        left, right = spans[i]
+        level = 0
+        while any(lv == level and left < r and lo < right for (lo, r), lv in placed):
+            level += 1
+        placed.append((spans[i], level))
+        levels[i] = level
+    return levels
+
+
+def _shown_comparisons(significance, show_ns):
+    """``(left bar, right bar, mark)`` of each comparison that gets a bracket."""
+    shown = []
+    for key, left, right in _COMPARISON_BARS:
+        mark = significance[key].stars
+        if mark is None or (mark == _significance.NOT_SIGNIFICANT and not show_ns):
+            continue
+        shown.append((left, right, mark))
+    return shown
+
+
+def _draw_bracket(ax, left, right, y, mark):
+    """A thin bracket between bars *left* and *right* at height *y*, *mark* centred above."""
+    x0, x1 = left + _BRACKET_INSET, right - _BRACKET_INSET
+    ax.plot(
+        [x0, x0, x1, x1],
+        [y - _BRACKET_TICK, y, y, y - _BRACKET_TICK],
+        color="black",
+        linewidth=_BRACKET_WIDTH,
+        solid_joinstyle="miter",
+        gid=SIGNIFICANCE_GID,
+    )
+    ax.annotate(
+        mark,
+        xy=((left + right) / 2, y),
+        xytext=(0, 1),
+        textcoords="offset points",
+        ha="center",
+        va="bottom",
+        fontsize=_MARK_SIZE,
+        gid=_KEEP,
+    )
+
+
+def _draw_significance(ax, significance, data_top, show_ns):
+    """Stacked brackets above *data_top*; the y limit grows just enough to hold them."""
+    shown = _shown_comparisons(significance, show_ns)
+    levels = _bracket_levels([(left, right) for left, right, _ in shown])
+    base = data_top + _BRACKET_GAP + _BRACKET_TICK
+    for (left, right, mark), level in zip(shown, levels, strict=True):
+        _draw_bracket(ax, left, right, base + level * _BRACKET_STEP, mark)
+    top = base + max(levels) * _BRACKET_STEP + _MARK_ROOM if levels else 0.0
+    ax.set_ylim(_Y_LIMITS[0], max(_Y_LIMITS[1], top))
+    # proportions: no tick above 1 even when the brackets need the room
+    ax.set_yticks(_PROPORTION_TICKS)
+
+
+def _data_top(means, ses, per_mouse):
+    """Highest drawn value: a bar plus its error bar, or a mouse point; 0 when none is drawn."""
+    bars = np.asarray(means, float) + np.nan_to_num(np.asarray(ses, float))
+    points = [v[rank] for v in per_mouse.values() for rank in _summary.RANKS]
+    values = np.asarray([*bars, *points], dtype=float)
+    finite = values[np.isfinite(values)]
+    return float(finite.max()) if finite.size else 0.0
+
+
+def _check_annotations(pvalues, significance):
+    """Raise unless the comparisons can be drawn as asked, before any figure is made."""
+    if pvalues is not None and significance is not None:
+        raise ValueError("give either pvalues or significance, not both")
+    if significance is not None and not _in_paper_mode():
+        # the bar means and the statistics go to the caption, which only the paper save writes
+        raise ValueError(
+            "significance brackets state their statistics in the paper caption; draw them "
+            "inside paper_figures()"
+        )
+
+
+def _means_note(means):
+    """Caption line of the bar means, which the paper figure states instead of drawing."""
+    values = ", ".join(
+        f"{label} {m:.2f}" for label, m in zip(_RANK_LABELS, means, strict=True) if np.isfinite(m)
+    )
+    return f"Bars, mean ± s.e.m. across mice: {values}."
+
+
+# ---------------------------------------------------------------------------
 # Panels
 # ---------------------------------------------------------------------------
 
@@ -233,11 +354,18 @@ def plot_average_across_mice(
     rank_counts: _summary.RankCounts,
     *,
     pvalues: dict | None = None,
+    significance: dict | None = None,
+    show_ns: bool = True,
     pool_trials_within_subject: bool = False,
     mouse_legend: bool = True,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
     """Bars (mean ± SE across mice) with one coloured line per mouse.
+
+    With *significance* the panel is drawn for a paper: each comparison gets a bracket and its
+    stars instead of a p-value, the bar means and the test statistics go into the figure's
+    caption (see :func:`src.behavior_visualization.paper_style.add_caption_note`) instead of
+    onto the axes, and the mouse legend sits beside the axes, clear of the brackets.
 
     Args:
         rank_counts (_summary.RankCounts): ``{subject: list[rank_count_dict]}``; every row of
@@ -245,6 +373,15 @@ def plot_average_across_mice(
         pvalues (dict | None): Optional ``{"best_vs_second", "best_vs_third",
             "second_vs_third"}`` floats to annotate on the bars. Known issue: raises
             ``IndexError`` if a bar's mean is not finite and any p-value is given. Default None.
+        significance (dict | None): ``{comparison: PairedTest}`` from
+            :func:`src.behavior_analysis.rank_significance.rank_comparison_tests`, drawn as
+            brackets with stars. It must come from the per-mouse proportions of these same
+            *rank_counts* and pooling mode; nothing here checks that. Only inside
+            :func:`~src.behavior_visualization.paper_style.paper_figures` (raises
+            ``ValueError`` otherwise, as the means and statistics go to the paper caption), and
+            not together with *pvalues*. Default None.
+        show_ns (bool): With *significance*, also bracket the non-significant comparisons,
+            marked ``n.s.``. Default True.
         pool_trials_within_subject (bool): Each mouse's value is its pooled proportion
             (weighted by trial count) instead of the mean of its block proportions.
             Default False.
@@ -256,6 +393,7 @@ def plot_average_across_mice(
     Returns:
         plt.Axes: The axes drawn into.
     """
+    _check_annotations(pvalues, significance)
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 5.5))
     per_mouse = _summary.proportions_by_mouse(
@@ -265,8 +403,12 @@ def plot_average_across_mice(
     means = _summary.mean_by_rank(units, guard_empty=False)
     ses = _summary.se_by_rank(units, guard_single=False)
     _draw_bars(ax, means, ses)
-    labelled_x = _label_means(ax, means, 12)
-    _annotate_pvalues(ax, labelled_x, pvalues)
+    if significance is None:
+        labelled_x = _label_means(ax, means, 12)
+        _annotate_pvalues(ax, labelled_x, pvalues)
+    else:
+        _add_caption_note(ax.figure, _means_note(means))
+        _add_caption_note(ax.figure, _significance.describe_rank_tests(significance))
     rng = _helpers.jitter_rng()
     handles = [
         _draw_line(
@@ -281,8 +423,18 @@ def plot_average_across_mice(
     ]
     title = "Pooled Trials Within Mouse" if pool_trials_within_subject else "Average Across Mice"
     _style_axis(ax, title, 14, show_ylabel=True)
-    if mouse_legend:
+    if significance is not None:
+        _draw_significance(ax, significance, _data_top(means, ses, per_mouse), show_ns)
+    if mouse_legend and significance is None:
         ax.legend(handles=handles, fontsize=10, loc="upper right")
+    elif mouse_legend:
+        ax.legend(
+            handles=handles,
+            fontsize=10,
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1),
+            borderaxespad=0,
+        )
     return ax
 
 
@@ -500,6 +652,7 @@ def plot_rank_proportions_average_by_mouse(
     save_path=None,
     pool_trials_within_subject=False,
     mouse_legend=True,
+    significance=None,
 ):
     """Single-panel figure of :func:`plot_average_across_mice`.
 
@@ -517,14 +670,18 @@ def plot_rank_proportions_average_by_mouse(
             trial count); the panel is then titled "Pooled Trials Within Mouse". Default False.
         mouse_legend (bool): Name the mice in a legend; their lines are drawn either way.
             Default True.
+        significance (dict | None): Brackets with stars instead of p-values, as for
+            :func:`plot_average_across_mice`. Default None.
 
     Returns:
         None
     """
+    _check_annotations(average_across_mice_pvalues, significance)
     fig, ax = plt.subplots(figsize=_SINGLE_PANEL_FIGSIZE)
     plot_average_across_mice(
         rank_counts_by_good_reversal,
         pvalues=average_across_mice_pvalues,
+        significance=significance,
         pool_trials_within_subject=pool_trials_within_subject,
         mouse_legend=mouse_legend,
         ax=ax,

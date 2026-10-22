@@ -105,3 +105,21 @@ def test_a_bad_mouse_name_is_one_line_not_a_traceback(cli, monkeypatch, capsys):
         cli.main(["--cohorts", "3", "--pooled-only", "--exclude-mice", "MY_9_Z"])
     assert stop.value.code != 0
     assert "MY_9_Z" in str(stop.value.code)
+
+
+# --- paper-ready figures ---------------------------------------------------------------------
+
+
+def test_paper_ready_is_off_by_default_and_read_with_the_pooled_command(cli):
+    assert cli.parse_args([]).paper_ready is False
+    args = cli.parse_args(["--cohorts", "3", "--pooled-only", "--paper-ready"])
+    assert args.paper_ready and args.pooled_only
+
+
+def test_main_passes_paper_ready_to_run_cohorts(cli, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli, "run_cohorts", lambda ids, **kw: seen.update(ids=ids, **kw))
+    cli.main(["--cohorts", "3", "--pooled-only", "--paper-ready", "--exclude-mice", "MY_1_A"])
+    assert seen["paper_ready"] is True
+    cli.main(["--cohorts", "3", "--pooled-only"])
+    assert seen["paper_ready"] is False
