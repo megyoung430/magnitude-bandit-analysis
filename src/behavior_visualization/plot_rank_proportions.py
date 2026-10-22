@@ -35,6 +35,7 @@ from src.behavior_analysis import rank_significance as _significance
 from src.behavior_visualization import plot_helpers as _helpers
 from src.behavior_visualization.paper_style import KEEP_ANNOTATION_GID as _KEEP
 from src.behavior_visualization.paper_style import add_caption_note as _add_caption_note
+from src.behavior_visualization.paper_style import in_paper_mode as _in_paper_mode
 
 # Read at call time (not copied): notebooks reassign this module's MOUSE_COLORS to extend the
 # palette, and they star-import it.
@@ -316,10 +317,24 @@ def _draw_significance(ax, significance, data_top, show_ns):
 
 
 def _data_top(means, ses, per_mouse):
-    """Highest drawn value: a bar plus its error bar, or a mouse's point."""
+    """Highest drawn value: a bar plus its error bar, or a mouse point; 0 when none is drawn."""
     bars = np.asarray(means, float) + np.nan_to_num(np.asarray(ses, float))
     points = [v[rank] for v in per_mouse.values() for rank in _summary.RANKS]
-    return float(np.nanmax([*bars, *points]))
+    values = np.asarray([*bars, *points], dtype=float)
+    finite = values[np.isfinite(values)]
+    return float(finite.max()) if finite.size else 0.0
+
+
+def _check_annotations(pvalues, significance):
+    """Raise unless the comparisons can be drawn as asked, before any figure is made."""
+    if pvalues is not None and significance is not None:
+        raise ValueError("give either pvalues or significance, not both")
+    if significance is not None and not _in_paper_mode():
+        # the bar means and the statistics go to the caption, which only the paper save writes
+        raise ValueError(
+            "significance brackets state their statistics in the paper caption; draw them "
+            "inside paper_figures()"
+        )
 
 
 def _means_note(means):
@@ -360,7 +375,11 @@ def plot_average_across_mice(
             ``IndexError`` if a bar's mean is not finite and any p-value is given. Default None.
         significance (dict | None): ``{comparison: PairedTest}`` from
             :func:`src.behavior_analysis.rank_significance.rank_comparison_tests`, drawn as
-            brackets with stars. Not together with *pvalues*. Default None.
+            brackets with stars. It must come from the per-mouse proportions of these same
+            *rank_counts* and pooling mode; nothing here checks that. Only inside
+            :func:`~src.behavior_visualization.paper_style.paper_figures` (raises
+            ``ValueError`` otherwise, as the means and statistics go to the paper caption), and
+            not together with *pvalues*. Default None.
         show_ns (bool): With *significance*, also bracket the non-significant comparisons,
             marked ``n.s.``. Default True.
         pool_trials_within_subject (bool): Each mouse's value is its pooled proportion
@@ -374,8 +393,7 @@ def plot_average_across_mice(
     Returns:
         plt.Axes: The axes drawn into.
     """
-    if pvalues is not None and significance is not None:
-        raise ValueError("give either pvalues or significance, not both")
+    _check_annotations(pvalues, significance)
     if ax is None:
         _, ax = plt.subplots(figsize=(6.5, 5.5))
     per_mouse = _summary.proportions_by_mouse(
@@ -658,6 +676,7 @@ def plot_rank_proportions_average_by_mouse(
     Returns:
         None
     """
+    _check_annotations(average_across_mice_pvalues, significance)
     fig, ax = plt.subplots(figsize=_SINGLE_PANEL_FIGSIZE)
     plot_average_across_mice(
         rank_counts_by_good_reversal,

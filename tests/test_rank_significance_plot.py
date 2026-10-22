@@ -16,6 +16,7 @@ from src.behavior_visualization.paper_style import KEEP_ANNOTATION_GID, paper_fi
 from src.behavior_visualization.plot_rank_proportions import (
     SIGNIFICANCE_GID,
     _bracket_levels,
+    _data_top,
     plot_average_across_mice,
     plot_rank_proportions_average_by_mouse,
 )
@@ -58,8 +59,10 @@ def marks(ax):
 
 
 def draw(counts, significance=SIGNIFICANCE, **kwargs):
-    fig, ax = plt.subplots(figsize=(6.5, 5.5))
-    plot_average_across_mice(counts, significance=significance, ax=ax, **kwargs)
+    """The panel drawn in paper mode (the only mode that takes *significance*), not polished."""
+    with paper_figures():
+        fig, ax = plt.subplots(figsize=(6.5, 5.5))
+        plot_average_across_mice(counts, significance=significance, ax=ax, **kwargs)
     return fig, ax
 
 
@@ -111,14 +114,12 @@ def test_brackets_are_thin_and_sit_above_every_bar_error_bar_and_mouse_point(cou
     assert all(line.get_linewidth() == 0.5 for line in brackets(ax))
 
 
-@pytest.mark.parametrize("paper", [False, True])
-def test_no_mark_or_bracket_overlaps_another_and_all_fit_inside_the_axes(counts, paper):
-    if paper:
+@pytest.mark.parametrize("polished", [False, True])
+def test_no_mark_or_bracket_overlaps_another_and_all_fit_inside_the_axes(counts, polished):
+    fig, ax = draw(counts)
+    if polished:
         with paper_figures():
-            fig, ax = draw(counts)
             polish(fig)
-    else:
-        fig, ax = draw(counts)
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     boxes = [a.get_window_extent(renderer) for a in [*brackets(ax), *marks(ax)]]
@@ -146,8 +147,26 @@ def test_an_untested_comparison_gets_no_bracket(counts):
 
 
 def test_p_values_and_significance_cannot_both_be_drawn(counts):
-    with pytest.raises(ValueError, match="either"):
+    with paper_figures(), pytest.raises(ValueError, match="either"):
         plot_average_across_mice(counts, pvalues={"best_vs_second": 0.1}, significance=SIGNIFICANCE)
+
+
+def test_significance_outside_paper_mode_raises_instead_of_dropping_means_and_statistics(counts):
+    # only the paper caption receives the means and the statistics, so without it they would
+    # silently vanish
+    with pytest.raises(ValueError, match="paper_figures"):
+        plot_average_across_mice(counts, significance=SIGNIFICANCE)
+    assert not plt.get_fignums()
+
+
+def test_the_data_top_of_an_empty_panel_is_zero_without_a_warning():
+    import warnings
+
+    nan = float("nan")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        top = _data_top([nan] * 3, [nan] * 3, {"m1": {"best": nan, "second": nan, "third": nan}})
+    assert top == 0.0
 
 
 def test_with_mouse_legend_the_legend_moves_outside_the_axes(counts):
