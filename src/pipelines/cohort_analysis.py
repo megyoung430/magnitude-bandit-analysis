@@ -246,8 +246,8 @@ class CohortResult(NamedTuple):
         rank_results (dict): ``{(task_type, k): rank results of run_problem}``, each
             ``{value_basis: {pool_trials: {"counts": ..., "p_values": ...}}}`` or ``{}``.
         pooled_drifting_ranks (dict): Output of :func:`pooled_drifting_rank_results`:
-            ``{value_basis: {pool_trials: {"problems", "counts", "p_values"}}}``; ``{}`` if the
-            cohort has no drifting problems.
+            ``{value_basis: {pool_trials: {"problems", "counts", "p_values", "significance"}}}``;
+            ``{}`` if the cohort has no drifting problems.
         review_tables (dict): ``{name: DataFrame}`` of the other tables written next to the
             problem map (``suspect_sessions``, ``warnings_log`` and so on; see the module doc).
         excluded_pooled_ranks (dict | None): As *pooled_drifting_ranks*, for the pooled set
@@ -480,10 +480,10 @@ def plot_pooled_drifting_rank(results: dict, save_dir: Path, mouse_legend: bool 
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
+    paper = in_paper_mode()
     for value_basis, by_mode in results.items():
         label = VALUE_BASIS_LABELS[value_basis]
         for pool_trials, result in by_mode.items():
-            paper = in_paper_mode()
             plot_rank_proportions(
                 result["counts"],
                 average_across_mice_pvalues=None if paper else result["p_values"],

@@ -220,7 +220,9 @@ def test_the_normal_rank_figure_keeps_its_t_test_p_values(monkeypatch, tmp_path)
                 "problems": [1],
                 "counts": counts,
                 "p_values": pvalue_paired_t_best_vs_second_vs_third(counts, True),
-                "significance": rank_comparison_tests(proportions_by_mouse(counts)),
+                "significance": rank_comparison_tests(
+                    proportions_by_mouse(counts, pool_trials_within_subject=True)
+                ),
             }
         }
     }
