@@ -12,6 +12,8 @@ problems within their type (blocked 1, 2, ...; drifting 1, 2, ...) so that "drif
 lines up across mice; :func:`problem_map_table` keeps the overall number next to it.
 """
 
+from typing import NamedTuple
+
 import pandas as pd
 
 from src.behavior_import.import_data import session_source_paths
@@ -193,3 +195,61 @@ def _map_row(subject: str, kind: str, k: int, problem: int, sessions: dict) -> d
         "n_sessions": len({session_number(key) for key in keys}),
         "session_range": compress_numbers(session_number(key) for key in keys),
     }
+
+
+class ProblemLayout(NamedTuple):
+    """Towers of one mouse's problem, as recorded in the cohort's problem map.
+
+    Attributes:
+        initiation_tower (str): The initiation tower, e.g. ``"B2"``.
+        choice_towers (tuple[str, ...]): The choice towers, sorted.
+        session_range (str): The problem's session numbers, e.g. ``"3-8, 20"``.
+    """
+
+    initiation_tower: str
+    choice_towers: tuple[str, ...]
+    session_range: str
+
+
+def problem_layout(
+    problem_map: pd.DataFrame, *, mouse: str, task_type: str, problem: int
+) -> ProblemLayout:
+    """Towers of *mouse*'s problem number *problem* within *task_type*.
+
+    Numbered within the type, as in the cohort figures: ``task_type="drifting", problem=1`` is
+    the mouse's first drifting problem, whatever its overall number.
+
+    Args:
+        problem_map (pd.DataFrame): The cohort's problem map, from :func:`problem_map_table`.
+        mouse (str): Subject id, e.g. ``"MY_71_R"``.
+        task_type (str): ``"blocked"`` or ``"drifting"``.
+        problem (int): Problem number within the task type, 1 or more.
+
+    Returns:
+        ProblemLayout: The problem's initiation tower, choice towers and session range.
+
+    Raises:
+        ValueError: If *task_type* is neither type, or the problem logged no choice towers.
+        LookupError: If the map has no such mouse, or the mouse no such problem; the message
+            lists what there is.
+    """
+    if task_type not in (BLOCKED, DRIFTING):
+        raise ValueError(f"task type must be {BLOCKED!r} or {DRIFTING!r}, got {task_type!r}")
+    of_mouse = problem_map[problem_map["mouse"] == mouse]
+    if of_mouse.empty:
+        raise LookupError(
+            f"no mouse {mouse!r} in the problem map; mice: {sorted(problem_map['mouse'].unique())}"
+        )
+    of_type = of_mouse[of_mouse["task_type"] == task_type]
+    rows = of_type[of_type["problem_in_type"] == problem]
+    if rows.empty:
+        raise LookupError(
+            f"{mouse} has no {task_type} problem {problem}; its {task_type} problems: "
+            f"{sorted(of_type['problem_in_type'].tolist())}"
+        )
+    (row,) = rows.itertuples()  # the map has one row per mouse, type and number
+    if not row.choice_towers:
+        raise ValueError(f"{mouse}'s {task_type} problem {problem} logged no choice towers")
+    return ProblemLayout(
+        row.initiation_tower, tuple(row.choice_towers.split(";")), row.session_range
+    )

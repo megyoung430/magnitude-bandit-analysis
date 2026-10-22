@@ -22,6 +22,8 @@ from src.behavior_visualization.plot_maze_schematic import (
     port_fills,
 )
 
+CHOICES = ["A2", "B1", "C3"]
+
 
 @pytest.fixture(autouse=True)
 def close_figures():
@@ -33,21 +35,40 @@ def close_figures():
 
 
 def test_each_port_gets_the_fill_of_its_role():
-    fills = port_fills("B2", ["A2", "B1", "C3"])
+    fills = port_fills(CHOICES, "B2")
     assert fills["B2"] == INITIATION_FILL
-    assert {fills[p] for p in ("A2", "B1", "C3")} == {CHOICE_FILL}
+    assert {fills[p] for p in CHOICES} == {CHOICE_FILL}
     assert {fills[p] for p in ("A1", "A3", "B3", "C1", "C2")} == {IDLE_FILL}
     assert set(fills) == set(ARMS9)
 
 
+def test_the_initiation_tower_defaults_to_b2():
+    assert port_fills(["A1", "C1", "C3"]) == port_fills(["A1", "C1", "C3"], "B2")
+
+
+def test_another_initiation_tower_can_be_given():
+    fills = port_fills(["A1", "C1", "C3"], "A2")
+    assert fills["A2"] == INITIATION_FILL
+    assert fills["B2"] == IDLE_FILL
+
+
 def test_unknown_port_is_rejected():
     with pytest.raises(ValueError, match="B4"):
-        port_fills("B2", ["A2", "B4"])
+        port_fills(["A2", "B4"])
 
 
 def test_port_cannot_be_both_initiation_and_choice():
     with pytest.raises(ValueError, match="B2"):
-        port_fills("B2", ["B2", "A1"])
+        port_fills(["B2", "A1"], "B2")
+
+
+@pytest.mark.parametrize(
+    "choices, message",
+    [("A2", "list of towers"), ([], "at least one"), (["A2", "A2", "C3"], "more than once")],
+)
+def test_malformed_choice_towers_are_rejected(choices, message):
+    with pytest.raises(ValueError, match=message):
+        port_fills(choices)
 
 
 # --------------------------------------------------------------- platform
@@ -79,22 +100,30 @@ def test_platform_corners_follow_the_corner_towers_angled_faces():
 
 def test_draws_into_the_axes_it_is_given():
     fig, axes = plt.subplots(1, 2)
-    returned = draw_maze_schematic("B2", ["A2", "B1", "C3"], ax=axes[1])
+    returned = draw_maze_schematic(CHOICES, ax=axes[1])
     assert returned is axes[1]
     assert len(axes[0].patches) == 0
     assert len(axes[1].patches) == 1 + len(ARMS9)  # platform plus one octagon per port
 
 
 def test_port_labels_are_not_bold():
-    ax = draw_maze_schematic("B2", ["A2", "B1", "C3"])
+    ax = draw_maze_schematic(CHOICES)
     labels = {t.get_text(): t for t in ax.texts}
     assert set(labels) == set(ARMS9)
     assert all(t.get_fontweight() == "normal" for t in labels.values())
 
 
+def test_tower_outlines_are_not_clipped_at_the_axes_edge():
+    # On a small panel the stroke of the outer towers reaches past the axes limits.
+    ax = draw_maze_schematic(CHOICES)
+    towers = [patch for patch in ax.patches if patch.get_edgecolor()[3] > 0]
+    assert len(towers) == len(ARMS9)
+    assert not any(patch.get_clip_on() for patch in towers)
+
+
 def test_saves_svg_pdf_and_png(tmp_path):
     base = tmp_path / "problem-05"
-    plot_maze_schematic("B2", ["A2", "B1", "C3"], save_path=base)
+    plot_maze_schematic(CHOICES, save_path=base)
     assert {p.name for p in tmp_path.iterdir()} == {
         "problem-05.svg",
         "problem-05.pdf",

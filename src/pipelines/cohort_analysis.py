@@ -82,6 +82,7 @@ the overall problem order and whatever its task type, so drifting problem 1 is o
 the ports of the last blocked problem.
 """
 
+import re
 import shutil
 import warnings
 from collections.abc import Collection, Iterable, Iterator
@@ -278,6 +279,24 @@ def cohort_name(cohort_id: int) -> str:
     if not isinstance(cohort_id, int) or cohort_id < 1:
         raise ValueError(f"cohort id must be a positive integer, got {cohort_id!r}")
     return f"cohort-{cohort_id:02d}"
+
+
+def cohort_id_from_name(name: str) -> int:
+    """The cohort number of a folder name such as ``"cohort-01"``; inverse of :func:`cohort_name`.
+
+    Args:
+        name (str): A cohort folder name, ``"cohort-"`` followed by a positive number.
+
+    Returns:
+        int: The cohort number, e.g. 1.
+
+    Raises:
+        ValueError: If *name* is not of that form.
+    """
+    match = re.fullmatch(r"cohort-(\d+)", name)
+    if match is None or int(match.group(1)) < 1:
+        raise ValueError(f"expected a cohort name like 'cohort-01', got {name!r}")
+    return int(match.group(1))
 
 
 def cohort_raw_dir(data_root: Path, cohort_id: int) -> Path:
