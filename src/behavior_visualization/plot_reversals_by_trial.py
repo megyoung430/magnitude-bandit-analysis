@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.behavior_analysis.reversals_by_trial import reversal_trial_series, trailing_reversal_rate
-from src.behavior_visualization.plot_helpers import save_or_show
+from src.behavior_visualization.plot_helpers import Title, save_or_show, set_title, stats_line
 from src.behavior_visualization.plot_style import BAD_COLOR, GOOD_COLOR, TOTAL_COLOR
 
 
@@ -16,8 +16,8 @@ def plot_reversals_by_trial(subjects_trials, *, window=None, threshold=None, sav
 
     Saves two figures, ``<save_path> Across Mice`` (faint per-mouse lines plus the mean of the
     mice observed at each trial) and ``<save_path> By Mouse`` (one panel per mouse, three
-    panels per row), each as ``.png`` and ``.pdf``. Without *window* the y axis is the
-    cumulative reversal count; with it, a trailing reversal rate per 100 trials.
+    panels per row), each in every figure format with a caption file. Without *window* the y
+    axis is the cumulative reversal count; with it, a trailing reversal rate per 100 trials.
 
     Args:
         subjects_trials (dict): ``{subject: {session_key: session_dict}}``.
@@ -45,7 +45,7 @@ def plot_reversals_by_trial(subjects_trials, *, window=None, threshold=None, sav
         }
     offset = 1 if window is not None else 0
     ylabel = "Reversals per 100 trials" if window is not None else "Cumulative reversals"
-    title = (
+    heading = (
         f"Trailing {window}-trial reversal rate"
         if window is not None
         else "Cumulative reversals by trial"
@@ -68,7 +68,10 @@ def plot_reversals_by_trial(subjects_trials, *, window=None, threshold=None, sav
         )
     if window is None and threshold is not None:
         ax.axhline(threshold, color="gray", ls="--", label="Threshold")
-    ax.set(xlabel="Number of trials completed", ylabel=ylabel, title=title)
+    ax.set(xlabel="Number of trials completed", ylabel=ylabel)
+    caption = ("Faint lines: each mouse; bold: the mean of the mice observed at each trial.",)
+    stats = stats_line("mean", "mice", [(len(series), "mouse", "mice")])
+    set_title(ax, Title(heading, stats, caption))
     ax.legend(fontsize=9)
     fig.tight_layout()
     mice = sorted(series)
@@ -84,7 +87,7 @@ def plot_reversals_by_trial(subjects_trials, *, window=None, threshold=None, sav
         ax.legend(fontsize=8)
     for ax in list(axes.flat)[len(mice) :]:
         ax.set_visible(False)
-    fig2.suptitle(title)
+    fig2.suptitle(heading)
     fig2.tight_layout()
     save_or_show(
         {" Across Mice": fig, " By Mouse": fig2},
