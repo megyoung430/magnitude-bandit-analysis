@@ -41,10 +41,17 @@ def drifting_baseline(n_frames: int = N_FRAMES, amplitude: float = 5.0, period_s
     return F0_LEVEL + amplitude * np.sin(2 * np.pi * t / period_s)
 
 
-def planted_cell(rng: np.random.Generator, n_frames: int = N_FRAMES) -> PlantedCell:
-    """One cell: sparse large transients on a slow drift, plus two decoys that must be ignored."""
+def planted_cell(
+    rng: np.random.Generator, n_frames: int = N_FRAMES, spike_frames=None
+) -> PlantedCell:
+    """One cell: sparse large transients on a slow drift, plus two decoys that must be ignored.
+
+    *spike_frames* defaults to one transient every ~60 s.
+    """
     f0_true = drifting_baseline(n_frames)
-    spike_frames = np.arange(300, n_frames - 300, 450)  # one every ~60 s
+    if spike_frames is None:
+        spike_frames = np.arange(300, n_frames - 300, 450)
+    spike_frames = np.asarray(spike_frames, dtype=int)
     short_frames = np.array([n_frames // 2 + 100])
     weak_frames = np.array([n_frames // 2 + 1500])
     dff = np.convolve(spike_train(n_frames, spike_frames, 1.0), kernel(DECAY_S))[:n_frames]

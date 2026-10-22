@@ -28,6 +28,46 @@ NULL_PERCENTILE = 95  # a cell is responsive above this percentile of its shuffl
 CHANCE_LEVEL = 1 - NULL_PERCENTILE / 100
 
 
+SCORE_TRACES = ("dff_clear", "e_clear")
+
+
+@dataclass(frozen=True)
+class ResponseSettings:
+    """How outcome responses are aligned and tested.
+
+    Attributes:
+        window_s (tuple[float, float]): Window around the outcome for the average responses.
+        response_s (float): Post-outcome window (from the outcome's frame) whose activity is
+            compared with the rest of the recording by the responsive-cell score.
+        n_shifts (int): Circular time shifts forming each cell's null. Paper: 1000.
+        min_shift_s (float): Smallest shift from either end of the recording. Paper: 30.
+        score_trace (str): Activity the score is computed on: ``"dff_clear"`` (ΔF/F outside
+            significant transients set to zero; the paper scores ΔF/F) or ``"e_clear"``.
+        phases (tuple[str, ...]): Trial phases whose outcomes are used.
+        seed (int): Seed of the random shifts.
+    """
+
+    window_s: tuple[float, float] = (-2.0, 5.0)
+    response_s: float = 2.0
+    n_shifts: int = 1000
+    min_shift_s: float = 30.0
+    score_trace: str = "dff_clear"
+    phases: tuple[str, ...] = ("task",)
+    seed: int = 0
+
+    def __post_init__(self):
+        if not self.window_s[0] < 0 < self.window_s[1]:
+            raise ValueError(
+                f"window_s must span the outcome (start < 0 < stop), got {self.window_s}."
+            )
+        if self.response_s <= 0 or self.n_shifts < 1 or self.min_shift_s < 0:
+            raise ValueError(f"Invalid ResponseSettings: {self}.")
+        if self.score_trace not in SCORE_TRACES:
+            raise ValueError(
+                f"score_trace must be one of {SCORE_TRACES}, not {self.score_trace!r}."
+            )
+
+
 def valid_span(frame_times_s: np.ndarray) -> slice:
     """The frames from the first to the last with a pyControl time.
 

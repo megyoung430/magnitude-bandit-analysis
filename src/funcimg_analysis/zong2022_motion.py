@@ -8,10 +8,31 @@ Ibottom - Itop inspected by eye for z drift. The computations here are Suite2p's
 GUI (500 as in the paper instead of 300).
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
 BLOCK_CHUNK_FRAMES = 4000  # frames per chunk of the pairwise block-distance computation
+
+
+@dataclass(frozen=True)
+class MotionSettings:
+    """Registration-metrics parameters; the defaults are the paper's.
+
+    Attributes:
+        n_pcs (int): Spatial principal components. Paper: 30.
+        n_extremes (int): Frames averaged for each of Itop and Ibottom. Paper: 500.
+        max_frames (int): Frames sampled evenly through the recording for the PCA. Paper: 5000.
+    """
+
+    n_pcs: int = 30
+    n_extremes: int = 500
+    max_frames: int = 5000
+
+    def __post_init__(self):
+        if min(self.n_pcs, self.n_extremes, self.max_frames) < 1:
+            raise ValueError(f"Invalid MotionSettings: {self}.")
 
 
 def sample_frame_indices(n_frames: int, max_frames: int) -> np.ndarray:
