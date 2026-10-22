@@ -16,6 +16,7 @@ from src.behavior_analysis.trial_count_summaries import (
     summarize_trials_by_problem,
 )
 from src.behavior_visualization import plot_trial_block_summary as pbs
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from src.behavior_visualization.plot_trial_block_summary import (
     _plot_problem_means,
@@ -174,7 +175,8 @@ def test_distribution_figure_layout_for_session_counts(capture, tables, tmp_path
     _, figures = run(capture, tables, tmp_path)
     fig = figures["Trials per session - distributions"]
     assert tuple(fig.get_size_inches()) == (17, 5) and len(fig.axes) == 3
-    assert fig.get_suptitle() == ("Trials per session: distributions\nEach point is one session.")
+    assert fig.get_suptitle() == "Trials per session: distributions"
+    assert figure_caption(fig) == "Each point is one session."
     assert fig._suptitle.get_fontsize() == 13
     boxes, low, high = fig.axes
     assert boxes.get_title() == "Distribution by mouse"
@@ -228,9 +230,8 @@ def test_group_ecdfs_show_each_mouse_and_the_pooled_observations(capture, tables
 def test_block_distributions_use_the_block_note(capture, tables, tmp_path):
     _, figures = run(capture, tables, tmp_path)
     fig = figures["Trials per block - distributions"]
-    assert fig.get_suptitle() == (
-        "Trials per block: distributions\nBlocks include observed portions at problem edges."
-    )
+    assert fig.get_suptitle() == "Trials per block: distributions"
+    assert figure_caption(fig) == "Blocks include observed portions at problem edges."
 
 
 def test_without_subject_groups_one_pooled_panel_is_drawn(capture, tables, tmp_path):
@@ -290,7 +291,8 @@ def test_problem_figure_shows_mouse_means_and_mean_sem_with_mouse_counts(capture
     assert tuple(fig.get_size_inches()) == (9, 5)
     assert ax.get_xlabel() == "Problem (number of mice)"
     assert ax.get_ylabel() == "Mean trials per session"
-    assert ax.get_title() == "Trials per session across problems — equal weight per mouse"
+    assert ax.get_title() == "Trials per session across problems\nmean ± SE across mice, n = 3 mice"
+    assert figure_caption(fig).startswith("Each mouse is weighted equally")
     assert [t.get_text() for t in ax.get_xticklabels()] == ["1\n(n=3)", "2\n(n=2)"]
     mouse_lines = [ln for ln in ax.lines if ln.get_label() in ("m1", "m2", "m3")]
     assert [ln.get_ydata().tolist() for ln in mouse_lines] == [[24, 24], [16, 16], [24]]

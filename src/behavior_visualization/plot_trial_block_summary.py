@@ -18,7 +18,12 @@ from src.behavior_analysis.trial_count_summaries import (
 from src.behavior_visualization.plot_helpers import (
     FigureOutput,
     TableOutput,
+    Title,
+    error_drawn,
     mouse_color_map,
+    set_suptitle,
+    set_title,
+    stats_line,
     write_outputs,
 )
 
@@ -122,7 +127,7 @@ def _distribution_figure(
         # "Other", which matches neither panel, so they are left out of both ECDFs.
         group_table = table[table.group == group] if split_subject_groups else table
         _plot_group_ecdfs(ax, group_table, group, colors, title)
-    fig.suptitle(f"{title}: distributions\n{note}", fontsize=13)
+    set_suptitle(fig, Title(f"{title}: distributions", None, (note,)), fontsize=13)
     return fig
 
 
@@ -145,11 +150,14 @@ def _problem_figure(
 ) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(9, 5))
     _plot_problem_means(ax, per_mouse, summary, colors)
-    ax.set(
-        xlabel="Problem (number of mice)",
-        ylabel=f"Mean trials per {unit}",
-        title=f"Trials per {unit} across problems — equal weight per mouse",
+    ax.set(xlabel="Problem (number of mice)", ylabel=f"Mean trials per {unit}")
+    average = "mean ± SE" if error_drawn(summary["sem"]) else "mean"
+    stats = stats_line(average, "mice", [(per_mouse["mouse"].nunique(), "mouse", "mice")])
+    caption = (
+        "Each mouse is weighted equally (its mean per problem); the n under each problem is the "
+        "number of mice behind its mean.",
     )
+    set_title(ax, Title(f"Trials per {unit} across problems", stats, caption))
     ax.legend(fontsize=8, ncol=3)
     return fig
 
