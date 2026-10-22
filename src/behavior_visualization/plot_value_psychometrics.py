@@ -25,7 +25,17 @@ from src.behavior_analysis.get_choice_probs_by_value import (
     TIE_MODES,
 )
 from src.behavior_analysis.value_psychometrics import Curve, HeatmapTables
-from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
+from src.behavior_visualization.plot_helpers import (
+    Title,
+    axes_or_new,
+    count_text,
+    despine,
+    error_drawn,
+    save_or_show,
+    set_suptitle,
+    set_title,
+    stats_line,
+)
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
 
 COLOR_BEST = CHOICE_PROB_COLOR_MAP["prev_best"]
@@ -38,9 +48,9 @@ EMPTY_CELL_COLOR = "#e6e6e6"
 _LABEL_HEIGHT = 0.05
 _LABEL_PAD = 0.05
 
-# Figure margins in inches: room for the title above and the tie summary below the panels.
-_TITLE_MARGIN = 0.4
-_FOOTER_MARGIN = 0.45
+# Figure margins in inches: room for the title above the panels and a little below them.
+_TITLE_MARGIN = 0.55
+_FOOTER_MARGIN = 0.1
 
 # Empty space left and right of the first and last tick, as a fraction of the tick range, so
 # every panel is framed alike whatever its ticks are.
@@ -201,26 +211,23 @@ def tie_summary(ties: dict[str, int], tie_mode: str) -> str:
     )
 
 
-def _mice(n: int) -> str:
-    """``"1 mouse"`` or ``"3 mice"``."""
-    return f"{n} mouse" if n == 1 else f"{n} mice"
+def _tie_caption(ties: dict[str, int], tie_mode: str) -> tuple[str, str]:
+    """The caption lines of the tie mode and the tie totals."""
+    return f"Ties {tie_label(tie_mode).lower()}.", f"{tie_summary(ties, tie_mode)}."
 
 
-def _finish_figure(fig: plt.Figure, title: str, ties: dict[str, int], tie_mode: str) -> None:
-    """Add the title above and the tie summary below the panels, then lay the panels out between.
+def _finish_figure(fig: plt.Figure, title: Title) -> None:
+    """Add the title above the panels, then lay the panels out below it.
 
-    The margins are fixed in inches so the title and footer never overlap the panels, however
-    many rows the figure has; both are centred over the panels (colour bars included).
+    The top margin is fixed in inches so the title never overlaps the panels, however many
+    rows the figure has; the title is centred over the panels (colour bars included).
     """
     height = fig.get_figheight()
     fig.tight_layout(rect=(0, _FOOTER_MARGIN / height, 1, 1 - _TITLE_MARGIN / height))
     fig.canvas.draw()  # equal-aspect panels and colour bars only settle their positions on draw
     positions = [ax.get_position() for ax in fig.axes]
     centre = (min(p.x0 for p in positions) + max(p.x1 for p in positions)) / 2
-    fig.suptitle(title, x=centre, y=1 - 0.08 / height, va="top", fontsize=12)
-    fig.text(
-        centre, 0.1 / height, tie_summary(ties, tie_mode), ha="center", va="bottom", fontsize=9
-    )
+    set_suptitle(fig, title, x=centre, y=1 - 0.08 / height, va="top", fontsize=12)
 
 
 # ---------------------------------------------------------------------------
@@ -305,11 +312,13 @@ def plot_overall_heatmaps(
             axs, (tables.p_best, tables.p_second), ("Best", "Second"), strict=True
         ):
             plot_prob_heatmap(prob, tables.n_trials, f"P({name}) - {value_label} Value", ax=ax)
-        title = (
-            f"{value_label} Value (Ties {tie_label(tie_mode)}): mean across {_mice(n_mice)} "
-            "(n = trials summed over mice)"
+        title = Title(
+            f"Heatmaps ({value_label} Value)",
+            stats_line("mean", "mice", [(n_mice, "mouse", "mice")]),
+            ("Each cell: the mean across mice; n = trials summed over mice.",)
+            + _tie_caption(tables.ties, tie_mode),
         )
-        _finish_figure(fig, title, tables.ties, tie_mode)
+        _finish_figure(fig, title)
     save_or_show(fig, save_path or None)
 
 
@@ -345,8 +354,13 @@ def plot_per_mouse_heatmaps(
                 (("Best", tables.per_mouse_p_best), ("Second", tables.per_mouse_p_second))
             ):
                 plot_prob_heatmap(probs[subject], n, f"P({name}) - {subject}", ax=axs[row, col])
-        title = f"{value_label} Value (Ties {tie_label(tie_mode)}): {_mice(len(mice))}"
-        _finish_figure(fig, title, tables.ties, tie_mode)
+        caption = (f"{count_text(len(mice), 'mouse', 'mice')}.",)
+        title = Title(
+            f"Heatmaps per Mouse ({value_label} Value)",
+            None,
+            caption + _tie_caption(tables.ties, tie_mode),
+        )
+        _finish_figure(fig, title)
     save_or_show(fig, save_path or None)
 
 
@@ -429,7 +443,10 @@ def plot_psychometric_panel(
         _annotate_means(ax, curve_best, curve_second)
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Choice Probability", fontsize=12)
-        ax.set_title(xlabel, fontsize=14)
+        n_mice = len(curve_best.mice)
+        average = "mean ± SE" if error_drawn(curve_best.se, curve_second.se) else "mean"
+        stats = stats_line(average, "mice", [(n_mice, "mouse", "mice")])
+        set_title(ax, Title(xlabel, stats), fontsize=14)
         ax.set_ylim(0, 1)
         ax.set_xticks(curve_best.x)
         # Set explicitly: autoscaling ignores NaN points, so the limits would otherwise move
@@ -459,14 +476,13 @@ def plot_psychometric_curves(
         tie_mode (str): The tie mode the curves were made with, for the title and tie line.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
-    n_mice = len(curves["best"]["best_val"].mice)
     weighting = "trials pooled within mouse" if pool_trials else "cell probabilities averaged"
     with _new_figure(ncols=3, figsize=(13, 4.4)) as (fig, axs):
         for ax, (axis, xlabel) in zip(axs, PANELS, strict=True):
             plot_psychometric_panel(curves["best"][axis], curves["second"][axis], xlabel, ax=ax)
-        title = (
-            f"Psychometric Curves ({value_label} Value) (Ties {tie_label(tie_mode)}): "
-            f"{weighting}; mean and SE across {_mice(n_mice)}"
+        caption = (
+            f"{weighting.capitalize()}; thin lines: each mouse.",
+            *_tie_caption(ties, tie_mode),
         )
-        _finish_figure(fig, title, ties, tie_mode)
+        _finish_figure(fig, Title(f"Psychometric Curves ({value_label} Value)", None, caption))
     save_or_show(fig, save_path or None)

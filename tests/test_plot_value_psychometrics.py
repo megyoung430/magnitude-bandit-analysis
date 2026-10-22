@@ -9,6 +9,7 @@ import pytest
 
 from src.behavior_analysis.get_choice_probs_by_value import MouseCounts
 from src.behavior_analysis.value_psychometrics import heatmap_tables, psychometric_curves
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_value_psychometrics import (
     annotation_position,
     label_placements,
@@ -187,8 +188,12 @@ def test_curves_figure_panels_and_title(monkeypatch):
         "Value of Second",
         "Value of Best - Second",
     ]
-    title = fig._suptitle.get_text()
-    assert "Believed" in title and "pooled" in title and "2 mice" in title
+    assert fig._suptitle.get_text() == "Psychometric Curves (Believed Value)"
+    assert figure_caption(fig).startswith("Trials pooled within mouse")
+    assert [a.get_title() for a in fig.axes] == [
+        f"{x}\nmean ± SE across mice, n = 2 mice"
+        for x in ("Value of Best", "Value of Second", "Value of Best - Second")
+    ]
 
 
 def curve_panels(tie_mode):
@@ -321,7 +326,9 @@ def capture_figure(monkeypatch):
 
 
 def tie_line(fig):
-    return [t.get_text() for t in fig.texts if t.get_text().startswith("Trials with ties")]
+    return [
+        line for line in figure_caption(fig).splitlines() if line.startswith("Trials with ties")
+    ]
 
 
 @pytest.mark.parametrize("tie_mode, word", [("exclude", "Excluded"), ("split", "Split")])
@@ -340,30 +347,30 @@ def test_every_figure_prints_the_tie_totals_and_the_mode(monkeypatch, tie_mode, 
         draw()
         fig = seen["fig"]
         assert len(tie_line(fig)) == 1 and "best/second only: 4" in tie_line(fig)[0]
-        assert f"Ties {word}" in fig._suptitle.get_text()
+        assert f"Ties {word.lower()}." in figure_caption(fig).splitlines()
+        assert "Ties" not in fig._suptitle.get_text()
+        assert not [t for t in fig.texts if t.get_visible() and t.get_text().startswith("Trials")]
 
 
-def test_per_mouse_title_clears_the_first_row_and_footer_clears_the_last(monkeypatch):
+def test_per_mouse_title_clears_the_first_row(monkeypatch):
     seen = capture_figure(monkeypatch)
     plot_per_mouse_heatmaps(heatmap_tables(two_mice()), "True", "split")
     fig = seen["fig"]
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     title_box = fig._suptitle.get_window_extent(renderer)
-    footer = next(t for t in fig.texts if t.get_text().startswith("Trials with ties"))
-    footer_box = footer.get_window_extent(renderer)
     for ax in fig.axes:
-        box = ax.get_tightbbox(renderer)
-        assert box.y1 <= title_box.y0 + 1 and box.y0 >= footer_box.y1 - 1
+        assert ax.get_tightbbox(renderer).y1 <= title_box.y0 + 1
 
 
 def test_one_mouse_is_not_pluralised(monkeypatch):
     seen = capture_figure(monkeypatch)
     plot_overall_heatmaps(heatmap_tables({"m1": counts_for(CELLS)}), "True", "split")
-    assert "1 mouse " in seen["fig"]._suptitle.get_text()
+    assert seen["fig"]._suptitle.get_text().endswith("mean across mice, n = 1 mouse")
     curves = psychometric_curves({"m1": counts_for(CELLS)}, pool_trials=True, tie_mode="split")
     plot_psychometric_curves(curves, "True", True, TIES, "split")
-    assert seen["fig"]._suptitle.get_text().endswith("1 mouse")
+    # one mouse has no SE band, so the panels say mean only
+    assert seen["fig"].axes[0].get_title().endswith("mean across mice, n = 1 mouse")
 
 
 # --- side labels, NaN means, centring, whitespace ------------------------------------------
@@ -413,7 +420,7 @@ def panel_span(fig):
 
 
 @pytest.mark.parametrize("which", ["overall", "per_mouse", "curves"])
-def test_title_and_footer_are_centred_over_the_panels(monkeypatch, which):
+def test_the_title_is_centred_over_the_panels(monkeypatch, which):
     tables = heatmap_tables(two_mice())
     curves = psychometric_curves(two_mice(), pool_trials=True, tie_mode="split")
     draw = {
@@ -423,9 +430,7 @@ def test_title_and_footer_are_centred_over_the_panels(monkeypatch, which):
     }[which]
     fig, _ = figure_after_drawing(monkeypatch, draw)
     left, right = panel_span(fig)
-    footer = next(t for t in fig.texts if t.get_text().startswith("Trials with ties"))
     assert fig._suptitle.get_position()[0] == pytest.approx((left + right) / 2)
-    assert footer.get_position()[0] == pytest.approx((left + right) / 2)
 
 
 def test_the_gap_between_title_and_panel_titles_is_small(monkeypatch):
