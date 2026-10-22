@@ -42,7 +42,7 @@ from src.behavior_analysis.single_session import (
     reversal_event_indices,
 )
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
-from src.behavior_visualization.plot_helpers import save_or_show
+from src.behavior_visualization.plot_helpers import add_caption, save_or_show
 from src.behavior_visualization.plot_maze_heatmaps import (
     draw_maze_heatmap,
     outline_legend_handles,
@@ -294,7 +294,7 @@ _MAP_SIDE_INCHES = 3.3
 _COLORBAR_GAP_INCHES = 0.12
 _COLORBAR_WIDTH_INCHES = 0.16
 _COLORBAR_HEIGHT_FRACTION = 0.8
-# Distance from the top of the added row to the top of the maps (room for their two-line titles),
+# Distance from the top of the added row to the top of the maps (room for their titles),
 # and from the bottom of the figure to the bottom of the added row (room for the legend).
 _MAP_TOP_MARGIN_INCHES = 0.45
 _MAP_BOTTOM_MARGIN_INCHES = 0.5
@@ -472,7 +472,6 @@ def plot_poke_maps(
         colorbar_axes (tuple[Axes, Axes] | None): Axes for the two colorbars, in the same order;
             None lets each colorbar take its room from its map. Default None.
     """
-    scale = "colour scale 0 to this session's maximum"
     counts = maps.counts
     initiation_ax, choice_ax = axes
     initiation_cax, choice_cax = colorbar_axes or (None, None)
@@ -482,7 +481,7 @@ def plot_poke_maps(
         colorbar_label="Long pokes after initiation (count per port)",
         ax=initiation_ax,
         colorbar_ax=initiation_cax,
-        title=f"Long pokes after initiation\n({scale})",
+        title="Long pokes after initiation",
         initiation_port=maps.initiation_port,
         **common,
     )
@@ -491,10 +490,11 @@ def plot_poke_maps(
         colorbar_label="Pokes after choice (count per port)",
         ax=choice_ax,
         colorbar_ax=choice_cax,
-        title=f"Pokes after choice\n({scale})",
+        title="Pokes after choice",
         initiation_port=maps.initiation_port,
         **common,
     )
+    add_caption(initiation_ax.figure, "Each maze map is coloured from 0 to this session's maximum.")
 
 
 def _style_spines(axes: Sequence[Axes | None]) -> None:
