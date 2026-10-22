@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.choice_regression import FEATURES
-from src.behavior_visualization.plot_helpers import save_or_show
+from src.behavior_visualization.plot_helpers import Title, save_or_show, set_title, stats_line
 
 SOURCE_LABELS = {"mice": "Mice", "magnitude": "Magnitude agent", "binary": "Binary agent"}
 SOURCE_COLORS = {"mice": "#333333", "magnitude": "#4C8BC9", "binary": "#D9822B"}
@@ -55,7 +55,11 @@ def plot_regression_weights(weights: pd.DataFrame, ax: plt.Axes | None = None) -
     ax.axhline(0, color="0.6", lw=0.8, ls="--")
     ax.set_xticks(range(len(FEATURES)), [FEATURE_LABELS[f] for f in FEATURES])
     ax.set_ylabel("Weight (logit)")
-    ax.set_title("Choice regression: what drives port choice")
+    n_animals = int(weights.groupby("source")["mouse"].nunique().max()) if len(weights) else 0
+    # a single animal has no SE (see the errorbars above)
+    average = "mean ± SE" if n_animals >= 2 else "mean"
+    stats = stats_line(average, "animals of each source", [(n_animals, "animal", "animals")])
+    set_title(ax, Title("Choice regression: what drives port choice", stats))
     ax.legend(frameon=False, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     return ax
