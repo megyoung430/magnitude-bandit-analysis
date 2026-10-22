@@ -155,3 +155,78 @@ def test_all_cohorts_normal_outputs_are_identical(all_cohorts_runs):
 def test_all_cohorts_figures_have_paper_copies(all_cohorts_runs, normal, paper):
     figures = all_cohorts_runs[True] / "figures" / "open-field"
     assert_complete_paper_set(figures / normal, figures / PAPER / paper)
+
+
+# --- the rank figures: stars in the paper copies, p-values in the normal ones ---------------
+
+RANK_FIGURE = "Rank Proportions (True Value) (Pool Trials True) by Average Across Mice"
+
+
+def rank_files(root: Path, suffix: str) -> list[Path]:
+    return sorted(root.rglob(f"{RANK_FIGURE}{suffix}"))
+
+
+@pytest.mark.parametrize("runs", ["cohort_runs", "all_cohorts_runs"])
+def test_paper_rank_captions_give_the_wilcoxon_tests_instead_of_t_test_p_values(runs, request):
+    paper = request.getfixturevalue(runs)[True] / "figures" / "open-field" / PAPER
+    captions = [p.read_text() for p in rank_files(paper, ".caption.txt")]
+    assert len(captions) == 2  # the plain pool and the set without the excluded mouse
+    for caption in captions:
+        # a set left with one mouse says so instead of testing
+        tested = "Two-sided Wilcoxon signed-rank tests across mice (n = " in caption
+        assert tested or "not tested (fewer than 2 mice)" in caption
+        if tested:
+            assert "Holm-corrected" in caption and "Stars: * p < 0.05" in caption
+        assert "p(Best vs Second)" not in caption and "p(Second vs Third)" not in caption
+    assert any("Two-sided Wilcoxon" in caption for caption in captions)
+
+
+@pytest.mark.parametrize("runs", ["cohort_runs", "all_cohorts_runs"])
+def test_paper_rank_figures_draw_the_marks(runs, request):
+    paper = request.getfixturevalue(runs)[True] / "figures" / "open-field" / PAPER
+    for svg in rank_files(paper, ".svg"):
+        tested = "Two-sided" in svg.with_suffix(".caption.txt").read_text()
+        text = svg.read_text()
+        assert tested == ("n.s." in text or "*</text>" in text)
+        assert "p(Best" not in text
+
+
+def test_the_all_cohorts_paper_caption_says_five_mice_cannot_reach_significance(
+    all_cohorts_runs,
+):
+    paper = all_cohorts_runs[True] / "figures" / "open-field" / PAPER / "all-cohorts"
+    (caption,) = [p.read_text() for p in rank_files(paper, ".caption.txt")]
+    assert "With n = 5 mice the smallest possible p is 0.0625" in caption
+
+
+def test_the_normal_rank_figure_keeps_its_t_test_p_values(monkeypatch, tmp_path):
+    from src.behavior_analysis.get_diagnostic_p_value import (
+        pvalue_paired_t_best_vs_second_vs_third,
+    )
+    from src.behavior_analysis.rank_proportions import proportions_by_mouse
+    from src.behavior_analysis.rank_significance import rank_comparison_tests
+    from src.pipelines.cohort_analysis import plot_pooled_drifting_rank
+    from tests.plot_capture import capture_figures
+    from tests.rank_rows import make_row
+
+    counts = {
+        "m1": [make_row(6, 3, 1), make_row(9, 2, 1)],
+        "m2": [make_row(8, 1, 1), make_row(7, 2, 1)],
+        "m3": [make_row(9, 1, 0), make_row(5, 4, 1)],
+    }
+    ranks = {
+        "true": {
+            True: {
+                "problems": [1],
+                "counts": counts,
+                "p_values": pvalue_paired_t_best_vs_second_vs_third(counts, True),
+                "significance": rank_comparison_tests(proportions_by_mouse(counts)),
+            }
+        }
+    }
+    capture = capture_figures(monkeypatch)
+    plot_pooled_drifting_rank(ranks, tmp_path)
+    (figure,) = {s.figure for s in capture.saved}
+    texts = [t.get_text() for ax in figure.axes for t in ax.texts]
+    assert any(t.startswith("p(Best vs Second)") for t in texts)
+    assert not any(line.get_gid() for ax in figure.axes for line in ax.lines)

@@ -21,6 +21,8 @@ import pytest
 
 from src.behavior_analysis.get_choice_probs_by_value import count_choice_probs
 from src.behavior_analysis.poke_counts import session_choice_ports
+from src.behavior_analysis.rank_proportions import proportions_by_mouse
+from src.behavior_analysis.rank_significance import rank_comparison_tests
 from src.behavior_import.import_log import ImportLog
 from src.pipelines import all_cohorts_drifting as pipeline
 from src.pipelines.all_cohorts_drifting import (
@@ -553,3 +555,12 @@ def test_the_script_passes_paper_ready_to_the_pipeline(script, monkeypatch):
     assert seen["paper_ready"] is True
     script.main(["--cohorts", "1"])
     assert seen["paper_ready"] is False
+
+
+def test_pooled_rank_results_carry_the_wilcoxon_tests_of_the_plotted_proportions(pooled):
+    ranks = pooled_drifting_rank_results(pooled.problems, ("true",), (True, False))
+    for pool, result in ranks["true"].items():
+        expected = rank_comparison_tests(
+            proportions_by_mouse(result["counts"], pool_trials_within_subject=pool)
+        )
+        assert result["significance"] == expected

@@ -116,6 +116,8 @@ from src.behavior_analysis.port_finding_sessions import (
     assign_port_finding_sessions,
     port_finding_sessions_for_problem,
 )
+from src.behavior_analysis.rank_proportions import proportions_by_mouse
+from src.behavior_analysis.rank_significance import rank_comparison_tests
 from src.behavior_analysis.review_context import ProblemIndex
 from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table
 from src.behavior_analysis.starting_magnitudes import starting_magnitudes_table
@@ -143,7 +145,7 @@ from src.behavior_import.task_types import (
     regroup_by_task_type,
 )
 from src.behavior_import.warning_records import record_warnings
-from src.behavior_visualization.paper_style import paper_figures
+from src.behavior_visualization.paper_style import in_paper_mode, paper_figures
 from src.behavior_visualization.plot_helpers import figure_banner
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
@@ -418,9 +420,12 @@ def pooled_drifting_rank_results(
             replicates.
 
     Returns:
-        dict: ``{value_basis: {pool_trials: {"problems", "counts", "p_values"}}}``, where
-        ``"problems"`` lists the ``k`` pooled; a basis with no rank windows in any problem is
-        left out.
+        dict: ``{value_basis: {pool_trials: {"problems", "counts", "p_values",
+        "significance"}}}``, where ``"problems"`` lists the ``k`` pooled, ``"p_values"`` are the
+        paired t-tests of the diagnostic figures and ``"significance"`` the Holm-corrected
+        Wilcoxon signed-rank tests of the paper-ready ones (see
+        :func:`src.behavior_analysis.rank_significance.rank_comparison_tests`); a basis with no
+        rank windows in any problem is left out.
     """
     windows = {
         k: get_good_reversal_info(trials, include_first_block=True)
@@ -443,6 +448,9 @@ def pooled_drifting_rank_results(
                 "p_values": pvalue_paired_t_best_vs_second_vs_third(
                     pooled, pool_trials_within_subject=pool_trials
                 ),
+                "significance": rank_comparison_tests(
+                    proportions_by_mouse(pooled, pool_trials_within_subject=pool_trials)
+                ),
             }
             for pool_trials in pooling_modes
         }
@@ -456,6 +464,10 @@ def pooled_drifting_rank_results(
 
 def plot_pooled_drifting_rank(results: dict, save_dir: Path, mouse_legend: bool = True) -> None:
     """One rank-proportion figure per value basis and pooling mode of *results*.
+
+    Inside :func:`paper_scope` the comparisons are drawn as significance brackets with stars
+    (Holm-corrected Wilcoxon signed-rank tests, stated in the caption); otherwise as the
+    paired t-test p-values.
 
     Args:
         results (dict): As returned by :func:`pooled_drifting_rank_results`.
@@ -471,9 +483,11 @@ def plot_pooled_drifting_rank(results: dict, save_dir: Path, mouse_legend: bool 
     for value_basis, by_mode in results.items():
         label = VALUE_BASIS_LABELS[value_basis]
         for pool_trials, result in by_mode.items():
+            paper = in_paper_mode()
             plot_rank_proportions(
                 result["counts"],
-                average_across_mice_pvalues=result["p_values"],
+                average_across_mice_pvalues=None if paper else result["p_values"],
+                significance=result["significance"] if paper else None,
                 pool_trials_within_subject=pool_trials,
                 mouse_legend=mouse_legend,
                 # plot_rank_proportions appends suffixes to a str save_path

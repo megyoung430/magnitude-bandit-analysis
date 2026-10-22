@@ -22,6 +22,14 @@ drifting set only, Nature/Cell style, PDF + SVG + PNG.
   Normal outputs (tables and PNGs) are identical with and without the option.
 - `--paper-ready` on `run_cohorts.py` (with `--pooled-only`, `--exclude-mice`) and
   `run_all_drifting_problems.py`.
+- The paper-ready "Rank Proportions (...) by Average Across Mice" figures mark best vs second,
+  best vs third and second vs third with significance brackets and stars instead of p-values:
+  two-sided Wilcoxon signed-rank tests across mice, Holm-corrected for the comparisons of the
+  figure, stars from the corrected p (`***` < 0.001, `**` < 0.01, `*` < 0.05, `n.s.`). The
+  caption gives n, W, raw and corrected p and marks, says why a comparison was not tested
+  (fewer than 2 mice, all differences zero) and, when too few mice make significance
+  impossible, the smallest attainable exact p. The normal figures and tables keep the paired
+  t-tests.
 
 ## Decisions (PI to check)
 - One switch, no per-plot changes: `paper_figures()` is a context the save step in `plot_helpers`
@@ -41,6 +49,16 @@ drifting set only, Nature/Cell style, PDF + SVG + PNG.
 - Output folder is `figures/open-field/paper-ready/<cohort>/drifting/...` (cohort level kept so
   cohorts do not overwrite each other) and `paper-ready/all-cohorts[-without-...]/`.
 - sciplotlib is not a dependency; the spine trimming is a small helper that credits it.
+- Significance stars (requested: "do the stars for the comparisons ... a Wilcoxon signed rank
+  test and correct for multiple comparisons"): the unit is the mouse, with the same per-mouse
+  proportions the bars and lines show (both pooling modes). scipy's default
+  `zero_method="wilcox"`, `method="auto"`: exact for up to 50 mice without ties or zero
+  differences, an exact permutation test for ties or zeros up to 13 mice, the normal
+  approximation otherwise; the method used is named in the caption. Holm is a small function
+  of our own (statsmodels is only a notebooks extra). `n.s.` is drawn too (`show_ns=True`).
+- In the paper rank figure the bar means move to the caption (they were moved there by the
+  polish step anyway), so the brackets sit just above the data; the y ticks stay at 0-1 and the
+  mouse legend goes beside the axes (so the figure is 120 mm wide when it names the mice).
 
 ## Results change
 - New folder only: `figures/open-field/paper-ready/`. Nothing a run without `--paper-ready`
