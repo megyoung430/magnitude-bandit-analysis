@@ -235,9 +235,9 @@ def plot_choice_probs_with_fraction_removed_axis(
             :func:`plot_choice_probs_with_fraction_removed_panel`.
         frac_removed (np.ndarray): Fraction-removed curve from
             :func:`fraction_removed_by_problem`, shape ``(n_offsets,)``.
-        save_path (str | Path | None): If provided, saves ``.pdf`` and ``.png`` at this path
-            (extension-less base). If ``None`` or empty, the figure is shown interactively.
-            Default None.
+        save_path (str | Path | None): If provided, saves the figure (pdf, png, svg) and its
+            caption at this path (extension-less base). If ``None`` or empty, the figure is
+            shown interactively. Default None.
         title_extra (str): Optional extra line for the figure's caption. Default ``""``.
     """
     ax = plot_choice_probs_with_fraction_removed_panel(

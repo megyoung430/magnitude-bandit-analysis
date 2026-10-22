@@ -348,8 +348,9 @@ def plot_problem_lengths(
         annotate_y (float | None): Y-position for value annotations above bars. Defaults to
             ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
             error (1 if every bar is NaN).
-        save_path (str | Path | None): If provided, saves ``.pdf`` and ``.png`` at this
-            extension-less base path; if None or empty, the figure is shown. Default None.
+        save_path (str | Path | None): If provided, saves the figure (pdf, png, svg) and its
+            caption at this extension-less base path; if None or empty, the figure is shown.
+            Default None.
 
     Raises:
         KeyError: If *problem_summary* lacks one of the required keys.
@@ -565,8 +566,8 @@ def plot_distributions_per_mouse(
         sharex (bool): Share x-axis across subplots. Default False.
         sharey (bool): Share y-axis across subplots. Default False.
         save_dir (str | Path | None): Directory for saved figures, one
-            ``blocklen_distributions_mouse_<mouse>`` (png and pdf) per mouse. If None,
-            figures are shown interactively. Default None.
+            ``blocklen_distributions_mouse_<mouse>`` (pdf, png, svg and a caption) per mouse.
+            If None, figures are shown interactively. Default None.
     """
     problems, mice, data = collect_blocklens(problem_block_stats)
     if drop_last_problem:

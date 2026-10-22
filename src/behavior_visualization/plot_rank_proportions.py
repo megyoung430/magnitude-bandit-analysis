@@ -535,7 +535,7 @@ def plot_rank_proportions_average_by_mouse(
         average_across_mice_pvalues (dict | None): Optional ``"best_vs_second"``,
             ``"best_vs_third"``, ``"second_vs_third"`` p-values to annotate. Default None.
         save_path (str | Path | None): Base path (without extension) for the
-            ``.pdf`` and ``.png`` files; missing folders are created. If None or empty,
+            figure (pdf, png, svg) and caption files; missing folders are created. If None or empty,
             the figure is shown interactively. Default None.
         pool_trials_within_subject (bool): Use each mouse's pooled proportion (weighted by
             trial count); the panel is then titled "Pooled Trials Within Mouse". Default False.
@@ -565,7 +565,7 @@ def plot_rank_proportions_average_by_block(rank_counts_by_good_reversal, save_pa
     Args:
         rank_counts_by_good_reversal (dict): ``{subject: list[rank_count_dict]}``.
         save_path (str | Path | None): Base path (without extension) for the
-            ``.pdf`` and ``.png`` files; missing folders are created. If None or empty,
+            figure (pdf, png, svg) and caption files; missing folders are created. If None or empty,
             the figure is shown interactively. Default None.
 
     Returns:

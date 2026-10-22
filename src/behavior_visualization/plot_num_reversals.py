@@ -283,8 +283,8 @@ def plot_num_reversals(subjects_trials, save_path=None, *, threshold=10):
 
     Args:
         subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
-        save_path (str | Path | None): Base path (without extension) for ``.pdf`` and ``.png``
-            output. If None or empty, the figure is shown. Default None.
+        save_path (str | Path | None): Base path (without extension) for the figure (pdf, png,
+            svg) and caption files. If None or empty, the figure is shown. Default None.
         threshold (float | None): Dashed reference line (the criterion reversal count) on the
             single-bar total plot of block-change-only data; the good/bad bars never get one.
             None for none. Default 10. Keyword-only.
@@ -309,8 +309,8 @@ def plot_num_reversals(subjects_trials, save_path=None, *, threshold=10):
 def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
     """Cumulative reversals over sessions, across mice and per mouse.
 
-    Saves ``<save_path> Across Mice`` and ``<save_path> By Mouse`` (``.pdf``
-    and ``.png``), then trial-based companions with a ``(By Trial)`` suffix.
+    Saves ``<save_path> Across Mice`` and ``<save_path> By Mouse`` (pdf, png and
+    svg, with a caption file each), then trial-based companions with a ``(By Trial)`` suffix.
     Shorter mice are carried forward at their final count in the mean.
 
     Args:

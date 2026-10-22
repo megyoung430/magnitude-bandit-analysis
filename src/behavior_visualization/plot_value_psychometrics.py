@@ -2,7 +2,8 @@
 
 Drawing only: the numbers come from :mod:`src.behavior_analysis.value_psychometrics`.
 Each panel function takes ``ax=None`` and draws into it (making its own figure only if none is
-given); the ``plot_*`` wrappers build a figure, then save it as PNG and PDF or show it.
+given); the ``plot_*`` wrappers build a figure, then save it (pdf, png, svg and a caption) or
+show it.
 
 Heatmap cells print the probability and, on a second line, the number of trials behind it
 (``n=``). The count sits in the cell rather than in a companion heatmap so that a reader sees
@@ -303,7 +304,7 @@ def plot_overall_heatmaps(
         tables (HeatmapTables): From ``heatmap_tables``.
         value_label (str): ``"True"`` or ``"Believed"``, for the titles.
         tie_mode (str): The tie mode the tables were made with, for the title and tie line.
-        save_path (str | Path | None): Base path without extension for ``.png`` and ``.pdf``;
+        save_path (str | Path | None): Base path without extension for the figure and caption;
             ``None`` or ``""`` shows the figure.
     """
     n_mice = len(tables.per_mouse_p_best)

@@ -82,8 +82,8 @@ def run_value_psychometric_analysis(
     the tied rank positions evenly among the tied arms. Each figure prints the number of tied
     trials per category.
 
-    Writes, as PNG and PDF, for each value basis (``<Value>`` is ``True`` or ``Believed``) and
-    tie mode (``<Ties>`` is ``Excluded`` or ``Split``):
+    Writes, as PDF, PNG and SVG with a caption file, for each value basis (``<Value>`` is
+    ``True`` or ``Believed``) and tie mode (``<Ties>`` is ``Excluded`` or ``Split``):
 
     - ``Heatmaps (<Value> Value) (Ties <Ties>) Overall`` and ``... Per Mouse`` (cell
       probabilities do not depend on the pooling mode, so there is one of each; the per-mouse

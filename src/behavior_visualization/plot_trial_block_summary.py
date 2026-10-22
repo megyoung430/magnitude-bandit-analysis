@@ -220,8 +220,8 @@ def plot_trial_block_summaries(
             those panels. Default True.
 
     Returns:
-        list[Path]: The saved PNG and PDF paths, in figure order (PNG first for each
-        figure). The CSV tables are written too but not listed.
+        list[Path]: The saved PNG, PDF and SVG paths, in figure order (PNG first for each
+        figure). The CSV tables and caption files are written too but not listed.
 
     Raises:
         ValueError: If *sessions* or *blocks* is empty.

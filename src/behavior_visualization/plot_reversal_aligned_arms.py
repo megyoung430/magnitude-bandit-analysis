@@ -251,7 +251,7 @@ def plot_reversal_aligned_arms(
 def save_reversal_aligned_arms(
     result: ReversalAlignedArms, save_path: str | Path | None, *, scope: str = ""
 ) -> None:
-    """Draw the figure and save it as ``<save_path>.png`` and ``.pdf``, or show it.
+    """Draw the figure and save it (pdf, png, svg and a caption), or show it.
 
     Args:
         result (ReversalAlignedArms): See :func:`plot_reversal_aligned_arms`.

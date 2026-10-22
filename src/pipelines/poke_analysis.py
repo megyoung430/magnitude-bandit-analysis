@@ -9,7 +9,7 @@ Entry points:
   choice ports from the full ordered problem dict; the runner passes the result of the second as
   ``previous_choice_towers``.
 
-Figures written to ``out_dir`` (PNG and PDF):
+Figures written to ``out_dir`` (PNG, PDF and SVG, each with a caption file):
 
 - ``Long Pokes by Relative Session``: mean non-choice long pokes per trial (``num_long_pokes``)
   for each relative session of the problem, bars = mean +/- SE across mice, lines = mice.
@@ -315,8 +315,8 @@ def run_poke_analysis(
         n_long_poke_checked, n_long_poke_agree, parse_error``), ``"port_finding_check"`` (one
         row per mouse with port-finding trials against the minimum ``n_ports x found_t_thresh``,
         see :func:`~src.behavior_analysis.port_finding_check.port_finding_check_table`) and
-        ``"files"`` (the figure paths written, PNG then PDF per figure; the port-finding figures
-        only if drawn). No table is written to disk.
+        ``"files"`` (the figure paths written, PNG, PDF then SVG per figure; the port-finding
+        figures only if drawn). No table is written to disk.
 
     Raises:
         ValueError: If the input is not one problem's ``{mouse: {session: session}}`` with raw

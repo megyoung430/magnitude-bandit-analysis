@@ -102,7 +102,8 @@ def test_axis_text_limits_and_title(capture):
     assert ax.get_ylabel() == "Fraction of Good Reversals" and ax.yaxis.label.get_fontsize() == 12
     assert ax.get_ylim() == (0.0, 1.07)
     assert ax.get_title() == (
-        "First Choice After Leaving Previous Best\nmean ± SE across mice, n = 3 mice, n = 20 reversals"
+        "First Choice After Leaving Previous Best\n"
+        "mean ± SE across mice, n = 3 mice, n = 20 reversals"
     )
     assert not ax.spines["top"].get_visible() and not ax.spines["right"].get_visible()
 

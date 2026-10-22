@@ -77,9 +77,9 @@ def run_port_preference_analysis(
     and plus ratios. Ports or categories that were never best have no ratio; how many there are
     is logged and returned. A mouse offered ports of one category only in the pooled scope has
     that category's ratio equal to 1 by construction, so its category ratios are set to NaN;
-    these mice are listed in the log, in the result, and in the figure title.
+    these mice are listed in the log, in the result, and in the figure caption.
 
-    Writes, as PNG and PDF:
+    Writes, as PDF, PNG and SVG with a caption file:
 
     - ``Port Preference X vs Plus``: bars of mean ± SE across mice, one line per mouse;
     - ``Port Preference Per Mouse``: one 3 x 3 maze per mouse coloured by the port ratios

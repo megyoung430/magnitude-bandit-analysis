@@ -6,7 +6,7 @@
   mouse coloured by the ratio, on the maze layout of ``plot_maze_heatmaps``.
 
 Each panel function draws into an axes you pass (a new figure is made only if none is given).
-The figure functions save PNG and PDF.
+The figure functions save PDF, PNG and SVG, each with a caption file.
 
 Heatmap colours. The ratio is shown on a log2 scale so that "twice as often as best" and "half
 as often" are equally far from 1. The diverging map is centred on 1; the scale limit is the
