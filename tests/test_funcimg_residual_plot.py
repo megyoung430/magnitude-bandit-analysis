@@ -102,8 +102,16 @@ def test_example_traces_overlay_both_dffs_in_robust_z_on_one_axis_per_cell():
 
 def test_example_traces_state_that_the_corrected_baseline_includes_the_neuropil():
     fig = plot_example_traces(example(), 10 + 0.133 * np.arange(400))
-    text = " ".join(t.get_text() for t in fig.texts)
+    text = " ".join(t.get_text() for t in fig.findobj(matplotlib.text.Text))
     assert "neuropil" in text and "robust z" in text
+
+
+def test_the_example_traces_caveat_does_not_cover_the_time_axis_label():
+    fig = plot_example_traces(example(), 10 + 0.133 * np.arange(400))
+    fig.canvas.draw()
+    caveat = next(t for t in fig.findobj(matplotlib.text.Text) if "neuropil" in t.get_text())
+    label = fig.axes[-1].xaxis.label
+    assert not caveat.get_window_extent().overlaps(label.get_window_extent())
 
 
 def test_example_traces_can_show_every_frame_and_need_matching_shapes():

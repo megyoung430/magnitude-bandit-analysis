@@ -1,6 +1,7 @@
 """Figure of a run's most reward-responsive cells: small multiples, heatmap and field of view."""
 
 import math
+import textwrap
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,6 +18,8 @@ NOT_CROSS_VALIDATED = (
     "SELECTION BIAS: cells ranked and plotted on the same trials, not cross-validated"
 )
 HEATMAP_PERCENTILE = 99  # colour limits, so one extreme cell does not wash out the rest
+SUMMARY_FONTSIZE = 8
+CHARS_PER_INCH = 72 / (0.6 * SUMMARY_FONTSIZE) * 0.85  # average glyph is ~0.6 em wide; 15 % margin
 MIN_TRIALS_FOR_SEM = 3  # a standard error from two trials means little, so no ribbon is drawn
 
 
@@ -169,7 +172,7 @@ def plot_reward_cells(run: dict, measure_name: str, n_cells: int, title: str = "
     colors = roi_colors(len(top))
     n_rows = max(1, math.ceil(len(top) / N_COLUMNS))
     fig = figure if figure is not None else plt.figure(figsize=(24, 13), constrained_layout=True)
-    grid = fig.add_gridspec(2, 2, width_ratios=[3, 1.3], height_ratios=[30, 1])
+    grid = fig.add_gridspec(2, 2, width_ratios=[3, 1.3], height_ratios=[30, 2])
     cells = grid[0, 0].subgridspec(n_rows, N_COLUMNS)
     side = grid[0, 1].subgridspec(2, 1)
     first = None
@@ -204,5 +207,8 @@ def plot_reward_cells(run: dict, measure_name: str, n_cells: int, title: str = "
         fig.suptitle(f"{heading}\n{NOT_CROSS_VALIDATED}", fontsize=11, color="#B00020")
     note = fig.add_subplot(grid[1, :], label="summary")
     note.set_axis_off()
-    note.text(0, 0.5, _summary(run, measure), fontsize=8, ha="left", va="center")
+    # wrapped to the figure: a text wider than the figure is counted by constrained layout, which
+    # then squeezes every panel to a sliver
+    summary = textwrap.fill(_summary(run, measure), int(CHARS_PER_INCH * fig.get_figwidth()))
+    note.text(0, 0.5, summary, fontsize=SUMMARY_FONTSIZE, ha="left", va="center")
     return fig

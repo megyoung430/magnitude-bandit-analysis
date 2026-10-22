@@ -65,7 +65,8 @@ def make_run(rank_on="split_half", n_cells=N_CELLS, contrast="rewarded", small=F
 def _all_text(fig):
     """The figure's own texts and the text of its summary axis."""
     summary = next(ax for ax in fig.axes if ax.get_label() == "summary")
-    return " ".join(t.get_text() for t in [*fig.texts, *summary.texts])
+    text = " ".join(t.get_text() for t in [*fig.texts, *summary.texts])
+    return " ".join(text.split())  # the summary is wrapped over lines
 
 
 def panels(fig):
@@ -227,3 +228,15 @@ def test_the_figure_can_be_drawn_into_a_given_figure():
     figure = plt.figure(figsize=(20, 12))
     assert plot_reward_cells(make_run(), "dF/F0", 20, figure=figure) is figure
     assert len(panels(figure)) == 20
+
+
+def test_the_summary_stays_inside_the_figure_and_leaves_the_panels_their_width():
+    fig = plot_reward_cells(make_run(), "dF/F0", 20)
+    fig.canvas.draw()
+    figure_box = fig.bbox
+    summary = next(ax for ax in fig.axes if ax.get_label() == "summary")
+    for text in summary.texts:
+        box = text.get_window_extent()
+        assert box.x0 >= figure_box.x0 and box.x1 <= figure_box.x1
+    widths = [ax.get_position().width * fig.get_figwidth() for ax in panels(fig)]
+    assert min(widths) > 2.0  # inches; long unwrapped text once squeezed them to a sliver

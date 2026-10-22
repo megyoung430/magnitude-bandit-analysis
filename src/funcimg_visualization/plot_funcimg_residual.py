@@ -157,10 +157,11 @@ def plot_example_traces(
     axes[-1].set_xlabel("pyControl time (s)")
     figure = axes[0].figure
     figure.suptitle(title or "Example cells: Suite2p vs background-corrected ΔF/F0")
-    figure.text(
-        0.01, 0.005,
+    figure.supxlabel(  # laid out by constrained layout, so it never covers the time axis label
         "Each ΔF/F0 is shown as a robust z. The corrected ΔF/F0's F0 includes the cell's "
         "neuropil (Suite2p subtracts it), so the two baselines differ.",
-        fontsize=7, ha="left", va="bottom",
-    )  # fmt: skip
+        fontsize=7,
+        x=0.01,
+        ha="left",
+    )
     return figure
