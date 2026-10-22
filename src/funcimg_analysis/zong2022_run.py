@@ -14,13 +14,15 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.outcome_events import OutcomeParseError, load_outcome_events
-from src.funcimg_analysis.collect import variant_runs
+from src.funcimg_analysis.collect import check_same_window, variant_runs
+from src.funcimg_analysis.event_frames import mean_by_category, pooled_mean_sem
 from src.funcimg_analysis.frame_times import (
     FRAME_TIMES_FILE,
     RunMismatchError,
     check_run_source,
     load_frame_times,
 )
+from src.funcimg_analysis.run_responses import PULSE_CATEGORIES
 from src.funcimg_analysis.zong2022_io import (
     aligned_labels,
     array_digest,
@@ -275,6 +277,34 @@ def top_responsive_cells(table: pd.DataFrame, kind: str, n: int) -> np.ndarray:
     return chosen["roi"].to_numpy()
 
 
+def pool_reward_runs(runs: list[dict], trace: str, group: str) -> dict:
+    """Mean ± SEM across the cells of all *runs* of ``trace`` around the outcome, per pulse count.
+
+    Each cell contributes its own trial-averaged window, so a run weighs by its cell count.
+
+    Args:
+        runs (list[dict]): Results of :func:`analyse_run`.
+        trace (str): ``"dff_clear"`` or ``"e_clear"``.
+        group (str): ``"snr_pass"`` (cells above the SNR threshold) or ``"all"`` (every cell
+            with a defined ΔF/F).
+
+    Raises:
+        ValueError: If the runs' windows or frame periods differ, or *group* is unknown.
+    """
+    if group not in ("snr_pass", "all"):
+        raise ValueError(f"group must be 'snr_pass' or 'all', not {group!r}.")
+    aligned = [r["reward"]["aligned"][trace] for r in runs]
+    check_same_window([{"offsets": a.offsets, "period_s": a.period_s} for a in aligned])
+    per_run = []
+    for run, windows in zip(runs, aligned, strict=True):
+        mask = run["signal"].passes if group == "snr_pass" else run["signal"].f0_ok
+        if mask.any():
+            per_run.append(
+                mean_by_category(windows.windows[mask], windows.pulses, PULSE_CATEGORIES)
+            )
+    return pooled_mean_sem(per_run, PULSE_CATEGORIES)
+
+
 # ---- a run and a folder of runs ----------------------------------------------------------------
 
 
@@ -385,6 +415,6 @@ def analyse_runs(
             skipped.append((session, run_dir.name, str(error)))
             log.step_done(succeeded=False)
             continue
-        included.append({"session": session, "run": run_dir.name, **result})
+        included.append({"session": session, "run": run_dir.name, "run_dir": run_dir, **result})
         log.step_done()
     return included, skipped

@@ -16,6 +16,7 @@ from src.funcimg_analysis.zong2022_run import (  # noqa: E402
     analyse_run,
     analyse_runs,
     build_cell_table,
+    pool_reward_runs,
     top_responsive_cells,
 )
 from src.funcimg_analysis.zong2022_signal import Zong2022Settings  # noqa: E402
@@ -225,3 +226,23 @@ def test_the_cell_table_has_one_row_per_roi_with_the_documented_columns(result):
     }  # fmt: skip
     assert set(table.columns) == expected
     assert dataclasses.is_dataclass(result["signal"])
+
+
+def test_pooling_runs_counts_each_cell_once_and_matches_the_single_run(result):
+    one = pool_reward_runs([result], "dff_clear", "snr_pass")
+    two = pool_reward_runs([result, result], "dff_clear", "snr_pass")
+    assert one[3]["n_cells"] == 3 and two[3]["n_cells"] == 6 and two[3]["n_runs"] == 2
+    np.testing.assert_allclose(two[3]["mean"], one[3]["mean"])
+    np.testing.assert_allclose(
+        one[3]["mean"], result["reward"]["pooled"]["dff_clear"]["snr_pass"][3]["mean"]
+    )
+
+
+def test_pooling_refuses_runs_with_different_windows_or_unknown_groups(result):
+    other = {**result, "reward": {**result["reward"], "aligned": {
+        "dff_clear": dataclasses.replace(result["reward"]["aligned"]["dff_clear"], period_s=0.2)
+    }}}  # fmt: skip
+    with pytest.raises(ValueError, match="frame periods"):
+        pool_reward_runs([result, other], "dff_clear", "all")
+    with pytest.raises(ValueError, match="group"):
+        pool_reward_runs([result], "dff_clear", "some")
