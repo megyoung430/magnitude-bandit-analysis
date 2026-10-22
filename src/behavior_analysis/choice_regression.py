@@ -35,9 +35,13 @@ from scipy.special import logsumexp
 from src.behavior_analysis.port_preference import port_category
 
 FEATURES = ("last_value", "last_zero", "unseen", "stay", "plus_port")
-# A small ridge keeps a mouse's fit finite when a feature never varies within its trials
-# (e.g. every port seen within the first trials, so `unseen` is almost always 0).
-RIDGE = 1e-3
+# A weak Gaussian prior on every weight (SD in logit units) keeps a mouse's fit finite when a
+# feature hardly varies within its trials, e.g. `unseen`, which is 1 only until every port has
+# been visited. Its strength does not grow with the number of trials, so with thousands of
+# trials it moves the weights negligibly.
+PRIOR_SD = 3.0
+# Condition number above which the curvature is treated as singular (standard errors NaN).
+MAX_CONDITION = 1e12
 
 
 class DesignArrays(NamedTuple):
@@ -118,19 +122,21 @@ def choice_design(trial_table: pd.DataFrame) -> DesignArrays:
     )
 
 
-def _loss_and_gradient(w: np.ndarray, X: np.ndarray, chosen: np.ndarray, ridge: float):
-    """Mean negative log likelihood per trial (plus ridge) and its gradient."""
+def _loss_and_gradient(w: np.ndarray, X: np.ndarray, chosen: np.ndarray, prior_sd: float):
+    """Negative log posterior per trial and its gradient (the per-trial scale helps L-BFGS)."""
+    n = len(chosen)
     utilities = X @ w
     log_p = utilities - logsumexp(utilities, axis=1, keepdims=True)
-    rows = np.arange(len(chosen))
+    rows = np.arange(n)
     p = np.exp(log_p)
     expected = np.einsum("tj,tjk->tk", p, X)
-    gradient = -(X[rows, chosen] - expected).mean(axis=0) + 2 * ridge * w
-    return -log_p[rows, chosen].mean() + ridge * w @ w, gradient
+    prior = 1.0 / (prior_sd**2 * n)
+    gradient = -(X[rows, chosen] - expected).mean(axis=0) + prior * w
+    return -log_p[rows, chosen].mean() + 0.5 * prior * w @ w, gradient
 
 
 def _hessian(w: np.ndarray, X: np.ndarray) -> np.ndarray:
-    """Hessian of the summed negative log likelihood (no ridge)."""
+    """Hessian of the summed negative log likelihood (without the prior)."""
     utilities = X @ w
     p = np.exp(utilities - logsumexp(utilities, axis=1, keepdims=True))
     mean_x = np.einsum("tj,tjk->tk", p, X)
@@ -138,15 +144,25 @@ def _hessian(w: np.ndarray, X: np.ndarray) -> np.ndarray:
     return second - mean_x.T @ mean_x
 
 
+def _standard_errors(curvature: np.ndarray) -> np.ndarray:
+    """Square roots of the diagonal of the inverse curvature; NaN where it is not usable."""
+    n = curvature.shape[0]
+    if not np.all(np.isfinite(curvature)) or np.linalg.cond(curvature) > MAX_CONDITION:
+        return np.full(n, np.nan)
+    variances = np.diag(np.linalg.inv(curvature))
+    return np.where(variances > 0, np.sqrt(np.abs(variances)), np.nan)
+
+
 class LogitFit(NamedTuple):
     """One conditional-logit fit.
 
     Attributes:
-        weights (np.ndarray): ``(n_features,)`` fitted weights.
-        standard_errors (np.ndarray): ``(n_features,)`` from the inverse Hessian; NaN where it
-            is singular.
+        weights (np.ndarray): ``(n_features,)`` fitted weights (posterior mode).
+        standard_errors (np.ndarray): ``(n_features,)`` from the inverse curvature of the
+            negative log posterior, consistent with the weights; NaN where the curvature is
+            singular or a variance is not positive.
         n_trials (int): Trials fitted.
-        log_likelihood (float): Summed log likelihood at the fit (no ridge).
+        log_likelihood (float): Summed log likelihood at the fit (without the prior).
     """
 
     weights: np.ndarray
@@ -155,13 +171,16 @@ class LogitFit(NamedTuple):
     log_likelihood: float
 
 
-def fit_conditional_logit(X: np.ndarray, chosen: np.ndarray, ridge: float = RIDGE) -> LogitFit:
-    """Maximum-likelihood weights of the conditional logit, with a small ridge.
+def fit_conditional_logit(
+    X: np.ndarray, chosen: np.ndarray, prior_sd: float | None = PRIOR_SD
+) -> LogitFit:
+    """Weights of the conditional logit under a weak Gaussian prior (posterior mode).
 
     Args:
         X (np.ndarray): ``(n_trials, n_options, n_features)`` features.
         chosen (np.ndarray): ``(n_trials,)`` index of the chosen option.
-        ridge (float): Penalty on the squared weights, per trial. Default ``RIDGE``.
+        prior_sd (float | None): Prior SD of each weight, in logit units. Default
+            ``PRIOR_SD``; ``None`` for plain maximum likelihood.
 
     Returns:
         LogitFit: Weights, standard errors, number of trials and log likelihood.
@@ -171,18 +190,20 @@ def fit_conditional_logit(X: np.ndarray, chosen: np.ndarray, ridge: float = RIDG
     """
     if len(chosen) == 0:
         raise ValueError("no trials to fit")
+    sd = np.inf if prior_sd is None else float(prior_sd)
     w0 = np.zeros(X.shape[2])
-    result = minimize(_loss_and_gradient, w0, args=(X, chosen, ridge), jac=True, method="L-BFGS-B")
+    result = minimize(_loss_and_gradient, w0, args=(X, chosen, sd), jac=True, method="L-BFGS-B")
     if not result.success:
         raise ValueError(f"conditional logit did not converge: {result.message}")
-    hessian = _hessian(result.x, X)
-    try:
-        se = np.sqrt(np.clip(np.diag(np.linalg.inv(hessian)), 0, None))
-    except np.linalg.LinAlgError:
-        se = np.full(X.shape[2], np.nan)
+    curvature = _hessian(result.x, X) + np.eye(X.shape[2]) / sd**2
     utilities = X @ result.x
     log_p = utilities - logsumexp(utilities, axis=1, keepdims=True)
-    return LogitFit(result.x, se, len(chosen), float(log_p[np.arange(len(chosen)), chosen].sum()))
+    return LogitFit(
+        result.x,
+        _standard_errors(curvature),
+        len(chosen),
+        float(log_p[np.arange(len(chosen)), chosen].sum()),
+    )
 
 
 def fit_by_mouse(design: DesignArrays, min_trials: int = 200) -> pd.DataFrame:

@@ -64,7 +64,7 @@ def test_fit_recovers_known_weights():
     true = np.array([0.8, -1.0, 0.5])
     X = rng.normal(size=(20000, 3, 3))
     chosen = np.array([rng.choice(3, p=softmax(x @ true)) for x in X])
-    fit = fit_conditional_logit(X, chosen, ridge=0.0)
+    fit = fit_conditional_logit(X, chosen, prior_sd=None)
     assert np.allclose(fit.weights, true, atol=4 * fit.standard_errors.max())
     assert np.all(fit.standard_errors < 0.05)
 
@@ -81,3 +81,33 @@ def test_fit_by_mouse_skips_small_mice_and_summary_tests_against_zero():
     assert (summary["n_mice"] == 3).all()
     one = group_summary(weights[weights["mouse"] == "m0"])
     assert one["t"].isna().all()
+
+
+def test_weak_prior_barely_moves_a_well_determined_fit():
+    rng = np.random.default_rng(3)
+    true = np.array([0.5, -0.5])
+    X = rng.normal(size=(5000, 3, 2))
+    chosen = np.array([rng.choice(3, p=softmax(x @ true)) for x in X])
+    plain = fit_conditional_logit(X, chosen, prior_sd=None)
+    with_prior = fit_conditional_logit(X, chosen)
+    assert np.allclose(plain.weights, with_prior.weights, atol=0.01)
+
+
+def test_constant_feature_gives_finite_weight_and_nan_se_without_prior():
+    rng = np.random.default_rng(4)
+    X = np.concatenate([rng.normal(size=(500, 3, 1)), np.ones((500, 3, 1))], axis=2)
+    chosen = rng.integers(3, size=500)
+    with_prior = fit_conditional_logit(X, chosen)
+    assert np.all(np.isfinite(with_prior.weights))
+    assert np.isfinite(with_prior.standard_errors[1])
+    plain = fit_conditional_logit(X, chosen, prior_sd=None)
+    assert np.isnan(plain.standard_errors[1])
+
+
+def test_stay_resets_after_a_dropped_trial():
+    table = _table(["A1", "A1", "A1"], [0, 1, 3])
+    table.loc[2, "after_gap"] = True
+    design = choice_design(table)
+    assert _features(design, 1, "A1")["stay"] == 1
+    assert _features(design, 2, "A1")["stay"] == 0
+    assert _features(design, 2, "A1")["last_value"] == 3

@@ -432,10 +432,10 @@ the drifting problems of the listed cohorts (as above) and:
 - **Measures the task rules** from the trials (`src/behavior_analysis/drifting_task_rules.py`):
   at each block change, whether the arm set to 0 was the one the mouse chose most in that block,
   and whether the arm that was at 0 took its value; how often non-zero arms drift; the block
-  lengths. In the cohort 1-4 data of October 2026 the zeroed arm is the most chosen one in
-  ~94% of block changes (ties left out) and the old zero arm inherits its value in 99.8%, so a
-  block change removes the mouse's current favourite and moves its value to the arm it was
-  avoiding (`task_rules_summary.csv` has the numbers for each run).
+  lengths (`task_rules_summary.csv`). The simulated task zeroes the most chosen arm and gives
+  the old zero arm its value, so a block change removes the mouse's current favourite and
+  moves its value to the arm it was avoiding; the run stops with an error if the data follow
+  that rule in fewer than 80% (most chosen) or 95% (value inherited) of block changes.
 - **Fits a choice regression** per mouse (`src/behavior_analysis/choice_regression.py`): a
   conditional logit over the three ports with the value the mouse last received at each port,
   whether that visit paid 0, whether the port is still unvisited, stay, and plus-port bias.
@@ -443,8 +443,9 @@ the drifting problems of the listed cohorts (as above) and:
   the last choice and the spatial bias.
 - **Fits two agents** to each mouse (`src/agents/value_agent.py`, a four-parameter value learner
   with stickiness and a plus-port bias): one learns from the reward magnitude, the other only
-  from whether there was a reward. Same number of parameters, so their likelihoods compare
-  directly.
+  from whether there was a reward (1 and 4 both count as 1). Same number of parameters, so
+  their likelihoods compare directly; the binary agent is the null model that can avoid the
+  empty port, perseverate and prefer ports, but cannot see magnitude.
 - **Simulates each fitted agent** (`src/agents/drifting_simulation.py`) through the mouse's own
   problems (ports, initiation port, starting values, trials per session) under the measured
   task rules, and runs the simulated animals through the same pooled drifting figures and the
@@ -455,8 +456,10 @@ Figures go to `results/figures/open-field/agent-baselines/cohorts-<ids>/`: `summ
 `magnitude-agent/` and `binary-agent/` with the subfolders of `all-cohorts/`, to be compared
 with the mice's own figures there. Tables (`task_rules_*.csv`, `agent_fits.csv`,
 `choice_regression_*.csv`, and each agent's diagnostic tables) go to the matching `tables/`
-folder. Fits are cached in `.cache/agent_baselines/`; `--no-cache` refits. The code is
-`src/pipelines/agent_baselines.py`.
+folder. Fits are cached in `.cache/agent_baselines/`, keyed on each mouse's trials, the
+settings and `value_agent.MODEL_VERSION` (bump it when the model changes); `--no-cache`
+refits. Drift rate and block lengths are pooled over the cohorts given, so pool cohorts that
+ran with the same task settings. The code is `src/pipelines/agent_baselines.py`.
 
 ### Paper-ready figures
 

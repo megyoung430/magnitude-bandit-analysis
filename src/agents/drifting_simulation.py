@@ -1,6 +1,6 @@
 """Baseline agents for the drifting task: fitted to each mouse, then run through the same task.
 
-Two agents share one model, the three-parameter value learner of :mod:`src.agents.value_agent`
+Two agents share one model, the four-parameter value learner of :mod:`src.agents.value_agent`
 (softmax over learned values, a bonus for repeating the previous choice and a bias toward plus
 ports), and differ only in what they learn from:
 
@@ -10,18 +10,23 @@ ports), and differ only in what they learn from:
 Both are fitted to each mouse's own choices (:func:`fit_agent`), which gives a likelihood
 comparison with equal numbers of parameters. Each fitted agent then plays the drifting task
 (:func:`simulate_mouse`) with that mouse's ports, initiation port, starting magnitudes and
-trials per session, under the task rules measured from the data
-(:mod:`src.behavior_analysis.drifting_task_rules`):
+trials per session, in a task whose drift rate and block lengths are measured from the data and
+whose block-change rule is the one the data follow
+(:mod:`src.behavior_analysis.drifting_task_rules`; the pipeline checks the data against it):
 
 - each non-zero arm drifts by one step to the nearest free value in 1-4 with probability
   ``drift_rate`` per trial (as in :class:`src.tasks.drifting_bandit.DriftingBanditTask`);
 - at the end of a block, whose length is drawn from the observed complete block lengths, the
-  non-zero arm chosen most in that block drops to 0 and the arm that was at 0 takes its value;
+  non-zero arm chosen most in that block drops to 0 and the arm that was at 0 takes exactly its
+  value (no drift on that trial);
 - blocks run on across sessions; the agent's values carry over between the sessions of a
   problem and its previous choice resets at each session start, as in the likelihood.
 
-The simulated sessions come out as importer session dicts (:func:`simulated_sessions`), so
-every existing drifting analysis runs on them unchanged.
+The simulated sessions come out as importer session dicts (:func:`simulated_sessions`): each
+recording logs ``run_start`` and ``run_end`` snapshots with the block totals as the rig does,
+and the sessions go through the importer's ``extract_session_trials`` and
+``reconcile_reversals``, so a block change after a session's last trial is recovered as it is
+for real data and every existing drifting analysis runs on them unchanged.
 
 Randomness comes only from the ``numpy.random.Generator`` passed in; nothing touches the global
 random state.
@@ -36,6 +41,7 @@ import pandas as pd
 from src.agents import value_agent
 from src.behavior_analysis.port_preference import port_category
 from src.behavior_import.extract_trials import extract_session_trials
+from src.behavior_import.reconcile_reversals import reconcile_reversals
 
 AGENT_KINDS = ("magnitude", "binary")
 REWARD_VALUES = (1, 2, 3, 4)
@@ -127,7 +133,14 @@ class AgentFit(NamedTuple):
     n_trials: int
 
 
-def fit_agent(mouse: str, mouse_trials: pd.DataFrame, kind: str, n_starts: int, seed: int):
+def fit_agent(
+    mouse: str,
+    mouse_trials: pd.DataFrame,
+    kind: str,
+    n_starts: int,
+    seed: int,
+    model_version: int = value_agent.MODEL_VERSION,
+):
     """Fit the value agent with *kind* rewards to one mouse's choices.
 
     Args:
@@ -136,6 +149,9 @@ def fit_agent(mouse: str, mouse_trials: pd.DataFrame, kind: str, n_starts: int, 
         kind (str): One of ``AGENT_KINDS``.
         n_starts (int): Random starts of the optimiser.
         seed (int): Seed of the starting points.
+        model_version (int): ``value_agent.MODEL_VERSION``. Not used in the fit; it is an
+            argument so that a disk cache of this function is keyed on the model version, and
+            cached fits of an older model are not reused.
 
     Returns:
         AgentFit: The best start.
@@ -158,7 +174,14 @@ def fits_table(fits: list[AgentFit]) -> pd.DataFrame:
         ``delta_nll_vs_magnitude``: the agent's negative log likelihood minus that of the same
         mouse's magnitude agent (positive: it fits worse than the magnitude agent). Both agents
         have four parameters, so this is also half the difference in AIC or BIC.
+        ``at_bounds`` names the parameters fitted at a bound (comma-separated; empty if none).
+
+    Raises:
+        ValueError: If a mouse lacks the magnitude fit, which every comparison is made against.
     """
+    without = sorted({f.mouse for f in fits} - {f.mouse for f in fits if f.kind == "magnitude"})
+    if without:
+        raise ValueError(f"no magnitude-agent fit for mice {without}")
     table = pd.DataFrame(
         [
             dict(
@@ -168,6 +191,7 @@ def fits_table(fits: list[AgentFit]) -> pd.DataFrame:
                 log_likelihood=f.log_likelihood,
                 nll_per_trial=-f.log_likelihood / f.n_trials,
                 **dict(zip(value_agent.PARAMETER_NAMES, f.parameters, strict=True)),
+                at_bounds=",".join(value_agent.parameters_at_bounds(f.parameters)),
             )
             for f in fits
         ]
@@ -339,10 +363,31 @@ def _rank(magnitudes: dict, port: str) -> str:
     return RANKS[order.index(port)]
 
 
+class SimulatedSession(NamedTuple):
+    """One simulated recording.
+
+    Attributes:
+        trials (list[dict]): One print payload per trial (see :func:`simulate_problem`).
+        start (dict): ``run_start`` snapshot: ``num_blocks`` (1), ``tot_num_blocks`` (blocks
+            begun in the problem so far) and ``curr_rew_mag`` at the session start.
+        end (dict): ``run_end`` snapshot: the same fields after the last trial, so a block
+            change after the last trial shows in the counters and the magnitudes.
+    """
+
+    trials: list
+    start: dict
+    end: dict
+
+
 def simulate_problem(
     parameters, kind: str, layout: MouseLayout, rules: TaskRules, rng: np.random.Generator
-) -> list[list[dict]]:
-    """One agent's play of one problem: per session, the per-trial print payloads.
+) -> list[SimulatedSession]:
+    """One agent's play of one problem, one :class:`SimulatedSession` per session.
+
+    Each trial's payload is in the pyControl print format: ``num_t``, ``num_blocks`` (block
+    counter within the session, from 1), ``curr_rew_mag`` (magnitudes offered before the
+    choice), ``chosen_tow``, ``c_tows``, ``chosen_rank`` (true-value rank of the chosen port)
+    and ``rank_counts`` (choices of each rank so far in the session, this one included).
 
     Args:
         parameters (Sequence[float]): In ``value_agent.PARAMETER_NAMES`` order.
@@ -352,9 +397,7 @@ def simulate_problem(
         rng (np.random.Generator): Source of all randomness.
 
     Returns:
-        list[list[dict]]: For each session, one dict per trial in the pyControl print format
-        (``num_t``, ``num_blocks``, ``curr_rew_mag``, ``chosen_tow``, ``c_tows``,
-        ``chosen_rank``, ``rank_counts``), magnitudes as offered before the choice.
+        list[SimulatedSession]: The sessions, in order (an empty session has no trials).
     """
     learning_rate = parameters[0]
     ports = list(layout.ports)
@@ -362,14 +405,19 @@ def simulate_problem(
     magnitudes = dict(layout.start_magnitudes)
     block_left = int(rng.choice(rules.block_lengths))
     counts: dict = {}
+    total_blocks = 1
     q = np.zeros(len(ports))
     sessions = []
     for n_trials in layout.session_lengths:
+        start = {"num_blocks": 1, "tot_num_blocks": total_blocks, "curr_rew_mag": dict(magnitudes)}
         previous, block_in_session, trials = None, 1, []
+        rank_counts = dict.fromkeys(RANKS, 0)
         for t in range(n_trials):
             p = value_agent.choice_probabilities(q, previous, plus, parameters)
             action = int(rng.choice(len(ports), p=p))
             port = ports[action]
+            rank = _rank(magnitudes, port)
+            rank_counts[rank] += 1
             trials.append(
                 {
                     "num_t": t + 1,
@@ -377,8 +425,8 @@ def simulate_problem(
                     "curr_rew_mag": dict(magnitudes),
                     "chosen_tow": port,
                     "c_tows": list(ports),
-                    "chosen_rank": _rank(magnitudes, port),
-                    "rank_counts": {"best": 0, "second": 0, "third": 0},
+                    "chosen_rank": rank,
+                    "rank_counts": dict(rank_counts),
                 }
             )
             reward = agent_rewards([magnitudes[port]], kind)[0]
@@ -387,14 +435,20 @@ def simulate_problem(
             previous = action
             block_left -= 1
             if block_left <= 0:
-                # no drift on the swap itself: in the data the old zero arm takes exactly the
-                # zeroed arm's value (task_rules_summary.csv, frac_inherits_value)
+                # the swap replaces drift on this trial, so the old zero arm takes exactly the
+                # zeroed arm's value, as in the real task
                 magnitudes = block_change(magnitudes, counts, rng)
                 counts, block_left = {}, int(rng.choice(rules.block_lengths))
                 block_in_session += 1
+                total_blocks += 1
             else:
                 magnitudes = drift_step(magnitudes, rules.drift_rate, rng)
-        sessions.append(trials)
+        end = {
+            "num_blocks": block_in_session,
+            "tot_num_blocks": total_blocks,
+            "curr_rew_mag": dict(magnitudes),
+        }
+        sessions.append(SimulatedSession(trials, start, end))
     return sessions
 
 
@@ -403,39 +457,41 @@ def simulate_problem(
 # ---------------------------------------------------------------------------
 
 
-def _frame(trials: list[dict], problem_number: int) -> pd.DataFrame:
+def _frame(session: SimulatedSession, problem_number: int) -> pd.DataFrame:
     """A pyControl-like event log: run_start, one print per trial, run_end."""
-    start = {"num_problem": problem_number, "curr_rew_mag": trials[0]["curr_rew_mag"]}
-    end = {"num_problem": problem_number, "curr_rew_mag": trials[-1]["curr_rew_mag"]}
+    start = {"num_problem": problem_number, **session.start}
+    end = {"num_problem": problem_number, **session.end}
     rows = [(0.0, "variable", "run_start", json.dumps(start))]
-    rows += [(1.0 + i, "variable", "print", json.dumps(t)) for i, t in enumerate(trials)]
-    rows.append((2.0 + len(trials), "variable", "run_end", json.dumps(end)))
+    rows += [(1.0 + i, "variable", "print", json.dumps(t)) for i, t in enumerate(session.trials)]
+    rows.append((2.0 + len(session.trials), "variable", "run_end", json.dumps(end)))
     return pd.DataFrame(rows, columns=["time", "type", "subtype", "content"])
 
 
 def simulated_sessions(
-    mouse: str, problem_number: int, layout: MouseLayout, sessions: list[list[dict]]
+    mouse: str, problem_number: int, layout: MouseLayout, sessions: list[SimulatedSession]
 ) -> dict:
     """``{session_key: session dict}`` of a simulated problem, imported like real sessions.
 
+    Each session is extracted with ``extract_session_trials`` and the problem's sessions are
+    then reconciled together with ``reconcile_reversals``, as the importer does for real data.
     Session keys are ``ses-<n>_date-2000MMDD`` so that they sort in play order.
 
     Args:
         mouse (str): Id given to the simulated animal.
         problem_number (int): Problem number written into the sessions.
         layout (MouseLayout): The layout the sessions were simulated with.
-        sessions (list[list[dict]]): Output of :func:`simulate_problem`; empty sessions are
-            skipped.
+        sessions (list[SimulatedSession]): Output of :func:`simulate_problem`; empty sessions
+            are skipped.
 
     Returns:
-        dict: Session dicts with the fields ``extract_session_trials`` adds.
+        dict: Session dicts with the fields the importer adds.
     """
     out = {}
-    for n, trials in enumerate(sessions, start=1):
-        if not trials:
+    for n, session in enumerate(sessions, start=1):
+        if not session.trials:
             continue
         key = f"ses-{n}_date-2000{(n - 1) // 28 + 1:02d}{(n - 1) % 28 + 1:02d}"
-        frame = _frame(trials, problem_number)
+        frame = _frame(session, problem_number)
         record = {
             "df": frame,
             "data": frame,
@@ -445,7 +501,7 @@ def simulated_sessions(
             "task_name": DRIFTING_TASK_NAME,
         }
         out[key] = extract_session_trials(record, mouse, key)
-    return out
+    return reconcile_reversals({mouse: out})[mouse] if out else out
 
 
 def simulate_mouse(

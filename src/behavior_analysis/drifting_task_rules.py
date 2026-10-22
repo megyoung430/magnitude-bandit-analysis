@@ -123,8 +123,9 @@ def block_changes(trial_table: pd.DataFrame) -> pd.DataFrame:
 def drift_counts(trial_table: pd.DataFrame) -> DriftCounts:
     """How often a non-zero arm changes value between consecutive trials of one block.
 
-    Only consecutive trials with the same zero arm and the same offered ports count, so block
-    changes and port changes are not mistaken for drift.
+    Only consecutive kept trials of one session count, with the same zero arm and the same
+    offered ports: a session start or a dropped trial hides an unknown number of drift steps,
+    and a block or port change is not drift.
 
     Args:
         trial_table (pd.DataFrame): Table of ``drifting_trial_table``.
@@ -134,9 +135,15 @@ def drift_counts(trial_table: pd.DataFrame) -> DriftCounts:
     """
     changes = opportunities = 0
     for _, trials in trial_table.groupby(["mouse", "problem"], sort=False):
-        magnitudes = list(trials.sort_values("trial")["magnitudes"])
-        for previous, current in zip(magnitudes[:-1], magnitudes[1:], strict=True):
-            if set(previous) != set(current):
+        trials = trials.sort_values("trial")
+        magnitudes = list(trials["magnitudes"])
+        continuous = ~(
+            trials["after_gap"].to_numpy() | (trials["trial_in_session"] == 0).to_numpy()
+        )
+        for previous, current, joined in zip(
+            magnitudes[:-1], magnitudes[1:], continuous[1:], strict=True
+        ):
+            if not joined or set(previous) != set(current):
                 continue
             moving = [arm for arm, value in previous.items() if value != 0]
             if any(current[arm] == 0 for arm in moving):
@@ -148,6 +155,9 @@ def drift_counts(trial_table: pd.DataFrame) -> DriftCounts:
 
 def complete_block_lengths(changes: pd.DataFrame) -> np.ndarray:
     """Lengths, in trials, of the blocks whose start and end were both observed.
+
+    Lengths count the trials kept in the table, so a block with dropped trials is a little
+    shorter here than in the task.
 
     Args:
         changes (pd.DataFrame): Table of :func:`block_changes`.

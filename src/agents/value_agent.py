@@ -28,8 +28,13 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import logsumexp
 
+# Bump when a change alters what this model computes (likelihood, bounds, fitting); comments and
+# refactors don't need a bump. The cached agent fits are keyed on it.
+MODEL_VERSION = 1
 PARAMETER_NAMES = ("learning_rate", "beta", "kappa", "plus_bias")
 BOUNDS = ((1e-3, 1.0), (0.0, 30.0), (-5.0, 5.0), (-5.0, 5.0))
+# A fitted parameter this close to a bound is reported as at the bound.
+AT_BOUND_ATOL = 1e-6
 
 
 class Sequences(NamedTuple):
@@ -175,6 +180,19 @@ def fit(seqs: Sequences, n_starts: int = 5, seed: int = 0) -> Fit:
         raise ValueError("no start of the value-agent fit converged")
     best = min(results, key=lambda r: r.fun)
     return Fit(best.x, float(-best.fun * n_trials), n_trials)
+
+
+def parameters_at_bounds(parameters) -> tuple[str, ...]:
+    """Names of the parameters within ``AT_BOUND_ATOL`` of a bound in ``BOUNDS``.
+
+    A parameter at a bound means the optimum lies outside the allowed range, so its value (and
+    the likelihood comparison) should be read with care.
+    """
+    return tuple(
+        name
+        for name, value, (low, high) in zip(PARAMETER_NAMES, parameters, BOUNDS, strict=True)
+        if abs(value - low) <= AT_BOUND_ATOL or abs(value - high) <= AT_BOUND_ATOL
+    )
 
 
 def choice_probabilities(q, previous: int | None, plus, params) -> np.ndarray:

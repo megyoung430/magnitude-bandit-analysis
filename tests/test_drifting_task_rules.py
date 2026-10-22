@@ -11,12 +11,15 @@ from src.behavior_analysis.drifting_task_rules import (
 )
 
 
-def _table(magnitudes, choices, mouse="m", problem=1):
+def _table(magnitudes, choices, mouse="m", problem=1, trial_in_session=None, after_gap=None):
+    n = len(choices)
     return pd.DataFrame(
         dict(
             mouse=mouse,
             problem=problem,
-            trial=range(len(choices)),
+            trial=range(n),
+            trial_in_session=range(n) if trial_in_session is None else trial_in_session,
+            after_gap=[False] * n if after_gap is None else after_gap,
             magnitudes=magnitudes,
             choice=choices,
         )
@@ -74,3 +77,12 @@ def test_two_zero_arms_raise():
     a, bad = {"A": 4, "B": 2, "C": 0}, {"A": 0, "B": 2, "C": 0}
     with pytest.raises(ValueError, match="exactly one arm at 0"):
         block_changes(_table([a, bad], ["A", "A"]))
+
+
+def test_drift_counts_skip_session_starts_and_gaps():
+    a, a2 = {"A": 4, "B": 2, "C": 0}, {"A": 3, "B": 2, "C": 0}
+    new_session = _table([a, a2, a2], ["A"] * 3, trial_in_session=[0, 0, 1])
+    assert drift_counts(new_session).n_opportunities == 2
+    assert drift_counts(new_session).n_changes == 0
+    gap = _table([a, a2, a2], ["A"] * 3, after_gap=[False, True, False])
+    assert drift_counts(gap).n_changes == 0

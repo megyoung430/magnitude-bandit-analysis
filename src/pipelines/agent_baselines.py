@@ -30,6 +30,7 @@ The mice's own pooled figures are the ones ``run_all_cohorts_drifting`` already 
 them with the agent folders side by side.
 """
 
+import zlib
 from pathlib import Path
 from typing import NamedTuple
 
@@ -38,6 +39,7 @@ import pandas as pd
 from joblib import Memory, Parallel, delayed
 
 from src.agents import drifting_simulation as sim
+from src.agents import value_agent
 from src.behavior_analysis import choice_regression, drifting_task_rules
 from src.behavior_analysis.drifting_trial_table import drifting_trial_table
 from src.behavior_visualization.plot_agent_baselines import plot_agent_baselines_summary
@@ -59,6 +61,10 @@ from src.pipelines.open_field import AnalysisSelection, run_drifting_value_analy
 from src.settings import get_settings
 
 AGENT_BASELINES_FOLDER = "agent-baselines"
+# The simulated block change zeroes the most chosen arm and gives the old zero arm its value.
+# The data must follow that rule at least this often, or the simulations would not be the task.
+MIN_FRAC_MOST_CHOSEN_ZEROED = 0.8
+MIN_FRAC_INHERITS_VALUE = 0.95
 RANK_FOLDER = "choice-stats"
 SOURCES = ("mice", *sim.AGENT_KINDS)
 
@@ -101,8 +107,33 @@ class AgentBaselines(NamedTuple):
 # ---------------------------------------------------------------------------
 
 
+def check_block_change_rule(summary: pd.DataFrame) -> None:
+    """Raise unless the data follow the block-change rule the simulation uses.
+
+    Args:
+        summary (pd.DataFrame): ``block_change_summary`` (its ``mouse == "all"`` row is used).
+
+    Raises:
+        ValueError: If the most chosen arm is zeroed in fewer than
+            ``MIN_FRAC_MOST_CHOSEN_ZEROED`` of the block changes (ties left out), or the old
+            zero arm inherits the zeroed arm's value in fewer than ``MIN_FRAC_INHERITS_VALUE``.
+    """
+    overall = summary.set_index("mouse").loc["all"]
+    most, inherits = overall["frac_most"], overall["frac_inherits_value"]
+    if not (most >= MIN_FRAC_MOST_CHOSEN_ZEROED and inherits >= MIN_FRAC_INHERITS_VALUE):
+        raise ValueError(
+            f"the data do not follow the simulated block-change rule: the most chosen arm was "
+            f"zeroed in {most:.1%} of block changes (need {MIN_FRAC_MOST_CHOSEN_ZEROED:.0%}) and "
+            f"the old zero arm inherited its value in {inherits:.1%} (need "
+            f"{MIN_FRAC_INHERITS_VALUE:.0%}); see block_change_summary per mouse"
+        )
+
+
 def measure_task_rules(trial_table: pd.DataFrame, seed: int = 0) -> TaskRuleTables:
     """Block changes, drift and block lengths of the mice's task, and the simulated task.
+
+    The drift rate and block lengths are pooled over every mouse and problem in
+    *trial_table*, so pool only cohorts that ran with the same task settings.
 
     Args:
         trial_table (pd.DataFrame): The mice's drifting trial table.
@@ -112,7 +143,9 @@ def measure_task_rules(trial_table: pd.DataFrame, seed: int = 0) -> TaskRuleTabl
         TaskRuleTables: The rules and the tables documenting them.
 
     Raises:
-        ValueError: If no complete block was observed (block lengths cannot be sampled).
+        ValueError: If no complete block was observed (block lengths cannot be sampled), or
+            the data do not follow the simulated block-change rule
+            (:func:`check_block_change_rule`).
     """
     changes = drifting_task_rules.block_changes(trial_table)
     lengths = drifting_task_rules.complete_block_lengths(changes)
@@ -123,6 +156,7 @@ def measure_task_rules(trial_table: pd.DataFrame, seed: int = 0) -> TaskRuleTabl
     summary = drifting_task_rules.block_change_summary(changes).assign(
         observed_drift_rate=observed, simulated_drift_attempt_rate=attempt
     )
+    check_block_change_rule(summary)
     return TaskRuleTables(sim.TaskRules(attempt, lengths), changes, summary)
 
 
@@ -141,15 +175,18 @@ def fit_agents(
         n_starts (int): Optimiser starts per fit. Keyword-only.
         seed (int): Seed of the starting points (the same for every fit). Keyword-only.
         n_jobs (int): Parallel workers (joblib). Default 1. Keyword-only.
-        cache_dir (Path | None): Cache the fits here, keyed on the mouse's trials, the agent
-            and the settings. Default ``None``: no cache. Keyword-only.
+        cache_dir (Path | None): Cache the fits here, keyed on the mouse's trials, the agent,
+            the settings and ``value_agent.MODEL_VERSION``. Default ``None``: no cache.
+            Keyword-only.
 
     Returns:
         list[sim.AgentFit]: One fit per mouse and agent kind, mice in sorted order.
     """
     fit = Memory(cache_dir, verbose=0).cache(sim.fit_agent) if cache_dir else sim.fit_agent
     jobs = [
-        delayed(fit)(mouse, rows.reset_index(drop=True), kind, n_starts, seed)
+        delayed(fit)(
+            mouse, rows.reset_index(drop=True), kind, n_starts, seed, value_agent.MODEL_VERSION
+        )
         for mouse, rows in sorted(trial_table.groupby("mouse"), key=lambda item: item[0])
         for kind in sim.AGENT_KINDS
     ]
@@ -161,8 +198,9 @@ def simulate_agents(
 ) -> dict:
     """Each fitted agent plays its mouse's problems once.
 
-    Every mouse and agent kind gets its own random stream (seeded from *seed*, the mouse's
-    position and the kind), so adding a mouse does not change the others' simulations.
+    Every mouse and agent kind gets its own random stream, seeded from *seed*, a checksum of
+    the mouse id and the kind, so adding or removing a mouse does not change the others'
+    simulations.
 
     Args:
         trial_table (pd.DataFrame): The mice's drifting trial table.
@@ -174,10 +212,10 @@ def simulate_agents(
         dict: ``{kind: {problem: {"<mouse>-<kind>": sessions}}}``, problems keyed as in
         *trial_table*.
     """
-    mice = sorted(trial_table["mouse"].unique())
     simulated: dict = {kind: {} for kind in sim.AGENT_KINDS}
     for f in fits:
-        rng = np.random.default_rng([seed, mice.index(f.mouse), sim.AGENT_KINDS.index(f.kind)])
+        mouse_key = zlib.crc32(str(f.mouse).encode())
+        rng = np.random.default_rng([seed, mouse_key, sim.AGENT_KINDS.index(f.kind)])
         layouts = sim.mouse_layouts(trial_table[trial_table["mouse"] == f.mouse])
         played = sim.simulate_mouse(f, layouts, rules, rng, f"{f.mouse}-{f.kind}")
         for problem, animals in played.items():
