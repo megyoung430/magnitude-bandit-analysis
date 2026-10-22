@@ -34,7 +34,12 @@ from matplotlib.path import Path as MplPath
 
 import src.behavior_visualization.plot_style  # noqa: F401  # applies rcParams
 from src.behavior_analysis.poke_events import ARMS9
-from src.behavior_visualization.plot_helpers import axes_or_new, save_or_show
+from src.behavior_visualization.plot_helpers import (
+    axes_or_new,
+    save_or_show,
+    set_suptitle,
+    title_from_text,
+)
 
 # (column, row) of each port on the grid; row 0 is the bottom.
 MAZE_POSITIONS: dict[str, tuple[int, int]] = {
@@ -388,10 +393,11 @@ def plot_maze_heatmaps_across_mice(
             None draws none. Default None.
         titles (Mapping[str, str] | None): ``{mouse: panel title}``; the default title is the
             mouse id. Default None.
-        suptitle (str | None): Figure title. Default None.
+        suptitle (str | None): Figure title: its first line is drawn, any further lines go to
+            the figure's caption. Default None.
         cmap (str): Name of a matplotlib colormap. Default ``"Blues"``.
-        save_path (str | Path | None): Base path (without extension) for ``.png`` and ``.pdf``;
-            None shows the figure. Default None.
+        save_path (str | Path | None): Base path (without extension) for the figure and caption
+            files; None shows the figure. Default None.
 
     Raises:
         ValueError: If there are no mice or an outline mapping misses a mouse.
@@ -432,7 +438,7 @@ def plot_maze_heatmaps_across_mice(
             fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False)
         fig.tight_layout(rect=(0, 0.07 if handles else 0, 1, 0.9 if suptitle else 1))
         if suptitle:
-            fig.suptitle(suptitle, fontsize=13, y=0.99)
+            set_suptitle(fig, title_from_text(suptitle), fontsize=13, y=0.99)
     except BaseException:
         plt.close(fig)
         raise

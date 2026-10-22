@@ -67,7 +67,7 @@ AFTER_CHOICE_STEM = "Maze Heatmaps - Pokes After Choice"
 AFTER_INITIATION_STEM = "Maze Heatmaps - Pokes After Initiation"
 PORT_FINDING_AFTER_CHOICE_STEM = f"{AFTER_CHOICE_STEM} (Port Finding)"
 PORT_FINDING_AFTER_INITIATION_STEM = f"{AFTER_INITIATION_STEM} (Port Finding)"
-_SCALE_NOTE = "colour scale: 0 to each mouse's own maximum count"
+_SCALE_NOTE = "Colour scale: 0 to each mouse's own maximum count."
 _JITTER_SEED = 0
 
 
