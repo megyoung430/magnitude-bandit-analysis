@@ -85,7 +85,7 @@ the ports of the last blocked problem.
 import shutil
 import warnings
 from collections.abc import Collection, Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -143,6 +143,7 @@ from src.behavior_import.task_types import (
     regroup_by_task_type,
 )
 from src.behavior_import.warning_records import record_warnings
+from src.behavior_visualization.paper_style import paper_figures
 from src.behavior_visualization.plot_helpers import figure_banner
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_trial_block_summary import plot_trial_block_summaries
@@ -179,6 +180,7 @@ EXPERIMENT_FOLDER = "3x3_field_magnitude_bandit"
 DEFAULT_RESULTS_ROOT = REPO_ROOT / "results"
 REVERSAL_TRIAL_WINDOW = 100  # trials per bin of the trial-based reversal-rate plots
 POOLED_DRIFTING_FOLDER = "all-drifting-problems"
+PAPER_READY_FOLDER = "paper-ready"
 EXCLUDED_MICE_FILE = "excluded_mice.txt"
 PARTIAL_TABLE_WARNING = (
     "{name}.csv: no earlier table with task_type and problem_in_type columns to merge into, so "
@@ -761,6 +763,115 @@ def run_excluded_pooled_set(
     return ranks
 
 
+@contextmanager
+def paper_scope(scope_text: str | None = None) -> Iterator[None]:
+    """Draw and save figures in the paper style, each marked with *scope_text* in its caption.
+
+    Args:
+        scope_text (str | None): The scope of the set (e.g. ``"without MY_1_A"``), or ``None``
+            for the plain pool.
+
+    Yields:
+        None: Use as ``with paper_scope(scope): ...``.
+    """
+    with paper_figures(), figure_banner(scope_text) if scope_text else nullcontext():
+        yield
+
+
+def paper_ready_root(results_root: Path) -> Path:
+    """Folder of the paper-styled copies of the pooled figures, next to the cohort folders."""
+    return Path(results_root) / "figures" / TASK / PAPER_READY_FOLDER
+
+
+def write_paper_ready_pooled(
+    drifting: dict,
+    sessions_table: pd.DataFrame,
+    *,
+    pooled_dir: Path,
+    selection: AnalysisSelection,
+    cohort_id: int,
+    scope_text: str | None = None,
+    analyses: bool = True,
+) -> None:
+    """Paper-styled copies of the pooled drifting figures of *drifting*, into *pooled_dir*.
+
+    The folder is emptied first. The analyses run again inside :func:`paper_scope`, so every
+    figure is drawn and saved in the paper style (pdf, svg, png and a caption file) with the
+    same names and sub-folders as the normal set; their tables are not written.
+
+    Args:
+        drifting (dict): ``{k: {mouse: sessions}}`` to pool.
+        sessions_table (pd.DataFrame): The sessions-per-problem table of the same mice.
+        pooled_dir (Path): Folder that receives the copies.
+        selection (AnalysisSelection): The drifting selection.
+        cohort_id (int): The cohort named in the sessions-per-problem figure.
+        scope_text (str | None): As for :func:`run_pooled_drifting`. Default ``None``.
+        analyses (bool): Redraw the rank and value analyses; with ``False`` only the
+            sessions-per-problem figure is drawn (a partial run that skipped the pooled
+            analyses). The folder is only emptied when the analyses are drawn. Default ``True``.
+    """
+    if analyses:
+        shutil.rmtree(pooled_dir, ignore_errors=True)
+    with paper_scope(scope_text):
+        if analyses:
+            run_pooled_drifting(drifting, pooled_dir, selection, scope_text)
+        title = f"cohort {cohort_id}" + (f" {scope_text}" if scope_text else "")
+        write_sessions_per_problem_figures(
+            sessions_table, pooled_dir / SESSIONS_PER_PROBLEM_FOLDER, title
+        )
+
+
+def write_paper_ready_sets(
+    cohort_id: int,
+    drifting: dict,
+    excluded: tuple[str, ...],
+    drifting_without: dict,
+    sessions_table: pd.DataFrame,
+    *,
+    results_root: Path,
+    selection: AnalysisSelection,
+    analyses: bool,
+) -> None:
+    """Paper-styled copies of the plain pooled set and, if there are *excluded* mice, the extra set.
+
+    They go to ``figures/open-field/paper-ready/<cohort>/drifting/`` in folders named as the
+    normal ones (see :func:`write_paper_ready_pooled`).
+
+    Args:
+        cohort_id (int): 1 for ``cohort-01``, and so on.
+        drifting (dict): ``{k: {mouse: sessions}}`` of the cohort.
+        excluded (tuple[str, ...]): The excluded mouse ids, sorted; empty for no extra set.
+        drifting_without (dict): *drifting* without the excluded mice.
+        sessions_table (pd.DataFrame): The cohort's whole sessions-per-problem table.
+        results_root (Path): Folder that receives ``figures/``.
+        selection (AnalysisSelection): The drifting selection.
+        analyses (bool): Redraw the rank and value analyses too, not just sessions per problem.
+    """
+    cohort = cohort_name(cohort_id)
+    base = paper_ready_root(results_root) / cohort / DRIFTING
+    sets = [(POOLED_DRIFTING_FOLDER, drifting, sessions_table, None)]
+    if excluded:
+        name = excluded_set_name(POOLED_DRIFTING_FOLDER, excluded)
+        sets.append(
+            (
+                name,
+                drifting_without,
+                exclude_mice_from_table(sessions_table, excluded),
+                excluded_scope_text(excluded),
+            )
+        )
+    for name, problems, sessions, scope in sets:
+        write_paper_ready_pooled(
+            problems,
+            sessions,
+            pooled_dir=base / name,
+            selection=selection,
+            cohort_id=cohort_id,
+            scope_text=scope,
+            analyses=analyses,
+        )
+
+
 def write_excluded_sessions_per_problem(
     cohort_id: int,
     excluded: tuple[str, ...],
@@ -818,6 +929,7 @@ def run_cohort(
     only_problems: Collection[tuple[str, int]] | None = None,
     exclude_mice: Iterable[str] | None = None,
     pooled_only: bool = False,
+    paper_ready: bool = False,
     run_at: datetime | None = None,
 ) -> CohortResult:
     """Run the analysis suite for one cohort; see the module docstring for the outputs.
@@ -869,6 +981,10 @@ def run_cohort(
         exclude_mice (Iterable[str] | None): Mouse ids to leave out of the extra pooled set.
             Default ``None``: no extra set. Keyword-only.
         pooled_only (bool): Run only the pooled drifting analyses, not the problems. Default
+            ``False``. Keyword-only.
+        paper_ready (bool): Also draw the pooled drifting figures (and those of the extra set)
+            in the Nature/Cell style into ``figures/open-field/paper-ready/<cohort>/``, as
+            pdf, svg and png with a caption file. The normal outputs are unchanged. Default
             ``False``. Keyword-only.
         run_at (datetime | None): The time written to ``excluded_mice.txt``. Default ``None``:
             now. Keyword-only.
@@ -999,6 +1115,17 @@ def run_cohort(
                         sessions_table,
                         results_root=results_root,
                         run_at=run_at or datetime.now(),
+                    )
+                if paper_ready:
+                    write_paper_ready_sets(
+                        cohort_id,
+                        drifting,
+                        excluded,
+                        drifting_without,
+                        sessions_table,
+                        results_root=results_root,
+                        selection=drifting_selection,
+                        analyses=pooled_ran,
                     )
 
             if not pooled_only:

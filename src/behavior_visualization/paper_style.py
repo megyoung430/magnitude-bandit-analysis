@@ -230,7 +230,19 @@ def _resize(fig: plt.Figure) -> None:
     width, height = fig.get_size_inches()
     new = figure_size(column_kind(fig), height / width)
     fig.set_size_inches(*new)
-    fig.set_layout_engine("constrained", w_pad=2 / 72, h_pad=2 / 72, wspace=0.04, hspace=0.04)
+    _set_layout(fig)
+
+
+def _set_layout(fig: plt.Figure) -> None:
+    """Constrained layout; tight layout for a figure whose colorbar was made without constrained.
+
+    Matplotlib cannot change the layout engine of a figure to constrained once a colorbar has
+    been attached under another engine, and raises ``RuntimeError`` then.
+    """
+    try:
+        fig.set_layout_engine("constrained", w_pad=2 / 72, h_pad=2 / 72, wspace=0.04, hspace=0.04)
+    except RuntimeError:
+        fig.set_layout_engine("tight", pad=0.4)
 
 
 # --- per-artist rules ---------------------------------------------------------------------------

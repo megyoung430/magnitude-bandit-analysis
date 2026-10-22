@@ -60,10 +60,12 @@ from src.behavior_visualization.plot_helpers import figure_banner
 from src.pipelines.cohort_analysis import (
     DEFAULT_RESULTS_ROOT,
     DRIFTING_SELECTION,
+    PAPER_READY_FOLDER,
     TASK,
     cohort_name,
     each_reversal_warning_once,
     load_cohort,
+    paper_scope,
     plot_pooled_drifting_rank,
     pooled_drifting_rank_results,
 )
@@ -312,6 +314,43 @@ def _mice_by_cohort(problems: dict) -> dict:
     return {cohort_id: sorted(mice) for cohort_id, mice in sorted(found.items())}
 
 
+def _draw_pool(
+    problems: dict,
+    sessions: pd.DataFrame,
+    figures_dir: Path,
+    selection: AnalysisSelection,
+    shown_ids: list[int],
+    label: str,
+    scope: str | None,
+) -> tuple[dict, dict]:
+    """Draw every figure of the pool into *figures_dir*; return the rank results and tables.
+
+    Which style the figures get (normal or paper) is decided by the caller's context.
+    """
+    rank_results = pooled_drifting_rank_results(
+        problems, selection.rank_value_bases, selection.rank_pooling_modes
+    )
+    plot_pooled_drifting_rank(rank_results, figures_dir / RANK_FOLDER, mouse_legend=False)
+    tables = run_drifting_value_analyses(
+        problems,
+        figures_dir,
+        selection,
+        arm_scope_label=label,
+        x_vs_plus=True,
+        per_mouse_figures=False,
+        mouse_legends=False,
+    )
+    tables[TABLE_NAME] = sessions
+    write_sessions_per_problem_figures(
+        sessions,
+        figures_dir / SESSIONS_PER_PROBLEM_FOLDER,
+        cohorts_phrase(shown_ids) + (f" {scope}" if scope else ""),
+        mouse_legend=False,
+        by_cohort=len(shown_ids) > 1,
+    )
+    return rank_results, tables
+
+
 def _write_pool(
     problems: dict,
     sessions: pd.DataFrame,
@@ -322,6 +361,7 @@ def _write_pool(
     selection: AnalysisSelection,
     run_at: datetime,
     excluded: tuple[str, ...] = (),
+    paper_dir: Path | None = None,
 ) -> AllCohortsResult:
     """Run and write the all-drifting-problems analyses of *problems* into the two folders.
 
@@ -338,6 +378,8 @@ def _write_pool(
         selection (AnalysisSelection): Which drifting analyses run, and the rank settings.
         run_at (datetime): The time written to ``cohorts.txt``.
         excluded (tuple[str, ...]): Mice left out of *problems*; empty for the plain pool.
+        paper_dir (Path | None): If given, the figures are drawn a second time in the paper
+            style into this folder (emptied first). Default None.
 
     Returns:
         AllCohortsResult: The folders, the mice per cohort of *problems*, rank results and tables.
@@ -350,27 +392,13 @@ def _write_pool(
 
     _clear_previous_outputs(figures_dir, tables_dir)
     with each_reversal_warning_once(), figure_banner(scope) if scope else nullcontext():
-        rank_results = pooled_drifting_rank_results(
-            problems, selection.rank_value_bases, selection.rank_pooling_modes
+        rank_results, tables = _draw_pool(
+            problems, sessions, figures_dir, selection, shown_ids, label, scope
         )
-        plot_pooled_drifting_rank(rank_results, figures_dir / RANK_FOLDER, mouse_legend=False)
-        tables = run_drifting_value_analyses(
-            problems,
-            figures_dir,
-            selection,
-            arm_scope_label=label,
-            x_vs_plus=True,
-            per_mouse_figures=False,
-            mouse_legends=False,
-        )
-        tables[TABLE_NAME] = sessions
-        write_sessions_per_problem_figures(
-            sessions,
-            figures_dir / SESSIONS_PER_PROBLEM_FOLDER,
-            cohorts_phrase(shown_ids) + (f" {scope}" if scope else ""),
-            mouse_legend=False,
-            by_cohort=len(shown_ids) > 1,
-        )
+    if paper_dir is not None:
+        shutil.rmtree(paper_dir, ignore_errors=True)
+        with each_reversal_warning_once(), paper_scope(scope):
+            _draw_pool(problems, sessions, paper_dir, selection, shown_ids, label, scope)
     tables_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.to_csv(tables_dir / f"{name}.csv", index=False)
@@ -394,6 +422,7 @@ def run_all_cohorts_drifting(
     import_logs: dict[int, ImportLog] | None = None,
     run_at: datetime | None = None,
     exclude_mice: Iterable[str] | None = None,
+    paper_ready: bool = False,
 ) -> AllCohortsResult:
     """Run the all-drifting-problems analyses over the drifting problems of several cohorts.
 
@@ -420,6 +449,9 @@ def run_all_cohorts_drifting(
         exclude_mice (Iterable[str] | None): Mouse ids (of any of the cohorts) to leave out of
             a second set, written to ``all-cohorts-without-<mice>/``. Default ``None``: no
             second set. Keyword-only.
+        paper_ready (bool): Also draw the figures of each set in the Nature/Cell style (pdf, svg,
+            png and a caption file) into ``figures/open-field/paper-ready/<set folder name>/``.
+            The normal outputs are unchanged. Default ``False``. Keyword-only.
 
     Returns:
         AllCohortsResult: The output folders, mice per cohort, rank results and tables; its
@@ -442,6 +474,7 @@ def run_all_cohorts_drifting(
     sessions = _sessions_per_problem(imported, logs)
     root = Path(results_root)
     folders = {kind: root / kind / TASK / ALL_COHORTS_FOLDER for kind in ("figures", "tables")}
+    paper_root = root / "figures" / TASK / PAPER_READY_FOLDER if paper_ready else None
 
     plain = _write_pool(
         pooled.problems,
@@ -451,6 +484,7 @@ def run_all_cohorts_drifting(
         tables_dir=folders["tables"],
         selection=drifting_selection,
         run_at=run_at,
+        paper_dir=paper_root / ALL_COHORTS_FOLDER if paper_root else None,
     )
     if not excluded:
         return plain
@@ -464,5 +498,6 @@ def run_all_cohorts_drifting(
         selection=drifting_selection,
         run_at=run_at,
         excluded=excluded,
+        paper_dir=paper_root / name if paper_root else None,
     )
     return plain._replace(without=without)
