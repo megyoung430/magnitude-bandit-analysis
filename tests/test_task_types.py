@@ -268,3 +268,35 @@ def test_a_problem_without_choice_towers_is_rejected():
     no_towers = problem_map_table(mouse([DRIFTING_NAME]))
     with pytest.raises(ValueError, match="no choice towers"):
         problem_layout(no_towers, mouse="A", task_type=DRIFTING, problem=1)
+
+
+def test_a_problem_map_read_back_from_csv_gives_the_same_layout(tmp_path):
+    problem_map = two_problem_map()
+    problem_map.to_csv(tmp_path / "problem_map.csv", index=False)
+    read_back = pd.read_csv(tmp_path / "problem_map.csv")
+    for task_type in (BLOCKED, DRIFTING):
+        assert problem_layout(read_back, mouse="A", task_type=task_type, problem=1) == (
+            problem_layout(problem_map, mouse="A", task_type=task_type, problem=1)
+        )
+
+
+def test_a_one_session_range_read_from_csv_stays_text(tmp_path):
+    problem_map_table(mouse([DRIFTING_NAME])).to_csv(tmp_path / "map.csv", index=False)
+    read_back = pd.read_csv(tmp_path / "map.csv")
+    read_back["choice_towers"] = "A1;B1;C1"
+    layout = problem_layout(read_back, mouse="A", task_type=DRIFTING, problem=1)
+    assert layout.session_range == "1"
+
+
+def test_a_problem_without_choice_towers_read_from_csv_is_rejected(tmp_path):
+    problem_map_table(mouse([DRIFTING_NAME])).to_csv(tmp_path / "map.csv", index=False)
+    read_back = pd.read_csv(tmp_path / "map.csv")  # the empty towers come back as NaN
+    with pytest.raises(ValueError, match="no choice towers"):
+        problem_layout(read_back, mouse="A", task_type=DRIFTING, problem=1)
+
+
+def test_a_problem_listed_twice_is_rejected():
+    problem_map = two_problem_map()
+    doubled = pd.concat([problem_map, problem_map.iloc[[1]]], ignore_index=True)
+    with pytest.raises(ValueError, match="2 rows"):
+        problem_layout(doubled, mouse="A", task_type=DRIFTING, problem=1)

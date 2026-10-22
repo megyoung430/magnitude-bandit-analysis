@@ -4,9 +4,11 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import ARMS9
+from src.behavior_visualization.paper_style import paper_figures
 from src.behavior_visualization.plot_maze_heatmaps import (
     NODE_RADIUS,
     octagon_vertices,
@@ -60,6 +62,13 @@ def test_unknown_port_is_rejected():
 def test_port_cannot_be_both_initiation_and_choice():
     with pytest.raises(ValueError, match="B2"):
         port_fills(["B2", "A1"], "B2")
+
+
+def test_choice_towers_can_be_a_pandas_column():
+    # Membership on a Series tests its index, so the towers must be read as values.
+    assert port_fills(pd.Series(CHOICES)) == port_fills(CHOICES)
+    with pytest.raises(ValueError, match="B2"):
+        port_fills(pd.Series(["B2", "A1"]))
 
 
 @pytest.mark.parametrize(
@@ -128,4 +137,15 @@ def test_saves_svg_pdf_and_png(tmp_path):
         "problem-05.svg",
         "problem-05.pdf",
         "problem-05.png",
+    }
+
+
+def test_paper_mode_writes_the_paper_formats_and_a_caption(tmp_path):
+    with paper_figures():
+        plot_maze_schematic(CHOICES, save_path=tmp_path / "towers")
+    assert {p.name for p in tmp_path.iterdir()} == {
+        "towers.pdf",
+        "towers.svg",
+        "towers.png",
+        "towers.caption.txt",
     }

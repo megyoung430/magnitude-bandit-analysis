@@ -11,6 +11,7 @@ problem come from :func:`src.behavior_import.task_types.problem_layout`.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Collection
 from pathlib import Path
 
@@ -39,16 +40,20 @@ LABEL_FONTSIZE = 12
 LEGEND_FONTSIZE = 10
 
 
-def _check_choice_towers(choice_towers: Collection[str]) -> None:
+def _choice_tower_set(choice_towers: Collection[str]) -> frozenset[str]:
+    """The choice towers as a set of values, after checking they name each tower once."""
     if isinstance(choice_towers, str):
         raise ValueError(
             f"choice towers must be a list of towers, got the string {choice_towers!r}"
         )
-    if len(choice_towers) == 0:
+    # list() reads the values: `in` on a pandas Series would test its index instead
+    towers = list(choice_towers)
+    if not towers:
         raise ValueError("give at least one choice tower")
-    repeated = sorted({t for t in choice_towers if list(choice_towers).count(t) > 1})
+    repeated = sorted(t for t, n in Counter(towers).items() if n > 1)
     if repeated:
         raise ValueError(f"choice towers {repeated} are listed more than once")
+    return frozenset(towers)
 
 
 def port_fills(
@@ -57,7 +62,8 @@ def port_fills(
     """Fill colour of every port according to its role in the problem.
 
     Args:
-        choice_towers (Collection[str]): The choice towers, e.g. ``["A2", "B1", "C3"]``.
+        choice_towers (Collection[str]): The choice towers, e.g. ``["A2", "B1", "C3"]``; a
+            list, tuple, set or pandas Series.
         initiation_tower (str): The initiation tower. Default ``"B2"``, the protocol default.
 
     Returns:
@@ -68,17 +74,17 @@ def port_fills(
         ValueError: If the choice towers are a bare string, empty or repeat a tower, a tower is
             not one of the nine, or the initiation tower is also a choice tower.
     """
-    _check_choice_towers(choice_towers)
-    unknown = sorted({initiation_tower, *choice_towers} - set(ARMS9))
+    choices = _choice_tower_set(choice_towers)
+    unknown = sorted({initiation_tower, *choices} - set(ARMS9))
     if unknown:
         raise ValueError(f"unknown towers {unknown}; expected a subset of {ARMS9}")
-    if initiation_tower in choice_towers:
+    if initiation_tower in choices:
         raise ValueError(f"{initiation_tower} cannot be both the initiation and a choice tower")
 
     def fill(port: str) -> str:
         if port == initiation_tower:
             return INITIATION_FILL
-        return CHOICE_FILL if port in choice_towers else IDLE_FILL
+        return CHOICE_FILL if port in choices else IDLE_FILL
 
     return {port: fill(port) for port in ARMS9}
 

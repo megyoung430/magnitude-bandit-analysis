@@ -220,7 +220,8 @@ def problem_layout(
     the mouse's first drifting problem, whatever its overall number.
 
     Args:
-        problem_map (pd.DataFrame): The cohort's problem map, from :func:`problem_map_table`.
+        problem_map (pd.DataFrame): The cohort's problem map, from :func:`problem_map_table` or
+            read back from its ``problem_map.csv``.
         mouse (str): Subject id, e.g. ``"MY_71_R"``.
         task_type (str): ``"blocked"`` or ``"drifting"``.
         problem (int): Problem number within the task type, 1 or more.
@@ -229,7 +230,8 @@ def problem_layout(
         ProblemLayout: The problem's initiation tower, choice towers and session range.
 
     Raises:
-        ValueError: If *task_type* is neither type, or the problem logged no choice towers.
+        ValueError: If *task_type* is neither type, the problem logged no choice towers, or the
+            map lists it more than once.
         LookupError: If the map has no such mouse, or the mouse no such problem; the message
             lists what there is.
     """
@@ -247,9 +249,14 @@ def problem_layout(
             f"{mouse} has no {task_type} problem {problem}; its {task_type} problems: "
             f"{sorted(of_type['problem_in_type'].tolist())}"
         )
-    (row,) = rows.itertuples()  # the map has one row per mouse, type and number
-    if not row.choice_towers:
+    if len(rows) > 1:
+        raise ValueError(f"{mouse}'s {task_type} problem {problem} has {len(rows)} rows in the map")
+    row = rows.iloc[0]
+    # read back from problem_map.csv, empty towers are NaN and a range such as "3" is a number
+    if pd.isna(row["choice_towers"]) or not str(row["choice_towers"]):
         raise ValueError(f"{mouse}'s {task_type} problem {problem} logged no choice towers")
     return ProblemLayout(
-        row.initiation_tower, tuple(row.choice_towers.split(";")), row.session_range
+        str(row["initiation_tower"]),
+        tuple(str(row["choice_towers"]).split(";")),
+        str(row["session_range"]),
     )
