@@ -7,7 +7,9 @@ import pytest
 from scipy.stats import wilcoxon
 
 from src.behavior_analysis.rank_significance import (
+    ALL_ZERO,
     NOT_SIGNIFICANT,
+    PairedTest,
     describe_rank_tests,
     holm_correction,
     minimum_exact_p,
@@ -118,10 +120,24 @@ def test_fewer_than_two_mice_are_not_tested():
     assert result.reason == "fewer than 2 mice"
 
 
-def test_all_zero_differences_are_not_tested():
+def test_all_zero_differences_are_a_tested_comparison_with_p_one():
     result = wilcoxon_pair([0.3, 0.4, 0.5], [0.3, 0.4, 0.5])
-    assert not result.tested and math.isnan(result.p)
-    assert result.reason == "all differences are zero"
+    assert result.tested
+    assert result.p == 1.0 and result.n == 3 and result.n_nonzero == 0
+    assert result.method == ALL_ZERO
+
+
+def test_an_all_zero_comparison_stays_in_the_holm_family():
+    # every mouse chooses second and third equally often: no difference to test
+    tests = rank_comparison_tests(per_mouse(BEST, SECOND, SECOND))
+    assert tests["second_vs_third"].p == 1.0
+    assert tests["second_vs_third"].stars == NOT_SIGNIFICANT
+    # m = 3, not 2: the smallest raw p is multiplied by three
+    assert tests["best_vs_second"].p_holm == pytest.approx(3 * tests["best_vs_second"].p)
+    text = describe_rank_tests(tests)
+    assert "Holm-corrected for 3 comparisons" in text
+    assert "Second vs Third: all differences are zero, p = 1 (n.s.)" in text
+    assert "counted as p = 1 in the correction" in text
 
 
 # --- the three comparisons ------------------------------------------------------------------
@@ -212,7 +228,38 @@ def test_untested_comparisons_say_why_in_the_caption():
         (0.00049, "< 0.001"),
     ],
 )
-def test_p_values_below_0_01_keep_two_significant_digits(p, text):
+def test_p_values_keep_enough_digits(p, text):
     from src.behavior_analysis.rank_significance import format_p
 
     assert format_p(p) == text
+
+
+@pytest.mark.parametrize(
+    ("p", "text"),
+    [(0.0496, "0.0496"), (0.04999, "0.04999"), (0.00999, "0.00999"), (0.0499, "0.0499")],
+)
+def test_a_rounded_p_never_crosses_a_star_threshold(p, text):
+    from src.behavior_analysis.rank_significance import format_p, significance_stars
+
+    assert format_p(p) == text
+    assert significance_stars(float(format_p(p))) == significance_stars(p)
+
+
+def test_a_p_value_just_below_0_05_is_printed_below_it_next_to_its_star():
+    tests = {
+        "best_vs_second": PairedTest(8, 8, 3.0, 0.0496, "exact", p_holm=0.0496, stars="*"),
+    }
+    assert "p = 0.0496 (corrected 0.0496, *)" in describe_rank_tests(tests)
+
+
+def test_the_bound_names_the_mice_with_non_zero_differences_when_some_are_zero():
+    # the seventh mouse chooses every rank equally: zero difference in each comparison
+    best, second, third = [*BEST[:6], 0.3], [*SECOND[:6], 0.3], [*THIRD[:6], 0.3]
+    text = describe_rank_tests(rank_comparison_tests(per_mouse(best, second, third)))
+    assert "(n = 7)" in text
+    assert (
+        "With non-zero differences in at most 6 of the 7 mice the smallest possible p is 0.03125 "
+        "(0.09375 after Holm correction for 3 comparisons), so no comparison can be significant."
+        in text
+    )
+    assert "With n = 6 mice" not in text

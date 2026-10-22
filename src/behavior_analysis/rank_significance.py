@@ -29,6 +29,12 @@ EXACT_MAX_N = 50
 # differences up to this many pairs
 PERMUTATION_MAX_N = 13
 STARS_LEGEND = "Stars: * p < 0.05, ** p < 0.01, *** p < 0.001; n.s., not significant."
+# The method of a comparison whose differences are all zero: scipy has nothing to rank, and the
+# comparison counts as p = 1 in the Holm family so the family size never shrinks.
+ALL_ZERO = "all differences zero"
+# Decimals a caption p-value starts from; more are added when rounding would cross a threshold.
+P_DECIMALS = 3
+MAX_P_DECIMALS = 12
 METHOD_TEXT = {
     "exact": "exact p-values",
     "permutation": "exact permutation p-values (ties or zero differences present)",
@@ -48,7 +54,8 @@ class PairedTest:
             when not tested.
         p (float): Two-sided p-value; NaN when not tested.
         method (str | None): ``"exact"``, ``"permutation"`` or ``"asymptotic"``, as scipy's
-            ``method="auto"`` chose; ``None`` when not tested.
+            ``method="auto"`` chose; :data:`ALL_ZERO` when every difference is zero (p = 1,
+            no scipy call); ``None`` when not tested.
         reason (str | None): Why the comparison was not tested; ``None`` when it was.
         p_holm (float): Holm-corrected p within the comparisons of one figure; NaN until
             corrected or when not tested.
@@ -119,8 +126,10 @@ def scipy_auto_method(differences: np.ndarray) -> str:
 def wilcoxon_pair(first: Sequence[float], second: Sequence[float]) -> PairedTest:
     """Two-sided Wilcoxon signed-rank test of paired values, one pair per mouse.
 
-    Pairs with a non-finite value are dropped. Fewer than 2 pairs, or only zero differences,
-    give an untested comparison (NaN p and a reason) instead of scipy's warning and NaN.
+    Pairs with a non-finite value are dropped. Fewer than 2 pairs give an untested comparison
+    (NaN p and a reason). When every difference is zero there is nothing to rank: the comparison
+    gets W = 0 and p = 1 (method :data:`ALL_ZERO`) instead of scipy's warning and NaN, so it
+    stays in the Holm family, the more conservative choice.
 
     Args:
         first (Sequence[float]): One value per mouse.
@@ -137,7 +146,7 @@ def wilcoxon_pair(first: Sequence[float], second: Sequence[float]) -> PairedTest
     if n < 2:
         return PairedTest(n, n_nonzero, math.nan, math.nan, None, reason="fewer than 2 mice")
     if n_nonzero == 0:
-        return PairedTest(n, 0, math.nan, math.nan, None, reason="all differences are zero")
+        return PairedTest(n, 0, 0.0, 1.0, ALL_ZERO)
     result = wilcoxon(a, b)
     return PairedTest(
         n,
@@ -150,6 +159,9 @@ def wilcoxon_pair(first: Sequence[float], second: Sequence[float]) -> PairedTest
 
 def rank_comparison_tests(per_mouse: Mapping[object, Mapping[str, float]]) -> dict:
     """Best vs second, best vs third and second vs third across mice, Holm-corrected together.
+
+    The Holm family is every tested comparison, including one whose differences are all zero
+    (p = 1); only comparisons with fewer than 2 mice are left out of it.
 
     Args:
         per_mouse (Mapping[object, Mapping[str, float]]): ``{mouse: {"best", "second",
@@ -181,16 +193,28 @@ def minimum_exact_p(n: int) -> float:
 
 
 def format_p(p: float) -> str:
-    """*p* for a caption: 3 decimals, 4 below 0.01 (so 0.0015 is not read as 0.001), ``< 0.001``."""
-    if p < 0.001:
+    """*p* for a caption, never contradicting its star.
+
+    Three decimals, four below 0.01 (so 0.0015 is not read as 0.001), ``< 0.001`` below that;
+    more decimals whenever rounding would carry *p* across a star threshold (0.0496 is
+    ``0.0496``, not ``0.050``).
+    """
+    if p < STAR_THRESHOLDS[0][0]:
         return "< 0.001"
-    return f"{p:.4f}" if p < 0.01 else f"{p:.3f}"
+    decimals = P_DECIMALS + 1 if p < STAR_THRESHOLDS[1][0] else P_DECIMALS
+    text = f"{p:.{decimals}f}"
+    while significance_stars(float(text)) != significance_stars(p) and decimals < MAX_P_DECIMALS:
+        decimals += 1
+        text = f"{p:.{decimals}f}"
+    return text
 
 
 def _phrase(label: str, test: PairedTest, show_n: bool) -> str:
     name = f"{label} (n = {test.n})" if show_n else label
     if not test.tested:
         return f"{name} not tested ({test.reason})"
+    if test.method == ALL_ZERO:
+        return f"{name}: all differences are zero, p = 1 ({test.stars})"
     p = format_p(test.p)
     p_text = f"p {p}" if p.startswith("<") else f"p = {p}"
     holm = format_p(test.p_holm)
@@ -198,11 +222,17 @@ def _phrase(label: str, test: PairedTest, show_n: bool) -> str:
 
 
 def _unreachable_sentence(tested: list[PairedTest]) -> str | None:
-    """Why no comparison can be significant with this few mice, or ``None`` if one can."""
-    if any(t.method == "asymptotic" for t in tested):
+    """Why no comparison can be significant with this few mice, or ``None`` if one can.
+
+    The bound is set by the comparison with the most non-zero differences (zero differences
+    are dropped before ranking); the sentence names the mouse count only when they are equal.
+    """
+    ranked = [t for t in tested if t.method != ALL_ZERO]
+    if not ranked or any(t.method == "asymptotic" for t in ranked):
         return None
-    n = max(t.n_nonzero for t in tested)
-    smallest = minimum_exact_p(n)
+    k = max(t.n_nonzero for t in ranked)
+    mice = max(t.n for t in ranked)
+    smallest = minimum_exact_p(k)
     after_holm = smallest * len(tested)
     if after_holm < ALPHA:
         return None
@@ -211,8 +241,11 @@ def _unreachable_sentence(tested: list[PairedTest]) -> str | None:
         if smallest >= ALPHA or len(tested) == 1
         else f" ({after_holm:.4g} after Holm correction for {len(tested)} comparisons)"
     )
+    who = (
+        f"n = {k} mice" if k == mice else f"non-zero differences in at most {k} of the {mice} mice"
+    )
     return (
-        f"With n = {n} mice the smallest possible p is {smallest:.4g}{holm}, "
+        f"With {who} the smallest possible p is {smallest:.4g}{holm}, "
         "so no comparison can be significant."
     )
 
@@ -244,7 +277,11 @@ def describe_rank_tests(tests: Mapping[str, PairedTest]) -> str:
         head = f"No Wilcoxon signed-rank test across mice{n_text}: "
     body = "; ".join(_phrase(labels[k], t, not one_n) for k, t in tests.items())
     sentences = [head + body + "."]
-    methods = sorted({t.method for t in tested})
+    methods = sorted({t.method for t in tested} - {ALL_ZERO})
+    if any(t.method == ALL_ZERO for t in tested):
+        sentences.append(
+            "A comparison whose differences are all zero is counted as p = 1 in the correction."
+        )
     if methods:
         described = ", ".join(METHOD_TEXT[m] for m in methods)
         sentences.append(f"W is the smaller signed-rank sum; {described}.")
