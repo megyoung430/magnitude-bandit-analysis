@@ -223,7 +223,7 @@ def plot_top_responsive(
         title (str): Figure title.
     """
     rois = list(rois)
-    n_cols = 4
+    n_cols = max(1, min(4, len(rois)))
     n_rows = max(1, int(np.ceil(len(rois) / n_cols)))
     fig = plt.figure(figsize=(16, 2.6 * n_rows + 1), constrained_layout=True)
     grid = fig.add_gridspec(n_rows, n_cols + 2)
