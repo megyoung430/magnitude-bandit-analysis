@@ -111,7 +111,7 @@ def _stats(result: ReversalAlignedArms) -> str:
 
 
 def _title(result: ReversalAlignedArms, scope: str) -> Title:
-    """Heading and statistics on the figure; scope, labelling, smoothing and caveats in the caption."""
+    """Heading and statistics on the figure; scope, labelling, smoothing, caveats in the caption."""
     left_out = result.counts.tied_labels + result.counts.tied_type
     smoothing = (
         f"Moving average over {result.moving_avg_window} trials ({result.moving_avg_mode})."

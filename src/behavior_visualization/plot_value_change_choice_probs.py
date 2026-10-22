@@ -56,7 +56,7 @@ def _window_caption(curves: ValueChangeCurves) -> str:
 
 
 def _title(curves: ValueChangeCurves, show_individual_mice: bool = False) -> Title:
-    """Heading and statistics on the figure; the window mode, weighting and caveats in the caption."""
+    """Heading and statistics on the figure; window mode, weighting, caveats in the caption."""
     events = (curves.num_events, "event", "events")
     mice = (curves.num_subjects, "mouse", "mice")
     if curves.weighting == "event":
