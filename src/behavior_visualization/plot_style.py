@@ -1,17 +1,51 @@
 """Shared matplotlib style settings and color palettes for behavior visualizations."""
 
-import matplotlib as mpl
+from pathlib import Path
 
+import matplotlib as mpl
+from matplotlib import font_manager
 
 # ---------------------------------------------------------------------------
 # Default font and axis sizes – applied once at module import.
 # ---------------------------------------------------------------------------
+SANS_SERIF_FONTS: list[str] = ["Helvetica Neue", "Helvetica", "Arial"]
+
 mpl.rcParams["font.family"] = "sans-serif"
-mpl.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial"]
+mpl.rcParams["font.sans-serif"] = SANS_SERIF_FONTS
 mpl.rcParams["xtick.labelsize"] = 12
 mpl.rcParams["ytick.labelsize"] = 12
 mpl.rcParams["axes.labelsize"] = 12
 mpl.rcParams["axes.titlesize"] = 14
+
+
+def use_paper_fonts(font_path: str | Path | None = None) -> str:
+    """Make saved figures paper-ready: text stays editable text in PDF, PS and SVG files.
+
+    Embeds TrueType (Type 42) fonts in PDF/PS instead of Type 3 outlines, and keeps SVG text as
+    ``<text>`` elements, so labels can be edited in Illustrator or Inkscape. Call once, at the
+    top of a notebook, before drawing. Font family and sizes are left as set above.
+
+    Args:
+        font_path (str | Path | None): A font file (e.g. ``HelveticaNeueRoman.otf``) to register
+            and put first in the sans-serif list, for machines where Helvetica Neue is not
+            installed system-wide. None uses the installed fonts. Default None.
+
+    Returns:
+        str: The name of the first sans-serif font matplotlib will try.
+
+    Raises:
+        FileNotFoundError: If *font_path* is given but does not exist.
+    """
+    mpl.rcParams.update({"pdf.fonttype": 42, "ps.fonttype": 42, "svg.fonttype": "none"})
+    if font_path is None:
+        return mpl.rcParams["font.sans-serif"][0]
+    font_path = Path(font_path)
+    if not font_path.is_file():
+        raise FileNotFoundError(f"font file not found: {font_path}")
+    font_manager.fontManager.addfont(str(font_path))
+    name = font_manager.FontProperties(fname=str(font_path)).get_name()
+    mpl.rcParams["font.sans-serif"] = [name, *SANS_SERIF_FONTS]
+    return name
 
 # ---------------------------------------------------------------------------
 # Shared color palettes
