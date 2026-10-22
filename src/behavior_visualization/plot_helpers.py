@@ -230,6 +230,22 @@ class Title(NamedTuple):
         return self.heading if self.stats is None else f"{self.heading}\n{self.stats}"
 
 
+def title_from_text(text: str, stats: str | None = None) -> Title:
+    """A :class:`Title` from a caller's free text: its first line is the heading.
+
+    For titles given as one string (e.g. from a notebook): any further lines go to the caption.
+
+    Args:
+        text (str): The title text; may span several lines.
+        stats (str | None): The statistics line to draw under the heading. Default None.
+
+    Returns:
+        Title: Heading, *stats*, and the remaining non-empty lines as caption lines.
+    """
+    heading, *rest = text.split("\n")
+    return Title(heading, stats, tuple(line.strip() for line in rest if line.strip()))
+
+
 def add_caption(fig: plt.Figure, *lines: str) -> None:
     """Add *lines* to the caption of *fig*; they are written beside it and never drawn.
 

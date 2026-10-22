@@ -35,11 +35,16 @@ from src.behavior_analysis.rank_proportions_summary import (
     rank_mean_and_se,
 )
 from src.behavior_visualization.plot_helpers import (
+    Title,
     despine,
+    error_drawn,
     jitter_rng,
     jittered,
     mouse_color_map,
     save_or_show,
+    set_title,
+    stats_line,
+    title_from_text,
 )
 
 # Notebooks star-import this module and expect MOUSE_COLORS from it.
@@ -140,8 +145,8 @@ def _mouse_points(blocks: list, by_block: dict) -> tuple[np.ndarray, np.ndarray]
     return xs, ys
 
 
-def _default_length_title(ylabel: str, n_mice: int) -> str:
-    return f"{ylabel} per Problem\n(mean ± se across mice | n={n_mice} subjects)"
+def _default_length_title(ylabel: str) -> str:
+    return f"{ylabel} per Problem"
 
 
 def _draw_bars(ax: plt.Axes, blocks: list, means: np.ndarray, ses: np.ndarray) -> None:
@@ -237,7 +242,8 @@ def plot_problem_bars(
         ax (plt.Axes | None): Axes to draw into; a new 10 x 4.8 inch figure is made if None.
             Default None.
         ylabel (str): Y-axis label.
-        title (str): Axes title.
+        title (str): Heading of the axes title; a statistics line with the mouse count is added
+            under it, and any further lines of *title* go to the figure's caption.
         jitter (float): Half-width of the horizontal jitter on the mouse lines; 0 turns it
             off. Default 0.06.
         annotate_y (float | None): Height of the value labels above the bars. Defaults to
@@ -269,7 +275,9 @@ def plot_problem_bars(
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
     ax.set_xlabel("Problem Number", fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
-    ax.set_title(title, pad=style.title_pad)
+    average = "mean ± SE" if error_drawn(ses) else "mean"
+    stats = stats_line(average, "mice", [(len(summary["mice"]), "mouse", "mice")])
+    set_title(ax, title_from_text(title, stats), pad=style.title_pad)
     # Known issue: the bottom is fixed at 0, so bars with negative means are clipped.
     ax.set_ylim(0, max(annotate_y, finite_top) * style.ylim_headroom)
     return ax
@@ -334,8 +342,8 @@ def plot_problem_lengths(
             :func:`src.behavior_analysis.problem_summary.compute_problem_length_summary`
             or any compatible function; same keys as for :func:`plot_metric_by_problem`.
         ylabel (str): Y-axis label. Default ``"Sessions to Complete"``.
-        title (str | None): Figure title. Auto-generated from *ylabel* and the number of mice
-            if None. Default None.
+        title (str | None): Heading of the title. ``"<ylabel> per Problem"`` if None; the
+            statistics line with the number of mice is added either way. Default None.
         jitter (float): Horizontal jitter half-width for per-mouse markers. Default 0.06.
         annotate_y (float | None): Y-position for value annotations above bars. Defaults to
             ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
@@ -348,7 +356,7 @@ def plot_problem_lengths(
     """
     _require_summary_keys(problem_summary)
     if title is None:
-        title = _default_length_title(ylabel, len(problem_summary["mice"]))
+        title = _default_length_title(ylabel)
     ax = plot_problem_bars(
         problem_summary,
         ylabel=ylabel,
@@ -721,7 +729,9 @@ def plot_rank_proportions_average_panel(
         _, ax = plt.subplots(figsize=(7, 5.5))
     _draw_rank_bars(ax, means, ses, pvalues=pvalues)
     _draw_rank_mouse_lines(ax, per_mouse, jitter=jitter)
-    ax.set_title("Average Across Mice", pad=14)
+    average = "mean ± SE" if error_drawn(ses) else "mean"
+    stats = stats_line(average, "mice", [(len(per_mouse), "mouse", "mice")])
+    set_title(ax, Title("Average Across Mice", stats), pad=14)
     ax.set_xticks(np.arange(len(RANK_LABELS)))
     ax.set_xticklabels(RANK_LABELS)
     ax.set_ylabel("Proportion of Choices")

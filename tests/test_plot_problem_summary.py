@@ -17,6 +17,7 @@ from matplotlib.figure import Figure
 
 from src.behavior_analysis import blocklen_distributions
 from src.behavior_visualization import plot_problem_summary as pps
+from src.behavior_visualization.plot_helpers import figure_caption
 
 nan = float("nan")
 
@@ -113,7 +114,8 @@ def test_metric_figure_text_scales_and_style(drawn):
     (fig,) = drawn.figures
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (10, 4.8)
-    assert ax.get_title() == "My title" and ax.get_ylabel() == "My Y"
+    assert ax.get_title() == "My title\nmean ± SE across mice, n = 4 mice"
+    assert ax.get_ylabel() == "My Y"
     assert ax.get_xlabel() == "Problem Number"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["1", "2", "3"]
     assert [t.get_text() for t in ax.texts] == ["2.00", "4.50"]  # the NaN bar has no label
@@ -156,9 +158,7 @@ def test_lengths_figure_defaults_and_style(drawn):
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (10, 4.8)
     assert ax.get_ylabel() == "Sessions to Complete"
-    assert ax.get_title() == (
-        "Sessions to Complete per Problem\n(mean ± se across mice | n=4 subjects)"
-    )
+    assert ax.get_title() == "Sessions to Complete per Problem\nmean ± SE across mice, n = 4 mice"
     assert [t.get_text() for t in ax.texts] == ["2.0", "4.5"]
     assert title_pad_points(ax) == pytest.approx(20)
     assert ax.get_ylim() == pytest.approx((0, 6.75))  # no headroom, unlike the metric chart
@@ -172,7 +172,8 @@ def test_lengths_custom_ylabel_title_and_annotate_y(drawn):
         summary(), ylabel="Mean Block Length", title="Custom", jitter=0, annotate_y=9.0
     )
     (ax,) = drawn.figures[0].axes
-    assert ax.get_ylabel() == "Mean Block Length" and ax.get_title() == "Custom"
+    assert ax.get_ylabel() == "Mean Block Length"
+    assert ax.get_title() == "Custom\nmean ± SE across mice, n = 4 mice"
     assert ax.get_ylim() == pytest.approx((0, 9.0))
 
 
@@ -480,7 +481,8 @@ def test_rank_figure_text_scales_and_style(drawn):
     (fig,) = drawn.figures
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (7, 5.5)
-    assert ax.get_title() == "Average Across Mice" and title_pad_points(ax) == pytest.approx(14)
+    assert ax.get_title() == "Average Across Mice\nmean ± SE across mice, n = 2 mice"
+    assert title_pad_points(ax) == pytest.approx(14)
     assert ax.get_ylabel() == "Proportion of Choices"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Best", "Second", "Third"]
     assert ax.get_ylim() == pytest.approx((0.0, 1.07))
@@ -580,3 +582,10 @@ def test_block_length_helpers_are_reexported():
         pps.drop_last_problem_per_mouse_raw
         is blocklen_distributions.drop_last_problem_per_mouse_raw
     )
+
+
+def test_extra_lines_of_a_given_title_go_to_the_caption(drawn):
+    pps.plot_metric_by_problem(summary(), title="T\n(cohort 3)", ylabel="Y")
+    ax = drawn.figures[0].axes[0]
+    assert ax.get_title() == "T\nmean ± SE across mice, n = 4 mice"
+    assert figure_caption(ax.figure) == "(cohort 3)"
