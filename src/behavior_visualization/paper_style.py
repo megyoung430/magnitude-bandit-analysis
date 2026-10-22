@@ -205,6 +205,148 @@ def _caption(banner: str | None, moved: Sequence[str]) -> str:
     return "\n".join(dict.fromkeys(parts))
 
 
+# --- annotations and legends --------------------------------------------------------------------
+
+# An annotation with this gid stays on the axes in the paper style.
+KEEP_ANNOTATION_GID = "keep-annotation"
+NOT_TESTED = "not tested (fewer than 2 mice)"
+_SIGNIFICANCE_MARK = re.compile(r"\W*(\*+|n\.?s\.?)\W*", re.IGNORECASE)
+_P_VALUE = re.compile(r"(p\([^)]*\)):?\s*(.+)")
+_VALUE_LABEL = re.compile(r"-?\d*\.?\d+|n\s*=\s*\d+")
+_MOUSE_LABEL = re.compile(r"[A-Z]{1,4}_\d+(_[A-Z]+)?")
+
+
+def _is_data_axes(ax: plt.Axes) -> bool:
+    """Axes whose text is part of the drawing: images (cell values), colorbars, axis-off maps."""
+    return bool(ax.images) or not ax.axison or _is_colorbar(ax)
+
+
+def _is_annotation(text) -> bool:
+    """A text that states a statistic or value, as opposed to a mark that must stay."""
+    content = text.get_text().strip()
+    keep = text.get_gid() == KEEP_ANNOTATION_GID or _SIGNIFICANCE_MARK.fullmatch(content)
+    return bool(content) and not keep
+
+
+def _series_names(ax: plt.Axes) -> dict[str, str]:
+    """``{line colour as hex: legend label}`` of the labelled lines of *ax*."""
+    return {
+        to_hex(line.get_color()): line.get_label()
+        for line in ax.lines
+        if not line.get_label().startswith("_")
+    }
+
+
+def _tick_name(ax: plt.Axes, x: float) -> str:
+    """The x tick label nearest to data position *x*, or *x* itself when no tick is near."""
+    ticks = np.asarray(ax.get_xticks(), dtype=float)
+    labels = [t.get_text() for t in ax.get_xticklabels()]
+    if not len(ticks) or len(labels) != len(ticks):
+        return f"{x:g}"
+    nearest = int(np.argmin(np.abs(ticks - x)))
+    spacing = np.min(np.diff(np.sort(ticks))) if len(ticks) > 1 else 1.0
+    if abs(ticks[nearest] - x) > 0.25 * spacing or not labels[nearest]:
+        return f"{x:g}"
+    return _one_line(labels[nearest])
+
+
+def _phrase(ax: plt.Axes, text) -> str:
+    """One caption phrase for an annotation: ``Best 0.42``, ``2: 0.47``, ``p(A vs B) = 0.1``."""
+    content = _one_line(text.get_text())
+    p_value = _P_VALUE.fullmatch(content)
+    if p_value:
+        name, value = p_value.groups()
+        return f"{name} = {NOT_TESTED if value.lower() == 'nan' else value}"
+    if not _VALUE_LABEL.fullmatch(content):
+        return content
+    tick = _tick_name(ax, text.get_position()[0])
+    return f"{tick}: {content}" if _VALUE_LABEL.fullmatch(tick) else f"{tick} {content}"
+
+
+def _is_p_value(text) -> bool:
+    return bool(_P_VALUE.fullmatch(_one_line(text.get_text())))
+
+
+def _caption_line(ax: plt.Axes, texts: list) -> str:
+    """The caption line of the annotations *texts* of *ax*: grouped by series, led by the title."""
+    series = _series_names(ax)
+    groups: dict[str, list[str]] = {}
+    for text in sorted(texts, key=lambda t: (_is_p_value(t), t.get_position()[0])):
+        name = series.get(to_hex(text.get_color()), "") if not _is_p_value(text) else ""
+        groups.setdefault(name, []).append(_phrase(ax, text))
+    body = "; ".join(
+        f"{name}: {', '.join(p)}" if name else ", ".join(p) for name, p in groups.items()
+    )
+    title = ax.get_title()
+    return f"{title}: {body}" if title else body
+
+
+def _move_annotations_to_caption(fig: plt.Figure) -> list[str]:
+    """Remove statistics and value labels from the axes; return a caption line per axes.
+
+    Texts on image, colorbar and axis-off axes are data and stay, as do significance marks and
+    texts whose gid is ``KEEP_ANNOTATION_GID``.
+    """
+    lines = []
+    for ax in fig.axes:
+        if _is_data_axes(ax):
+            continue
+        texts = [t for t in ax.texts if _is_annotation(t)]
+        if texts:
+            lines.append(_caption_line(ax, texts))
+            for text in texts:
+                text.remove()
+    return lines
+
+
+def _legend_labels(legend) -> tuple[str, ...]:
+    return tuple(t.get_text() for t in legend.get_texts())
+
+
+def _drop_repeated_legends(fig: plt.Figure) -> None:
+    """Keep the legend of the first panel and remove later legends with the same entries."""
+    seen = set()
+    for ax in _panels(fig):
+        legend = ax.get_legend()
+        if legend is None:
+            continue
+        labels = _legend_labels(legend)
+        if labels in seen:
+            legend.remove()
+        seen.add(labels)
+
+
+def _without_entry(ax: plt.Axes, label: str) -> None:
+    """Redraw the legend of *ax* in the same place without the entry *label*."""
+    legend = ax.get_legend()
+    pairs = [
+        (h, t)
+        for h, t in zip(legend.legend_handles, _legend_labels(legend), strict=True)
+        if t != label
+    ]
+    # private attributes: matplotlib offers no public way to read these back
+    options = {"loc": legend._loc, "ncols": legend._ncols, "title": legend.get_title().get_text()}
+    if legend._bbox_to_anchor is not None:
+        anchor = legend.get_bbox_to_anchor().transformed(ax.transAxes.inverted())
+        options.update(bbox_to_anchor=anchor.bounds, bbox_transform=ax.transAxes)
+    legend.remove()
+    if pairs:
+        handles, labels = zip(*pairs, strict=True)
+        ax.legend(handles, labels, **options)
+
+
+def _drop_single_mouse_entries(fig: plt.Figure) -> list[str]:
+    """Remove a lone mouse id from each legend; return ``line: <mouse>`` for the caption."""
+    notes = []
+    for ax in _panels(fig):
+        legend = ax.get_legend()
+        mice = [t for t in _legend_labels(legend) if _MOUSE_LABEL.fullmatch(t)] if legend else []
+        if len(mice) == 1:
+            _without_entry(ax, mice[0])
+            notes.append(f"line: {mice[0]}")
+    return notes
+
+
 # --- size ---------------------------------------------------------------------------------------
 
 
@@ -447,7 +589,10 @@ def polish(fig: plt.Figure, banner: str | None = None) -> str:
         str: The caption: the banner, suptitle, notes and long titles, one per line; empty when
         nothing was moved.
     """
-    caption = _caption(banner, _move_titles_to_caption(fig))
+    moved = _move_titles_to_caption(fig) + _move_annotations_to_caption(fig)
+    _drop_repeated_legends(fig)
+    moved += _drop_single_mouse_entries(fig)
+    caption = _caption(banner, moved)
     _resize(fig)
     mapping = _recolour_map()
     for ax in fig.axes:

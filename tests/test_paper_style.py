@@ -268,3 +268,133 @@ def test_a_legend_below_the_axes_becomes_a_figure_legend_that_layout_makes_room_
     assert ax.get_legend() is None
     assert [t.get_text() for t in fig.legends[0].get_texts()] == ["a", "b", "c"]
     assert not fig.legends[0].get_frame_on()
+
+
+# --- annotations, repeated legends and single-mouse legends ----------------------------------
+
+
+def bar_figure():
+    """Three bars with value labels above them and a p-value text, as the rank figure draws."""
+    fig, ax = plt.subplots()
+    ax.bar([0, 1, 2], [0.42, 0.32, 0.26])
+    ax.set_xticks([0, 1, 2], ["Best", "Second", "Third"])
+    for x, value in enumerate(("0.42", "0.32", "0.26")):
+        ax.text(x, 1.05, value)
+    ax.text(0.5, 0.8, "p(Best vs Second):\n0.126")
+    ax.text(1.5, 0.6, "p(Second vs Third):\nnan")
+    return fig, ax
+
+
+def test_value_labels_and_p_values_move_from_the_axes_into_the_caption():
+    fig, ax = bar_figure()
+    caption = polish(fig)
+    assert not ax.texts
+    assert "Best 0.42" in caption and "Second 0.32" in caption and "Third 0.26" in caption
+    assert "p(Best vs Second) = 0.126" in caption
+
+
+def test_a_nan_p_value_is_never_printed_and_is_reported_as_not_tested():
+    fig, _ = bar_figure()
+    caption = polish(fig)
+    assert "nan" not in caption
+    assert "p(Second vs Third) = not tested" in caption
+
+
+def test_numeric_labels_are_attributed_to_the_series_of_their_colour_and_the_nearest_tick():
+    fig, ax = plt.subplots()
+    ax.plot([2, 3, 4], [0.47, 0.37, 0.46], color="#5DA5DA", label="P(best)")
+    ax.set_xticks([2, 3, 4])
+    for x, y in zip([2, 3, 4], ["0.47", "0.37", "0.46"], strict=True):
+        ax.text(x, 0.5, y, color="#5DA5DA")
+    ax.legend()
+    caption = polish(fig)
+    assert "P(best): 2: 0.47, 3: 0.37, 4: 0.46" in caption
+
+
+def test_an_annotation_marked_to_keep_stays_on_the_axes_and_so_do_significance_stars():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    kept = ax.text(0.5, 0.5, "label", gid="keep-annotation")
+    ax.text(0.2, 0.2, "**")
+    ax.text(0.8, 0.8, "n.s.")
+    assert polish(fig) == ""
+    assert len(ax.texts) == 3 and kept in ax.texts
+
+
+def test_texts_on_images_and_axisless_drawings_are_data_and_stay():
+    fig, (heat, maze) = plt.subplots(1, 2)
+    heat.imshow([[0.1, 0.2], [0.3, 0.4]])
+    heat.text(0, 0, "0.10\nn=5")
+    maze.axis("off")
+    maze.text(0.5, 0.5, "A1\n0.67")
+    assert polish(fig) == ""
+    assert heat.texts and maze.texts
+
+
+def test_an_n_note_goes_to_the_caption_with_its_tick():
+    fig, ax = plt.subplots()
+    ax.plot([1, 2], [3, 4])
+    ax.set_xticks([1, 2])
+    ax.annotate("n=1", (1, 3))
+    caption = polish(fig)
+    assert "1: n=1" in caption and not ax.texts
+
+
+def test_the_caption_lines_start_with_the_panel_title():
+    fig, ax = bar_figure()
+    ax.set_title("Pooled trials")
+    assert polish(fig).splitlines()[0].startswith("Pooled trials: ")
+
+
+def three_panels(labels=("P(best)", "P(second)")):
+    fig, axes = plt.subplots(1, 3)
+    for ax in axes:
+        for label in labels:
+            ax.plot([0, 1], [0, 1], label=label)
+        ax.legend()
+    return fig, axes
+
+
+def test_identical_legends_across_panels_are_kept_only_on_the_first():
+    fig, axes = three_panels()
+    polish(fig)
+    assert axes[0].get_legend() is not None
+    assert axes[1].get_legend() is None and axes[2].get_legend() is None
+
+
+def test_different_legends_are_all_kept():
+    fig, axes = plt.subplots(1, 2)
+    axes[0].plot([0, 1], label="a")
+    axes[1].plot([0, 1], label="b")
+    for ax in axes:
+        ax.legend()
+    polish(fig)
+    assert all(ax.get_legend() is not None for ax in axes)
+
+
+def test_a_legend_with_one_mouse_is_dropped_and_named_in_the_caption():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="MY_175_L")
+    ax.legend()
+    caption = polish(fig)
+    assert ax.get_legend() is None
+    assert "line: MY_175_L" in caption
+
+
+def test_the_mouse_entry_is_removed_but_the_other_entries_stay():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="MY_175_L")
+    ax.plot([0, 1], [1, 0], color="black", label="Mean")
+    ax.legend(loc="upper left")
+    caption = polish(fig)
+    assert [t.get_text() for t in ax.get_legend().get_texts()] == ["Mean"]
+    assert "line: MY_175_L" in caption
+
+
+def test_a_legend_naming_several_mice_is_kept():
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1], label="MY_175_L")
+    ax.plot([0, 1], [1, 0], label="MY_71_R")
+    ax.legend()
+    polish(fig)
+    assert len(ax.get_legend().get_texts()) == 2
