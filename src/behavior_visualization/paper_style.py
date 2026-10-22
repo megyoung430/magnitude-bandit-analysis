@@ -200,6 +200,16 @@ def _move_titles_to_caption(fig: plt.Figure) -> list[str]:
     return moved
 
 
+def add_caption_note(fig: plt.Figure, text: str) -> None:
+    """Give *fig* a note that :func:`polish` moves into the caption; it is never drawn.
+
+    Args:
+        fig (plt.Figure): The figure the note belongs to.
+        text (str): One caption line.
+    """
+    fig.text(0, 0, text, visible=False)
+
+
 def _caption(banner: str | None, moved: Sequence[str]) -> str:
     parts = ([banner] if banner else []) + list(moved)
     return "\n".join(dict.fromkeys(parts))
