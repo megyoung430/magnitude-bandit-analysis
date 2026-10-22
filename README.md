@@ -420,6 +420,44 @@ the files always match `cohorts.txt`; the titles say "all drifting problems, coh
   legends for curve types (P(best), P(second), ...) stay. The code is
   `src/pipelines/all_cohorts_drifting.py`.
 
+### Agent baselines and the choice regression
+
+```bash
+uv run python scripts/full_pipelines/run_agent_baselines.py --cohorts 1 3 --jobs 4
+```
+
+checks what the pooled drifting figures can and cannot show about magnitude learning. It pools
+the drifting problems of the listed cohorts (as above) and:
+
+- **Measures the task rules** from the trials (`src/behavior_analysis/drifting_task_rules.py`):
+  at each block change, whether the arm set to 0 was the one the mouse chose most in that block,
+  and whether the arm that was at 0 took its value; how often non-zero arms drift; the block
+  lengths. In the cohort 1-4 data of October 2026 the zeroed arm is the most chosen one in
+  ~94% of block changes (ties left out) and the old zero arm inherits its value in 99.8%, so a
+  block change removes the mouse's current favourite and moves its value to the arm it was
+  avoiding (`task_rules_summary.csv` has the numbers for each run).
+- **Fits a choice regression** per mouse (`src/behavior_analysis/choice_regression.py`): a
+  conditional logit over the three ports with the value the mouse last received at each port,
+  whether that visit paid 0, whether the port is still unvisited, stay, and plus-port bias.
+  The `last_value` weight is magnitude sensitivity beyond avoiding the empty port, repeating
+  the last choice and the spatial bias.
+- **Fits two agents** to each mouse (`src/agents/value_agent.py`, a four-parameter value learner
+  with stickiness and a plus-port bias): one learns from the reward magnitude, the other only
+  from whether there was a reward. Same number of parameters, so their likelihoods compare
+  directly.
+- **Simulates each fitted agent** (`src/agents/drifting_simulation.py`) through the mouse's own
+  problems (ports, initiation port, starting values, trials per session) under the measured
+  task rules, and runs the simulated animals through the same pooled drifting figures and the
+  same regression as the mice.
+
+Figures go to `results/figures/open-field/agent-baselines/cohorts-<ids>/`: `summary.png`
+(regression weights of mice and both agents; per-mouse likelihood difference) and
+`magnitude-agent/` and `binary-agent/` with the subfolders of `all-cohorts/`, to be compared
+with the mice's own figures there. Tables (`task_rules_*.csv`, `agent_fits.csv`,
+`choice_regression_*.csv`, and each agent's diagnostic tables) go to the matching `tables/`
+folder. Fits are cached in `.cache/agent_baselines/`; `--no-cache` refits. The code is
+`src/pipelines/agent_baselines.py`.
+
 ### Paper-ready figures
 
 ```bash
