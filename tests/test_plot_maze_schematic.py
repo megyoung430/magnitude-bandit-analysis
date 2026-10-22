@@ -2,6 +2,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import logging
 import re
 
 import matplotlib as mpl
@@ -21,9 +22,11 @@ from src.behavior_visualization.plot_maze_schematic import (
     IDLE_FILL,
     INITIATION_FILL,
     draw_maze_schematic,
+    first_installed_font,
     platform_outline,
     plot_maze_schematic,
     port_fills,
+    schematic_font,
 )
 
 CHOICES = ["A2", "B1", "C3"]
@@ -145,18 +148,42 @@ def test_saves_svg_pdf_and_png(tmp_path):
 # ------------------------------------------------------------------ fonts
 
 
-def test_all_text_asks_for_arial_first():
+def test_the_first_installed_font_is_picked():
+    assert first_installed_font(("No Such Font", "DejaVu Sans", "Arial")) == "DejaVu Sans"
+
+
+def test_no_installed_font_is_an_error():
+    with pytest.raises(ValueError, match="No Such Font"):
+        first_installed_font(("No Such Font",))
+
+
+def test_schematic_font_prefers_arial():
+    try:
+        first_installed_font(("Arial",))
+    except ValueError:
+        pytest.skip("Arial is not installed here")
+    assert schematic_font() == "Arial"
+
+
+def test_all_text_uses_the_schematic_font():
     ax = draw_maze_schematic(CHOICES, title="Choice towers")
     texts = [*ax.texts, ax.title, *ax.get_legend().get_texts()]
-    assert all(t.get_fontfamily()[0] == "Arial" for t in texts)
+    assert all(t.get_fontfamily() == [schematic_font()] for t in texts)
 
 
-def test_text_is_arial_in_an_axes_the_caller_made():
+def test_text_uses_the_schematic_font_in_an_axes_the_caller_made():
     # The caller's axes and its title exist before the schematic is drawn.
     _, ax = plt.subplots()
     draw_maze_schematic(CHOICES, ax=ax, title="Choice towers")
     texts = [*ax.texts, ax.title, *ax.get_legend().get_texts()]
-    assert all(t.get_fontfamily()[0] == "Arial" for t in texts)
+    assert all(t.get_fontfamily() == [schematic_font()] for t in texts)
+
+
+def test_saving_does_not_warn_about_missing_fonts(tmp_path, caplog):
+    # Schematic text names one installed font, so drawing it never logs a missing-font warning.
+    with caplog.at_level(logging.WARNING, logger="matplotlib.font_manager"):
+        plot_maze_schematic(CHOICES, title="Choice towers", save_path=tmp_path / "towers")
+    assert not [r for r in caplog.records if "not found" in r.getMessage()]
 
 
 def test_the_font_settings_do_not_leak_into_other_figures(tmp_path):
