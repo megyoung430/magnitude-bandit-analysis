@@ -2,8 +2,12 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import re
+
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import ARMS9
@@ -60,6 +64,13 @@ def test_unknown_port_is_rejected():
 def test_port_cannot_be_both_initiation_and_choice():
     with pytest.raises(ValueError, match="B2"):
         port_fills(["B2", "A1"], "B2")
+
+
+def test_choice_towers_can_be_a_pandas_column():
+    # Membership on a Series tests its index, so the towers must be read as values.
+    assert port_fills(pd.Series(CHOICES)) == port_fills(CHOICES)
+    with pytest.raises(ValueError, match="B2"):
+        port_fills(pd.Series(["B2", "A1"]))
 
 
 @pytest.mark.parametrize(
@@ -129,3 +140,36 @@ def test_saves_svg_pdf_and_png(tmp_path):
         "problem-05.pdf",
         "problem-05.png",
     }
+
+
+# ------------------------------------------------------------------ fonts
+
+
+def test_all_text_asks_for_arial_first():
+    ax = draw_maze_schematic(CHOICES, title="Choice towers")
+    texts = [*ax.texts, ax.title, *ax.get_legend().get_texts()]
+    assert all(t.get_fontfamily()[0] == "Arial" for t in texts)
+
+
+def test_text_is_arial_in_an_axes_the_caller_made():
+    # The caller's axes and its title exist before the schematic is drawn.
+    _, ax = plt.subplots()
+    draw_maze_schematic(CHOICES, ax=ax, title="Choice towers")
+    texts = [*ax.texts, ax.title, *ax.get_legend().get_texts()]
+    assert all(t.get_fontfamily()[0] == "Arial" for t in texts)
+
+
+def test_the_font_settings_do_not_leak_into_other_figures(tmp_path):
+    before = dict(mpl.rcParams)
+    draw_maze_schematic(CHOICES)
+    plot_maze_schematic(CHOICES, save_path=tmp_path / "towers")
+    assert dict(mpl.rcParams) == before
+
+
+def test_saved_text_stays_editable(tmp_path):
+    base = tmp_path / "towers"
+    plot_maze_schematic(CHOICES, save_path=base)
+    pdf_fonts = set(re.findall(rb"/Subtype\s*/(\w+)", base.with_suffix(".pdf").read_bytes()))
+    assert b"CIDFontType2" in pdf_fonts  # TrueType text, not Type 3 outlines
+    assert b"Type3" not in pdf_fonts
+    assert "<text" in base.with_suffix(".svg").read_text()
