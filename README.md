@@ -104,6 +104,28 @@ raw `.tsv` file's path, size and modification time and a hash of
 `src/behavior_import/`, so new sessions or import-code changes trigger a fresh
 import automatically. Delete `.cache/` at any time; it only costs a re-import.
 
+### Running without the server
+
+When the share is unmounted or the connection is unreliable, the pooled runs can use the import
+cache alone:
+
+```bash
+uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --paper-ready --from-cache
+uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 --paper-ready --from-cache
+```
+
+`--from-cache` never reads the raw folder (no listing, no file sizes, no existence check, so a
+hung mount cannot stall it). For each cohort it loads the cached import of
+`<BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N`, preferring one made with the
+current `src/behavior_import` code and otherwise the newest. `BANDIT_DATA_ROOT` must still be
+set to the same path as when the cache was filled, but it need not exist. A
+`StaleCacheWarning` (also in `warnings_log.csv`) gives the date of the cached import, how many
+`.tsv` files it covered and whether the import code has changed since: sessions added on the
+server since then are missing, and import-code changes since then are not applied. With no
+cached import of a cohort the run stops and lists the cached roots and dates; a cache that the
+current code cannot read stops it too. Run without `--from-cache` once the server is back.
+`--from-cache` cannot be combined with `--no-cache`.
+
 ### Resumable cohort cross-validation and recovery runs
 
 `run_problem_cross_validation` (`src/agents/cohort_fitting.py`), `run_recovery`

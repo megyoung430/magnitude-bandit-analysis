@@ -48,6 +48,14 @@ results/figures/open-field/paper-ready/<cohort>/drifting/all-drifting-problems[-
 
     uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --paper-ready
 
+Without the server (unmounted or unreachable), add --from-cache: each cohort is loaded from its
+newest cached import, preferring one made with the current import code, and the raw files are
+never read. Sessions added since that import are missing, and import-code changes since then are
+not applied; a StaleCacheWarning says so and is kept in warnings_log.csv:
+
+    uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --paper-ready \\
+        --from-cache
+
 Raw data is read from <BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N. Figures
 go to results/figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/ and tables to
 results/tables/open-field/cohort-0N/ (see src/pipelines/cohort_analysis.py). Every problem also
@@ -130,6 +138,14 @@ def parse_args(argv=None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--from-cache",
+        action="store_true",
+        help=(
+            "use the newest cached import of each cohort without reading the server; sessions "
+            "added since then are missing"
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help=(
@@ -160,6 +176,7 @@ def main(argv=None) -> None:
             pooled_only=args.pooled_only,
             exclude_mice=args.exclude_mice,
             paper_ready=args.paper_ready,
+            from_cache=args.from_cache,
             results_root=RESULTS_ROOT,
             blocked_selection=BLOCKED,
             drifting_selection=DRIFTING,

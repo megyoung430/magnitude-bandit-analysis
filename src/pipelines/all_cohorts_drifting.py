@@ -261,7 +261,7 @@ def _clear_previous_outputs(figures_dir: Path, tables_dir: Path) -> None:
 
 
 def _inputs_for_cohorts(
-    cohort_ids, trials_by_cohort, import_logs, data_root, use_cache
+    cohort_ids, trials_by_cohort, import_logs, data_root, use_cache, from_cache=False
 ) -> tuple[dict, dict]:
     """``({cohort id: trials by problem}, {cohort id: ImportLog or None})``, passed in or loaded.
 
@@ -270,7 +270,7 @@ def _inputs_for_cohorts(
             is not run.
     """
     if trials_by_cohort is None:
-        loaded = {c: load_cohort(c, data_root, use_cache) for c in cohort_ids}
+        loaded = {c: load_cohort(c, data_root, use_cache, from_cache) for c in cohort_ids}
         return {c: trials for c, (trials, _) in loaded.items()}, {
             c: log for c, (_, log) in loaded.items()
         }
@@ -418,6 +418,7 @@ def run_all_cohorts_drifting(
     results_root: Path = DEFAULT_RESULTS_ROOT,
     drifting_selection: AnalysisSelection = DRIFTING_SELECTION,
     use_cache: bool = True,
+    from_cache: bool = False,
     trials_by_cohort: dict | None = None,
     import_logs: dict[int, ImportLog] | None = None,
     run_at: datetime | None = None,
@@ -439,6 +440,10 @@ def run_all_cohorts_drifting(
         drifting_selection (AnalysisSelection): Which drifting analyses run, and the rank value
             bases and pooling modes. Default ``DRIFTING_SELECTION``. Keyword-only.
         use_cache (bool): Use the on-disk import cache. Default ``True``. Keyword-only.
+        from_cache (bool): Load the newest cached import of each cohort without reading the
+            share; sessions added since are missing (see
+            :func:`~src.pipelines.cohort_analysis.load_cohort`). Default ``False``.
+            Keyword-only.
         trials_by_cohort (dict | None): Already-loaded ``{cohort id: {overall problem: {mouse:
             sessions}}}``, to skip the load. Default ``None``: load the cohorts. Keyword-only.
         import_logs (dict[int, ImportLog] | None): ``{cohort id: import log}`` of the passed-in
@@ -466,7 +471,9 @@ def run_all_cohorts_drifting(
     ids = check_cohort_ids(cohort_ids)
     if drifting_selection.rank_value_bases is None:
         raise ValueError("drifting_selection.rank_value_bases must name the value bases to pool")
-    imported, logs = _inputs_for_cohorts(ids, trials_by_cohort, import_logs, data_root, use_cache)
+    imported, logs = _inputs_for_cohorts(
+        ids, trials_by_cohort, import_logs, data_root, use_cache, from_cache
+    )
     pooled = pool_cohorts({c: drifting_problems(trials) for c, trials in imported.items()})
     excluded = optional_mouse_ids(exclude_mice) or ()  # a tuple, so a generator is read once
     problems_without = exclude_mice_from_problems(pooled.problems, excluded) if excluded else {}
