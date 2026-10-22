@@ -2,8 +2,8 @@
 
 :func:`run_cohort_diagnostic` loads a cohort the way the cohort runner does, keeps the drifting
 problems and writes ``<results_root>/figures/value-change-diagnostic/cohort-XX/problem-KK/
-<mouse>/<session>.png`` plus an ``index.txt`` listing every session's events. Sessions without
-events get a figure too, marked as such.
+<mouse>/<session>`` (pdf, png and svg, with a caption file) plus an ``index.txt`` listing every
+session's events. Sessions without events get a figure too, marked as such.
 
 It also writes ``mouse_curves_<scope>.csv`` for each drifting problem (``problem-KK``) and for
 all of them pooled (``all-drifting-problems``): the per-mouse choice probabilities whose mean
@@ -13,8 +13,8 @@ modes (see :func:`src.behavior_analysis.value_change_mouse_curves.mouse_curves_t
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import MappingProxyType
 
-import matplotlib.pyplot as plt
 import pandas as pd
 
 from src.behavior_analysis.value_change_diagnostic import (
@@ -36,6 +36,7 @@ from src.behavior_analysis.value_change_windows import (
 from src.behavior_import.load_trials import load_trials_with_log
 from src.behavior_import.session_order import ordered_session_keys
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
+from src.behavior_visualization.plot_helpers import save_or_show
 from src.behavior_visualization.plot_value_change_diagnostic import (
     NO_EVENTS_TEXT,
     plot_value_change_diagnostic,
@@ -50,13 +51,13 @@ from src.pipelines.value_change_analysis import pooled_windows
 from src.settings import get_settings
 
 DIAGNOSTIC_FOLDER = "value-change-diagnostic"
-# PNG only, at a resolution that is readable but quick to page through.
-FIGURE_DPI = 100
+# A PNG resolution that is readable but quick to page through.
+FIGURE_DPI = MappingProxyType({"png": 100})
 
 
 def session_figure_path(cohort_dir: Path, problem: int, mouse: str, session_key: str) -> Path:
-    """``<cohort_dir>/problem-KK/<mouse>/<session_key>.png``."""
-    return cohort_dir / f"problem-{problem:02d}" / mouse / f"{session_key}.png"
+    """``<cohort_dir>/problem-KK/<mouse>/<session_key>``, the base path of a session's files."""
+    return cohort_dir / f"problem-{problem:02d}" / mouse / session_key
 
 
 def index_entry(session_key: str, diagnostics: list[EventDiagnostic]) -> str:
@@ -94,14 +95,10 @@ def format_index(
 
 
 def _write_session(mouse: str, key: str, session: Mapping, path: Path) -> list[EventDiagnostic]:
-    """Diagnose one session and save its figure at *path*."""
+    """Diagnose one session and save its figure as ``<path>.<format>``."""
     diagnostics = diagnose_session(mouse, key, session)
     fig = plot_value_change_diagnostic(session, diagnostics, title=f"{mouse} | {key}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fig.savefig(path, dpi=FIGURE_DPI, bbox_inches="tight")
-    finally:
-        plt.close(fig)
+    save_or_show(fig, path, dpi=FIGURE_DPI)
     return diagnostics
 
 

@@ -10,7 +10,7 @@ arm is rewarded again):
 - ``prev``: arms labelled by their rank before the block change (best blue, second green, third
   grey); kinds "Prev Best to Third" and "Prev Second to Third";
 - ``new``: arms labelled by their rank after the block change (best blue, second green, third
-  black); kinds "New Best from Third" and "New Second from Third".
+  grey); kinds "New Best from Third" and "New Second from Third".
 
 Every figure is also made for all block changes ("All"), which averages over both kinds. The title
 and the file name carry the same wording (:func:`figure_heading`, :func:`figure_stem`).
@@ -33,7 +33,9 @@ ROLE_COLORS = {
     "prev_third": "#7f7f7f",
     "new_best": "#5DA5DA",
     "new_second": "#60BD68",
-    "new_third": "black",
+    # the same grey as prev third: a figure draws the roles of one scheme only, so the two
+    # never share a panel
+    "new_third": "#7f7f7f",
 }
 ROLE_LABELS = {role: role.replace("_", " ").title() for role in ROLE_COLORS}
 SCHEME_DESCRIPTIONS = {

@@ -56,11 +56,13 @@ def test_tables_and_figures_are_written_in_order_and_figure_paths_returned(captu
         TableOutput("indexed.csv", frame, index=True),
     ]
     paths = write_outputs(outputs, tmp_path, show=False)
-    assert paths == [tmp_path / "Fig one.png", tmp_path / "Fig one.pdf"]
+    assert paths == [tmp_path / "Fig one.png", tmp_path / "Fig one.pdf", tmp_path / "Fig one.svg"]
     assert all(p.is_file() for p in paths)
     assert (tmp_path / "plain.csv").read_text() == "a\n1\n2\n"
     assert (tmp_path / "indexed.csv").read_text() == "k,a\n5,1\n6,2\n"
-    assert [s.kwargs for s in capture.saved] == [{"dpi": 180, "bbox_inches": "tight"}] * 2
+    assert [s.kwargs for s in capture.saved] == [{"dpi": 180, "bbox_inches": "tight"}] * 2 + [
+        {"bbox_inches": "tight"}
+    ]
     assert capture.shown == [] and plt.get_fignums() == []
 
 
@@ -100,7 +102,13 @@ def test_a_failing_builder_keeps_earlier_files_and_closes_the_figures_it_opened(
 
     with pytest.raises(KeyError, match="boom"):
         write_outputs(outputs(), tmp_path, show=False)
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["done.pdf", "done.png", "first.csv"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "done.caption.txt",
+        "done.pdf",
+        "done.png",
+        "done.svg",
+        "first.csv",
+    ]
     assert plt.get_fignums() == []
 
 
@@ -145,10 +153,12 @@ def test_an_unknown_output_raises_type_error(tmp_path):
 # ---- save_or_show ------------------------------------------------------------------
 
 
-def test_save_or_show_writes_pdf_then_png_at_300_dpi_and_closes(capture, tmp_path):
+def test_save_or_show_writes_pdf_png_at_300_dpi_and_svg_and_closes(capture, tmp_path):
     fig = small_figure()
     save_or_show(fig, tmp_path / "out" / "Fig")
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(tmp_path / "out" / "Fig") + ".svg"
+    assert svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(tmp_path / "out" / "Fig") + ".pdf"
     assert pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(tmp_path / "out" / "Fig") + ".png"
@@ -181,7 +191,7 @@ def test_save_or_show_without_make_parent_needs_an_existing_folder(capture, tmp_
 
 def test_save_or_show_without_make_parent_uses_the_path_as_given(capture, tmp_path):
     save_or_show(small_figure(), tmp_path / "Fig", make_parent=False)
-    assert capture.saved_names() == ["Fig.pdf", "Fig.png"]
+    assert capture.saved_names() == ["Fig.pdf", "Fig.png", "Fig.svg"]
 
 
 def test_palette_color_uses_the_palette_it_is_given():
@@ -224,7 +234,14 @@ def test_save_or_show_closes_the_figure_when_saving_raises(monkeypatch, tmp_path
 def test_save_or_show_saves_each_named_figure_and_shows_them_together_once(capture, tmp_path):
     first, second = small_figure(), small_figure()
     save_or_show({" A": first, " B": second}, tmp_path / "Fig")
-    assert capture.saved_names() == ["Fig A.pdf", "Fig A.png", "Fig B.pdf", "Fig B.png"]
+    assert capture.saved_names() == [
+        "Fig A.pdf",
+        "Fig A.png",
+        "Fig A.svg",
+        "Fig B.pdf",
+        "Fig B.png",
+        "Fig B.svg",
+    ]
     assert plt.get_fignums() == []
     third, fourth = small_figure(), small_figure()
     save_or_show({" A": third, " B": fourth}, None)
@@ -305,38 +322,34 @@ def test_jittered_continues_a_given_generator_so_lines_get_different_noise():
 # --- figure banner -----------------------------------------------------------------------
 
 
-def texts_at_each_save(fig, monkeypatch):
-    """Spy on ``fig.savefig``: the figure-level texts present at each call."""
-    seen = []
+def caption_of(base) -> str:
+    return Path(f"{base}.caption.txt").read_text()
+
+
+def test_a_banner_starts_the_caption_of_a_figure(tmp_path):
+    with figure_banner("without MY_1_A"):
+        save_or_show(small_figure(), tmp_path / "f")
+    assert caption_of(tmp_path / "f") == "without MY_1_A\n"
+
+
+def test_a_banner_is_not_drawn_on_the_figure(monkeypatch, tmp_path):
+    fig = small_figure()
+    drawn = []
     monkeypatch.setattr(
-        fig, "savefig", lambda *a, **k: seen.append([t.get_text() for t in fig.texts])
+        fig,
+        "savefig",
+        lambda *a, **k: drawn.append([t.get_text() for t in fig.texts if t.get_visible()]),
     )
-    return seen
-
-
-def test_a_banner_is_on_every_saved_format_of_a_figure(monkeypatch, tmp_path):
-    fig = small_figure()
-    seen = texts_at_each_save(fig, monkeypatch)
     with figure_banner("without MY_1_A"):
         save_or_show(fig, tmp_path / "f")
-    assert seen == [["without MY_1_A"], ["without MY_1_A"]]  # pdf and png, drawn once each
+    assert drawn == [[], [], []]
 
 
-def test_a_banner_is_removed_from_the_figure_after_saving(monkeypatch, tmp_path):
-    fig = small_figure()
-    texts_at_each_save(fig, monkeypatch)
-    with figure_banner("without MY_1_A"):
-        save_or_show(fig, tmp_path / "f")
-    assert fig.texts == []
-
-
-def test_figures_saved_outside_a_banner_have_none(monkeypatch, tmp_path):
-    fig = small_figure()
-    seen = texts_at_each_save(fig, monkeypatch)
+def test_figures_saved_outside_a_banner_have_none(tmp_path):
     with figure_banner("without MY_1_A"):
         pass
-    save_or_show(fig, tmp_path / "f")
-    assert seen == [[], []]
+    save_or_show(small_figure(), tmp_path / "f")
+    assert caption_of(tmp_path / "f") == ""
     assert current_figure_banner() is None
 
 
@@ -348,20 +361,7 @@ def test_a_banner_is_gone_after_the_block_even_if_it_raises():
     assert current_figure_banner() is None
 
 
-def test_write_outputs_banners_its_figures_too(monkeypatch, tmp_path):
-    fig = small_figure()
-    seen = texts_at_each_save(fig, monkeypatch)
+def test_write_outputs_puts_the_banner_in_its_captions_too(tmp_path):
     with figure_banner("without MY_1_A"):
-        write_outputs([FigureOutput("f", fig)], tmp_path, show=False)
-    assert seen == [["without MY_1_A"], ["without MY_1_A"]]
-
-
-def test_a_banner_is_drawn_in_the_saved_image(tmp_path):
-    plain, banner = small_figure(), small_figure()
-    save_or_show(plain, tmp_path / "plain", formats=("png",))
-    with figure_banner("without MY_1_A"):
-        save_or_show(banner, tmp_path / "banner", formats=("png",))
-    # the banner grows the tight bounding box upward, so the image is taller
-    assert (
-        plt.imread(tmp_path / "banner.png").shape[0] > plt.imread(tmp_path / "plain.png").shape[0]
-    )
+        write_outputs([FigureOutput("f", small_figure())], tmp_path, show=False)
+    assert caption_of(tmp_path / "f") == "without MY_1_A\n"

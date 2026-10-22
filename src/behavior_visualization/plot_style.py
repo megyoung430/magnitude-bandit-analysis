@@ -2,12 +2,23 @@
 
 import matplotlib as mpl
 
+# ---------------------------------------------------------------------------
+# Font – applied once, when the plotting package is first imported.
+# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Default font and axis sizes – applied once at module import.
-# ---------------------------------------------------------------------------
-mpl.rcParams["font.family"] = "sans-serif"
-mpl.rcParams["font.sans-serif"] = ["Helvetica Neue", "Helvetica", "Arial"]
+# Arial where installed, then Helvetica; Liberation Sans has Arial's letter widths on Linux and
+# DejaVu Sans ships with matplotlib, so a font is always found. The list sits behind the generic
+# "sans-serif" family, which matplotlib resolves to the first installed name without warning
+# about the missing ones. Text stays editable in vector files: TrueType in PDF, live <text> in
+# SVG.
+FONT_RC: dict[str, object] = {
+    "font.family": "sans-serif",
+    "font.sans-serif": ["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans"],
+    "pdf.fonttype": 42,
+    "svg.fonttype": "none",
+}
+
+mpl.rcParams.update(FONT_RC)
 mpl.rcParams["xtick.labelsize"] = 12
 mpl.rcParams["ytick.labelsize"] = 12
 mpl.rcParams["axes.labelsize"] = 12
@@ -17,24 +28,25 @@ mpl.rcParams["axes.titlesize"] = 14
 # Shared color palettes
 # ---------------------------------------------------------------------------
 
-# One color per subject/mouse, cycling when there are more subjects than colors.
+# One colour per mouse, cycling past the end: the Okabe-Ito colours (without black), then a darker
+# shade of each in the same order, so the first 14 mice of a pooled figure never share a colour.
+# The darker shades were chosen to stay apart from all the others, also under simulated
+# deuteranopia, protanopia and tritanopia (CAM02-UCS distance at least 10 between any two).
 MOUSE_COLORS: list[str] = [
-    "#4C72B0",  # blue
-    "#55A868",  # green
-    "#C44E52",  # red
-    "#8172B2",  # purple
-    "#CCB974",  # muted yellow
-    "#64B5CD",  # cyan
-    "#8C8C8C",  # gray
-    "#DD8452",  # orange
-    "#937860",  # brown
-    "#DA8BC3",  # pink
-    "#8C6D31",  # dark brown
-    "#1F77B4",  # strong blue
-    "#2A9D8F",  # teal
-    "#E76F51",  # coral
-    "#6A994E",  # olive green
-    "#B565A7",  # magenta-purple
+    "#E69F00",  # orange
+    "#56B4E9",  # sky blue
+    "#D55E00",  # vermillion
+    "#CC79A7",  # reddish purple
+    "#F0E442",  # yellow
+    "#0072B2",  # blue
+    "#009E73",  # bluish green
+    "#7D570C",  # dark orange (brown)
+    "#005C85",  # dark sky blue
+    "#7B2400",  # dark vermillion
+    "#712B56",  # dark purple
+    "#C2BD75",  # dark yellow (khaki)
+    "#00348F",  # dark blue
+    "#00522F",  # dark green
 ]
 
 # Colors for reversal-type lines/bars.

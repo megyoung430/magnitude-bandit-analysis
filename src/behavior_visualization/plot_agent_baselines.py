@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.choice_regression import FEATURES
+from src.behavior_visualization.plot_helpers import save_or_show
 
 SOURCE_LABELS = {"mice": "Mice", "magnitude": "Magnitude agent", "binary": "Binary agent"}
 SOURCE_COLORS = {"mice": "#333333", "magnitude": "#4C8BC9", "binary": "#D9822B"}
@@ -88,7 +89,7 @@ def plot_likelihood_comparison(fits: pd.DataFrame, ax: plt.Axes | None = None) -
 def plot_agent_baselines_summary(
     weights: pd.DataFrame, fits: pd.DataFrame, save_path: Path | None = None
 ) -> plt.Figure:
-    """Both panels side by side; saved as PNG and PDF when *save_path* (without suffix) is given.
+    """Both panels side by side; saved (and closed) when *save_path* (without suffix) is given.
 
     Args:
         weights (pd.DataFrame): As for :func:`plot_regression_weights`.
@@ -103,8 +104,5 @@ def plot_agent_baselines_summary(
     plot_likelihood_comparison(fits, axes[1])
     fig.tight_layout()
     if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        for suffix in (".png", ".pdf"):
-            fig.savefig(save_path.with_suffix(suffix), dpi=200, bbox_inches="tight")
+        save_or_show(fig, save_path, dpi={"png": 200, "pdf": 200})
     return fig

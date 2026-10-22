@@ -55,6 +55,7 @@ from src.behavior_analysis.port_finding_check import port_finding_check_table
 from src.behavior_analysis.stats import mean_se_n
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
 from src.behavior_import.session_order import ordered_session_keys
+from src.behavior_visualization.plot_helpers import OUTPUT_FORMATS
 from src.behavior_visualization.plot_maze_heatmaps import plot_maze_heatmaps_across_mice
 from src.behavior_visualization.plot_num_long_pokes import (
     plot_num_pokes_across_mice,
@@ -416,5 +417,5 @@ def run_poke_analysis(
             per_session, port_finding_only={mouse: set(records) for mouse, records in found.items()}
         ),
         "port_finding_check": check,
-        "files": [out_dir / f"{s}.{e}" for s in stems for e in ("png", "pdf")],
+        "files": [out_dir / f"{s}.{e}" for s in stems for e in OUTPUT_FORMATS],
     }

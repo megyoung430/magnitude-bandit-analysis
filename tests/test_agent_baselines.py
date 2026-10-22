@@ -56,7 +56,8 @@ def test_compute_and_write(tmp_path):
 
     figures, tables = tmp_path / "figures", tmp_path / "tables"
     write_agent_baselines(result, figures, tables, DRIFTING_SELECTION, "test")
-    assert (figures / "summary.png").exists()
+    for ext in ("pdf", "png", "svg", "caption.txt"):
+        assert (figures / f"summary.{ext}").exists(), ext
     for name in ("agent_fits", "choice_regression_weights", "task_rules_summary"):
         assert (tables / f"{name}.csv").exists()
     for kind in ("magnitude", "binary"):

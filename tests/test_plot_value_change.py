@@ -190,7 +190,7 @@ def expected_files(out_dir, modes=("Full Window", "Truncated at Swap", "Symmetri
             ("Second-Best-Value Decreases", "Rank-Preserving"),
         )
         for m in modes
-        for ext in ("png", "pdf")
+        for ext in ("pdf", "png", "svg", "caption.txt")
     }
 
 
@@ -236,7 +236,8 @@ def test_entry_writes_only_figures_to_the_folder(full_run):
     assert set(out_dir.iterdir()) == {by_mouse, by_event}  # nothing at the top level
     assert set(by_mouse.iterdir()) == expected_files(by_mouse)
     assert set(by_event.iterdir()) == expected_files(by_event)
-    assert set(result["files"]) == expected_files(by_mouse) | expected_files(by_event)
+    figures = {p for p in expected_files(by_mouse) | expected_files(by_event) if p.suffix != ".txt"}
+    assert set(result["files"]) == figures
     assert plt.get_fignums() == []
 
 

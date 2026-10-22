@@ -30,6 +30,7 @@ from src.behavior_analysis.reversal_format import (
     check_block_change_windows,
     check_blocks_only_sessions,
 )
+from src.behavior_visualization import plot_helpers
 from src.behavior_visualization.plot_reversal_aligned_arms import (
     figure_stem,
     save_reversal_aligned_arms,
@@ -135,7 +136,7 @@ def _counts_row(scope: str, result: ReversalAlignedArms, figure: str) -> dict:
 def _draw(
     result: ReversalAlignedArms, scope: str, out_dir: Path | None, title_scope: str
 ) -> list[Path]:
-    """Save (or show, without *out_dir*) the figure of a result; its PNG and PDF paths.
+    """Save (or show, without *out_dir*) the figure of a result; the paths of its files.
 
     The figure goes in the subfolder of the result's weighting. A result with no block changes
     has no figure.
@@ -147,7 +148,8 @@ def _draw(
         return []
     base = out_dir / WEIGHTING_FOLDERS[result.weighting] / figure_stem(result, scope)
     save_reversal_aligned_arms(result, base, scope=title_scope)
-    return [Path(f"{base}.png"), Path(f"{base}.pdf")]
+    # the PNG first: the counts table names it
+    return plot_helpers.figure_paths(base, ("png", "pdf", "svg"))
 
 
 def run_reversal_aligned_arm_analysis(

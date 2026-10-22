@@ -283,13 +283,21 @@ def test_bar_panel_makes_its_own_figure_only_without_ax(drawn):
 # ---- saving and showing ----
 
 
-def test_metric_and_lengths_save_pdf_then_png_at_300_dpi(drawn, tmp_path):
+def test_metric_and_lengths_save_pdf_png_at_300_dpi_and_svg(drawn, tmp_path):
     pps.plot_metric_by_problem(summary(), title="T", ylabel="Y", save_path=tmp_path / "a" / "fig")
     pps.plot_problem_lengths(summary(), save_path=tmp_path / "len")
-    assert [name for name, _ in drawn.saved] == ["fig.pdf", "fig.png", "len.pdf", "len.png"]
+    assert [name for name, _ in drawn.saved] == [
+        "fig.pdf",
+        "fig.png",
+        "fig.svg",
+        "len.pdf",
+        "len.png",
+        "len.svg",
+    ]
     assert [kw for _, kw in drawn.saved] == [
         {"bbox_inches": "tight"},
         {"bbox_inches": "tight", "dpi": 300},
+        {"bbox_inches": "tight"},
     ] * 2
     assert drawn.shows == 0 and len(drawn.figures) == 2 and plt.get_fignums() == []
     assert (tmp_path / "a" / "fig.pdf").exists() and (tmp_path / "len.png").exists()
@@ -368,22 +376,19 @@ def test_per_mouse_panels_share_that_mouses_range(drawn):
     assert all(ax.get_xlim() == (10.0, 40.0) for ax in visible(fig_a))
 
 
-def test_per_mouse_saves_png_then_pdf_per_mouse_in_mouse_order(drawn, tmp_path):
+def test_per_mouse_saves_every_format_per_mouse_in_mouse_order(drawn, tmp_path):
     pps.plot_distributions_per_mouse(block_stats(), save_dir=tmp_path / "out")
     assert [name for name, _ in drawn.saved] == [
-        "blocklen_distributions_mouse_A.png",
-        "blocklen_distributions_mouse_A.pdf",
-        "blocklen_distributions_mouse_B.png",
-        "blocklen_distributions_mouse_B.pdf",
+        f"blocklen_distributions_mouse_{m}.{ext}" for m in "AB" for ext in ("pdf", "png", "svg")
     ]
-    assert [kw.get("dpi") for _, kw in drawn.saved] == [300, None, 300, None]
+    assert [kw.get("dpi") for _, kw in drawn.saved] == [None, 300, None] * 2
     assert drawn.shows == 0 and plt.get_fignums() == []
 
 
-def test_pooled_distribution_saves_png_then_pdf(drawn, tmp_path):
+def test_pooled_distribution_saves_pdf_png_and_svg(drawn, tmp_path):
     pps.plot_distributions_per_problem_all_mice(block_stats(), save_path=tmp_path / "d" / "pooled")
-    assert [name for name, _ in drawn.saved] == ["pooled.png", "pooled.pdf"]
-    assert drawn.saved[0][1] == {"bbox_inches": "tight", "dpi": 300}
+    assert [name for name, _ in drawn.saved] == ["pooled.pdf", "pooled.png", "pooled.svg"]
+    assert drawn.saved[1][1] == {"bbox_inches": "tight", "dpi": 300}
     assert (tmp_path / "d" / "pooled.pdf").exists()
 
 
@@ -528,9 +533,9 @@ def test_rank_figure_with_unusable_counts_raises_before_any_figure_is_made(drawn
     assert plt.get_fignums() == [] and drawn.figures == []
 
 
-def test_rank_figure_saves_pdf_then_png(drawn, tmp_path):
+def test_rank_figure_saves_pdf_png_and_svg(drawn, tmp_path):
     pps.plot_rank_proportions_average_without_blocks(rank_counts(), save_path=tmp_path / "r" / "x")
-    assert [name for name, _ in drawn.saved] == ["x.pdf", "x.png"]
+    assert [name for name, _ in drawn.saved] == ["x.pdf", "x.png", "x.svg"]
     assert drawn.saved[1][1] == {"bbox_inches": "tight", "dpi": 300}
     assert drawn.shows == 0 and plt.get_fignums() == []
 

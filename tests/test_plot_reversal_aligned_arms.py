@@ -11,6 +11,7 @@ from matplotlib.colors import to_hex
 
 from src.behavior_analysis.reversal_aligned_arms import compute_reversal_aligned_arms
 from src.behavior_visualization.plot_reversal_aligned_arms import (
+    ROLE_COLORS,
     figure_heading,
     figure_stem,
     plot_reversal_aligned_arms,
@@ -53,11 +54,20 @@ def test_prev_scheme_uses_blue_green_grey_for_best_second_third():
     assert [to_hex(line.get_color()) for line in lines] == ["#5da5da", "#60bd68", "#7f7f7f"]
 
 
-def test_new_scheme_draws_the_third_arm_in_black():
+def test_new_scheme_draws_the_third_arm_in_the_prev_third_grey():
     ax, _ = plot_reversal_aligned_arms(result_for("new"))
     lines = choice_lines(ax)
     assert [line.get_label() for line in lines] == ["New Best", "New Second", "New Third"]
-    assert [to_hex(line.get_color()) for line in lines] == ["#5da5da", "#60bd68", "#000000"]
+    assert [to_hex(line.get_color()) for line in lines] == ["#5da5da", "#60bd68", "#7f7f7f"]
+    assert ROLE_COLORS["new_third"] == ROLE_COLORS["prev_third"]
+
+
+@pytest.mark.parametrize("scheme", ["prev", "new"])
+def test_a_figure_draws_the_roles_of_one_scheme_only(scheme):
+    # prev third and new third share a colour, so they must never share a panel
+    ax, _ = plot_reversal_aligned_arms(result_for(scheme))
+    labels = [line.get_label() for line in choice_lines(ax)]
+    assert all(label.startswith(scheme.title()) for label in labels)
 
 
 def test_magnitudes_are_dashed_steps_of_the_same_colour_on_a_twin_axis():
@@ -153,9 +163,10 @@ def test_an_empty_result_cannot_be_drawn():
         plot_reversal_aligned_arms(empty)
 
 
-def test_save_writes_png_and_pdf(tmp_path):
+def test_save_writes_every_format_and_a_caption(tmp_path):
     save_reversal_aligned_arms(result_for("prev"), tmp_path / "sub" / "fig")
-    assert (tmp_path / "sub" / "fig.png").exists() and (tmp_path / "sub" / "fig.pdf").exists()
+    for ext in ("pdf", "png", "svg", "caption.txt"):
+        assert (tmp_path / "sub" / f"fig.{ext}").exists(), ext
     assert plt.get_fignums() == []
 
 

@@ -313,7 +313,7 @@ def plot_metric_by_problem(
         style=METRIC_STYLE,
     )
     ax.figure.tight_layout()
-    save_or_show(ax.figure, save_path or None, formats=("pdf", "png"))
+    save_or_show(ax.figure, save_path or None)
 
 
 def plot_problem_lengths(
@@ -358,7 +358,7 @@ def plot_problem_lengths(
         style=LENGTHS_STYLE,
     )
     ax.figure.tight_layout()
-    save_or_show(ax.figure, save_path or None, formats=("pdf", "png"))
+    save_or_show(ax.figure, save_path or None)
 
 
 # ---------------------------------------------------------------------------
@@ -567,7 +567,7 @@ def plot_distributions_per_mouse(
     for m in mice:
         fig = _mouse_histogram_figure(data, m, problems, ncols=ncols, sharex=sharex, sharey=sharey)
         stem = None if save_dir is None else Path(save_dir) / f"blocklen_distributions_mouse_{m}"
-        save_or_show(fig, stem, formats=("png", "pdf"))
+        save_or_show(fig, stem)
 
 
 def plot_distributions_per_problem_all_mice(
@@ -603,7 +603,7 @@ def plot_distributions_per_problem_all_mice(
         problems, mice, data = drop_last_problem_per_mouse_raw(problems, mice, data)
 
     fig = _pooled_histogram_figure(data, problems, mice, ncols=ncols, sharex=sharex, sharey=sharey)
-    save_or_show(fig, save_path or None, formats=("png", "pdf"))
+    save_or_show(fig, save_path or None)
 
 
 # ---------------------------------------------------------------------------
@@ -759,4 +759,4 @@ def plot_rank_proportions_average_without_blocks(
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
     plot_rank_proportions_average_panel(per_mouse, ax=ax, pvalues=average_across_mice_pvalues)
     fig.tight_layout()
-    save_or_show(fig, save_path or None, formats=("pdf", "png"))
+    save_or_show(fig, save_path or None)

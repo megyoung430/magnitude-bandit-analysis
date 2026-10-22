@@ -89,6 +89,5 @@ def plot_reversals_by_trial(subjects_trials, *, window=None, threshold=None, sav
     save_or_show(
         {" Across Mice": fig, " By Mouse": fig2},
         save_path or None,  # an empty path means "show"
-        formats=("png", "pdf"),
         dpi={"png": 180, "pdf": 180},
     )

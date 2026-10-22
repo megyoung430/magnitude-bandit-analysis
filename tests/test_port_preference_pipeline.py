@@ -132,10 +132,10 @@ def test_category_panel_draws_reference_line_bars_and_one_line_per_mouse():
 # ---------------------------------------------------------------- entry point
 
 
-def test_writes_both_figures_as_png_and_pdf_and_returns_tables(tmp_path):
+def test_writes_both_figures_in_every_format_and_returns_tables(tmp_path):
     result = run_port_preference_analysis(problems(), tmp_path / "new", scope_label="problem-01")
     for stem in ("Port Preference X vs Plus", "Port Preference Per Mouse"):
-        for ext in ("png", "pdf"):
+        for ext in ("pdf", "png", "svg"):
             assert (tmp_path / "new" / f"{stem}.{ext}").stat().st_size > 0
     assert not list((tmp_path / "new").glob("*.csv"))
     assert set(result["summary"].index) == {"X", "plus"}

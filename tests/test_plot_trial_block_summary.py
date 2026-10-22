@@ -110,7 +110,7 @@ def test_problem_means_weigh_mice_equally_with_sem_and_count():
 # ---------------------------------------------------------------- outputs
 
 
-def test_returns_png_then_pdf_path_for_each_figure_in_order(capture, tables, tmp_path):
+def test_returns_png_pdf_then_svg_path_for_each_figure_in_order(capture, tables, tmp_path):
     paths, _ = run(capture, tables, tmp_path)
     stems = [
         "Trials per session - distributions",
@@ -120,14 +120,22 @@ def test_returns_png_then_pdf_path_for_each_figure_in_order(capture, tables, tmp
         "Trials per block - over time",
         "Trials per block - across problems",
     ]
-    assert paths == [tmp_path / "figs" / f"{s}.{e}" for s in stems for e in ("png", "pdf")]
+    assert paths == [tmp_path / "figs" / f"{s}.{e}" for s in stems for e in ("png", "pdf", "svg")]
     assert [s.path for s in capture.saved] == [str(p) for p in paths]
-    assert all(s.kwargs == {"dpi": 180, "bbox_inches": "tight"} for s in capture.saved)
+    assert all(
+        s.kwargs
+        == (
+            {"bbox_inches": "tight"}
+            if s.path.endswith(".svg")
+            else {"dpi": 180, "bbox_inches": "tight"}
+        )
+        for s in capture.saved
+    )
 
 
 def test_source_tables_and_summaries_are_written(capture, tables, tmp_path):
     run(capture, tables, tmp_path)
-    written = sorted(p.name for p in (tmp_path / "figs").iterdir())
+    written = sorted(p.name for p in (tmp_path / "figs").iterdir() if p.suffix == ".csv")
     assert written == [
         "block_trial_counts.csv",
         "block_trials_by_problem_per_mouse.csv",
@@ -364,6 +372,7 @@ def test_a_figure_that_raises_while_drawing_leaves_no_figure_open(
     assert [s.path.rsplit("/", 1)[-1] for s in capture.saved] == [
         "Trials per session - distributions.png",
         "Trials per session - distributions.pdf",
+        "Trials per session - distributions.svg",
     ]
 
 

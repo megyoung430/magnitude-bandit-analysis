@@ -159,9 +159,17 @@ def test_paths_are_png_then_pdf_for_each_figure_in_order(run):
         f"Rank proportions - {CAPPED}",
         f"Reversal totals - {CAPPED}",
     ]
-    assert paths == [out / f"{s}.{e}" for s in stems for e in ("png", "pdf")]
+    assert paths == [out / f"{s}.{e}" for s in stems for e in ("png", "pdf", "svg")]
     assert [s.path for s in capture.saved] == [str(p) for p in paths]
-    assert all(s.kwargs == {"dpi": 180, "bbox_inches": "tight"} for s in capture.saved)
+    assert all(
+        s.kwargs
+        == (
+            {"bbox_inches": "tight"}
+            if s.path.endswith(".svg")
+            else {"dpi": 180, "bbox_inches": "tight"}
+        )
+        for s in capture.saved
+    )
 
 
 def test_each_figure_is_shown_once_and_closed(run):
@@ -369,7 +377,7 @@ def test_missing_problem_is_named(monkeypatch, tmp_path):
 def test_no_capped_comparison_without_budget_or_problem_two(monkeypatch, tmp_path):
     capture = capture_figures(monkeypatch)
     paths = plot_cohort_comparison(COHORTS, NUMBERS, tmp_path / "x", problems=(1,), trial_budget=30)
-    assert len(paths) == 16 and not any("problem 2" in p.name for p in paths)
+    assert len(paths) == 24 and not any("problem 2" in p.name for p in paths)
     assert not (tmp_path / "x" / "Problem 2 trial cap.csv").exists()
     assert capture.shown == []
 

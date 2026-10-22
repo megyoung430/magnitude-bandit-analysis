@@ -96,11 +96,13 @@ def test_tower_panel_labels_percentages_and_survives_no_choices():
     assert [t.get_text() for t in ax.texts] == ["0%", "0%", "0%"]
 
 
-def test_plot_single_session_saves_pdf_and_png(session, tmp_path):
+def test_plot_single_session_saves_every_format_and_a_caption(session, tmp_path):
     plot_single_session(session, title="x", save_path=tmp_path / "out" / "Session Plot")
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == [
+        "Session Plot.caption.txt",
         "Session Plot.pdf",
         "Session Plot.png",
+        "Session Plot.svg",
     ]
     assert plt.get_fignums() == []
 
@@ -307,6 +309,7 @@ def test_saved_files_use_tight_bbox_and_png_is_300_dpi(session, tmp_path, monkey
     assert calls == [
         (".pdf", {"bbox_inches": "tight"}),
         (".png", {"dpi": 300, "bbox_inches": "tight"}),
+        (".svg", {"bbox_inches": "tight"}),
     ]
 
 

@@ -100,7 +100,7 @@ def test_one_problem_gives_pooled_figures_for_every_scheme_and_non_empty_type(tm
             ("new", "all"),
             ("new", "third_to_best"),
         )
-        for ext in ("pdf", "png")
+        for ext in ("caption.txt", "pdf", "png", "svg")
     )
     # the two weightings each have a subfolder with every figure; nothing is at the top level
     assert sorted(p.name for p in tmp_path.iterdir()) == ["event-weighted", "mouse-weighted"]
@@ -110,7 +110,7 @@ def test_one_problem_gives_pooled_figures_for_every_scheme_and_non_empty_type(tm
     assert set(result["results"]["pooled"]) == {"prev", "new"}
     assert set(result["results"]["pooled"]["prev"]) == {"all", "best_to_third", "second_to_third"}
     assert set(result["results"]["pooled"]["new"]) == {"all", "third_to_best", "third_to_second"}
-    assert len(result["figure_paths"]) == 16
+    assert len(result["figure_paths"]) == 24
     assert {p.parent.name for p in result["figure_paths"]} == {"mouse-weighted", "event-weighted"}
     assert all(p.exists() for p in result["figure_paths"])
 
