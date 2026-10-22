@@ -129,11 +129,15 @@ def residual_dff_channel(
         (``{cell: reason}``).
 
     Raises:
-        ValueError: If the background is constant over the fit frames, the detrend window does
-            not fit in the trace, or a cell's corrected F is not finite.
+        ValueError: If the background is not finite or constant over the fit frames, the detrend
+            window does not fit in the trace, or a cell's corrected F is not finite.
     """
     from mini2p_preprocessing.fluorescence import dff_from_corrected
 
+    if not np.isfinite(background).all():
+        raise ValueError(
+            "the background is not finite in every frame; the correction needs a finite background."
+        )
     window = window_frames_from_s(detrend_window_s, 1.0 / fs_hz)
     corrected, slope = subtract_background_fluctuation(f, background, fit_mask, window)
     fitted = np.isfinite(slope)

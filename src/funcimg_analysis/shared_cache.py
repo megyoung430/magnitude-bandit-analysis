@@ -27,6 +27,7 @@ CODE_FILES = (
     "residual_dff.py",
     "collect_residual.py",
 )
+SOURCE_FOLDER = Path(__file__).parent
 MINI2P_DISTRIBUTION = "mini2p-preprocessing"
 
 
@@ -45,10 +46,9 @@ def mini2p_identity() -> str:
     return f"{distribution.version} {source}"
 
 
-def code_version(mini2p: str) -> str:
-    """A hash of the source of :data:`CODE_FILES` and of the *mini2p* identity."""
-    folder = Path(__file__).parent
-    hasher = hashlib.sha256(b"".join((folder / name).read_bytes() for name in CODE_FILES))
+def code_version(mini2p: str, files: tuple[str, ...] = CODE_FILES) -> str:
+    """A hash of the source of *files* (default :data:`CODE_FILES`) and of the *mini2p* identity."""
+    hasher = hashlib.sha256(b"".join((SOURCE_FOLDER / name).read_bytes() for name in files))
     hasher.update(mini2p.encode())
     return hasher.hexdigest()
 

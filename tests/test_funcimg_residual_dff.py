@@ -225,3 +225,13 @@ def test_the_detrend_window_must_fit_in_the_trace():
     background, cells = background_and_cells(np.random.default_rng(9))
     with pytest.raises(ValueError, match="detrend window"):
         subtract_background_fluctuation(cells, background, np.ones(N_FRAMES, bool), N_FRAMES + 2)
+
+
+def test_a_non_finite_background_is_named_as_the_cause_not_blamed_on_every_cell():
+    background, cells = background_and_cells(np.random.default_rng(10))
+    background[20] = np.nan
+    with pytest.raises(ValueError, match="background .*not finite"):
+        residual_dff_channel(
+            cells, background, np.ones(N_FRAMES, bool), FS, SETTINGS,
+            min_f0_fraction=0.1, detrend_window_s=DETREND_S,
+        )  # fmt: skip
