@@ -51,7 +51,7 @@ def write_sessions_per_problem_figures(
         table (pd.DataFrame): A ``sessions_per_problem_table``; for *by_cohort* a stack of them
             with a ``cohort`` column (``with_cohort``).
         save_dir (Path): Folder that receives the figures (created if missing).
-        scope_label (str): The cohort(s) named in the titles, e.g. ``"cohort 3"``.
+        scope_label (str): The cohort(s) named in the captions, e.g. ``"cohort 3"``.
         mouse_legend (bool): Name the mice in the legend; their lines are drawn either way.
             Default True.
         include_port_finding (bool): Plot the total of bandit and port-finding-only sessions

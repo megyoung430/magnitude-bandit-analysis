@@ -36,7 +36,7 @@ add a second pooled set without some mice:
 --pooled-only writes drifting/all-drifting-problems/ (with sessions-per-problem/) and the review
 tables, and leaves the problem folders, trial-block-summaries/ and the stacked diagnostic tables
 as they are. --exclude-mice also writes drifting/all-drifting-problems-without-<mice>/ with the
-same subfolders, every figure marked "without <mice>", and its tables in
+same subfolders, every figure's caption starting "without <mice>", and its tables in
 tables/open-field/<cohort>/all-drifting-problems-without-<mice>/. It works with a full run and
 with --last-sessions/--since too (the extra set is regenerated whenever the pooled set is). Every
 cohort in --cohorts must have all the named mice among its drifting mice, so name the cohort

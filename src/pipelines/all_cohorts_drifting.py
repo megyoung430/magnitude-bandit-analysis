@@ -14,8 +14,8 @@ cohorts together, in one folder that belongs to no cohort::
 
 With ``exclude_mice`` a second set is written next to it, from the same problems without those
 mice, into ``figures/open-field/all-cohorts-without-<mice>/`` and
-``tables/open-field/all-cohorts-without-<mice>/`` (same layout, every figure marked "without
-<mice>", plus ``excluded_mice.txt``); the plain set is as without the option.
+``tables/open-field/all-cohorts-without-<mice>/`` (same layout, every figure's caption starting
+"without <mice>", plus ``excluded_mice.txt``); the plain set is as without the option.
 
 Problems stay separate: each cohort's drifting problems are keyed ``(cohort id, number within
 the type)``, so problem 1 of cohort 1 and problem 1 of cohort 3 are two problems, and every
@@ -365,13 +365,13 @@ def _write_pool(
     """Run and write the all-drifting-problems analyses of *problems* into the two folders.
 
     Anything an earlier run left in the folders this pipeline owns is removed first. With
-    *excluded* the scope text in the titles and the banner on every figure say which mice are
+    *excluded* the scope text and the first line of every figure's caption say which mice are
     left out, and ``excluded_mice.txt`` lists them.
 
     Args:
         problems (dict): ``{(cohort id, k): {mouse: sessions}}`` to pool.
         sessions (pd.DataFrame): The stacked sessions-per-problem table of the problems' mice.
-        ids (list[int]): The cohorts named in the titles.
+        ids (list[int]): The cohorts named in the captions.
         figures_dir (Path): Folder that receives the figures.
         tables_dir (Path): Folder that receives the tables.
         selection (AnalysisSelection): Which drifting analyses run, and the rank settings.

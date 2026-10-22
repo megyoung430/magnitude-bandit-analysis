@@ -24,7 +24,7 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
         reversal-aligned-arms,value-change,port-preference,sessions-per-problem}/
     figures/open-field/<cohort>/drifting/all-drifting-problems-without-<mice>/  (only with
         ``exclude_mice``: the same subfolders, from the drifting problems without those mice, its
-        figures marked "without <mice>"; its tables are in ``tables/.../<same name>/``)
+        figures' captions start "without <mice>"; its tables are in ``tables/.../<same name>/``)
     figures/open-field/<cohort>/trial-block-summaries/all-problems/
     (reversal-aligned-arms/ and value-change/ each hold the subfolders mouse-weighted/ and
         event-weighted/, with the figures inside)
@@ -743,7 +743,7 @@ def run_pooled_drifting(
         drifting (dict): ``{k: {mouse: sessions}}`` to pool.
         pooled_dir (Path): Folder that receives ``choice-stats`` and the value-analysis folders.
         selection (AnalysisSelection): The drifting selection (analyses, rank bases, pooling).
-        scope_text (str | None): Added to the scope named in the titles that carry one, e.g.
+        scope_text (str | None): Added to the scope named in the captions that carry one, e.g.
             ``"without MY_1_A"``. Default ``None``: the plain pool.
 
     Returns:
@@ -776,7 +776,7 @@ def run_excluded_pooled_set(
     Writes the figures of ``drifting/all-drifting-problems-without-<mice>/`` and the analyses'
     tables under the same name in the cohort's tables folder. Both folders belong to the set
     and are emptied first, so nothing from an earlier run with other settings remains. Every
-    figure written is marked with the exclusion, whichever plot drew it. The tables are kept
+    figure's caption starts with the exclusion, whichever plot drew it. The tables are kept
     out of the cohort's stacked diagnostic tables, which come from the per-problem runs alone.
     The sessions-per-problem figure and table are written by
     :func:`write_excluded_sessions_per_problem`, after this.

@@ -231,8 +231,8 @@ report all failures at the end.
   they are; `warnings_log.csv` is rewritten with this run's warnings only; it cannot be combined
   with `--last-sessions`/`--since`. `--exclude-mice` writes a
   second set, `drifting/all-drifting-problems-without-MY_175_N-MY_66_LL/` (sorted ids, same
-  subfolders), next to the normal one, which is unchanged. Every figure in it is marked
-  "without MY_175_N, MY_66_LL"; its tables are in
+  subfolders), next to the normal one, which is unchanged. Every figure's caption file in it
+  starts with "without MY_175_N, MY_66_LL"; its tables are in
   `tables/open-field/cohort-03/all-drifting-problems-without-MY_175_N-MY_66_LL/` (not in the
   stacked diagnostic tables), and `excluded_mice.txt` in both folders lists the excluded mice and
   the run time. Both folders are emptied before the analyses are rewritten; the extra set's
@@ -440,7 +440,7 @@ cohorts pooled, the mice per cohort and the time of the run; the diagnostic tabl
 to `results/tables/open-field/all-cohorts/`, with `sessions_per_problem.csv` (a `cohort` column in front)
 as a fifth table. `sessions-per-problem/` also has a figure with one mean line per cohort (n mice at each point)
 when several cohorts are pooled. A rerun replaces those six folders and five tables, so
-the files always match `cohorts.txt`; the titles say "all drifting problems, cohorts 1, 3, 4".
+the files always match `cohorts.txt`; the captions say "all drifting problems, cohorts 1, 3, 4".
 
 - Problems stay separate: each is keyed `(cohort, drifting problem number)`, beliefs reset at each
   problem, and windows and events never cross a problem boundary.
@@ -491,6 +491,28 @@ folder. Fits are cached in `.cache/agent_baselines/`, keyed on each mouse's tria
 settings and `value_agent.MODEL_VERSION` (bump it when the model changes); `--no-cache`
 refits. Drift rate and block lengths are pooled over the cohorts given, so pool cohorts that
 ran with the same task settings. The code is `src/pipelines/agent_baselines.py`.
+
+### Figure files, titles and captions
+
+Every figure is saved as `.pdf`, `.png` (300 dpi; 180 dpi for the review summaries) and `.svg`,
+with `<name>.caption.txt` next to it; the file names are the same as before.
+
+- **Titles** are short: the heading (e.g. "Choice Probabilities Around Block Changes (All)") and,
+  for a panel that shows a mean with an error bar or band, one line naming the statistic, what it
+  is taken across and the n, e.g. "mean ± SE across mice, n = 13 mice" or
+  "mean ± SE across events, n = 120 events, n = 13 mice". "± SE" appears only when an error is
+  drawn (one mouse gives "mean").
+- **Captions** hold everything else that used to be in titles, subtitles and notes on the figure:
+  the scope (cohort, problem, "without <mice>" for an exclusion set), labelling, smoothing,
+  window mode, weighting, tie handling, left-out events and caveats. The file is written for
+  every figure, empty when there is nothing to add. The code is `Title`, `set_title` and
+  `add_caption` in `src/behavior_visualization/plot_helpers.py`.
+- **Font**: Arial (then Helvetica, Liberation Sans, DejaVu Sans where Arial is missing), with
+  editable text in the PDF and SVG files. It is set in `plot_style.FONT_RC`, applied when the
+  plotting package is imported; font sizes are those of each plot.
+- **Mouse colours** (`plot_style.MOUSE_COLORS`): the Okabe-Ito colours (orange, sky blue,
+  vermillion, reddish purple, yellow, blue, bluish green), then a darker shade of each in the
+  same order, so up to 14 mice in one figure get different colours.
 
 ### Reversals at session boundaries
 

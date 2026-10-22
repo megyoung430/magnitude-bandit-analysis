@@ -13,7 +13,7 @@ results/tables/open-field/all-cohorts/. There are no per-mouse figures and no le
 mice; those are in the cohort folders. See src/pipelines/all_cohorts_drifting.py.
 
 --exclude-mice also writes the same analyses without the named mice (of any of the cohorts) into
-all-cohorts-without-<mice>/ next to all-cohorts/, every figure marked "without <mice>".
+all-cohorts-without-<mice>/ next to all-cohorts/, every figure's caption starting "without <mice>".
 
 --from-cache loads each cohort from its newest cached import without reading the server (for
 when it is unmounted or unreachable); sessions added since then are missing:

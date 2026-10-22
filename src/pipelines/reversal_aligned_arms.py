@@ -204,7 +204,7 @@ def run_reversal_aligned_arm_analysis(
             Default ``"centered"``. Keyword-only.
         skip_n_trials_after_reversal (int): Post trial 0 is kept and the next *k* trials dropped.
             Default 0. Keyword-only.
-        scope_label (str | None): Text in the title of the ``"pooled"`` scope's figures instead
+        scope_label (str | None): Text in the caption of the ``"pooled"`` scope's figures instead
             of ``"pooled"`` (for example ``"problem-03"`` when the one problem given is the
             subject of the folder). File names and the counts table keep the scope name.
             Default ``None``. Keyword-only.
