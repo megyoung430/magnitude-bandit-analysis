@@ -2,13 +2,15 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import re
+
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.behavior_analysis.poke_events import ARMS9
-from src.behavior_visualization.paper_style import paper_figures
 from src.behavior_visualization.plot_maze_heatmaps import (
     NODE_RADIUS,
     octagon_vertices,
@@ -140,12 +142,27 @@ def test_saves_svg_pdf_and_png(tmp_path):
     }
 
 
-def test_paper_mode_writes_the_paper_formats_and_a_caption(tmp_path):
-    with paper_figures():
-        plot_maze_schematic(CHOICES, save_path=tmp_path / "towers")
-    assert {p.name for p in tmp_path.iterdir()} == {
-        "towers.pdf",
-        "towers.svg",
-        "towers.png",
-        "towers.caption.txt",
-    }
+# ------------------------------------------------------------------ fonts
+
+
+def test_all_text_asks_for_arial_first():
+    ax = draw_maze_schematic(CHOICES, title="Choice towers")
+    texts = [*ax.texts, ax.title, *ax.get_legend().get_texts()]
+    assert all(t.get_fontfamily()[0] == "Arial" for t in texts)
+
+
+def test_the_font_setting_does_not_leak_into_other_figures():
+    before = list(mpl.rcParams["font.sans-serif"])
+    draw_maze_schematic(CHOICES)
+    assert mpl.rcParams["font.sans-serif"] == before
+    _, ax = plt.subplots()
+    assert ax.text(0, 0, "x").get_fontfamily() == mpl.rcParams["font.family"]
+
+
+def test_saved_text_stays_editable(tmp_path):
+    base = tmp_path / "towers"
+    plot_maze_schematic(CHOICES, save_path=base)
+    pdf_fonts = set(re.findall(rb"/Subtype\s*/(\w+)", base.with_suffix(".pdf").read_bytes()))
+    assert b"CIDFontType2" in pdf_fonts  # TrueType text, not Type 3 outlines
+    assert b"Type3" not in pdf_fonts
+    assert "<text" in base.with_suffix(".svg").read_text()

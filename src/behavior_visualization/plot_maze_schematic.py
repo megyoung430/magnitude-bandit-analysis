@@ -15,6 +15,7 @@ from collections import Counter
 from collections.abc import Collection
 from pathlib import Path
 
+import matplotlib as mpl
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.lines import Line2D
@@ -38,6 +39,16 @@ PLATFORM_COLOR = "#e4e9ec"
 
 LABEL_FONTSIZE = 12
 LEGEND_FONTSIZE = 10
+
+# Applied only while a schematic is drawn and saved; other figures keep the shared style.
+# Arial where installed; Liberation Sans has Arial's letter widths on Linux. Text stays editable
+# in saved PDF and SVG files.
+SCHEMATIC_RC = {
+    "font.family": ["Arial", "Liberation Sans", "DejaVu Sans"],
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+    "svg.fonttype": "none",
+}
 
 
 def _choice_tower_set(choice_towers: Collection[str]) -> frozenset[str]:
@@ -158,7 +169,7 @@ def draw_maze_schematic(
     title: str | None = None,
     legend: bool = True,
 ) -> Axes:
-    """Draw the maze for one problem: towers on the floor, filled by role.
+    """Draw the maze for one problem: towers on the floor, filled by role, text in Arial.
 
     Args:
         choice_towers (Collection[str]): The choice towers, e.g. ``["A2", "B1", "C3"]``.
@@ -175,7 +186,7 @@ def draw_maze_schematic(
         ValueError: As for :func:`port_fills`.
     """
     fills = port_fills(choice_towers, initiation_tower)
-    with axes_or_new(ax, figsize=(4.8, 3.0)) as ax:
+    with mpl.rc_context(SCHEMATIC_RC), axes_or_new(ax, figsize=(4.8, 3.0)) as ax:
         _draw_platform(ax)
         for port in ARMS9:
             _draw_tower(ax, port, fills[port])
@@ -208,6 +219,8 @@ def plot_maze_schematic(
 ) -> None:
     """One schematic as its own figure, saved as ``<save_path>.<format>`` or shown.
 
+    Text is in Arial and stays editable in the PDF and SVG files.
+
     Args:
         choice_towers (Collection[str]): The choice towers, e.g. ``["A2", "B1", "C3"]``.
         initiation_tower (str): The initiation tower. Default ``"B2"``.
@@ -219,5 +232,6 @@ def plot_maze_schematic(
     Raises:
         ValueError: As for :func:`port_fills`.
     """
-    ax = draw_maze_schematic(choice_towers, initiation_tower, title=title)
-    save_or_show(ax.figure, save_path, formats=formats)
+    with mpl.rc_context(SCHEMATIC_RC):  # the PDF/SVG font embedding is read when saving
+        ax = draw_maze_schematic(choice_towers, initiation_tower, title=title)
+        save_or_show(ax.figure, save_path, formats=formats)
