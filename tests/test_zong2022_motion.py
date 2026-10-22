@@ -11,6 +11,7 @@ from src.funcimg_analysis.zong2022_motion import (  # noqa: E402
     nonrigid_motion,
     pc_images,
     registration_metrics,
+    MotionSettings,
     registration_settings,
     sample_frame_indices,
 )
@@ -109,3 +110,9 @@ def test_nonrigid_motion_is_the_largest_distance_between_any_two_blocks_in_a_fra
 def test_nonrigid_motion_needs_matching_shapes():
     with pytest.raises(ValueError, match="shape"):
         nonrigid_motion(np.zeros((4, 3)), np.zeros((4, 2)))
+
+
+def test_the_default_number_of_sampled_frames_keeps_memory_modest():
+    # the paper samples 5000; PCA on 5000 frames of 256 x 256 needs about 4 GB, 16 GB at 512 x 512
+    assert MotionSettings().max_frames == 2000
+    assert MotionSettings().n_extremes == 500 and MotionSettings().n_pcs == 30

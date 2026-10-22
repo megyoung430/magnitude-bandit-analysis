@@ -274,18 +274,31 @@ def responsive_cells(
     return {"score": score, "null_95th": threshold, "p_value": p_value, "responsive": responsive}
 
 
-def chance_summary(responsive: np.ndarray, chance: float = CHANCE_LEVEL) -> dict:
+def chance_summary(
+    responsive: np.ndarray, scores: np.ndarray | None = None, chance: float = CHANCE_LEVEL
+) -> dict:
     """Responsive cells against the share expected when nothing responds.
 
+    Args:
+        responsive: Boolean flag per cell.
+        scores: Optional score per cell; cells with a non-finite score could not be tested and
+            are left out of the binomial test (they cannot be responsive, so counting them
+            would understate the fraction).
+        chance: Share of tested cells expected responsive under the null.
+
     Returns:
-        dict: ``n_cells``, ``n_responsive``, ``fraction``, ``expected_by_chance`` and the
-        two-sided binomial ``p_binomial`` of the count under the chance level. The cells are
-        not independent, so the p value is a rough guide.
+        dict: ``n_cells``, ``n_tested``, ``n_responsive``, ``fraction`` (of tested cells),
+        ``expected_by_chance`` and the two-sided binomial ``p_binomial`` of the count under the
+        chance level. The cells are not independent, so the p value is a rough guide.
     """
     flags = np.asarray(responsive, dtype=bool)
-    n, k = len(flags), int(flags.sum())
+    tested = np.ones(len(flags), bool) if scores is None else np.isfinite(scores)
+    if tested.shape != flags.shape:
+        raise ValueError(f"scores {tested.shape} and responsive {flags.shape} differ in shape.")
+    n, k = int(tested.sum()), int((flags & tested).sum())
     return {
-        "n_cells": n,
+        "n_cells": len(flags),
+        "n_tested": n,
         "n_responsive": k,
         "fraction": k / n if n else np.nan,
         "expected_by_chance": chance * n,

@@ -221,8 +221,24 @@ def test_chance_summary_compares_the_count_with_five_percent():
     responsive = np.zeros(200, bool)
     responsive[:10] = True
     summary = chance_summary(responsive)
-    assert summary["n_cells"] == 200 and summary["n_responsive"] == 10
+    assert summary["n_cells"] == 200 and summary["n_tested"] == 200
+    assert summary["n_responsive"] == 10
     assert summary["expected_by_chance"] == pytest.approx(10.0)
     assert summary["p_binomial"] > 0.4  # exactly the chance level
     responsive[:40] = True
     assert chance_summary(responsive)["p_binomial"] < 1e-6
+
+
+def test_chance_summary_counts_only_cells_with_a_score_as_tested():
+    responsive = np.zeros(100, bool)
+    responsive[:3] = True
+    scores = np.r_[np.full(60, 0.1), np.full(40, np.nan)]
+    summary = chance_summary(responsive, scores)
+    assert summary["n_cells"] == 100 and summary["n_tested"] == 60
+    assert summary["expected_by_chance"] == pytest.approx(3.0)  # 5 % of the 60 testable cells
+    assert summary["p_binomial"] > 0.9
+
+
+def test_chance_summary_with_no_testable_cell_is_nan_not_an_error():
+    summary = chance_summary(np.zeros(4, bool), np.full(4, np.nan))
+    assert summary["n_tested"] == 0 and np.isnan(summary["p_binomial"])
