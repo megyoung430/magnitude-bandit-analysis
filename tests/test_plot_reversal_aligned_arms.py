@@ -10,6 +10,7 @@ from matplotlib.collections import PolyCollection
 from matplotlib.colors import to_hex
 
 from src.behavior_analysis.reversal_aligned_arms import compute_reversal_aligned_arms
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_reversal_aligned_arms import (
     ROLE_COLORS,
     figure_heading,
@@ -88,31 +89,46 @@ def test_se_bands_are_drawn_only_where_the_se_exists():
     assert [c for c in two.collections if isinstance(c, PolyCollection)]
 
 
-def test_the_title_says_what_is_plotted_how_arms_are_labelled_and_how_many():
+def test_the_title_keeps_the_heading_and_the_statistics_and_the_rest_goes_to_the_caption():
     for scheme, words in (("prev", "before the block change"), ("new", "after the block change")):
         ax, _ = plot_reversal_aligned_arms(result_for(scheme, moving_avg_window=4), scope="pooled")
-        title = ax.get_title()
-        assert title.startswith("Choice Probabilities Around Block Changes (All) [pooled]\n")
-        assert f"Arms labelled by rank {words.split()[0]} the block change" in title
-        assert "n=2 mice, n=2 block changes" in title
-        assert "mean ± se across mice" in title
-        assert "each weighted equally" not in title
-        assert "independent" not in title
-        assert "moving average over 4 trials (centered)" in title
+        assert ax.get_title() == (
+            "Choice Probabilities Around Block Changes (All)\n"
+            "mean ± SE across mice, n = 2 mice, n = 2 block changes"
+        )
+        caption = figure_caption(ax.figure).splitlines()
+        assert caption == [
+            "Data: pooled.",
+            f"Arms labelled by rank {words}.",
+            "Moving average over 4 trials (centered).",
+        ]
 
 
-def test_the_event_weighted_title_says_block_changes_count_equally_and_that_the_se_is_optimistic():
+def test_the_event_weighted_title_averages_across_block_changes_and_the_caption_has_the_caveat():
     ax, _ = plot_reversal_aligned_arms(result_for("prev", weighting="event"), scope="pooled")
-    title = ax.get_title()
-    assert "mean ± se across block changes, each weighted equally" in title
-    assert "across mice" not in title
-    assert "n=2 mice, n=2 block changes" in title
-    assert "SE treats block changes as independent" in title.splitlines()[-1]
+    stats = ax.get_title().splitlines()[1]
+    assert stats == "mean ± SE across block changes, n = 2 block changes, n = 2 mice"
+    caption = figure_caption(ax.figure)
+    assert "Each block change is weighted equally." in caption
+    assert caption.splitlines()[-1].startswith("SE treats block changes as independent")
 
 
-def test_a_single_mouse_is_called_a_mouse():
+def test_a_single_mouse_is_a_mean_without_se_and_called_a_mouse():
     ax, _ = plot_reversal_aligned_arms(result_for("prev", subjects=1))
-    assert "n=1 mouse, n=1 block changes" in ax.get_title()
+    # one mouse has no SE band, so the title does not claim one
+    assert not [c for c in ax.collections if isinstance(c, PolyCollection)]
+    assert ax.get_title().splitlines()[1] == "mean across mice, n = 1 mouse, n = 1 block change"
+
+
+def test_the_stated_n_matches_the_result_and_the_band_matches_the_statistic():
+    result = result_for("prev", subjects=2)
+    ax, _ = plot_reversal_aligned_arms(result)
+    stats = ax.get_title().splitlines()[1]
+    assert f"n = {result.num_subjects} mice" in stats
+    assert f"n = {result.num_reversals} block changes" in stats
+    assert stats.startswith("mean ± SE") == bool(
+        [c for c in ax.collections if isinstance(c, PolyCollection)]
+    )
 
 
 def test_the_event_weighted_se_band_is_drawn_for_two_block_changes_of_one_mouse():
@@ -140,14 +156,15 @@ def test_the_heading_names_the_block_change_kind_of_each_scheme():
     )
 
 
-def test_the_title_reports_reversals_left_out_for_ties():
+def test_the_caption_reports_reversals_left_out_for_ties():
     tied = make_reversal(["A"] * 4, ["C"] * 3, before={"A": 3.0, "B": 2.0, "C": 2.0})
     windows = {"m0": [tied, make_reversal(["A"] * 4, ["C"] * 3)]}
     result = compute_reversal_aligned_arms(
         stamp_windows(windows, pre=4, post=3), scheme="prev", pre=4, post=3
     )
     ax, _ = plot_reversal_aligned_arms(result)
-    assert "1 left out for tied magnitudes" in ax.get_title()
+    assert "1 block change left out for tied magnitudes." in figure_caption(ax.figure)
+    assert "tied" not in ax.get_title()
 
 
 def test_draws_into_the_axes_it_is_given():
