@@ -18,6 +18,7 @@ from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
 
 import matplotlib as mpl
+import matplotlib.layout_engine
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection, PolyCollection
@@ -31,6 +32,9 @@ PAPER_DPI = 600
 # Column widths of Nature and Cell in mm.
 COLUMN_WIDTH_MM = {"single": 89, "one_half": 120, "double": 183}
 MAX_HEIGHT_MM = 230
+# Narrower figures are kept from becoming taller than this multiple of their width; only the
+# double-column grids of per-mouse panels are allowed to run down the page.
+MAX_NARROW_ASPECT = 0.8
 
 FONT_SIZE = 7
 TITLE_SIZE = 8
@@ -133,7 +137,8 @@ def figure_size(kind: str, aspect: float) -> tuple[float, float]:
     Args:
         kind (str): ``"single"`` (89 mm), ``"one_half"`` (120 mm) or ``"double"`` (183 mm).
         aspect (float): Height divided by width. The height is capped at ``MAX_HEIGHT_MM`` so
-            a tall grid of panels still fits a page.
+            a tall grid of panels still fits a page, and for the single and one-and-a-half
+            column widths at ``MAX_NARROW_ASPECT`` times the width.
 
     Returns:
         tuple[float, float]: ``(width, height)`` in inches.
@@ -144,6 +149,8 @@ def figure_size(kind: str, aspect: float) -> tuple[float, float]:
     if kind not in COLUMN_WIDTH_MM:
         raise ValueError(f"unknown figure kind {kind!r}; use one of {sorted(COLUMN_WIDTH_MM)}")
     width_mm = COLUMN_WIDTH_MM[kind]
+    if kind != "double":
+        aspect = min(aspect, MAX_NARROW_ASPECT)
     height_mm = min(aspect * width_mm, MAX_HEIGHT_MM)
     return width_mm / MM_PER_INCH, height_mm / MM_PER_INCH
 
@@ -215,12 +222,18 @@ def _has_outside_legend(ax: plt.Axes) -> bool:
 
 
 def column_kind(fig: plt.Figure) -> str:
-    """The column width a figure gets: by the number of panel columns, wider for a side legend."""
+    """The column width a figure gets, by its number of panel columns.
+
+    One panel is single-column; two panels, a legend beside the axes or a second y axis need
+    one and a half columns; three or more panel columns take the full page width.
+    """
     panels = _panels(fig)
+    positions = {tuple(np.round(ax.get_position().bounds, 2)) for ax in panels}
     columns = len({round(ax.get_position().x0, 2) for ax in panels})
+    has_twin = len(positions) < len(panels)
     if columns >= 3:
         return "double"
-    if columns == 2 or any(_has_outside_legend(ax) for ax in panels):
+    if columns == 2 or has_twin or any(_has_outside_legend(ax) for ax in panels):
         return "one_half"
     return "single"
 
@@ -243,6 +256,10 @@ def _set_layout(fig: plt.Figure) -> None:
         fig.set_layout_engine("constrained", w_pad=2 / 72, h_pad=2 / 72, wspace=0.04, hspace=0.04)
     except RuntimeError:
         fig.set_layout_engine("tight", pad=0.4)
+
+
+def _is_constrained(fig: plt.Figure) -> bool:
+    return isinstance(fig.get_layout_engine(), mpl.layout_engine.ConstrainedLayoutEngine)
 
 
 # --- per-artist rules ---------------------------------------------------------------------------
@@ -322,6 +339,22 @@ def _style_text(text, mapping: dict[str, str]) -> None:
         text.set_color(new)
 
 
+def _is_below(ax: plt.Axes, legend) -> bool:
+    return legend.get_bbox_to_anchor().y1 < ax.bbox.y0 + 1
+
+
+def _move_legend_below_figure(ax: plt.Axes) -> None:
+    """Replace a legend hanging below *ax* by a figure legend the layout makes room for.
+
+    A legend anchored below the axes in axes coordinates ignores the layout, so it overlaps the
+    x label once the figure is resized. Two columns keep it narrower than the axes.
+    """
+    legend = ax.get_legend()
+    handles, labels = legend.legend_handles, [t.get_text() for t in legend.get_texts()]
+    legend.remove()
+    ax.figure.legend(handles, labels, loc="outside lower center", ncols=2, frameon=False)
+
+
 def _style_legend(legend, mapping: dict[str, str]) -> None:
     legend.set_frame_on(False)
     for text in [*legend.get_texts(), legend.get_title()]:
@@ -340,25 +373,36 @@ def _ticks_within(ticks: Sequence[float], limits: tuple[float, float]) -> list[f
 
 def _trim_spines(ax: plt.Axes) -> None:
     """Shorten the left and bottom spines to span only the outermost ticks."""
-    for spine, ticks, limits in (
-        (ax.spines["bottom"], ax.get_xticks(), ax.get_xlim()),
-        (ax.spines["left"], ax.get_yticks(), ax.get_ylim()),
-    ):
+    y_spine = ax.spines["right"] if _is_twin_y_axes(ax) else ax.spines["left"]
+    pairs = [(y_spine, ax.get_yticks(), ax.get_ylim())]
+    if ax.xaxis.get_visible():
+        pairs.append((ax.spines["bottom"], ax.get_xticks(), ax.get_xlim()))
+    for spine, ticks, limits in pairs:
         inside = _ticks_within(ticks, limits)
         if inside:
             spine.set_bounds(min(inside), max(inside))
 
 
+def _is_twin_y_axes(ax: plt.Axes) -> bool:
+    """An axes made by ``twinx``: its y axis is on the right and it has no x axis of its own."""
+    return not ax.xaxis.get_visible() and ax.yaxis.get_label_position() == "right"
+
+
 def _style_frame(ax: plt.Axes) -> None:
-    """Thin spines; open (no top/right, offset, trimmed) for line and bar axes, boxed for images."""
+    """Thin spines; open (offset, trimmed, no top and one y side) for line and bar axes.
+
+    Image and colorbar axes keep their box. A ``twinx`` axes keeps only its right spine.
+    """
     boxed = bool(ax.images) or _is_colorbar(ax)
+    twin = _is_twin_y_axes(ax)
+    shown = {"left", "bottom"} if not twin else {"right"}
     for name, spine in ax.spines.items():
         spine.set_linewidth(0.5)
-        if not boxed and name in ("top", "right"):
+        if not boxed and name not in shown:
             spine.set_visible(False)
     if boxed:
         return
-    for name in ("left", "bottom"):
+    for name in shown:
         ax.spines[name].set_position(("outward", SPINE_OFFSET_PT))
     _trim_spines(ax)
 
@@ -377,8 +421,11 @@ def _style_axes(ax: plt.Axes, mapping: dict[str, str]) -> None:
         _style_collection(artist, mapping)
     for artist in ax.patches:
         _style_patch(artist, mapping)
-    if ax.get_legend() is not None:
-        _style_legend(ax.get_legend(), mapping)
+    legend = ax.get_legend()
+    if legend is not None and _is_below(ax, legend) and _is_constrained(ax.figure):
+        _move_legend_below_figure(ax)
+    elif legend is not None:
+        _style_legend(legend, mapping)
     if ax.axison:
         _style_frame(ax)
 

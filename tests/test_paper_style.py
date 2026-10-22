@@ -87,8 +87,13 @@ def test_figure_size_is_the_column_width_in_inches(kind, mm):
 
 
 def test_figure_size_caps_the_height_at_the_page():
-    _, height = figure_size("single", aspect=10)
+    _, height = figure_size("double", aspect=10)
     assert height * MM_PER_INCH == pytest.approx(230)
+
+
+def test_narrow_figures_are_kept_from_getting_taller_than_0_8_times_their_width():
+    width, height = figure_size("one_half", aspect=2)
+    assert height == pytest.approx(0.8 * width)
 
 
 def test_figure_size_rejects_an_unknown_kind():
@@ -241,3 +246,25 @@ def test_polish_is_idempotent_enough_to_run_twice():
     fig, ax = demo_figure(title="A very long descriptive title (n = 12 mice, 300 events)")
     first = polish(fig)
     assert polish(fig) == "" and first
+
+
+def test_a_twin_y_axes_keeps_only_its_right_spine_and_no_second_bottom_line():
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot([0, 1], [0, 1])
+    twin = ax.twinx()
+    twin.plot([0, 1], [3, 1], ls="--")
+    polish(fig)
+    assert twin.spines["right"].get_visible()
+    assert not any(twin.spines[side].get_visible() for side in ("left", "bottom", "top"))
+    assert fig.get_figwidth() * MM_PER_INCH == pytest.approx(120)
+
+
+def test_a_legend_below_the_axes_becomes_a_figure_legend_that_layout_makes_room_for():
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for name in ("a", "b", "c"):
+        ax.plot([0, 1], [0, 1], label=name)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=3)
+    polish(fig)
+    assert ax.get_legend() is None
+    assert [t.get_text() for t in fig.legends[0].get_texts()] == ["a", "b", "c"]
+    assert not fig.legends[0].get_frame_on()
