@@ -23,9 +23,9 @@ class MotionSettings:
     Attributes:
         n_pcs (int): Spatial principal components. Paper: 30.
         n_extremes (int): Frames averaged for each of Itop and Ibottom. Paper: 500.
-        max_frames (int): Frames sampled evenly through the recording for the PCA. Paper: 5000, but the
-            PCA peaks near 4 GB at 256 x 256 and 16 GB at 512 x 512 for 5000 frames, so the
-            default is 2000 (about 40 % of that); raise it on a large machine.
+        max_frames (int): Frames sampled evenly through the recording for the PCA. Paper: 5000,
+            but the PCA peaks near 4 GB at 256 x 256 and 16 GB at 512 x 512 for 5000 frames, so
+            the default is 2000 (about 40 % of that); raise it on a large machine.
     """
 
     n_pcs: int = 30

@@ -8,10 +8,10 @@ from scipy.ndimage import shift as shift_image
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra (suite2p, torch)
 
 from src.funcimg_analysis.zong2022_motion import (  # noqa: E402
+    MotionSettings,
     nonrigid_motion,
     pc_images,
     registration_metrics,
-    MotionSettings,
     registration_settings,
     sample_frame_indices,
 )

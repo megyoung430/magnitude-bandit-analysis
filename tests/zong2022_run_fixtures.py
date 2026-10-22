@@ -36,10 +36,11 @@ def texture(seed=0):
     return (image - image.min()) / np.ptp(image)
 
 
-def cell_labels():
+def cell_labels(label_ids=(1, 2, 3)):
+    """The ROI masks, numbered *label_ids* (Cellpose numbers have gaps once ROIs are dropped)."""
     labels = np.zeros((LY, LX), int)
-    for k, (ys, xs) in enumerate(ROI_SLICES, start=1):
-        labels[ys, xs] = k
+    for label, (ys, xs) in zip(label_ids, ROI_SLICES, strict=True):
+        labels[ys, xs] = label
     return labels
 
 
@@ -69,7 +70,9 @@ def outcome_table():
     )
 
 
-def write_synthetic_run(derivatives: Path, n_frames: int = 2400, run: str = "run-01") -> dict:
+def write_synthetic_run(
+    derivatives: Path, n_frames: int = 2400, run: str = "run-01", label_ids=(1, 2, 3)
+) -> dict:
     """Write the tree; return the paths a test needs."""
     run_dir = derivatives / SESSION / "funcimg" / run
     plane = run_dir / "without_destriping" / "suite2p" / "plane0"
@@ -85,8 +88,8 @@ def write_synthetic_run(derivatives: Path, n_frames: int = 2400, run: str = "run
     np.save(plane / "ops.npy", ops, allow_pickle=True)
     seg_dir = run_dir / "suite2p" / "plane0"
     seg_dir.mkdir(parents=True)
-    np.save(seg_dir / "meanImg_green_functional_contrast_seg.npy", {"masks": cell_labels()},
-            allow_pickle=True)  # fmt: skip
+    masks = {"masks": cell_labels(label_ids)}
+    np.save(seg_dir / "meanImg_green_functional_contrast_seg.npy", masks, allow_pickle=True)
     Image.fromarray((255 * texture()).astype(np.uint8)).save(
         seg_dir / "meanImg_green_functional_contrast.png"
     )

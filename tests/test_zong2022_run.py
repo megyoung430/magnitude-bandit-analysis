@@ -7,15 +7,18 @@ import pytest
 
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
-from src.funcimg_analysis import zong2022_io  # noqa: E402
+from src.funcimg_analysis import zong2022_io, zong2022_run  # noqa: E402
 from src.funcimg_analysis.frame_times import RunMismatchError  # noqa: E402
 from src.funcimg_analysis.zong2022_motion import MotionSettings  # noqa: E402
 from src.funcimg_analysis.zong2022_responses import ResponseSettings  # noqa: E402
 from src.funcimg_analysis.zong2022_run import (  # noqa: E402
-    RunLeftOut,
+    MaskAlignmentRefused,
+    MissingInputError,
+    NoUsableCells,
     analyse_run,
     analyse_runs,
     build_cell_table,
+    derivative_arrays,
     pool_reward_runs,
     top_responsive_cells,
 )
@@ -94,7 +97,7 @@ def test_pooled_responses_are_split_by_pulse_count_for_passing_and_all_cells(res
 
 def test_chance_summaries_count_responsive_cells_against_five_percent(result):
     summary = result["reward"]["tests"]["reward"]["summary_all"]
-    assert summary["n_cells"] == 3 and summary["n_responsive"] == 1
+    assert summary["n_cells"] == 3 and summary["n_tested"] == 3 and summary["n_responsive"] == 1
     assert summary["expected_by_chance"] == pytest.approx(0.15)
 
 
@@ -108,6 +111,7 @@ def test_motion_qc_reports_residual_drift_and_the_recorded_shifts(result):
 
 def test_the_run_carries_what_the_figures_need(result):
     assert result["labels"].shape == (128, 128) and result["labels"].max() == 3
+    assert result["cellpose_labels"].tolist() == [1, 2, 3]
     assert result["alignment"]["dy"] == 0 and result["alignment"]["dx"] == 0
     assert result["mean_image"].shape == (128, 128)
     assert result["signal"].dff.shape == (3, result["n_frames"])
@@ -153,7 +157,7 @@ def test_a_run_without_a_cellpose_segmentation_is_left_out_with_the_path(tree, t
     hidden = seg.with_suffix(".hidden")
     seg.rename(hidden)
     try:
-        with pytest.raises(RunLeftOut, match="meanImg_green_functional_contrast_seg.npy"):
+        with pytest.raises(MissingInputError, match="meanImg_green_functional_contrast_seg.npy"):
             run(paths, tmp_path)
     finally:
         hidden.rename(seg)
@@ -174,8 +178,66 @@ def test_traces_that_do_not_match_the_frame_clock_are_refused(tmp_path):
 def test_a_run_without_frame_times_is_left_out(tmp_path):
     other = write_synthetic_run(tmp_path / "der2", n_frames=600, run="run-07")
     (other["run_dir"] / "frame_times.npz").unlink()
-    with pytest.raises(RunLeftOut, match="frame_times"):
+    with pytest.raises(MissingInputError, match="frame_times"):
         run(other, tmp_path / "cache")
+
+
+def test_a_missing_behaviour_file_is_a_left_out_run_not_a_crash(tmp_path):
+    other = write_synthetic_run(tmp_path / "der4", n_frames=600, run="run-04")
+
+    def missing(tsv):
+        raise FileNotFoundError(tsv)
+
+    with pytest.raises(MissingInputError, match="behaviour"):
+        run(other, tmp_path / "cache", load_outcomes=missing)
+
+
+def test_a_refused_mask_alignment_is_its_own_left_out_reason(tree, tmp_path, monkeypatch):
+    _, paths = tree
+
+    def refuse(*args, **kwargs):
+        raise ValueError("shift of 40 px exceeds the limit")
+
+    monkeypatch.setattr(zong2022_run, "aligned_labels", refuse)
+    with pytest.raises(MaskAlignmentRefused, match="40 px"):
+        run(paths, tmp_path)
+
+
+def test_the_roi_diameter_is_read_from_the_mini2p_settings(tree, tmp_path, monkeypatch):
+    _, paths = tree
+    seen = []
+    real = zong2022_run.aligned_labels
+
+    def spy(seg_file, mask_image, ops, diameter_px):
+        seen.append(diameter_px)
+        return real(seg_file, mask_image, ops, diameter_px)
+
+    monkeypatch.setattr(zong2022_run, "aligned_labels", spy)
+    run(paths, tmp_path)
+    assert seen == [zong2022_io.default_diameter_px()]
+
+
+def test_a_run_with_no_usable_cell_says_so_instead_of_continuing(tree, tmp_path):
+    _, paths = tree
+    impossible = Zong2022Settings(min_baseline_s=1e6)  # no cell has that many baseline seconds
+    with pytest.raises(NoUsableCells, match="3 of 3"):
+        run(paths, tmp_path, settings=impossible)
+
+
+def test_gaps_in_the_cellpose_labels_do_not_shift_rows_from_cells(tmp_path):
+    gappy = write_synthetic_run(tmp_path / "der5", n_frames=2400, run="run-05", label_ids=(1, 3, 4))
+    result = run(gappy, tmp_path / "cache")
+    table = result["table"]
+    assert table["roi"].tolist() == [0, 1, 2]  # rows, counted without gaps
+    assert table["cellpose_label"].tolist() == [1, 3, 4]
+    assert result["cellpose_labels"].tolist() == [1, 3, 4]
+    assert result["labels"].max() == 3 and set(np.unique(result["labels"])) == {0, 1, 2, 3}
+    # row 0 is still the cell that fires at rewards, row 2 the one at the no-reward cues
+    assert table["reward_responsive"].tolist() == [True, False, False]
+    assert table["no_reward_responsive"].tolist() == [False, False, True]
+    arrays = derivative_arrays(result)
+    assert arrays["cellpose_label"].tolist() == [1, 3, 4]
+    assert arrays["dff_clear"].shape[0] == 3
 
 
 # --- many runs ------------------------------------------------------------------------------------
@@ -199,6 +261,19 @@ def test_runs_are_collected_in_order_and_the_ones_left_out_are_listed_with_reaso
     assert any("[1/2]" in line for line in lines) and any("[2/2]" in line for line in lines)
 
 
+def test_only_known_reasons_are_skipped_anything_else_stops_the_loop(tmp_path):
+    derivatives = tmp_path / "derivatives"
+    write_synthetic_run(derivatives, n_frames=600, run="run-01")
+    kwargs = {
+        "settings": Zong2022Settings(), "responses": ResponseSettings(), "motion": MOTION,
+        "cache_dir": tmp_path / "cache", "load_outcomes": load_outcomes, "report": print,
+    }  # fmt: skip
+    plane = derivatives / SESSION / "funcimg/run-01/without_destriping/suite2p/plane0"
+    (plane / "data.bin").unlink()
+    with pytest.raises(FileNotFoundError, match="data.bin"):  # a bug or damage, not a reason
+        analyse_runs(derivatives, 224, 224, VARIANT, runs=None, **kwargs)
+
+
 # --- tables ---------------------------------------------------------------------------------------
 
 
@@ -218,9 +293,10 @@ def test_top_responsive_cells_rank_snr_passing_responsive_cells_by_score():
 
 
 def test_the_cell_table_has_one_row_per_roi_with_the_documented_columns(result):
-    table = build_cell_table(result["signal"], result["reward"]["tests"])
+    table = build_cell_table(result["signal"], result["reward"]["tests"], result["cellpose_labels"])
     expected = {
-        "roi", "f0_ok", "excluded", "snr", "signal", "noise", "n_transients", "n_events", "passes",
+        "roi", "cellpose_label", "usable", "excluded", "snr", "signal", "noise",
+        "n_transients", "n_events", "passes",
         "reward_score", "reward_null_95th", "reward_p_value", "reward_responsive",
         "no_reward_score", "no_reward_null_95th", "no_reward_p_value", "no_reward_responsive",
     }  # fmt: skip

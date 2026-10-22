@@ -27,10 +27,12 @@ from src.funcimg_analysis.zong2022_io import (
     aligned_labels,
     array_digest,
     cached,
+    default_diameter_px,
     extract_cached,
     file_signature,
     read_frames,
     registration_offsets,
+    renumber_labels,
     seg_paths,
 )
 from src.funcimg_analysis.zong2022_motion import (
@@ -52,12 +54,27 @@ from src.funcimg_analysis.zong2022_responses import (
 )
 from src.funcimg_analysis.zong2022_signal import SignalResult, Zong2022Settings, analyse_traces
 
-DIAMETER_PX = 12  # ROI diameter mini2p uses for its mask alignment and ROI statistics
 OUTCOME_KINDS = {"reward": True, "no_reward": False}  # name: rewarded?
 
 
 class RunLeftOut(Exception):
-    """A run that cannot be analysed for a known reason; the message says what is missing."""
+    """A run that cannot be analysed for a known reason; the message says what is missing.
+
+    Only subclasses are raised, and :func:`analyse_runs` skips exactly these. Any other error
+    (including a stray ``FileNotFoundError``) is a bug or damaged data and stops the loop.
+    """
+
+
+class MissingInputError(RunLeftOut):
+    """A file the run needs (frame times, behaviour, Cellpose segmentation) is not there."""
+
+
+class MaskAlignmentRefused(RunLeftOut):
+    """mini2p refused to align the Cellpose masks onto the plane."""
+
+
+class NoUsableCells(RunLeftOut):
+    """Every ROI of the run was excluded (no positive F0, or too few baseline points)."""
 
 
 def report_to(report: Callable[[str], None] | None) -> Callable[[str], None]:
@@ -71,37 +88,60 @@ def load_run_inputs(run_dir, variant: str, load_outcomes: Callable):
     """The run's frame times (checked against the batch's source TIFF) and outcome table.
 
     Raises:
-        RunLeftOut: If the run has no ``frame_times.npz``.
+        MissingInputError: If the run has no ``frame_times.npz`` or no behaviour file.
         RunMismatchError: If the variant was made from another acquisition's TIFF.
     """
     run_dir = Path(run_dir)
     if not (run_dir / FRAME_TIMES_FILE).is_file():
-        raise RunLeftOut(f"no {FRAME_TIMES_FILE} in {run_dir}; write the frame times first.")
+        raise MissingInputError(f"no {FRAME_TIMES_FILE} in {run_dir}; write the frame times first.")
     frames = load_frame_times(run_dir)
     check_run_source(frames.tiff.name, run_dir, variants=(variant,))
-    return frames, load_outcomes(frames.tsv)
+    try:
+        outcomes = load_outcomes(frames.tsv)
+    except FileNotFoundError as error:
+        raise MissingInputError(f"no behaviour file {frames.tsv} for {run_dir}.") from error
+    return frames, outcomes
 
 
-def extract_run(plane_dir, run_dir, cache_dir, report: Callable[[str], None]) -> dict:
+def extract_run(
+    plane_dir, run_dir, cache_dir, report: Callable[[str], None], diameter_px: int | None = None
+) -> dict:
     """Align the run's Cellpose masks onto the plane and extract Fcell and Fnp (both channels).
 
+    The aligned labels are renumbered 1..n: alignment can drop whole ROIs, leaving gaps in the
+    Cellpose numbers, while the extraction gives one row per remaining ROI. After this, row
+    ``i`` of the traces is label ``i + 1`` of ``labels``, and ``cellpose_labels[i]`` is the
+    number it had in Cellpose.
+
+    Args:
+        diameter_px: ROI diameter for the alignment and ROI statistics; default is mini2p's.
+
     Raises:
-        RunLeftOut: If the segmentation or its image is missing, or mini2p refuses to align it.
+        MissingInputError: If the segmentation or its image is missing.
+        MaskAlignmentRefused: If mini2p refuses to align the masks.
     """
+    diameter_px = default_diameter_px() if diameter_px is None else diameter_px
     plane_dir = Path(plane_dir)
     seg_file, mask_image = seg_paths(run_dir)
     for what, path in (("segmentation", seg_file), ("mask image", mask_image)):
         if not path.is_file():
-            raise RunLeftOut(f"no Cellpose {what}: {path}")
+            raise MissingInputError(f"no Cellpose {what}: {path}")
     ops = np.load(plane_dir / "ops.npy", allow_pickle=True).item()
     report(f"masks: aligning {seg_file.name} onto {plane_dir.parents[1].name}")
     try:
-        labels, alignment = aligned_labels(seg_file, mask_image, ops, DIAMETER_PX)
+        aligned, alignment = aligned_labels(seg_file, mask_image, ops, diameter_px)
     except ValueError as error:
-        raise RunLeftOut(f"mask alignment refused: {error}") from error
-    report(f"extract: {int(labels.max())} ROIs from the registered binaries (cached)")
-    traces = extract_cached(labels, plane_dir, DIAMETER_PX, cache_dir)
-    return {"ops": ops, "labels": labels, "alignment": alignment, **traces}
+        raise MaskAlignmentRefused(f"mask alignment refused: {error}") from error
+    labels, cellpose_labels = renumber_labels(aligned)
+    report(f"extract: {len(cellpose_labels)} ROIs from the registered binaries (cached)")
+    traces = extract_cached(labels, plane_dir, diameter_px, cache_dir)
+    return {
+        "ops": ops,
+        "labels": labels,
+        "cellpose_labels": cellpose_labels,
+        "alignment": alignment,
+        **traces,
+    }
 
 
 def compact(result: SignalResult) -> SignalResult:
@@ -171,7 +211,7 @@ def reward_analysis(
         name: aligned_windows(trace, frame_times_s, outcomes, settings.window_s, settings.phases)
         for name, trace in traces.items()
     }
-    groups = {"snr_pass": signal.passes, "all": signal.f0_ok}
+    groups = {"snr_pass": signal.passes, "all": signal.usable}
     pooled = {
         name: {group: pooled_responses(aligned[name], mask) for group, mask in groups.items()}
         for name in traces
@@ -184,8 +224,8 @@ def reward_analysis(
             traces[settings.score_trace], reference, frame_times_s, settings, rewarded, rng
         )
         if test is not None:
-            test["summary_all"] = chance_summary(test["responsive"][signal.f0_ok])
-            test["summary_pass"] = chance_summary(test["responsive"][signal.passes])
+            for name, group in (("summary_all", signal.usable), ("summary_pass", signal.passes)):
+                test[name] = chance_summary(test["responsive"][group], test["score"][group])
         tests[kind] = test
     n_trials = {int(p): int((reference.pulses == p).sum()) for p in np.unique(reference.pulses)}
     return {
@@ -194,6 +234,30 @@ def reward_analysis(
         "n_trials": n_trials,
         "n_dropped": reference.n_dropped,
         "tests": tests,
+    }
+
+
+def check_some_usable(signal: SignalResult) -> None:
+    """Raise :class:`NoUsableCells` (with the reasons and their counts) if no ROI is usable."""
+    if signal.usable.any():
+        return
+    n = len(signal.usable)
+    reasons = pd.Series(signal.excluded).value_counts().to_dict()
+    raise NoUsableCells(f"{n} of {n} cells are excluded: {reasons}.")
+
+
+def derivative_arrays(run: dict) -> dict:
+    """The arrays saved per run: traces, the clock and each row's Cellpose label."""
+    signal = run["signal"]
+    return {
+        "fcorr": signal.fcorr,
+        "f0": signal.f0,
+        "dff": signal.dff,
+        "dff_clear": signal.dff_clear,
+        "e_clear": signal.e_clear,
+        "time_s": run["frame_times_s"],
+        "cellpose_label": run["cellpose_labels"],
+        "usable": signal.usable,
     }
 
 
@@ -237,18 +301,25 @@ def motion_qc(plane_dir, ops: dict, settings: MotionSettings, cache_dir, report)
 # ---- tables ------------------------------------------------------------------------------------
 
 
-def build_cell_table(signal: SignalResult, tests: dict) -> pd.DataFrame:
+def build_cell_table(signal: SignalResult, tests: dict, cellpose_labels) -> pd.DataFrame:
     """One row per ROI: exclusion, SNR and event counts, and the responsive-cell tests.
 
     Args:
         signal (SignalResult): The run's signal processing.
         tests (dict): ``reward_analysis(...)["tests"]``; a kind that is None gives NaN columns.
+        cellpose_labels: The Cellpose label of each row (``roi`` counts the rows from 0).
+
+    Raises:
+        ValueError: If there is not one label per row.
     """
-    n = len(signal.f0_ok)
+    n = len(signal.usable)
+    if len(cellpose_labels) != n:
+        raise ValueError(f"{len(cellpose_labels)} Cellpose labels for {n} ROIs.")
     columns = {
         "roi": np.arange(n),
-        "f0_ok": signal.f0_ok,
-        "excluded": np.where(signal.f0_ok, "", "F0 <= 0"),
+        "cellpose_label": np.asarray(cellpose_labels),
+        "usable": signal.usable,
+        "excluded": signal.excluded,
         "snr": signal.snr,
         "signal": signal.signal,
         "noise": signal.noise,
@@ -297,7 +368,7 @@ def pool_reward_runs(runs: list[dict], trace: str, group: str) -> dict:
     check_same_window([{"offsets": a.offsets, "period_s": a.period_s} for a in aligned])
     per_run = []
     for run, windows in zip(runs, aligned, strict=True):
-        mask = run["signal"].passes if group == "snr_pass" else run["signal"].f0_ok
+        mask = run["signal"].passes if group == "snr_pass" else run["signal"].usable
         if mask.any():
             per_run.append(
                 mean_by_category(windows.windows[mask], windows.pulses, PULSE_CATEGORIES)
@@ -336,11 +407,13 @@ def analyse_run(
 
     Returns:
         dict: ``signal`` (``SignalResult``), ``table`` (per-ROI), ``reward`` (see
-        :func:`reward_analysis`), ``motion`` (see :func:`motion_qc`), ``labels``, ``alignment``,
+        :func:`reward_analysis`), ``motion`` (see :func:`motion_qc`), ``labels`` (renumbered
+        1..n by row), ``cellpose_labels`` (each row's Cellpose label), ``alignment``,
         ``mean_image``, ``frame_times_s``, ``period_s``, ``n_frames`` and ``outcomes``.
 
     Raises:
-        RunLeftOut: For a known reason the run cannot be analysed (see the message).
+        RunLeftOut: (a subclass) For a known reason the run cannot be analysed: a missing input,
+            a refused mask alignment, or no usable cell.
         RunMismatchError: If the traces and the frame clock are from different acquisitions.
     """
     report = report_to(progress)
@@ -354,15 +427,17 @@ def analyse_run(
         )
     report("ΔF/F: baseline, transients, deconvolution and SNR (cached)")
     signal = signal_cached(extracted["f"], extracted["fneu"], frames.period_s, settings, cache_dir)
+    check_some_usable(signal)
     report("responses: outcome-aligned averages and the circular-shift test")
     reward = reward_analysis(signal, frames.time_s, outcomes, responses)
     qc = motion_qc(plane_dir, extracted["ops"], motion, cache_dir, report)
     return {
         "signal": signal,
-        "table": build_cell_table(signal, reward["tests"]),
+        "table": build_cell_table(signal, reward["tests"], extracted["cellpose_labels"]),
         "reward": reward,
         "motion": qc,
         "labels": extracted["labels"],
+        "cellpose_labels": extracted["cellpose_labels"],
         "alignment": extracted["alignment"],
         "mean_image": np.asarray(extracted["ops"]["meanImg"], dtype=float),
         "frame_times_s": frames.time_s,
@@ -384,9 +459,10 @@ def analyse_runs(
 ) -> tuple[list[dict], list[tuple[str, str, str]]]:
     """:func:`analyse_run` for every run of *variant* in the session range.
 
-    Runs that cannot be analysed for a known reason (no frame times, no segmentation, a
-    refused mask alignment, traces from another acquisition, an unreadable behaviour file) are
-    listed with the reason; anything else is a bug and stops the loop.
+    Runs that cannot be analysed for a known reason (a missing input, a refused mask alignment,
+    no usable cell, traces from another acquisition, an unreadable behaviour file) are listed
+    with the reason; anything else, including a stray ``FileNotFoundError``, is a bug or damaged
+    data and stops the loop.
 
     Args:
         subject_dir: ``derivatives/<cohort>/<subject>``.
@@ -411,7 +487,7 @@ def analyse_runs(
         report(f"{session} {run_dir.name}")
         try:
             result = analyse_run(plane_dir, run_dir, variant, progress=report, **kwargs)
-        except (RunLeftOut, RunMismatchError, OutcomeParseError, FileNotFoundError) as error:
+        except (RunLeftOut, RunMismatchError, OutcomeParseError) as error:
             skipped.append((session, run_dir.name, str(error)))
             log.step_done(succeeded=False)
             continue
