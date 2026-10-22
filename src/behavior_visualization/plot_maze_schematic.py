@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Collection, Sequence
-from functools import cache
 from pathlib import Path
 
 import matplotlib as mpl
@@ -51,7 +50,8 @@ def first_installed_font(names: Sequence[str]) -> str:
     """The first of *names* that matplotlib can find on this machine.
 
     Args:
-        names (Sequence[str]): Font family names, in order of preference.
+        names (Sequence[str]): Concrete font family names such as ``"Arial"``, in order of
+            preference; generic names such as ``"sans-serif"`` are not resolved here.
 
     Returns:
         str: The first installed one.
@@ -70,12 +70,12 @@ def first_installed_font(names: Sequence[str]) -> str:
     raise ValueError(f"none of the fonts {list(names)} is installed")
 
 
-@cache
 def schematic_font() -> str:
     """The font of all schematic text: the first installed of :data:`SCHEMATIC_FONTS`.
 
     One name only: matplotlib looks up every name in a family list each time it draws text, and
-    logs a warning for each one that is missing.
+    logs a warning for each one that is missing. Looked up on every call (matplotlib caches the
+    search), so a font registered later in the session is picked up.
 
     Returns:
         str: ``"Arial"`` where it is installed.
@@ -83,13 +83,13 @@ def schematic_font() -> str:
     return first_installed_font(SCHEMATIC_FONTS)
 
 
-def schematic_rc() -> dict:
+def schematic_rc() -> dict[str, object]:
     """rcParams applied only while a schematic is drawn and saved; other figures keep theirs.
 
     Text is in :func:`schematic_font` and stays editable in saved PDF and SVG files.
 
     Returns:
-        dict: rcParams for ``mpl.rc_context``.
+        dict[str, object]: rcParams for ``mpl.rc_context``.
     """
     return {
         "font.family": [schematic_font()],

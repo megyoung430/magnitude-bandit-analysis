@@ -180,7 +180,7 @@ def test_text_uses_the_schematic_font_in_an_axes_the_caller_made():
 
 
 def test_saving_does_not_warn_about_missing_fonts(tmp_path, caplog):
-    # Fallback fonts that are not installed used to log a warning for every text drawn.
+    # Schematic text names one installed font, so drawing it never logs a missing-font warning.
     with caplog.at_level(logging.WARNING, logger="matplotlib.font_manager"):
         plot_maze_schematic(CHOICES, title="Choice towers", save_path=tmp_path / "towers")
     assert not [r for r in caplog.records if "not found" in r.getMessage()]
