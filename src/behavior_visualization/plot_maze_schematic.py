@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Collection
 from pathlib import Path
+from types import MappingProxyType
 
 import matplotlib as mpl
 import numpy as np
@@ -43,12 +44,15 @@ LEGEND_FONTSIZE = 10
 # Applied only while a schematic is drawn and saved; other figures keep the shared style.
 # Arial where installed; Liberation Sans has Arial's letter widths on Linux. Text stays editable
 # in saved PDF and SVG files.
-SCHEMATIC_RC = {
-    "font.family": ["Arial", "Liberation Sans", "DejaVu Sans"],
-    "pdf.fonttype": 42,
-    "ps.fonttype": 42,
-    "svg.fonttype": "none",
-}
+SCHEMATIC_FONTS = ("Arial", "Liberation Sans", "DejaVu Sans")
+SCHEMATIC_RC = MappingProxyType(
+    {
+        "font.family": list(SCHEMATIC_FONTS),
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "svg.fonttype": "none",
+    }
+)
 
 
 def _choice_tower_set(choice_towers: Collection[str]) -> frozenset[str]:
@@ -171,6 +175,10 @@ def draw_maze_schematic(
 ) -> Axes:
     """Draw the maze for one problem: towers on the floor, filled by role, text in Arial.
 
+    Whoever saves the figure decides how its text is stored. :func:`plot_maze_schematic` keeps
+    it editable; when saving a figure of your own, wrap the save in
+    ``mpl.rc_context(SCHEMATIC_RC)`` for the same.
+
     Args:
         choice_towers (Collection[str]): The choice towers, e.g. ``["A2", "B1", "C3"]``.
         initiation_tower (str): The initiation tower. Default ``"B2"``.
@@ -191,7 +199,8 @@ def draw_maze_schematic(
         for port in ARMS9:
             _draw_tower(ax, port, fills[port])
         if title is not None:
-            ax.set_title(title, pad=6)
+            # the title artist exists before this function, so set its font directly
+            ax.set_title(title, pad=6, fontfamily=list(SCHEMATIC_FONTS))
         if legend:
             ax.legend(
                 handles=role_legend_handles(),

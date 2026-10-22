@@ -151,12 +151,19 @@ def test_all_text_asks_for_arial_first():
     assert all(t.get_fontfamily()[0] == "Arial" for t in texts)
 
 
-def test_the_font_setting_does_not_leak_into_other_figures():
-    before = list(mpl.rcParams["font.sans-serif"])
-    draw_maze_schematic(CHOICES)
-    assert mpl.rcParams["font.sans-serif"] == before
+def test_text_is_arial_in_an_axes_the_caller_made():
+    # The caller's axes and its title exist before the schematic is drawn.
     _, ax = plt.subplots()
-    assert ax.text(0, 0, "x").get_fontfamily() == mpl.rcParams["font.family"]
+    draw_maze_schematic(CHOICES, ax=ax, title="Choice towers")
+    texts = [*ax.texts, ax.title, *ax.get_legend().get_texts()]
+    assert all(t.get_fontfamily()[0] == "Arial" for t in texts)
+
+
+def test_the_font_settings_do_not_leak_into_other_figures(tmp_path):
+    before = dict(mpl.rcParams)
+    draw_maze_schematic(CHOICES)
+    plot_maze_schematic(CHOICES, save_path=tmp_path / "towers")
+    assert dict(mpl.rcParams) == before
 
 
 def test_saved_text_stays_editable(tmp_path):
