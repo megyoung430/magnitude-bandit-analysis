@@ -420,6 +420,34 @@ the files always match `cohorts.txt`; the titles say "all drifting problems, coh
   legends for curve types (P(best), P(second), ...) stay. The code is
   `src/pipelines/all_cohorts_drifting.py`.
 
+### Paper-ready figures
+
+```bash
+uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --paper-ready
+uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 --paper-ready
+```
+
+`--paper-ready` also draws the pooled drifting figures (choice stats, value psychometrics,
+value change, reversal-aligned arms, port preference, sessions per problem) in a Nature/Cell
+style, next to the normal ones and without changing them. They go to
+`results/figures/open-field/paper-ready/<cohort>/drifting/all-drifting-problems/` (and
+`...-without-<mice>/` with `--exclude-mice`) and, for the all-cohorts script, to
+`paper-ready/all-cohorts/` (and `all-cohorts-without-<mice>/`), with the same subfolders as the
+normal set. Each figure is written as `.pdf`, `.svg` and `.png` (600 dpi) plus a
+`<name>.caption.txt`.
+
+- Arial (Helvetica, then Liberation Sans, as fallbacks), 7 pt text, thin lines, outward ticks,
+  no top or right spine, axes trimmed to the outermost ticks, unboxed legends, Okabe-Ito
+  colours that keep the meaning of the originals (best blue, second green, third grey), and
+  editable text (TrueType in the PDF, live `<text>` in the SVG).
+- Widths are 89 mm (one panel), 120 mm (two panels, a legend beside the axes or a second y axis)
+  or 183 mm (three or more panel columns).
+- The figure keeps only short panel titles. The descriptive title (n mice, n events, scope) and
+  any note under the figure, such as the "without MY_175_N" marker, are in the caption file.
+- The style is in `src/behavior_visualization/paper_style.py`, applied where figures are saved,
+  so the plotting functions are unchanged. The trimmed spines follow
+  [sciplotlib](https://github.com/Timothysit/sciplotlib)'s `set_bounds`.
+
 ### Reversals at session boundaries
 
 Trial extraction reconciles good/bad counters and block numbers with raw `run_start` and
