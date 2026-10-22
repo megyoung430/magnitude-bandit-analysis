@@ -93,6 +93,28 @@ class SessionFlag(NamedTuple):
     task_name: str | None
 
 
+class CacheSource(NamedTuple):
+    """Where a log's import came from when it was loaded from the cache without the raw files.
+
+    Attributes:
+        root (str): The raw-data folder recorded in the cache.
+        time (float): When the import was cached, in epoch seconds.
+        code_matches (bool): Whether it was made with the current import code.
+        n_files (int): How many ``.tsv`` files the raw folder held then.
+        matched_on_tail (bool): The requested root differed and only its last path parts
+            matched *root*.
+        filled_fields (tuple[str, ...]): Log fields the cached log lacked (it predates them),
+            set to their defaults.
+    """
+
+    root: str
+    time: float
+    code_matches: bool
+    n_files: int
+    matched_on_tail: bool = False
+    filled_fields: tuple[str, ...] = ()
+
+
 @dataclass
 class ImportLog:
     """Everything the importer recorded; filled in place and returned with the trials.
@@ -110,12 +132,16 @@ class ImportLog:
             They stay out of the trials by problem, which every task analysis assumes have bandit
             trials; the poke analysis counts their trials in the port-finding maps. Not part of
             the log's equality (it holds recordings). Set once the sessions are extracted.
+        cache_source (CacheSource | None): Set on a load from the cache that skipped the raw
+            files (``from_cache``), so outputs can say their data may be out of date; ``None``
+            otherwise. Not part of the log's equality.
     """
 
     skips: list[SkipRecord] = field(default_factory=list)
     flags: list[SessionFlag] = field(default_factory=list)
     warnings: list[WarningRecord] = field(default_factory=list)
     port_finding_sessions: dict[str, dict[str, dict]] = field(default_factory=dict, compare=False)
+    cache_source: CacheSource | None = field(default=None, compare=False)
 
     def add_skip(self, skip: SkipRecord) -> None:
         """Append *skip* to :attr:`skips`."""

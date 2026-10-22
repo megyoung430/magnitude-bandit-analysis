@@ -1,5 +1,6 @@
 """``load_trials_with_log(..., from_cache=True)``: the newest cached import, without the share."""
 
+import dataclasses
 import json
 import warnings
 from datetime import datetime
@@ -106,7 +107,7 @@ def fill(raw_root, cache_dir, **kwargs):
 
 def test_the_cached_entries_are_listed_with_their_inputs(raw_root, tmp_path, fake_import):
     fill(raw_root, tmp_path / "cache", classify_task_types=True)
-    (found,) = cached_import_entries(tmp_path / "cache")
+    (found,) = cached_import_entries(tmp_path / "cache").entries
     assert found.root == str(raw_root.resolve())
     assert found.classify_task_types is True
     assert found.code_version == load_trials.import_code_version()
@@ -115,14 +116,14 @@ def test_the_cached_entries_are_listed_with_their_inputs(raw_root, tmp_path, fak
 
 
 def test_an_empty_or_missing_cache_lists_nothing(tmp_path):
-    assert cached_import_entries(tmp_path / "nothing-here") == []
+    assert cached_import_entries(tmp_path / "nothing-here") == ((), ())
 
 
 def test_an_entry_without_its_output_is_not_listed(raw_root, tmp_path, fake_import):
     fill(raw_root, tmp_path / "cache")
-    (found,) = cached_import_entries(tmp_path / "cache")
+    (found,) = cached_import_entries(tmp_path / "cache").entries
     (found.path / "output.pkl").unlink()
-    assert cached_import_entries(tmp_path / "cache") == []
+    assert cached_import_entries(tmp_path / "cache") == ((), ())
 
 
 def test_a_from_cache_load_never_touches_the_raw_folder(
@@ -205,7 +206,7 @@ def test_a_cache_that_cannot_be_unpickled_fails_with_the_entry_named(
     raw_root, tmp_path, fake_import
 ):
     fill(raw_root, tmp_path / "cache")
-    (found,) = cached_import_entries(tmp_path / "cache")
+    (found,) = cached_import_entries(tmp_path / "cache").entries
     (found.path / "output.pkl").write_bytes(b"not a pickle")
     with pytest.raises(load_trials.CachedImportError) as err:
         fill(raw_root.resolve(), tmp_path / "cache", from_cache=True)
@@ -214,12 +215,34 @@ def test_a_cache_that_cannot_be_unpickled_fails_with_the_entry_named(
     assert len(fake_import) == 1  # no fall-through to an import from the share
 
 
-def test_a_metadata_file_that_cannot_be_read_fails_loudly(raw_root, tmp_path, fake_import):
+@pytest.mark.parametrize("content", ["", "{not json", json.dumps({"time": 1.0, "input_args": {}})])
+def test_an_unreadable_metadata_file_is_skipped_with_a_warning(raw_root, tmp_path, content):
+    cache = tmp_path / "cache"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            load_trials,
+            "_import_and_extract",
+            lambda root, classify_task_types=False: ImportedTrials({1: {}}, ImportLog()),
+        )
+        fill(raw_root, cache)
+        fill(raw_root, cache, classify_task_types=True)
+    bad, good = sorted(cached_import_entries(cache).entries, key=lambda e: e.classify_task_types)
+    (bad.path / "metadata.json").write_text(content)
+    with pytest.warns(load_trials.CacheMetadataWarning, match=str(bad.path)):
+        listing = cached_import_entries(cache)
+    assert listing.entries == (good,)
+    assert listing.unreadable == (bad.path,)
+
+
+def test_with_only_unreadable_metadata_the_error_names_them(raw_root, tmp_path, fake_import):
     fill(raw_root, tmp_path / "cache")
-    (found,) = cached_import_entries(tmp_path / "cache")
-    (found.path / "metadata.json").write_text(json.dumps({"time": 1.0, "input_args": {}}))
-    with pytest.raises(load_trials.CachedImportError, match="metadata"):
-        cached_import_entries(tmp_path / "cache")
+    (found,) = cached_import_entries(tmp_path / "cache").entries
+    (found.path / "metadata.json").write_text("")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", load_trials.CacheMetadataWarning)
+        with pytest.raises(FileNotFoundError, match="unreadable") as err:
+            fill(raw_root.resolve(), tmp_path / "cache", from_cache=True)
+    assert str(found.path) in str(err.value)
 
 
 def test_from_cache_needs_the_cache(raw_root, tmp_path):
@@ -242,15 +265,126 @@ def test_the_cache_dir_default_does_not_need_the_share(
     assert loaded.trials_by_problem == {1: {"M1": {"call": 1}}}
 
 
-def test_a_cached_log_missing_a_field_of_the_current_code_fails_with_the_entry_named(
-    raw_root, tmp_path, monkeypatch
-):
+def old_log_import(drop):
     def old_import(root, classify_task_types=False):
         log = ImportLog()
-        del log.port_finding_sessions  # as pickled by code that predates the field
-        return ImportedTrials({1: {}}, log)
+        delattr(log, drop)  # as pickled by code that predates the field
+        return ImportedTrials({1: {"M1": {}}}, log)
 
-    monkeypatch.setattr(load_trials, "_import_and_extract", old_import)
+    return old_import
+
+
+def test_a_cached_log_missing_a_field_with_a_default_gets_the_default(
+    raw_root, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(load_trials, "_import_and_extract", old_log_import("port_finding_sessions"))
     fill(raw_root, tmp_path / "cache")
-    with pytest.raises(load_trials.CachedImportError, match="port_finding_sessions"):
+    with pytest.warns(StaleCacheWarning, match="port_finding_sessions") as caught:
+        loaded = fill(raw_root.resolve(), tmp_path / "cache", from_cache=True)
+    assert loaded.log.port_finding_sessions == {}
+    assert loaded.trials_by_problem == {1: {"M1": {}}}
+    message = next(str(w.message) for w in caught if w.category is StaleCacheWarning)
+    assert "filled with defaults" in message
+
+
+@dataclasses.dataclass
+class NewLog:
+    required: list
+    optional: dict = dataclasses.field(default_factory=dict)
+    flag: bool = False
+
+
+def unpickled_without(*names):
+    """A ``NewLog`` as unpickled from code that predates the fields *names*."""
+    log = NewLog.__new__(NewLog)
+    log.__dict__.update({"required": [1], "optional": {"a": 1}, "flag": True})
+    for name in names:
+        del log.__dict__[name]
+    return log
+
+
+def test_missing_fields_with_defaults_are_filled_and_named():
+    log = unpickled_without("optional", "flag")
+    assert load_trials.fill_missing_fields(log) == ("optional", "flag")
+    assert (log.required, log.optional, log.flag) == ([1], {}, False)
+
+
+def test_a_current_log_needs_no_filling():
+    assert load_trials.fill_missing_fields(unpickled_without()) == ()
+
+
+def test_a_missing_field_without_a_default_is_too_old_for_the_current_code():
+    with pytest.raises(load_trials.CachedImportError, match="too old for the current code"):
+        load_trials.fill_missing_fields(unpickled_without("required"))
+
+
+def test_a_memory_error_while_loading_is_not_reworded(raw_root, tmp_path, fake_import, monkeypatch):
+    fill(raw_root, tmp_path / "cache")
+
+    def out_of_memory(*args, **kwargs):
+        raise MemoryError
+
+    monkeypatch.setattr(
+        type(load_trials._cached_load(tmp_path / "cache").store_backend), "load_item", out_of_memory
+    )
+    with pytest.raises(MemoryError):
         fill(raw_root.resolve(), tmp_path / "cache", from_cache=True)
+
+
+# --- root forms and the tail fallback -------------------------------------------------------
+
+
+def test_the_root_matches_with_a_trailing_slash(raw_root, tmp_path, fake_import):
+    fill(raw_root, tmp_path / "cache")
+    with pytest.warns(StaleCacheWarning):
+        loaded = fill(Path(f"{raw_root.resolve()}/"), tmp_path / "cache", from_cache=True)
+    assert loaded.trials_by_problem == {1: {"M1": {"call": 1}}}
+
+
+def test_a_relative_root_is_made_absolute(raw_root, tmp_path, fake_import, monkeypatch):
+    fill(raw_root, tmp_path / "cache")
+    monkeypatch.chdir(raw_root.resolve().parent)
+    with pytest.warns(StaleCacheWarning):
+        loaded = fill(Path(raw_root.name), tmp_path / "cache", from_cache=True)
+    assert loaded.trials_by_problem == {1: {"M1": {"call": 1}}}
+
+
+TAIL = "3x3_field_magnitude_bandit/rawdata/cohort-03"
+
+
+def test_a_root_reached_through_a_symlink_matches_on_its_tail():
+    cached = entry("a", root=f"/mnt/ceph/behrens/meg/{TAIL}")
+    chosen = choose_cache_entry([cached], f"/Volumes/behrens/meg/{TAIL}", True, "current")
+    assert chosen == cached
+
+
+def test_an_exact_root_match_wins_over_a_newer_tail_match():
+    exact = entry("exact", time=1.0)
+    tail_only = entry("tail", root=f"/elsewhere/{TAIL}", time=5.0)
+    assert choose_cache_entry([tail_only, exact], ROOT, True, "current") == exact
+
+
+def test_two_roots_sharing_the_tail_raise_listing_both():
+    entries = [entry("a", root=f"/one/{TAIL}"), entry("b", root=f"/two/{TAIL}")]
+    with pytest.raises(FileNotFoundError, match="/one/") as err:
+        choose_cache_entry(entries, ROOT, True, "current")
+    assert f"/two/{TAIL}" in str(err.value)
+
+
+def test_a_tail_match_ignores_the_other_classify_flag():
+    entries = [entry("a", root=f"/one/{TAIL}"), entry("b", root=f"/two/{TAIL}", classify=False)]
+    assert choose_cache_entry(entries, ROOT, True, "current").path == Path("a")
+
+
+def test_the_warning_says_the_root_matched_only_on_its_tail(
+    raw_root, tmp_path, fake_import, monkeypatch
+):
+    deep = raw_root / "exp" / "rawdata" / "cohort-03"
+    deep.mkdir(parents=True)
+    (deep / "x.tsv").write_text("type\tsubtype\tcontent\n")
+    fill(deep, tmp_path / "cache")
+    elsewhere = Path("/Volumes/not-mounted/exp/rawdata/cohort-03")
+    with pytest.warns(StaleCacheWarning, match="matched on its last 3 path parts") as caught:
+        fill(elsewhere, tmp_path / "cache", from_cache=True)
+    message = next(str(w.message) for w in caught if w.category is StaleCacheWarning)
+    assert str(deep.resolve()) in message and str(elsewhere) in message

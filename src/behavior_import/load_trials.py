@@ -28,14 +28,14 @@ import warnings
 from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import NamedTuple
 
 from joblib import Memory
 
 from src.behavior_import.extract_trials import extract_trials_grouped_by_problem
 from src.behavior_import.import_data import import_data
-from src.behavior_import.import_log import ImportLog
+from src.behavior_import.import_log import CacheSource, ImportLog
 from src.behavior_import.warning_records import record_warnings
 from src.settings import get_settings, get_unchecked_settings
 
@@ -44,6 +44,9 @@ from src.settings import get_settings, get_unchecked_settings
 IMPORT_CODE_DIR = Path(__file__).resolve().parent
 # What to do when the share is back, quoted in the errors of a from-cache load.
 WHEN_THE_SHARE_IS_BACK = "run without --from-cache once the server is reachable"
+# A cached root whose full path differs (another mount point, a symbolic link) is matched on
+# this many trailing parts: <experiment>/rawdata/<cohort>.
+TAIL_PARTS = 3
 
 
 class StaleCacheWarning(UserWarning):
@@ -52,6 +55,10 @@ class StaleCacheWarning(UserWarning):
 
 class CachedImportError(RuntimeError):
     """A cached import could not be read."""
+
+
+class CacheMetadataWarning(UserWarning):
+    """A cached import was skipped because its metadata could not be read."""
 
 
 class CacheEntry(NamedTuple):
@@ -153,14 +160,33 @@ def _describe_cached(entries: Iterable[CacheEntry]) -> str:
     return "\n".join(lines) if lines else "  (no cached imports)"
 
 
+def path_tail(path: str) -> tuple[str, ...]:
+    """The last :data:`TAIL_PARTS` parts of *path*, e.g. ``(experiment, "rawdata", cohort)``.
+
+    Args:
+        path (str): An absolute path.
+
+    Returns:
+        tuple[str, ...]: The parts, compared when the full path of a cached root differs (the
+        same folder reached through another mount point or a symbolic link).
+    """
+    return PurePath(path).parts[-TAIL_PARTS:]
+
+
 def choose_cache_entry(
-    entries: Iterable[CacheEntry], root: str, classify_task_types: bool, code_version: str
+    entries: Iterable[CacheEntry],
+    root: str,
+    classify_task_types: bool,
+    code_version: str,
+    unreadable: Iterable[Path] = (),
 ) -> CacheEntry:
     """The cached import to load for *root* when the raw files cannot be checked.
 
-    Only entries of *root* with the same *classify_task_types* qualify. Among them, those made
-    with *code_version* come first, because only they reflect the current import code; within
-    that preference the newest wins.
+    Only entries with the same *classify_task_types* qualify, and of those the ones whose root
+    is *root*. If none is, the ones whose root ends in the same :func:`path_tail`, provided
+    they all have one root (the caller can tell from ``entry.root != root``). Among the
+    qualifying entries, those made with *code_version* come first, because only they reflect
+    the current import code; within that preference the newest wins.
 
     Args:
         entries (Iterable[CacheEntry]): The cached imports, e.g. from
@@ -168,27 +194,41 @@ def choose_cache_entry(
         root (str): The raw-data folder, as an absolute path.
         classify_task_types (bool): The import option the caller needs.
         code_version (str): The current :func:`import_code_version`.
+        unreadable (Iterable[Path]): Entries whose metadata could not be read, named in the
+            error if nothing qualifies. Default none.
 
     Returns:
         CacheEntry: The chosen entry.
 
     Raises:
-        FileNotFoundError: If no entry qualifies; the message lists what is cached.
+        FileNotFoundError: If no entry qualifies (the message lists what is cached), or several
+            roots match only on the tail (the message lists them).
     """
     entries = list(entries)
-    matching = [
-        e for e in entries if e.root == root and e.classify_task_types == classify_task_types
-    ]
+    same_flag = [e for e in entries if e.classify_task_types == classify_task_types]
+    matching = [e for e in same_flag if e.root == root]
     if not matching:
+        matching = [e for e in same_flag if path_tail(e.root) == path_tail(root)]
+        tail_roots = sorted({e.root for e in matching})
+        if len(tail_roots) > 1:
+            raise FileNotFoundError(
+                f"No cached import of {root}, and several cached roots end in "
+                f"{'/'.join(path_tail(root))}; set BANDIT_DATA_ROOT to the one to use:\n"
+                + "\n".join(f"  {r}" for r in tail_roots)
+            )
+    if not matching:
+        skipped = "".join(f"\n  {p}" for p in unreadable)
         raise FileNotFoundError(
             f"No cached import of {root} (classify_task_types={classify_task_types}). "
             f"Cached imports:\n{_describe_cached(entries)}"
+            + (f"\nEntries with unreadable metadata:{skipped}" if skipped else "")
         )
     return max(matching, key=lambda e: (e.code_version == code_version, e.time))
 
 
-def _entry_from_metadata(path: Path, metadata: dict) -> CacheEntry:
-    """The :class:`CacheEntry` of joblib *metadata* (the arguments are stored as reprs)."""
+def _entry_from_metadata(path: Path, metadata: dict) -> CacheEntry | None:
+    """The :class:`CacheEntry` of joblib *metadata* (the arguments are stored as reprs), or
+    ``None`` if the metadata lacks what is needed or cannot be parsed."""
     try:
         args = {k: ast.literal_eval(v) for k, v in metadata["input_args"].items()}
         return CacheEntry(
@@ -199,118 +239,168 @@ def _entry_from_metadata(path: Path, metadata: dict) -> CacheEntry:
             float(metadata["time"]),
             len(args["fingerprint"]),
         )
-    except (KeyError, ValueError, SyntaxError, TypeError) as err:
-        raise CachedImportError(
-            f"Cannot read the metadata of the cached import {path}: {err!r}"
-        ) from err
+    except (KeyError, ValueError, SyntaxError, TypeError, AttributeError):
+        return None
 
 
-def cached_import_entries(cache_dir: Path) -> list[CacheEntry]:
+class CacheListing(NamedTuple):
+    """The cached imports of a cache directory.
+
+    Attributes:
+        entries (tuple[CacheEntry, ...]): Those whose metadata could be read.
+        unreadable (tuple[Path, ...]): Folders of complete entries whose metadata could not.
+    """
+
+    entries: tuple[CacheEntry, ...]
+    unreadable: tuple[Path, ...]
+
+
+def cached_import_entries(cache_dir: Path) -> CacheListing:
     """Every complete cached import under *cache_dir*, read from joblib's metadata files.
 
     An entry folder without both ``metadata.json`` and ``output.pkl`` is an import that was
-    interrupted or is still being written, and is left out.
+    interrupted or is still being written, and is left out. A complete entry whose metadata
+    cannot be read is listed as unreadable with a :class:`CacheMetadataWarning`, so one damaged
+    file does not hide the others.
 
     Args:
         cache_dir (Path): The cache location (as for :func:`load_trials_with_log`).
 
     Returns:
-        list[CacheEntry]: In no particular order; empty if nothing is cached.
-
-    Raises:
-        CachedImportError: If a complete entry's metadata cannot be parsed.
+        CacheListing: Sorted by folder name; empty if nothing is cached.
     """
     if not Path(cache_dir).is_dir():
-        return []
+        return CacheListing((), ())
     load = _cached_load(Path(cache_dir))
     function_dir = Path(load.store_backend.location) / load.func_id
     if not function_dir.is_dir():
-        return []
+        return CacheListing((), ())
     complete = [
         d
         for d in sorted(function_dir.iterdir())
         if (d / "metadata.json").is_file() and (d / "output.pkl").is_file()
     ]
-    return [
-        _entry_from_metadata(d, load.store_backend.get_metadata([load.func_id, d.name]))
+    # joblib's get_metadata returns {} for a file it cannot read
+    parsed = [
+        (d, _entry_from_metadata(d, load.store_backend.get_metadata([load.func_id, d.name])))
         for d in complete
     ]
+    unreadable = tuple(d for d, e in parsed if e is None)
+    for folder in unreadable:
+        warnings.warn(
+            f"Skipping the cached import {folder}: its metadata.json cannot be read",
+            CacheMetadataWarning,
+            stacklevel=2,
+        )
+    return CacheListing(tuple(e for _, e in parsed if e is not None), unreadable)
 
 
-def outdated_cache_reason(loaded) -> str | None:
-    """Why an unpickled cache output cannot be used by the current code, or ``None``.
+def fill_missing_fields(log) -> tuple[str, ...]:
+    """Give an unpickled dataclass the fields its class gained since it was pickled.
 
     Unpickling restores an object's attributes as they were saved, so a log written before a
-    field was added to :class:`~src.behavior_import.import_log.ImportLog` loads without error
-    and fails later, far from the cause. This checks for that up front.
+    field was added loads without error and fails later, far from the cause. A missing field
+    with a default is set to it, in place.
 
     Args:
-        loaded: The unpickled output of :func:`_load`.
+        log: An unpickled dataclass instance (an :class:`ImportLog`); changed in place.
 
     Returns:
-        str | None: What is wrong, or ``None`` if it has the current layout.
+        tuple[str, ...]: The fields that were missing and are now set, in class order.
+
+    Raises:
+        CachedImportError: If a missing field has no default.
     """
-    if not isinstance(loaded, ImportedTrials) or not isinstance(loaded.log, ImportLog):
-        return f"it holds a {type(loaded).__name__}, not trials with an ImportLog"
-    missing = [f.name for f in dataclasses.fields(ImportLog) if not hasattr(loaded.log, f.name)]
-    if missing:
-        return f"its ImportLog lacks {', '.join(missing)}"
-    return None
+    missing = [f for f in dataclasses.fields(log) if f.name not in vars(log)]
+    no_default = [
+        f.name
+        for f in missing
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+    ]
+    if no_default:
+        raise CachedImportError(
+            f"The cached {type(log).__name__} lacks {', '.join(no_default)}, which has no "
+            "default: the cache is too old for the current code"
+        )
+    for f in missing:
+        default = f.default if f.default is not dataclasses.MISSING else f.default_factory()
+        setattr(log, f.name, default)
+    return tuple(f.name for f in missing)
 
 
-def _load_cache_entry(cache_dir: Path, entry: CacheEntry) -> ImportedTrials:
-    """Unpickle the output of *entry*, naming it if that fails or the layout is outdated."""
+def _load_cache_entry(cache_dir: Path, entry: CacheEntry) -> tuple[ImportedTrials, tuple]:
+    """Unpickle the output of *entry* and fill its log's missing fields; ``(trials, filled)``.
+
+    Raises:
+        CachedImportError: Naming the entry, if it cannot be unpickled or is too old.
+    """
     load = _cached_load(Path(cache_dir))
-    cause = None
     try:
         loaded = load.store_backend.load_item([load.func_id, entry.path.name], verbose=0)
-        reason = outdated_cache_reason(loaded)
-    except Exception as err:  # re-raised below: any failure to unpickle makes the entry unusable
-        cause, reason = err, f"{type(err).__name__}: {err}"
-    if reason is not None:
+        if not isinstance(loaded, ImportedTrials) or not isinstance(loaded.log, ImportLog):
+            raise CachedImportError(
+                f"it holds a {type(loaded).__name__}, not trials with an ImportLog"
+            )
+        filled = fill_missing_fields(loaded.log)
+    except MemoryError:
+        raise
+    except Exception as err:  # re-raised: any failure to unpickle makes the entry unusable
         raise CachedImportError(
             f"Cannot use the cached import {entry.path} of {entry.root} "
-            f"({_format_time(entry.time)}): {reason}. It may predate the current code; "
-            f"{WHEN_THE_SHARE_IS_BACK}."
-        ) from cause
-    return loaded
+            f"({_format_time(entry.time)}): {type(err).__name__}: {err}. "
+            f"{WHEN_THE_SHARE_IS_BACK[0].upper()}{WHEN_THE_SHARE_IS_BACK[1:]}."
+        ) from err
+    return loaded, filled
 
 
-def stale_cache_message(entry: CacheEntry, code_version: str) -> str:
+def stale_cache_message(source: CacheSource, root: str) -> str:
     """The warning text for a cached import loaded without checking the raw files.
 
     Args:
-        entry (CacheEntry): The loaded entry.
-        code_version (str): The current :func:`import_code_version`.
+        source (CacheSource): Where the loaded import came from.
+        root (str): The raw-data folder that was asked for.
 
     Returns:
         str: When the import was cached, how many files it covered, whether the import code
-        has changed since, and that newer sessions are missing.
+        has changed since, how the root matched, which log fields were filled, and that newer
+        sessions are missing.
     """
     code = (
         "made with the current import code"
-        if entry.code_version == code_version
+        if source.code_matches
         else "made with older import code: changes to src/behavior_import since then are not "
         "applied"
     )
-    return (
-        f"Using the cached import of {entry.root} from {_format_time(entry.time)} "
-        f"({entry.n_files} .tsv files, {code}) without reading the server; sessions added on "
+    parts = [
+        f"Using the cached import of {source.root} from {_format_time(source.time)} "
+        f"({source.n_files} .tsv files, {code}) without reading the server; sessions added on "
         "the server since then are missing."
-    )
+    ]
+    if source.matched_on_tail:
+        parts.append(
+            f"{root} has no cached import of its own; the cached root matched on its last "
+            f"{TAIL_PARTS} path parts."
+        )
+    if source.filled_fields:
+        parts.append(
+            "The cached import log predates "
+            f"{', '.join(source.filled_fields)}, filled with defaults."
+        )
+    return " ".join(parts)
 
 
 def absolute_path_string(path: Path) -> str:
     """*path* as an absolute path string, without touching the file system.
 
     ``Path.resolve`` would query each folder, which hangs or fails on an unresponsive share,
-    so symbolic links are not followed: give the path as it was when the cache was filled.
+    so symbolic links are not followed; :func:`choose_cache_entry` falls back on the path's
+    tail instead.
 
     Args:
         path (Path): Any path.
 
     Returns:
-        str: ``os.path.abspath(path)``.
+        str: ``os.path.abspath(path)`` (normalised: no trailing slash, no ``..``).
     """
     return os.path.abspath(path)
 
@@ -318,22 +408,30 @@ def absolute_path_string(path: Path) -> str:
 def _load_from_cache(root: Path, cache_dir: Path, classify_task_types: bool) -> ImportedTrials:
     """The newest cached import of *root*, with a :class:`StaleCacheWarning` in its log."""
     code_version = import_code_version()
+    wanted = absolute_path_string(root)
+    listing = cached_import_entries(cache_dir)
     entry = choose_cache_entry(
-        cached_import_entries(cache_dir),
-        absolute_path_string(root),
-        classify_task_types,
-        code_version,
+        listing.entries, wanted, classify_task_types, code_version, listing.unreadable
     )
-    trials, log = _load_cache_entry(cache_dir, entry)
+    (trials, log), filled = _load_cache_entry(cache_dir, entry)
+    source = CacheSource(
+        entry.root,
+        entry.time,
+        entry.code_version == code_version,
+        entry.n_files,
+        entry.root != wanted,
+        filled,
+    )
     print(
         f"[INFO] {entry.root}: cached import of {_format_time(entry.time)}, import code "
-        f"{'matches' if entry.code_version == code_version else 'is older'}"
+        f"{'matches' if source.code_matches else 'is older'}"
     )
     with record_warnings() as recorded:
         # "always": a second load in the same process must warn, and log the warning, again
         warnings.simplefilter("always", StaleCacheWarning)
-        warnings.warn(stale_cache_message(entry, code_version), StaleCacheWarning, stacklevel=4)
-    return ImportedTrials(trials, dataclasses.replace(log, warnings=[*log.warnings, *recorded]))
+        warnings.warn(stale_cache_message(source, wanted), StaleCacheWarning, stacklevel=4)
+    log = dataclasses.replace(log, warnings=[*log.warnings, *recorded], cache_source=source)
+    return ImportedTrials(trials, log)
 
 
 def load_trials_with_log(
