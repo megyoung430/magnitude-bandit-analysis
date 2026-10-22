@@ -190,9 +190,15 @@ def _draw_line(ax, y, color, label, *, rng, jitter, linewidth, **style):
     return Line2D([0], [0], color=color, lw=linewidth, marker="o", label=label)
 
 
+def _bar_stats(ses, unit, counts, average="mean"):
+    """Statistics line of a bar panel: "± SE" only when an error bar is drawn."""
+    shown = f"{average} ± SE" if np.isfinite(np.asarray(ses, dtype=float)).any() else average
+    return _helpers.stats_line(shown, unit, counts)
+
+
 def _style_axis(ax, title, title_pad, *, show_ylabel=False, label_fontsize=None):
     text_kw = {} if label_fontsize is None else {"fontsize": label_fontsize}
-    ax.set_title(title, pad=title_pad)
+    _helpers.set_title(ax, title, pad=title_pad)
     ax.set_xticks(_X)
     ax.set_xticklabels(_RANK_LABELS, **text_kw)
     ax.set_ylim(*_Y_LIMITS)
@@ -279,8 +285,17 @@ def plot_average_across_mice(
         )
         for i, (subj, v) in enumerate(per_mouse.items())
     ]
-    title = "Pooled Trials Within Mouse" if pool_trials_within_subject else "Average Across Mice"
-    _style_axis(ax, title, 14, show_ylabel=True)
+    heading = "Pooled Trials Within Mouse" if pool_trials_within_subject else "Average Across Mice"
+    each_mouse = (
+        "Each mouse's proportion pools its trials over blocks."
+        if pool_trials_within_subject
+        else "Each mouse's proportion is the mean of its block proportions."
+    )
+    caption = [each_mouse]
+    if any(v is not None for v in (pvalues or {}).values()):
+        caption.append("p: paired t-tests across mice.")
+    stats = _bar_stats(ses, "mice", [(len(units), "mouse", "mice")])
+    _style_axis(ax, _helpers.Title(heading, stats, tuple(caption)), 14, show_ylabel=True)
     if mouse_legend:
         ax.legend(handles=handles, fontsize=10, loc="upper right")
     return ax
@@ -321,7 +336,9 @@ def plot_average_across_blocks(
         )
         for i, b in enumerate(per_block)
     ]
-    _style_axis(ax, "Average Across Blocks", 20)
+    stats = _bar_stats(ses, "blocks", [(len(per_block), "block", "blocks")])
+    caption = ("Each block's proportion is the mean of the mice that have that block.",)
+    _style_axis(ax, _helpers.Title("Average Across Blocks", stats, caption), 20)
     ax.legend(handles=handles, fontsize=10, ncols=2, loc="upper right")
     return ax
 
@@ -374,7 +391,12 @@ def plot_mouse_panel(
     _draw_bars(ax, means, ses, style=_MOUSE_PANEL_BAR_STYLE)
     # unlike the other panels, a NaN mean is written out as "nan"
     _label_means(ax, means, 12, finite_only=False)
-    _style_axis(ax, subject, 20, show_ylabel=show_ylabel)
+    if pool_trials_within_subject:
+        n_trials = sum(int(r.get("total", 0)) for r in rows)
+        stats = _bar_stats(ses, "trials", [(n_trials, "trial", "trials")], average="proportion")
+    else:
+        stats = _bar_stats(ses, "blocks", [(len(rows), "block", "blocks")])
+    _style_axis(ax, _helpers.Title(str(subject), stats), 20, show_ylabel=show_ylabel)
     ax.legend(handles=handles, ncols=2, fontsize=10, loc="upper right")
     return ax
 
@@ -425,7 +447,9 @@ def plot_block_panel(
     ses = _summary.se_by_rank(units, guard_single=True)
     _draw_bars(ax, means, ses)
     _label_means(ax, means, 11)
-    _style_axis(ax, f"Block {block_idx + 1}", 20, show_ylabel=show_ylabel, label_fontsize=12)
+    stats = _bar_stats(ses, "mice", [(len(units), "mouse", "mice")])
+    title = _helpers.Title(f"Block {block_idx + 1}", stats)
+    _style_axis(ax, title, 20, show_ylabel=show_ylabel, label_fontsize=12)
     if handles:
         ax.legend(handles=handles, fontsize=10, loc="upper right")
     return ax
