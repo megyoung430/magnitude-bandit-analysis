@@ -540,8 +540,9 @@ def _style_frame(ax: plt.Axes) -> None:
     shown = {"left", "bottom"} if not twin else {"right"}
     for name, spine in ax.spines.items():
         spine.set_linewidth(0.5)
-        if not boxed and name not in shown:
-            spine.set_visible(False)
+        if not boxed:
+            # shown explicitly: the rc settings or the plot may have hidden a spine we keep
+            spine.set_visible(name in shown)
     if boxed:
         return
     for name in shown:

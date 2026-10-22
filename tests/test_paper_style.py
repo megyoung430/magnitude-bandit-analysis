@@ -398,3 +398,22 @@ def test_a_legend_naming_several_mice_is_kept():
     ax.legend()
     polish(fig)
     assert len(ax.get_legend().get_texts()) == 2
+
+
+def test_a_twin_axes_drawn_in_paper_style_still_gets_a_visible_trimmed_right_spine():
+    # the rc settings hide the right spine of every axes created inside the style
+    with paper_style():
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot([0, 1], [0, 1])
+        twin = ax.twinx()
+        twin.plot([0, 1], [0, 3.7])
+        twin.set_ylim(0, 4)
+        polish(fig)
+    right = twin.spines["right"]
+    ticks = [t for t in twin.get_yticks() if 0 <= t <= 4]
+    assert right.get_visible()
+    assert right.get_linewidth() == 0.5
+    assert right.get_bounds() == (min(ticks), max(ticks))
+    assert right.get_position() == ("outward", 2.5)
+    assert not ax.spines["right"].get_visible()
+    assert ax.spines["left"].get_visible() and not twin.spines["left"].get_visible()
