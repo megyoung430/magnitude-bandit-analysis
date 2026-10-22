@@ -7,7 +7,7 @@ events and SNR; nothing here reads files or draws. The steps, in the paper's ord
 2. Running baseline ``F0 = Fs + m`` (Low et al. 2014): ``Fs`` is the 8th percentile of ``Fcorr``
    in a ±15 s window and ``m`` centres ``Fcorr - F0`` on zero at baseline points, the frames whose
    local SD is within the lowest 10 % of the SD range. ``ΔF/F = (Fcorr - F0) / F0``.
-3. Significant transients: ``ΔF/F`` above 2 local baseline SDs for more than 0.75 s.
+3. Significant transients: ``ΔF/F`` above 2 robust local SDs for more than 0.75 s.
 4. OASIS non-negative deconvolution with the indicator's decay time; ``ΔF/F`` and the events
    outside significant transients are set to zero (``*_clear``) and the events are scaled so
    their maximum equals the maximum of ``ΔF/F_clear``.
@@ -20,8 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
-# A window with fewer baseline points than this (about 4 s of frames) has no usable local SD.
-MIN_BASELINE_POINTS = 30
+MAD_TO_SD = 1.4826  # scales the median absolute deviation to a standard deviation (normal data)
 SIGNAL_PERCENTILE = 90  # of ΔF/F within each significant transient
 
 
@@ -40,6 +39,8 @@ class Zong2022Settings:
         transient_sd (float): A transient exceeds this many local baseline SDs. Paper: 2.
         transient_min_s (float): ... for longer than this (s). Paper: 0.75.
         min_snr (float): Cells need an SNR above this. Paper: 3.
+        min_baseline_s (float): A cell needs at least this much baseline (in frames at the frame
+            rate) to centre ``F0`` and to estimate its noise; fewer and the cell is excluded.
         min_events (int | None): Cells also need at least this many calcium events. The paper
             used 100 for its tuning analyses; None applies no event criterion.
     """
@@ -52,6 +53,7 @@ class Zong2022Settings:
     transient_sd: float = 2.0
     transient_min_s: float = 0.75
     min_snr: float = 3.0
+    min_baseline_s: float = 4.0
     min_events: int | None = None
 
     def __post_init__(self):
@@ -64,6 +66,7 @@ class Zong2022Settings:
             "transient_sd": self.transient_sd > 0,
             "transient_min_s": self.transient_min_s >= 0,
             "min_snr": self.min_snr >= 0,
+            "min_baseline_s": self.min_baseline_s > 0,
             "min_events": self.min_events is None or self.min_events >= 1,
         }
         bad = [name for name, ok in checks.items() if not ok]
@@ -75,8 +78,9 @@ class Zong2022Settings:
 class SignalResult:
     """Everything the pipeline computes for one run; rows are ROIs, columns frames.
 
-    Cells whose F0 is not positive throughout (``f0_ok`` False) have NaN traces and no SNR; they
-    keep their row so indices stay the ROI numbers.
+    Cells that cannot be analysed (``usable`` False; ``excluded`` says why: F0 not positive, or
+    too few baseline points) have NaN traces and no SNR; they keep their row so indices stay the
+    ROI numbers.
     """
 
     period_s: float
@@ -86,12 +90,13 @@ class SignalResult:
     delta_f: np.ndarray  # Fcorr - F0, the input of the deconvolution
     dff: np.ndarray
     baseline_points: np.ndarray
-    baseline_sd: np.ndarray  # local SD of ΔF/F at baseline points, the transient threshold's unit
+    baseline_sd: np.ndarray  # robust local SD of ΔF/F outside transients, the threshold's unit
     transient_mask: np.ndarray
     events: np.ndarray  # OASIS output, before filtering
     dff_clear: np.ndarray
     e_clear: np.ndarray
-    f0_ok: np.ndarray
+    usable: np.ndarray
+    excluded: np.ndarray  # "" for usable cells, else the reason
     signal: np.ndarray
     noise: np.ndarray
     snr: np.ndarray
@@ -193,7 +198,9 @@ def running_baseline(
     ``Fs`` is the running *percentile*. The local SD in the same window picks the baseline
     points: frames at most ``sd_min + sd_fraction * (sd_max - sd_min)`` (``sd_min`` and
     ``sd_max`` over the whole trace). ``m`` is the mean of ``Fcorr - Fs`` over the baseline
-    points, which is the constant that centres ``Fcorr - F0`` on zero there.
+    points, which is the constant that centres ``Fcorr - F0`` on zero there. Windows within
+    *half* frames of either end are cut, so their SD is estimated from fewer frames and is more
+    variable; baseline points are over-represented there.
 
     Args:
         fcorr (np.ndarray): Neuropil-corrected fluorescence of one cell, ``(n_frames,)``.
@@ -211,37 +218,70 @@ def running_baseline(
     return fs + offset, baseline
 
 
-def local_baseline_sd(
-    dff: np.ndarray, baseline_points: np.ndarray, half: int, min_points: int = MIN_BASELINE_POINTS
-) -> np.ndarray:
-    """SD of ``ΔF/F`` over the baseline points inside the window centred on each frame.
+def min_baseline_frames(min_s: float, period_s: float) -> int:
+    """Frames in *min_s* seconds, rounded up (at least one)."""
+    return max(1, int(np.ceil(round(min_s / period_s, 9))))
 
-    This is the "local standard deviation of the baseline fluorescence" that a transient has to
-    exceed: it measures the noise from frames known to hold no activity, so a busy window does
-    not raise its own threshold. A window with fewer than *min_points* baseline points (a cell
-    active throughout it) uses the SD of all the cell's baseline points instead.
+
+def moving_robust_sd(
+    x: np.ndarray,
+    half: int,
+    exclude: np.ndarray | None = None,
+    min_points: int = 30,
+    stride: int | None = None,
+) -> np.ndarray:
+    """Robust SD (1.4826 x MAD) of *x* in the window centred on each frame, without excluded frames.
+
+    The MAD is insensitive to the few large values of a transient, and *exclude* removes the
+    frames of detected transients altogether. Windows are cut at the ends of the recording. To
+    stay fast the SD is evaluated every *stride* frames (default a tenth of the half window) and
+    interpolated; the window changes by a few percent between neighbouring frames, so the
+    interpolation error is negligible. A window with fewer than *min_points* usable frames takes
+    the SD of all usable frames of the trace.
 
     Raises:
-        ValueError: If the trace has fewer than *min_points* baseline points in all.
+        ValueError: If fewer than *min_points* frames are usable in all.
     """
-    x = np.asarray(dff, dtype=float)
-    base = np.asarray(baseline_points, dtype=bool)
-    if base.sum() < min_points:
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    keep = np.ones(n, dtype=bool) if exclude is None else ~np.asarray(exclude, dtype=bool)
+    if keep.sum() < min_points:
         raise ValueError(
-            f"Only {int(base.sum())} baseline points (need {min_points}); the cell has no "
-            "quiet stretch to measure its noise from."
+            f"Only {int(keep.sum())} usable frames (need {min_points}) to measure the noise from."
         )
-    global_sd = float(np.std(x[base]))
-    centre = x[base].mean()
-    values = np.where(base, x - centre, 0.0)
-    lo, hi = _window_bounds(len(x), half)
-    counts = np.r_[0, np.cumsum(base)][hi] - np.r_[0, np.cumsum(base)][lo]
-    sums = np.r_[0.0, np.cumsum(values)]
-    squares = np.r_[0.0, np.cumsum(values**2)]
-    safe = np.maximum(counts, 1)
-    mean = (sums[hi] - sums[lo]) / safe
-    variance = (squares[hi] - squares[lo]) / safe - mean**2
-    return np.where(counts >= min_points, np.sqrt(np.maximum(variance, 0.0)), global_sd)
+    stride = max(1, half // 10) if stride is None else stride
+    centres = np.unique(np.r_[np.arange(0, n, stride), n - 1])
+    lo, hi = _window_bounds(n, half)
+    global_sd = _mad_sd(x[keep])
+    values = np.empty(len(centres))
+    for k, centre in enumerate(centres):
+        window = x[lo[centre] : hi[centre]][keep[lo[centre] : hi[centre]]]
+        values[k] = _mad_sd(window) if len(window) >= min_points else global_sd
+    return np.interp(np.arange(n), centres, values)
+
+
+def _mad_sd(values: np.ndarray) -> float:
+    return float(MAD_TO_SD * np.median(np.abs(values - np.median(values))))
+
+
+def transient_threshold(
+    dff: np.ndarray, half: int, n_sd: float, min_frames: int, min_points: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """The local noise SD and the significant transients of one cell, found in two passes.
+
+    The paper's "local standard deviation of the baseline fluorescence" is read here as the
+    robust SD of ``ΔF/F`` over the frames of the ±15 s window that lie outside significant
+    transients. The transients are not known beforehand, so they are found with the robust SD
+    of all frames in the window (the MAD ignores them), then the SD is measured again without
+    the detected transients and the detection repeated.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: The SD per frame and the transient mask.
+    """
+    first = moving_robust_sd(dff, half, min_points=min_points)
+    detected = significant_transients(dff, first, n_sd, min_frames)
+    sd = moving_robust_sd(dff, half, exclude=detected, min_points=min_points)
+    return sd, significant_transients(dff, sd, n_sd, min_frames)
 
 
 # ---- transients and SNR ----------------------------------------------------------------------
@@ -364,10 +404,14 @@ def _baseline_traces(fcorr: np.ndarray, half: int, settings: Zong2022Settings):
     return np.array([p[0] for p in pairs]), np.array([p[1] for p in pairs])
 
 
-def _cell_transients(dff: np.ndarray, baseline: np.ndarray, half: int, settings, period_s):
-    sd = local_baseline_sd(dff, baseline, half)
-    min_frames = min_transient_frames(settings.transient_min_s, period_s)
-    mask = significant_transients(dff, sd, settings.transient_sd, min_frames)
+def _cell_transients(dff: np.ndarray, half: int, settings: Zong2022Settings, period_s: float):
+    sd, mask = transient_threshold(
+        dff,
+        half,
+        settings.transient_sd,
+        min_transient_frames(settings.transient_min_s, period_s),
+        min_baseline_frames(settings.min_baseline_s, period_s),
+    )
     return sd, mask, transient_snr(dff, mask)
 
 
@@ -377,6 +421,15 @@ def _passes(snr: np.ndarray, n_events: np.ndarray, settings: Zong2022Settings) -
     if settings.min_events is not None:
         ok &= n_events >= settings.min_events
     return ok
+
+
+def _exclusion_reasons(f0: np.ndarray, baseline: np.ndarray, min_points: int) -> np.ndarray:
+    """Per cell: "" if analysable, else why not (a non-positive F0 or too little baseline)."""
+    return np.where(
+        (f0 <= 0).any(axis=1),
+        "F0 <= 0",
+        np.where(baseline.sum(axis=1) < min_points, "too few baseline points", ""),
+    )
 
 
 def analyse_traces(
@@ -392,8 +445,9 @@ def analyse_traces(
 
     Returns:
         SignalResult: All intermediate and final traces and the per-cell table. ROIs whose F0
-        is not positive at every frame cannot give a ΔF/F; they are marked ``f0_ok`` False and
-        left as NaN rather than dropped.
+        is not positive at every frame, or that have too few baseline points, cannot be analysed;
+        they are marked ``usable`` False with the reason in ``excluded`` and left as NaN rather
+        than dropped or raised on.
 
     Raises:
         ValueError: If the traces are not finite, differ in shape, or are shorter than the
@@ -403,13 +457,16 @@ def analyse_traces(
     half = half_window_frames(settings.baseline_half_window_s, period_s)
     _check_window(fcorr.shape[1], half)
     f0, baseline = _baseline_traces(fcorr, half, settings)
-    f0_ok = (f0 > 0).all(axis=1)
+    excluded = _exclusion_reasons(
+        f0, baseline, min_baseline_frames(settings.min_baseline_s, period_s)
+    )
+    usable = excluded == ""
     nan = np.full(fcorr.shape, np.nan)
-    delta_f = np.where(f0_ok[:, None], fcorr - f0, nan)
+    delta_f = np.where(usable[:, None], fcorr - f0, nan)
     with np.errstate(divide="ignore", invalid="ignore"):
-        dff = np.where(f0_ok[:, None], delta_f / f0, nan)
-    ok = np.flatnonzero(f0_ok)
-    per_cell = [_cell_transients(dff[i], baseline[i], half, settings, period_s) for i in ok]
+        dff = np.where(usable[:, None], delta_f / f0, nan)
+    ok = np.flatnonzero(usable)
+    per_cell = [_cell_transients(dff[i], half, settings, period_s) for i in ok]
     baseline_sd, mask = nan.copy(), np.zeros(fcorr.shape, dtype=bool)
     stats = {key: np.full(len(fcorr), np.nan) for key in ("signal", "noise", "snr")}
     n_transients = np.zeros(len(fcorr), dtype=int)
@@ -421,7 +478,7 @@ def analyse_traces(
     if len(ok):
         events[ok] = deconvolve(delta_f[ok], 1 / period_s, settings.tau_s)
         dff_clear[ok], e_clear[ok] = clear_traces(dff[ok], events[ok], mask[ok])
-    n_events = np.where(f0_ok, (np.nan_to_num(e_clear) > 0).sum(axis=1), 0)
+    n_events = np.where(usable, (np.nan_to_num(e_clear) > 0).sum(axis=1), 0)
     return SignalResult(
         period_s=period_s,
         settings=settings,
@@ -435,7 +492,8 @@ def analyse_traces(
         events=events,
         dff_clear=dff_clear,
         e_clear=e_clear,
-        f0_ok=f0_ok,
+        usable=usable,
+        excluded=excluded,
         n_transients=n_transients,
         n_events=n_events,
         passes=_passes(stats["snr"], n_events, settings),

@@ -12,15 +12,17 @@ from src.funcimg_analysis.zong2022_signal import (  # noqa: E402
     deconvolve,
     event_counts_by_tau,
     half_window_frames,
-    local_baseline_sd,
+    min_baseline_frames,
     min_transient_frames,
     moving_percentile,
+    moving_robust_sd,
     moving_std,
     neuropil_correct,
     running_baseline,
     significant_transients,
     transient_bounds,
     transient_snr,
+    transient_threshold,
 )
 from tests.zong2022_fixtures import (  # noqa: E402
     FS_HZ,
@@ -145,33 +147,56 @@ def test_a_constant_trace_is_all_baseline():
     np.testing.assert_allclose(f0, 50.0)
 
 
-def test_local_baseline_sd_is_the_sd_of_baseline_points_in_the_window():
+def test_robust_sd_matches_brute_force_with_truncated_edges():
     rng = np.random.default_rng(4)
-    dff = rng.normal(0, 0.01, 2000)
-    dff[900:950] += 1.0  # a transient, not baseline
-    baseline = np.ones(2000, bool)
-    baseline[895:960] = False
-    sd = local_baseline_sd(dff, baseline, half=100, min_points=30)
-    window = slice(1000 - 100, 1000 + 101)
-    expected = np.std(dff[window][baseline[window]])
-    assert sd[1000] == pytest.approx(expected, rel=1e-6)
-    # a window dominated by the transient still reports the baseline points' spread, not its own
-    assert sd[925] < 0.02
+    x = rng.normal(0, 0.3, 300)
+    half = 20
+    expected = [
+        1.4826 * np.median(np.abs(w - np.median(w)))
+        for w in (x[max(0, i - half) : i + half + 1] for i in range(len(x)))
+    ]
+    got = moving_robust_sd(x, half, min_points=5, stride=1)
+    np.testing.assert_allclose(got, expected)
 
 
-def test_local_baseline_sd_falls_back_to_the_global_value_when_a_window_has_too_few_points():
+def test_robust_sd_ignores_frames_in_the_exclusion_mask():
     rng = np.random.default_rng(5)
-    dff = rng.normal(0, 0.01, 1000)
-    baseline = np.zeros(1000, bool)
-    baseline[:400] = True
-    sd = local_baseline_sd(dff, baseline, half=20, min_points=30)
-    assert sd[900] == pytest.approx(np.std(dff[baseline]))  # no baseline point within ±20 frames
+    x = rng.normal(0, 0.01, 2000)
+    x[900:950] += 1.0
+    exclude = np.zeros(2000, bool)
+    exclude[895:960] = True
+    sd = moving_robust_sd(x, 100, exclude=exclude, min_points=30, stride=1)
+    assert sd[925] == pytest.approx(0.01, rel=0.25)  # the transient does not inflate it
+
+
+def test_robust_sd_falls_back_to_the_global_value_when_a_window_has_too_few_frames():
+    rng = np.random.default_rng(6)
+    x = rng.normal(0, 0.01, 1000)
+    exclude = np.zeros(1000, bool)
+    exclude[400:] = True  # nothing usable beyond frame 400
+    sd = moving_robust_sd(x, 20, exclude=exclude, min_points=30, stride=1)
+    reference = 1.4826 * np.median(np.abs(x[:400] - np.median(x[:400])))
+    assert sd[900] == pytest.approx(reference)
     assert np.isfinite(sd).all()
 
 
-def test_local_baseline_sd_needs_baseline_points():
-    with pytest.raises(ValueError, match="baseline"):
-        local_baseline_sd(np.ones(50), np.zeros(50, bool), half=5, min_points=3)
+def test_robust_sd_refuses_an_exclusion_that_leaves_nothing():
+    with pytest.raises(ValueError, match="frames"):
+        moving_robust_sd(np.ones(50), 5, exclude=np.ones(50, bool), min_points=3)
+
+
+def test_the_threshold_sd_of_white_noise_is_the_true_sd():
+    rng = np.random.default_rng(7)
+    dff = rng.normal(0, 0.02, 6000)
+    dff[2000:2060] += np.exp(-np.arange(60) / 8)  # one transient
+    sd, mask = transient_threshold(dff, half=113, n_sd=2.0, min_frames=6, min_points=31)
+    assert np.median(sd) == pytest.approx(0.02, rel=0.05)
+    assert mask[2000:2010].all()
+    assert sd[2020] == pytest.approx(0.02, rel=0.25)  # the transient is excluded from its own SD
+
+
+def test_min_baseline_is_given_in_seconds_and_converted_with_the_frame_period():
+    assert min_baseline_frames(4.0, 0.133) == 31
 
 
 # --- transients -----------------------------------------------------------------------------------
@@ -318,7 +343,7 @@ def test_pipeline_gives_one_row_per_cell_and_finds_the_planted_events():
     fneu = np.zeros_like(fcorr)
     result = analyse_traces(fcorr, fneu, PERIOD_S, Zong2022Settings(tau_s=1.0))
     assert result.dff.shape == fcorr.shape
-    assert result.f0_ok.all()
+    assert result.usable.all()
     assert (result.snr > 3).all()
     assert result.passes.all()
     assert (result.n_transients == len(cells[0].spike_frames)).all()
@@ -364,7 +389,7 @@ def test_cells_whose_f0_is_not_positive_are_excluded_and_listed_not_dropped():
     fcorr, _ = planted_cells(rng, n_cells=2)
     fcorr[1] -= 1000.0  # F0 negative throughout
     result = analyse_traces(fcorr, np.zeros_like(fcorr), PERIOD_S, Zong2022Settings())
-    assert result.f0_ok.tolist() == [True, False]
+    assert result.usable.tolist() == [True, False]
     assert np.isnan(result.dff[1]).all() and np.isnan(result.dff_clear[1]).all()
     assert not result.passes[1] and np.isnan(result.snr[1])
     assert result.passes[0]  # the other cell is unaffected
@@ -401,3 +426,72 @@ def test_event_counts_by_tau_returns_a_count_per_cell_for_each_tau():
     # and the count at the pipeline's own tau equals the pipeline's n_events
     again = event_counts_by_tau(result.delta_f, result.transient_mask, FS_HZ, (0.7,))
     np.testing.assert_array_equal(again[0.7], result.n_events)
+
+
+# --- cells that cannot be analysed are excluded, never fatal ------------------------------------
+
+
+def test_many_noise_only_cells_are_analysed_without_raising_and_every_exclusion_has_a_reason():
+    rng = np.random.default_rng(20)
+    noise = 100 + rng.normal(0, 1.0, (80, 4000))
+    result = analyse_traces(noise, np.zeros_like(noise), PERIOD_S, Zong2022Settings())
+    assert set(result.excluded) <= {"", "too few baseline points"}
+    assert (result.usable == (result.excluded == "")).all()
+    unusable = ~result.usable
+    assert np.isnan(result.dff[unusable]).all() and not result.passes[unusable].any()
+    assert result.usable.sum() >= 60  # most noise cells have a quiet stretch
+
+
+def test_a_cell_with_too_few_baseline_points_is_flagged_with_the_reason_not_fatal():
+    rng = np.random.default_rng(21)
+    fcorr, _ = planted_cells(rng, n_cells=2)
+    # 700 s of baseline can never be reached in an 800 s recording with sparse transients
+    settings = Zong2022Settings(min_baseline_s=700.0)
+    result = analyse_traces(fcorr, np.zeros_like(fcorr), PERIOD_S, settings)
+    assert result.excluded.tolist() == ["too few baseline points"] * 2
+    assert not result.usable.any() and not result.passes.any()
+
+
+def test_the_exclusion_reason_for_a_negative_baseline_stays_f0():
+    rng = np.random.default_rng(22)
+    fcorr, _ = planted_cells(rng, n_cells=2)
+    fcorr[1] -= 1000.0
+    result = analyse_traces(fcorr, np.zeros_like(fcorr), PERIOD_S, Zong2022Settings())
+    assert result.excluded.tolist() == ["", "F0 <= 0"]
+
+
+# --- temporally correlated noise ----------------------------------------------------------------
+
+
+def ar1_noise(rng, n_cells, n_frames, tau_s):
+    """Unit-variance AR(1) noise with the given time constant (white for tau_s = 0)."""
+    rho = np.exp(-PERIOD_S / tau_s) if tau_s > 0 else 0.0
+    out = np.empty((n_cells, n_frames))
+    out[:, 0] = rng.normal(size=n_cells)
+    drive = rng.normal(size=(n_cells, n_frames)) * np.sqrt(1 - rho**2)
+    for t in range(1, n_frames):
+        out[:, t] = rho * out[:, t - 1] + drive[:, t]
+    return out
+
+
+def noise_pass_rates():
+    rates = {}
+    for tau in (0.0, 0.2, 0.5):
+        rng = np.random.default_rng(30)
+        traces = 100 + ar1_noise(rng, 30, 4000, tau)
+        result = analyse_traces(traces, np.zeros_like(traces), PERIOD_S, Zong2022Settings())
+        rates[tau] = result.passes.sum() / max(1, result.usable.sum())
+    return rates
+
+
+def test_white_noise_does_not_pass_but_correlated_noise_passes_more_often():
+    """The paper's criteria do not reject temporally correlated noise (a documented limitation).
+
+    The pass rates for white noise, AR(1) τ = 0.2 s and τ = 0.5 s are asserted to grow with the
+    correlation, so a change that hides the limitation fails here.
+    """
+    rates = noise_pass_rates()
+    print("pass rates by noise time constant:", rates)
+    assert rates[0.0] < 0.1
+    assert rates[0.0] <= rates[0.2] <= rates[0.5]
+    assert rates[0.5] > rates[0.0]
