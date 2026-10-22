@@ -378,7 +378,8 @@ def _write_pool(
         run_at (datetime): The time written to ``cohorts.txt``.
         excluded (tuple[str, ...]): Mice left out of *problems*; empty for the plain pool.
         sources (dict | None): ``{cohort: CacheSource}`` of cohorts loaded from the cache
-            without the server; each folder then gets ``from-cache.txt`` saying so. Empty or ``None``: the folders' notes are removed. Default None.
+            without the server; each folder then gets ``from-cache.txt`` saying so. Empty or
+            ``None``: the folders' notes are removed. Default None.
 
     Returns:
         AllCohortsResult: The folders, the mice per cohort of *problems*, rank results and tables.
