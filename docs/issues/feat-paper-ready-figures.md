@@ -27,8 +27,9 @@ drifting set only, Nature/Cell style, PDF + SVG + PNG.
   two-sided Wilcoxon signed-rank tests across mice, Holm-corrected for the comparisons of the
   figure, stars from the corrected p (`***` < 0.001, `**` < 0.01, `*` < 0.05, `n.s.`). The
   caption gives n, W, raw and corrected p and marks, says why a comparison was not tested
-  (fewer than 2 mice, all differences zero) and, when too few mice make significance
-  impossible, the smallest attainable exact p. The normal figures and tables keep the paired
+  (fewer than 2 mice) and, when too few mice make significance impossible, the smallest
+  attainable exact p. A comparison whose differences are all zero counts as p = 1 (n.s.) and
+  stays in the Holm family. The normal figures and tables keep the paired
   t-tests.
 
 ## Decisions (PI to check)
@@ -54,7 +55,11 @@ drifting set only, Nature/Cell style, PDF + SVG + PNG.
   proportions the bars and lines show (both pooling modes). scipy's default
   `zero_method="wilcox"`, `method="auto"`: exact for up to 50 mice without ties or zero
   differences, an exact permutation test for ties or zeros up to 13 mice, the normal
-  approximation otherwise; the method used is named in the caption. Holm is a small function
+  approximation otherwise; the method used is named in the caption. All-zero differences stay
+  in the Holm family as p = 1, so the correction is always for every tested comparison (the
+  more conservative choice). A printed p gets extra decimals rather than round across a star
+  threshold (0.0496, not 0.050). Brackets are drawn only inside `paper_figures()`: the means
+  and statistics reach the reader only through the paper caption, so elsewhere it raises. Holm is a small function
   of our own (statsmodels is only a notebooks extra). `n.s.` is drawn too (`show_ns=True`).
 - In the paper rank figure the bar means move to the caption (they were moved there by the
   polish step anyway), so the brackets sit just above the data; the y ticks stay at 0-1 and the
