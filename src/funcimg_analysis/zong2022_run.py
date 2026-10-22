@@ -43,8 +43,8 @@ from src.funcimg_analysis.zong2022_responses import (
     chance_summary,
     circular_shifts,
     pooled_responses,
-    responsive_cells,
     response_frames,
+    responsive_cells,
     reward_frame_mask,
     valid_span,
 )
