@@ -1,4 +1,8 @@
-"""``load_trials_with_log(..., from_cache=True)``: the newest cached import, without the share."""
+"""``load_trials_with_log(..., from_cache=True)`` with legacy joblib imports, without the share.
+
+Older versions cached whole imports with joblib; a cohort without a cache snapshot is loaded
+from its newest legacy import. ``fill`` writes such an entry directly, as the old code did.
+"""
 
 import dataclasses
 import json
@@ -17,6 +21,7 @@ from src.behavior_import.load_trials import (
     cached_import_entries,
     choose_cache_entry,
     load_trials_with_log,
+    raw_data_fingerprint,
 )
 from src.behavior_import.warning_records import WarningRecord
 
@@ -92,7 +97,7 @@ def fake_import(monkeypatch):
     """The slow import replaced by one that returns a fixed result and counts its calls."""
     calls = []
 
-    def fake(root, classify_task_types=False):
+    def fake(root, classify_task_types=False, **import_options):
         calls.append(root)
         log = ImportLog(warnings=[WarningRecord("UserWarning", "from the import", "x.py", 1)])
         return ImportedTrials({1: {"M1": {"call": len(calls)}}}, log)
@@ -101,8 +106,23 @@ def fake_import(monkeypatch):
     return calls
 
 
-def fill(raw_root, cache_dir, **kwargs):
-    return load_trials_with_log(raw_root, cache_dir=cache_dir, **kwargs)
+def fill(raw_root, cache_dir, *, from_cache=False, classify_task_types=False, **kwargs):
+    """Load cache-first with *from_cache*; otherwise write a legacy entry as the old code did."""
+    if from_cache:
+        return load_trials_with_log(
+            raw_root,
+            cache_dir=cache_dir,
+            from_cache=True,
+            classify_task_types=classify_task_types,
+            **kwargs,
+        )
+    root = Path(raw_root).resolve()
+    return load_trials._cached_load(Path(cache_dir))(
+        str(root),
+        raw_data_fingerprint(root),
+        load_trials.import_code_version(),
+        classify_task_types,
+    )
 
 
 def test_the_cached_entries_are_listed_with_their_inputs(raw_root, tmp_path, fake_import):
@@ -211,7 +231,7 @@ def test_a_cache_that_cannot_be_unpickled_fails_with_the_entry_named(
     with pytest.raises(load_trials.CachedImportError) as err:
         fill(raw_root.resolve(), tmp_path / "cache", from_cache=True)
     assert str(found.path) in str(err.value)
-    assert "without --from-cache" in str(err.value)
+    assert "--refresh-cache" in str(err.value)
     assert len(fake_import) == 1  # no fall-through to an import from the share
 
 
@@ -222,7 +242,7 @@ def test_an_unreadable_metadata_file_is_skipped_with_a_warning(raw_root, tmp_pat
         patch.setattr(
             load_trials,
             "_import_and_extract",
-            lambda root, classify_task_types=False: ImportedTrials({1: {}}, ImportLog()),
+            lambda root, classify_task_types=False, **_: ImportedTrials({1: {}}, ImportLog()),
         )
         fill(raw_root, cache)
         fill(raw_root, cache, classify_task_types=True)
@@ -238,10 +258,12 @@ def test_with_only_unreadable_metadata_the_error_names_them(raw_root, tmp_path, 
     fill(raw_root, tmp_path / "cache")
     (found,) = cached_import_entries(tmp_path / "cache").entries
     (found.path / "metadata.json").write_text("")
+    root = raw_root.resolve()
+    root.rename(tmp_path / "unmounted")  # with the share there, the load would import it
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", load_trials.CacheMetadataWarning)
         with pytest.raises(FileNotFoundError, match="unreadable") as err:
-            fill(raw_root.resolve(), tmp_path / "cache", from_cache=True)
+            fill(root, tmp_path / "cache", from_cache=True)
     assert str(found.path) in str(err.value)
 
 
@@ -266,7 +288,7 @@ def test_the_cache_dir_default_does_not_need_the_share(
 
 
 def old_log_import(drop):
-    def old_import(root, classify_task_types=False):
+    def old_import(root, classify_task_types=False, **import_options):
         log = ImportLog()
         delattr(log, drop)  # as pickled by code that predates the field
         return ImportedTrials({1: {"M1": {}}}, log)

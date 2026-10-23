@@ -94,46 +94,56 @@ cp .env.example .env      # .env is git-ignored
 If the variable is unset or the directory isn't mounted, `get_settings()` raises
 immediately with a clear message instead of failing later inside `import_data`.
 
-### Cached imports
+### Import cache
 
-Scripts load data with `load_trials_by_problem(root)`
-(`src/behavior_import/load_trials.py`), which caches the result of
-`extract_trials_grouped_by_problem(import_data(root))` in `.cache/`
-(git-ignored; override with `BANDIT_CACHE_DIR`). The cache key includes every
-raw `.tsv` file's path, size and modification time and a hash of
-`src/behavior_import/`, so new sessions or import-code changes trigger a fresh
-import automatically. Delete `.cache/` at any time; it only costs a re-import.
+Parsing every raw `.tsv` is the slow part of an import, so imports go through a cache in
+`.cache/` (git-ignored; override with `BANDIT_CACHE_DIR`; see
+`src/behavior_import/load_trials.py` and `cache_store.py`):
 
-### Running without the server
+- each file's parse is kept, keyed on its path, size, modification time and the parsing code,
+  so a refresh parses only new or changed files and reuses the rest;
+- the assembled cohort (sessions, problem numbers, trials, import log) is stored as a
+  snapshot, with a small `manifest.json` listing the files it was made from.
 
-When the share is unmounted or the connection is unreliable, the pooled runs can use the import
-cache alone:
+**Runs read the cache by default.** `run_cohorts.py` and `run_all_drifting_problems.py` load
+each cohort from its newest snapshot without touching the server, and print one line per
+cohort with the snapshot's date and file count. Sessions added on the server since are
+missing: a `StaleCacheWarning` (also in `warnings_log.csv`) and a `from-cache.txt` in every
+output folder say so. A cohort with only an old-style cache (from before snapshots) uses its
+newest one the same way; a cohort with no cache at all is imported from the server and cached.
 
 ```bash
-uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --from-cache
-uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 --from-cache
+uv run python scripts/full_pipelines/import_cache.py check --cohorts 1 3 4    # what is missing?
+uv run python scripts/full_pipelines/import_cache.py refresh --cohorts 3      # include new data
+uv run python scripts/full_pipelines/import_cache.py prune --dry-run          # what can go?
+uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --refresh-cache  # refresh, then run
 ```
 
-`--from-cache` never reads the raw folder (no listing, no file sizes, no existence check, so a
-hung mount cannot stall it). For each cohort it loads the cached import of
-`<BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N`, preferring one made with the
-current `src/behavior_import` code and otherwise the newest. `BANDIT_DATA_ROOT` must still be
-set, but it need not exist; if no cached import has exactly that path (the share mounted
-elsewhere, or reached through a symbolic link), the one ending in the same
-`<experiment>/rawdata/cohort-0N` is used, and if several do the run stops and lists them.
+- `check` lists the server (sizes and dates only) and says, per cohort, when its cache was made,
+  whether the import or parsing code (or pandas) changed since, and which subjects, sessions
+  and files are new, changed, removed or were skipped as unreadable. It exits 0 when a refresh
+  would change nothing, 1 otherwise, and 2 when the server or the settings are missing;
+  `--json` prints the same as JSON.
+- `refresh` parses the new and changed files, writes a new snapshot and then prunes that raw
+  folder's older snapshots (`--keep-old` to skip). If the server stops answering part-way it
+  stops with an error and the previous snapshot stays in use; a single unreadable file is
+  skipped, as a plain import skips it, and tried again by the next refresh. Snapshots are
+  written to a temporary folder and renamed into place.
+- `prune` removes snapshots older than the newest of the same raw folder (a partial copy at
+  another path keeps its own), old-style caches that a snapshot of their folder has replaced,
+  per-file parses no kept snapshot uses, and leftovers of interrupted writes, printing the
+  space freed. A cohort's only cache is never removed.
 
-A `StaleCacheWarning` (also in the cohort's `warnings_log.csv`) gives the date of the cached
-import, how many `.tsv` files it covered and whether the import code has changed since:
-sessions added on the server since then are missing, and import-code changes since then are
-not applied. Every output folder the run writes gets a `from-cache.txt` listing this per
-cohort. A later run that reads the server removes `from-cache.txt`
-from the folders it rewrites.
+`--refresh-cache` on either run script refreshes the listed cohorts first; `--no-cache`
+(`run_all_drifting_problems.py`) re-imports everything without the cache. `--from-cache` is
+still accepted and changes nothing.
 
-With no cached import of a cohort the run stops and lists the cached roots and dates. A cached
-import made before a field was added to the import log is used with that field at its
-default (the warning names it); one that the current code cannot read at all stops the run.
-Run without `--from-cache` once the server is back. In `run_all_drifting_problems.py`,
-`--from-cache` cannot be combined with `--no-cache` (`run_cohorts.py` has no `--no-cache`).
+In code (notebooks), `load_trials_with_log(root)` refreshes **and prunes**: the first call on a
+cohort deletes its old-style caches once its snapshot exists, and later calls remove its older
+snapshots. `load_trials_with_log(root, from_cache=True)` is cache-first, and `use_cache=False`
+leaves the cache alone. Nothing is ever written under the data root: a refresh or prune stops
+with an error if `BANDIT_CACHE_DIR` points inside `BANDIT_DATA_ROOT`. Delete `.cache/` at any
+time; it only costs a re-import.
 
 ### Resumable cohort cross-validation and recovery runs
 

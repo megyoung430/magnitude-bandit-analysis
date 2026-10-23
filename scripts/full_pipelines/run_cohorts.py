@@ -42,12 +42,17 @@ with --last-sessions/--since too (the extra set is regenerated whenever the pool
 cohort in --cohorts must have all the named mice among its drifting mice, so name the cohort
 that holds them. Names are checked against the cohort before anything is written.
 
-Without the server (unmounted or unreachable), add --from-cache: each cohort is loaded from its
-newest cached import, preferring one made with the current import code, and the raw files are
-never read. Sessions added since that import are missing, and import-code changes since then are
-not applied; a StaleCacheWarning says so and is kept in warnings_log.csv:
+Each cohort is loaded from its import cache (its newest snapshot) without touching the server,
+and a line per cohort says when that snapshot was made. Sessions added on the server since are
+missing, and a StaleCacheWarning saying so is kept in warnings_log.csv and from-cache.txt. To
+include new data, refresh the cache first (only new or changed files are parsed), or check what
+the cache lacks:
 
-    uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --from-cache
+    uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --refresh-cache
+    uv run python scripts/full_pipelines/import_cache.py check --cohorts 3
+
+A cohort with no cache yet is imported from the server (and cached). --from-cache is accepted
+for older commands and changes nothing.
 
 Raw data is read from <BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N. Figures
 go to results/figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/ and tables to
@@ -60,6 +65,7 @@ Switch an analysis off in the selections below (e.g. run_value_change_analysis=F
 import argparse
 
 from src.behavior_analysis.exclude_mice import ExcludedMiceError, parse_mouse_id
+from src.pipelines.cache_provenance import CACHE_FIRST_NOTE, FROM_CACHE_HELP, REFRESH_HELP
 from src.pipelines.cohort_analysis import (
     BLOCKED_SELECTION,
     DEFAULT_RESULTS_ROOT,
@@ -122,14 +128,9 @@ def parse_args(argv=None) -> argparse.Namespace:
             "all-drifting-problems-without-<mice>/"
         ),
     )
-    parser.add_argument(
-        "--from-cache",
-        action="store_true",
-        help=(
-            "use the newest cached import of each cohort without reading the server; sessions "
-            "added since then are missing"
-        ),
-    )
+    cache = parser.add_mutually_exclusive_group()
+    cache.add_argument("--refresh-cache", action="store_true", help=REFRESH_HELP)
+    cache.add_argument("--from-cache", action="store_true", help=FROM_CACHE_HELP)
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -151,6 +152,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> None:
     args = parse_args(argv)
+    if args.from_cache:
+        print(f"[NOTE] --from-cache is no longer needed: {CACHE_FIRST_NOTE}")
     try:
         run_cohorts(
             args.cohorts,
@@ -160,7 +163,7 @@ def main(argv=None) -> None:
             dry_run=args.dry_run,
             pooled_only=args.pooled_only,
             exclude_mice=args.exclude_mice,
-            from_cache=args.from_cache,
+            from_cache=not args.refresh_cache,
             results_root=RESULTS_ROOT,
             blocked_selection=BLOCKED,
             drifting_selection=DRIFTING,
