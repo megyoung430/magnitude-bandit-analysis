@@ -17,6 +17,7 @@ from matplotlib.figure import Figure
 
 from src.behavior_analysis import blocklen_distributions
 from src.behavior_visualization import plot_problem_summary as pps
+from src.behavior_visualization.plot_helpers import figure_caption
 
 nan = float("nan")
 
@@ -113,7 +114,8 @@ def test_metric_figure_text_scales_and_style(drawn):
     (fig,) = drawn.figures
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (10, 4.8)
-    assert ax.get_title() == "My title" and ax.get_ylabel() == "My Y"
+    assert ax.get_title() == "My title\nmean ± se across mice, n=4 mice"
+    assert ax.get_ylabel() == "My Y"
     assert ax.get_xlabel() == "Problem Number"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["1", "2", "3"]
     assert [t.get_text() for t in ax.texts] == ["2.00", "4.50"]  # the NaN bar has no label
@@ -156,9 +158,7 @@ def test_lengths_figure_defaults_and_style(drawn):
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (10, 4.8)
     assert ax.get_ylabel() == "Sessions to Complete"
-    assert ax.get_title() == (
-        "Sessions to Complete per Problem\n(mean ± se across mice | n=4 subjects)"
-    )
+    assert ax.get_title() == "Sessions to Complete per Problem\nmean ± se across mice, n=4 mice"
     assert [t.get_text() for t in ax.texts] == ["2.0", "4.5"]
     assert title_pad_points(ax) == pytest.approx(20)
     assert ax.get_ylim() == pytest.approx((0, 6.75))  # no headroom, unlike the metric chart
@@ -172,7 +172,8 @@ def test_lengths_custom_ylabel_title_and_annotate_y(drawn):
         summary(), ylabel="Mean Block Length", title="Custom", jitter=0, annotate_y=9.0
     )
     (ax,) = drawn.figures[0].axes
-    assert ax.get_ylabel() == "Mean Block Length" and ax.get_title() == "Custom"
+    assert ax.get_ylabel() == "Mean Block Length"
+    assert ax.get_title() == "Custom\nmean ± se across mice, n=4 mice"
     assert ax.get_ylim() == pytest.approx((0, 9.0))
 
 
@@ -283,13 +284,21 @@ def test_bar_panel_makes_its_own_figure_only_without_ax(drawn):
 # ---- saving and showing ----
 
 
-def test_metric_and_lengths_save_pdf_then_png_at_300_dpi(drawn, tmp_path):
+def test_metric_and_lengths_save_pdf_png_at_300_dpi_and_svg(drawn, tmp_path):
     pps.plot_metric_by_problem(summary(), title="T", ylabel="Y", save_path=tmp_path / "a" / "fig")
     pps.plot_problem_lengths(summary(), save_path=tmp_path / "len")
-    assert [name for name, _ in drawn.saved] == ["fig.pdf", "fig.png", "len.pdf", "len.png"]
+    assert [name for name, _ in drawn.saved] == [
+        "fig.pdf",
+        "fig.png",
+        "fig.svg",
+        "len.pdf",
+        "len.png",
+        "len.svg",
+    ]
     assert [kw for _, kw in drawn.saved] == [
         {"bbox_inches": "tight"},
         {"bbox_inches": "tight", "dpi": 300},
+        {"bbox_inches": "tight"},
     ] * 2
     assert drawn.shows == 0 and len(drawn.figures) == 2 and plt.get_fignums() == []
     assert (tmp_path / "a" / "fig.pdf").exists() and (tmp_path / "len.png").exists()
@@ -333,7 +342,7 @@ def test_pooled_panels_share_the_data_range_and_summarise_each_problem(drawn):
     pps.plot_distributions_per_problem_all_mice(block_stats())
     first, second = visible(drawn.figures[0])
     assert first.get_xlim() == second.get_xlim() == (10.0, 40.0)
-    assert first.texts[0].get_text().startswith("n = 2\nmedian = 15.00")
+    assert first.texts[0].get_text().startswith("n=2\nmedian=15.00")
     np.testing.assert_allclose(first.lines[0].get_xdata(), 15.0)  # mean line
     np.testing.assert_allclose(second.lines[0].get_xdata(), 35.0)
 
@@ -368,22 +377,19 @@ def test_per_mouse_panels_share_that_mouses_range(drawn):
     assert all(ax.get_xlim() == (10.0, 40.0) for ax in visible(fig_a))
 
 
-def test_per_mouse_saves_png_then_pdf_per_mouse_in_mouse_order(drawn, tmp_path):
+def test_per_mouse_saves_every_format_per_mouse_in_mouse_order(drawn, tmp_path):
     pps.plot_distributions_per_mouse(block_stats(), save_dir=tmp_path / "out")
     assert [name for name, _ in drawn.saved] == [
-        "blocklen_distributions_mouse_A.png",
-        "blocklen_distributions_mouse_A.pdf",
-        "blocklen_distributions_mouse_B.png",
-        "blocklen_distributions_mouse_B.pdf",
+        f"blocklen_distributions_mouse_{m}.{ext}" for m in "AB" for ext in ("pdf", "png", "svg")
     ]
-    assert [kw.get("dpi") for _, kw in drawn.saved] == [300, None, 300, None]
+    assert [kw.get("dpi") for _, kw in drawn.saved] == [None, 300, None] * 2
     assert drawn.shows == 0 and plt.get_fignums() == []
 
 
-def test_pooled_distribution_saves_png_then_pdf(drawn, tmp_path):
+def test_pooled_distribution_saves_pdf_png_and_svg(drawn, tmp_path):
     pps.plot_distributions_per_problem_all_mice(block_stats(), save_path=tmp_path / "d" / "pooled")
-    assert [name for name, _ in drawn.saved] == ["pooled.png", "pooled.pdf"]
-    assert drawn.saved[0][1] == {"bbox_inches": "tight", "dpi": 300}
+    assert [name for name, _ in drawn.saved] == ["pooled.pdf", "pooled.png", "pooled.svg"]
+    assert drawn.saved[1][1] == {"bbox_inches": "tight", "dpi": 300}
     assert (tmp_path / "d" / "pooled.pdf").exists()
 
 
@@ -403,7 +409,7 @@ def test_drop_last_problem_removes_each_mouses_last_problem_pooled(drawn):
         "Problem 1 (blocks=2, mice=2)",
         "Problem 2 (blocks=2, mice=1)",
     ]
-    assert visible(fig)[1].texts[0].get_text().startswith("n = 2\nmedian = 35.00")
+    assert visible(fig)[1].texts[0].get_text().startswith("n=2\nmedian=35.00")
 
 
 def test_drop_last_problem_removes_each_mouses_last_problem_per_mouse(drawn):
@@ -447,7 +453,7 @@ def test_blocklen_histogram_panel_draws_stats_and_xlim():
     _, ax = plt.subplots()
     pps.plot_blocklen_histogram(np.array([10.0, 20.0, 30.0]), ax=ax, title="P", xlim=(0, 50))
     assert ax.get_xlim() == (0, 50) and ax.get_title() == "P"
-    assert ax.texts[0].get_text().startswith("n = 3")
+    assert ax.texts[0].get_text().startswith("n=3")
     assert len(ax.lines) == 1  # mean line
 
 
@@ -455,7 +461,7 @@ def test_blocklen_histogram_panel_prints_median_sample_sd_and_draws_the_mean_lin
     _, ax = plt.subplots()
     pps.plot_blocklen_histogram(np.array([1.0, 2.0, 3.0, 10.0]), ax=ax, title="P")
     # median 2.5; sd with ddof=1 is sqrt(50 / 3) = 4.08 (ddof=0 would print 3.54)
-    assert ax.texts[0].get_text() == "n = 4\nmedian = 2.50\nsd = 4.08\nmin = 1\nmax = 10"
+    assert ax.texts[0].get_text() == "n=4\nmedian=2.50\nstd=4.08\nmin=1\nmax=10"
     assert list(ax.lines[0].get_xdata()) == [4.0, 4.0]  # the mean, not the median
 
 
@@ -464,7 +470,7 @@ def test_blocklen_histogram_panel_prints_no_sd_for_a_single_value():
     # instead of printing 0.00.
     _, ax = plt.subplots()
     pps.plot_blocklen_histogram(np.array([7.0]), ax=ax, title="P")
-    assert ax.texts[0].get_text() == "n = 1\nmedian = 7.00\nmin = 7\nmax = 7"
+    assert ax.texts[0].get_text() == "n=1\nmedian=7.00\nmin=7\nmax=7"
 
 
 # ---- rank proportions ----
@@ -475,7 +481,8 @@ def test_rank_figure_text_scales_and_style(drawn):
     (fig,) = drawn.figures
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (7, 5.5)
-    assert ax.get_title() == "Average Across Mice" and title_pad_points(ax) == pytest.approx(14)
+    assert ax.get_title() == "Average Across Mice\nmean ± se across mice, n=2 mice"
+    assert title_pad_points(ax) == pytest.approx(14)
     assert ax.get_ylabel() == "Proportion of Choices"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Best", "Second", "Third"]
     assert ax.get_ylim() == pytest.approx((0.0, 1.07))
@@ -528,9 +535,9 @@ def test_rank_figure_with_unusable_counts_raises_before_any_figure_is_made(drawn
     assert plt.get_fignums() == [] and drawn.figures == []
 
 
-def test_rank_figure_saves_pdf_then_png(drawn, tmp_path):
+def test_rank_figure_saves_pdf_png_and_svg(drawn, tmp_path):
     pps.plot_rank_proportions_average_without_blocks(rank_counts(), save_path=tmp_path / "r" / "x")
-    assert [name for name, _ in drawn.saved] == ["x.pdf", "x.png"]
+    assert [name for name, _ in drawn.saved] == ["x.pdf", "x.png", "x.svg"]
     assert drawn.saved[1][1] == {"bbox_inches": "tight", "dpi": 300}
     assert drawn.shows == 0 and plt.get_fignums() == []
 
@@ -575,3 +582,10 @@ def test_block_length_helpers_are_reexported():
         pps.drop_last_problem_per_mouse_raw
         is blocklen_distributions.drop_last_problem_per_mouse_raw
     )
+
+
+def test_extra_lines_of_a_given_title_go_to_the_caption(drawn):
+    pps.plot_metric_by_problem(summary(), title="T\n(cohort 3)", ylabel="Y")
+    ax = drawn.figures[0].axes[0]
+    assert ax.get_title() == "T\nmean ± se across mice, n=4 mice"
+    assert figure_caption(ax.figure) == "(cohort 3)"

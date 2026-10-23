@@ -139,7 +139,7 @@ def test_axis_text_and_ticks(capture):
     assert [t.get_text() for t in labels] == ["ses-01", "ses-02", "ses-10"]
     assert all(t.get_rotation() == 45 and t.get_fontsize() == 12 for t in labels)
     assert ax.get_title() == (
-        "Mean Non-Choice Long Pokes Across Sessions\n (mean ± se across subjects | n=2 subjects)"
+        "Mean Non-Choice Long Pokes Across Sessions\nmean ± se across mice, n=2 mice"
     )
     assert ax.title.get_fontsize() == 16
     assert not ax.spines["top"].get_visible() and not ax.spines["right"].get_visible()
@@ -151,7 +151,7 @@ def test_mouse_without_finite_data_has_no_line_or_legend_entry(capture):
     (ax,) = fig.axes
     assert len(mouse_lines(ax)) == 1
     assert [t.get_text() for t in ax.get_legend().get_texts()] == ["m1"]
-    assert "n=2 subjects" in ax.get_title()
+    assert "n=2 mice" in ax.get_title()
 
 
 def test_more_mice_than_colours_cycle_the_palette(capture):
@@ -172,7 +172,8 @@ def test_show_when_no_path_and_figure_closed(capture):
 def test_save_path_writes_pdf_and_png(capture, tmp_path):
     base = tmp_path / "Pokes"
     plot_num_pokes_across_mice(POKES, 6, save_path=base)
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert capture.shown == []

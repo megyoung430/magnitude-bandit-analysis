@@ -41,6 +41,7 @@ from src.behavior_analysis.value_change_windows import (
     truncate_windows_at_rank_swap,
     value_change_configs,
 )
+from src.behavior_visualization.plot_helpers import figure_paths
 from src.behavior_visualization.plot_value_change_choice_probs import (
     plot_value_change_choice_probs,
 )
@@ -130,9 +131,9 @@ def _curve_summary(curves: ValueChangeCurves) -> dict:
 
 
 def _plot_curves(curves: ValueChangeCurves, base: Path, show_individual_mice: bool) -> list[Path]:
-    """Save the figure as ``<base>.png`` and ``.pdf``; returns the two paths."""
+    """Save the figure as ``<base>.<format>``; returns the figure paths."""
     plot_value_change_choice_probs(curves, base, show_individual_mice=show_individual_mice)
-    return [base.with_name(f"{base.name}.png"), base.with_name(f"{base.name}.pdf")]
+    return figure_paths(base)
 
 
 def _mode_summary(windows: ValueChangeWindows, out_dir: Path, show_individual_mice: bool) -> dict:

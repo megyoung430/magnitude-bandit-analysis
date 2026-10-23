@@ -23,15 +23,15 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Polygon
 from scipy.spatial import ConvexHull
 
-import src.behavior_visualization.plot_style  # noqa: F401  # applies rcParams
 from src.behavior_analysis.poke_events import ARMS9
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
-from src.behavior_visualization.plot_helpers import axes_or_new, save_or_show
+from src.behavior_visualization.plot_helpers import FIGURE_FORMATS, axes_or_new, save_or_show
 from src.behavior_visualization.plot_maze_heatmaps import (
     NODE_RADIUS,
     octagon_vertices,
     port_center,
 )
+from src.behavior_visualization.plot_style import FONT_RC
 
 INITIATION_FILL = "#74abd3"
 CHOICE_FILL = "#b1e3f7"
@@ -41,9 +41,9 @@ PLATFORM_COLOR = "#e4e9ec"
 LABEL_FONTSIZE = 12
 LEGEND_FONTSIZE = 10
 
-# Arial where installed; Liberation Sans has Arial's letter widths on Linux; DejaVu Sans ships
-# with matplotlib, so one of them is always found.
-SCHEMATIC_FONTS = ("Arial", "Liberation Sans", "DejaVu Sans")
+# The shared font list of all figures (Arial where installed; DejaVu Sans ships with matplotlib,
+# so one of them is always found).
+SCHEMATIC_FONTS = tuple(FONT_RC["font.sans-serif"])
 
 
 def first_installed_font(names: Sequence[str]) -> str:
@@ -93,9 +93,9 @@ def schematic_rc() -> dict[str, object]:
     """
     return {
         "font.family": [schematic_font()],
-        "pdf.fonttype": 42,
-        "ps.fonttype": 42,
-        "svg.fonttype": "none",
+        "pdf.fonttype": FONT_RC["pdf.fonttype"],
+        "ps.fonttype": FONT_RC["pdf.fonttype"],
+        "svg.fonttype": FONT_RC["svg.fonttype"],
     }
 
 
@@ -268,7 +268,7 @@ def plot_maze_schematic(
     *,
     title: str | None = None,
     save_path: str | Path | None = None,
-    formats: tuple[str, ...] = ("svg", "pdf", "png"),
+    formats: tuple[str, ...] = FIGURE_FORMATS,
 ) -> None:
     """One schematic as its own figure, saved as ``<save_path>.<format>`` or shown.
 
@@ -280,7 +280,8 @@ def plot_maze_schematic(
         title (str | None): Axes title; none if None. Default None.
         save_path (str | Path | None): Base path without extension; None shows the figure.
             Default None.
-        formats (tuple[str, ...]): File formats to write. Default ``("svg", "pdf", "png")``.
+        formats (tuple[str, ...]): File formats to write. Default ``FIGURE_FORMATS`` (pdf, png and
+            svg).
 
     Raises:
         ValueError: As for :func:`port_fills`.

@@ -132,8 +132,7 @@ def test_excluding_the_whole_of_a_cohort_leaves_a_one_cohort_pool(imported, tmp_
     assert "cohort-03" not in (figures / "cohorts.txt").read_text()
     # one cohort left: no figure by cohort
     assert {p.name for p in (figures / "sessions-per-problem").iterdir()} == {
-        "Sessions per Drifting Problem.png",
-        "Sessions per Drifting Problem.pdf",
+        f"Sessions per Drifting Problem.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
     }
 
 
@@ -216,17 +215,9 @@ def test_a_rerun_clears_the_extra_folders_it_owns(imported, tmp_path):
     assert set(pd.read_csv(stale_table)["mouse"]) == {"a2", "a3", "b1"}
 
 
-def test_every_figure_the_pooled_path_saves_for_the_extra_set_carries_the_banner(
-    imported, tmp_path, monkeypatch
+def test_every_figure_the_pooled_path_saves_for_the_extra_set_has_the_scope_in_its_caption(
+    imported, tmp_path
 ):
-    saved = []
-    real = plt.Figure.savefig
-
-    def spy(self, path, *args, **kwargs):
-        saved.append((str(path), [t.get_text() for t in self.texts]))
-        return real(self, path, *args, **kwargs)
-
-    monkeypatch.setattr(plt.Figure, "savefig", spy)
     run_all_cohorts_drifting(
         [1, 3],
         results_root=tmp_path,
@@ -234,11 +225,13 @@ def test_every_figure_the_pooled_path_saves_for_the_extra_set_carries_the_banner
         run_at=RUN_AT,
         exclude_mice=["a1", "b2"],
     )
-    extra = [texts for path, texts in saved if f"/{WITHOUT}/" in path]
-    plain = [texts for path, texts in saved if f"/{WITHOUT}/" not in path]
+    figures = [p for p in (tmp_path / "figures").rglob("*.png")]
+    extra = [p for p in figures if f"/{WITHOUT}/" in str(p)]
+    plain = [p for p in figures if f"/{WITHOUT}/" not in str(p)]
     assert extra and plain
-    assert all("without a1, b2" in texts for texts in extra)
-    assert not any("without a1, b2" in texts for texts in plain)
+    for png in figures:
+        caption = Path(f"{str(png)[:-4]}.caption.txt").read_text().splitlines()
+        assert (caption[:1] == ["without a1, b2"]) == (png in extra), png
 
 
 def test_a_generator_of_mice_is_read_once(imported, tmp_path):

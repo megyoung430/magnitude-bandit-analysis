@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.choice_regression import FEATURES
+from src.behavior_visualization.plot_helpers import Title, save_or_show, set_title, stats_line
 
-SOURCE_LABELS = {"mice": "Mice", "magnitude": "Magnitude agent", "binary": "Binary agent"}
+SOURCE_LABELS = {"mice": "Mice", "magnitude": "Magnitude Agent", "binary": "Binary Agent"}
 SOURCE_COLORS = {"mice": "#333333", "magnitude": "#4C8BC9", "binary": "#D9822B"}
 FEATURE_LABELS = {
     "last_value": "Last value\n(per unit)",
@@ -24,7 +25,7 @@ FEATURE_LABELS = {
 
 
 def plot_regression_weights(weights: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Regression weight per feature for each source: one dot per animal, mean ± SE across them.
+    """Regression weight per feature for each source: one dot per animal, mean ± se across them.
 
     Args:
         weights (pd.DataFrame): Columns ``source`` (a key of ``SOURCE_LABELS``), ``mouse``,
@@ -54,7 +55,11 @@ def plot_regression_weights(weights: pd.DataFrame, ax: plt.Axes | None = None) -
     ax.axhline(0, color="0.6", lw=0.8, ls="--")
     ax.set_xticks(range(len(FEATURES)), [FEATURE_LABELS[f] for f in FEATURES])
     ax.set_ylabel("Weight (logit)")
-    ax.set_title("Choice regression: what drives port choice")
+    n_animals = int(weights.groupby("source")["mouse"].nunique().max()) if len(weights) else 0
+    # a single animal has no SE (see the errorbars above)
+    average = "mean ± se" if n_animals >= 2 else "mean"
+    stats = stats_line(average, "animals of each source", [(n_animals, "animal", "animals")])
+    set_title(ax, Title("Choice regression: what drives port choice", stats))
     ax.legend(frameon=False, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     return ax
@@ -88,7 +93,7 @@ def plot_likelihood_comparison(fits: pd.DataFrame, ax: plt.Axes | None = None) -
 def plot_agent_baselines_summary(
     weights: pd.DataFrame, fits: pd.DataFrame, save_path: Path | None = None
 ) -> plt.Figure:
-    """Both panels side by side; saved as PNG and PDF when *save_path* (without suffix) is given.
+    """Both panels side by side; saved (and closed) when *save_path* (without suffix) is given.
 
     Args:
         weights (pd.DataFrame): As for :func:`plot_regression_weights`.
@@ -103,8 +108,5 @@ def plot_agent_baselines_summary(
     plot_likelihood_comparison(fits, axes[1])
     fig.tight_layout()
     if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        for suffix in (".png", ".pdf"):
-            fig.savefig(save_path.with_suffix(suffix), dpi=200, bbox_inches="tight")
+        save_or_show(fig, save_path, dpi={"png": 200, "pdf": 200})
     return fig

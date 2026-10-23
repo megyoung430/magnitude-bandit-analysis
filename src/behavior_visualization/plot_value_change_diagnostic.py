@@ -135,14 +135,14 @@ def _draw_bands(ax: Axes, diagnostics: Sequence[EventDiagnostic]) -> None:
 
 def _legend_handles() -> list:
     shading = [
-        Patch(facecolor=PRE_COLOR, label="pre window (counted)"),
-        Patch(facecolor=POST_COLOR, label="post window (counted)"),
+        Patch(facecolor=PRE_COLOR, label="Pre Window (Counted)"),
+        Patch(facecolor=POST_COLOR, label="Post Window (Counted)"),
         Line2D([], [], color="black", linestyle=":", label="t=0"),
     ]
     labels = [
         Line2D(
             [], [], marker="o", linestyle="", markerfacecolor=LABEL_COLORS[label],
-            markeredgecolor="black", markersize=8, label=f"choice: {LABEL_NAMES[label]}",
+            markeredgecolor="black", markersize=8, label=f"Choice: {LABEL_NAMES[label]}",
         )
         for label in SWAP_LABELS
     ]  # fmt: skip

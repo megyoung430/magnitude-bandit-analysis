@@ -89,8 +89,8 @@ def test_legend_gives_each_subject_its_reversal_count(capture):
     _, ax = draw(capture)
     legend = ax.get_legend()
     assert [t.get_text() for t in legend.get_texts()] == [
-        "s1 (n=4 reversals)",
-        "s2 (n=8 reversals)",
+        "s1 (n=4 Reversals)",
+        "s2 (n=8 Reversals)",
     ]
     assert legend._loc == 1 and legend.get_texts()[0].get_fontsize() == 10
 
@@ -102,8 +102,7 @@ def test_axis_text_limits_and_title(capture):
     assert ax.get_ylabel() == "Fraction of Good Reversals" and ax.yaxis.label.get_fontsize() == 12
     assert ax.get_ylim() == (0.0, 1.07)
     assert ax.get_title() == (
-        "First Choice After Leaving Previous Best\n"
-        "(mean ± se across subjects | n=3 subjects and n=20 reversals)"
+        "First Choice After Leaving Previous Best\nmean ± se across mice, n=3 mice, n=20 reversals"
     )
     assert not ax.spines["top"].get_visible() and not ax.spines["right"].get_visible()
 
@@ -127,7 +126,8 @@ def test_show_without_save_path_closes_the_figure(capture):
 def test_save_path_creates_parent_and_writes_pdf_then_png(capture, tmp_path):
     base = tmp_path / "nested" / "First Leave"
     plot_first_leave_after_good_reversals(MEAN, SE, COUNTS, 0.5, save_path=base)
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert capture.shown == [] and base.parent.is_dir()
@@ -143,7 +143,7 @@ def test_files_are_really_written(monkeypatch, tmp_path):
 
 def test_no_subjects_draws_bars_only(capture):
     _, ax = draw(capture, counts={})
-    assert subject_lines(ax) == [] and "n=0 subjects" in ax.get_title()
+    assert subject_lines(ax) == [] and "n=0 mice" in ax.get_title()
 
 
 def test_layout_is_tightened_and_padding_and_caps_are_kept(capture):

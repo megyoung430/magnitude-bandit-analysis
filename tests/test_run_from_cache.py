@@ -1,4 +1,4 @@
-"""The pooled paper-ready runs with ``from_cache=True``: same outputs, no share needed.
+"""The pooled runs with ``from_cache=True``: same outputs, no share needed.
 
 The cache is filled by a normal run on a raw folder whose import is replaced by the synthetic
 cohorts (writing real pyControl files is not needed to exercise the cache), then the raw folder
@@ -11,7 +11,6 @@ import os
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
 
 import matplotlib
@@ -27,7 +26,6 @@ import src.behavior_import.load_trials as load_trials
 import src.settings as settings
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.load_trials import ImportedTrials, StaleCacheWarning
-from src.behavior_visualization import plot_helpers
 from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
 from src.pipelines.cache_provenance import FROM_CACHE_FILE
 from src.pipelines.cohort_analysis import cohort_raw_dir, run_cohorts
@@ -40,13 +38,6 @@ COHORTS = {
     1: synthetic_cohort(("a1", "a2", "a3"), seed=1),
     3: blocked_then_two_drifting(),
 }
-
-
-@pytest.fixture(scope="module", autouse=True)
-def low_resolution():
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(plot_helpers, "PAPER_DPI", 50)
-        yield
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +84,6 @@ def run_cohort_3(results_root: Path, **kwargs) -> None:
     run_cohorts(
         [3],
         pooled_only=True,
-        paper_ready=True,
         exclude_mice=["m2"],
         results_root=results_root,
         **kwargs,
@@ -103,9 +93,7 @@ def run_cohort_3(results_root: Path, **kwargs) -> None:
 def run_pool(results_root: Path, **kwargs) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        run_all_cohorts_drifting(
-            [1, 3], results_root=results_root, paper_ready=True, exclude_mice=["m2"], **kwargs
-        )
+        run_all_cohorts_drifting([1, 3], results_root=results_root, exclude_mice=["m2"], **kwargs)
 
 
 @contextmanager
@@ -156,16 +144,15 @@ def test_the_from_cache_runs_make_no_os_level_access_to_the_share(runs):
     assert runs["touched"] == []
 
 
-def test_the_cohort_pooled_paper_ready_run_is_the_same_from_the_cache(runs):
+def test_the_cohort_pooled_run_is_the_same_from_the_cache(runs):
     share_run, cache_run = digests(runs["cohort-share"]), digests(runs["cohort-cache"])
-    assert any("paper-ready" in p for p in share_run)
     assert any("all-drifting-problems-without-m2" in p for p in share_run)
     assert cache_run == share_run
 
 
-def test_the_all_cohorts_paper_ready_run_is_the_same_from_the_cache(runs):
+def test_the_all_cohorts_run_is_the_same_from_the_cache(runs):
     share_run, cache_run = digests(runs["all-share"]), digests(runs["all-cache"])
-    assert any("paper-ready" in p for p in share_run)
+    assert any("all-cohorts-without-m2" in p for p in share_run)
     assert cache_run == share_run
 
 
@@ -199,15 +186,12 @@ def test_from_cache_runs_with_import_code_changed_since_the_cache(runs, tmp_path
 COHORT_NOTE_FOLDERS = [
     "figures/open-field/cohort-03",
     "tables/open-field/cohort-03",
-    "figures/open-field/paper-ready/cohort-03",
 ]
 ALL_NOTE_FOLDERS = [
     "figures/open-field/all-cohorts",
     "figures/open-field/all-cohorts-without-m2",
     "tables/open-field/all-cohorts",
     "tables/open-field/all-cohorts-without-m2",
-    "figures/open-field/paper-ready/all-cohorts",
-    "figures/open-field/paper-ready/all-cohorts-without-m2",
 ]
 
 
@@ -225,16 +209,3 @@ def test_from_cache_runs_say_so_in_each_output_folder(runs, run, folders):
 def test_the_all_cohorts_note_lists_both_cohorts(runs):
     text = (runs["all-cache"] / ALL_NOTE_FOLDERS[0] / FROM_CACHE_FILE).read_text()
     assert "cohort-01: cached import of" in text and "cohort-03: cached import of" in text
-
-
-@pytest.mark.parametrize("run", ["cohort", "all"])
-def test_every_paper_caption_of_a_from_cache_run_ends_with_the_cache_date(runs, run):
-    today = datetime.now().strftime("%Y-%m-%d")
-    captions = list((runs[f"{run}-cache"] / "figures").rglob("*.caption.txt"))
-    assert captions
-    for caption in captions:
-        last = caption.read_text().splitlines()[-1]
-        assert last.startswith("Data from the cached import") and today in last, caption
-        assert last.endswith("sessions added since are missing."), caption
-    for caption in (runs[f"{run}-share"] / "figures").rglob("*.caption.txt"):
-        assert "cached import" not in caption.read_text(), caption

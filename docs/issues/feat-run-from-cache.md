@@ -9,8 +9,8 @@ status: in review
 
 # Run the pooled cohort pipelines from the import cache without the share
 
-`run_cohorts.py --cohorts 3 --pooled-only --paper-ready` and
-`run_all_drifting_problems.py --paper-ready` need the share today: the import cache is keyed on
+`run_cohorts.py --cohorts 3 --pooled-only` and
+`run_all_drifting_problems.py` need the share today: the import cache is keyed on
 a scan of every raw `.tsv` and on the hash of `src/behavior_import`, so an unmounted share (or
 any import-code change since the cache was filled) means a full re-import. `--from-cache` loads
 the newest cached import of each cohort instead, without touching the share.
@@ -28,7 +28,7 @@ Results change: none unless --from-cache is passed.
   `run_all_cohorts_drifting`.
 - `--from-cache` on both scripts; exclusive with `--no-cache` in `run_all_drifting_problems.py`.
 - `ImportLog.cache_source` (`CacheSource`); `src/pipelines/cache_provenance.py` writes
-  `from-cache.txt` and the caption line; `plot_helpers.caption_note`.
+  `from-cache.txt`.
 
 ## Acceptance criteria
 
@@ -46,9 +46,8 @@ Results change: none unless --from-cache is passed.
 - No os-level access (`stat`, `lstat`, `listdir`, `scandir`, `access`, `open`) under the data
   root during the from-cache cohort, dry-run and all-cohorts runs.
 - `from-cache.txt` in every output folder of a from-cache run (cohort figures and tables,
-  `paper-ready/<cohort>/`, `all-cohorts[-without-…]/` figures and tables, and their paper-ready
-  folders), and the caption line in every paper caption; neither in a run from the server.
-- The cohort pooled paper-ready run and the all-cohorts paper-ready run give identical CSVs and
+  `all-cohorts[-without-…]/` figures and tables); not in a run from the server.
+- The cohort pooled run and the all-cohorts run give identical CSVs and
   PNGs (bar `warnings_log.csv`) from the cache with the raw folder renamed away, also after an
   import-code change.
 

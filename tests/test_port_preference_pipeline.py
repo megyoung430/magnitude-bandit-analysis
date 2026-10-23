@@ -13,6 +13,7 @@ import pytest
 from matplotlib.patches import RegularPolygon
 
 from src.behavior_analysis.poke_events import ARMS9
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_port_preference import (
     CATEGORY_LABELS,
     UNDEFINED_COLOR,
@@ -132,10 +133,10 @@ def test_category_panel_draws_reference_line_bars_and_one_line_per_mouse():
 # ---------------------------------------------------------------- entry point
 
 
-def test_writes_both_figures_as_png_and_pdf_and_returns_tables(tmp_path):
+def test_writes_both_figures_in_every_format_and_returns_tables(tmp_path):
     result = run_port_preference_analysis(problems(), tmp_path / "new", scope_label="problem-01")
     for stem in ("Port Preference X vs Plus", "Port Preference Per Mouse"):
-        for ext in ("png", "pdf"):
+        for ext in ("pdf", "png", "svg"):
             assert (tmp_path / "new" / f"{stem}.{ext}").stat().st_size > 0
     assert not list((tmp_path / "new").glob("*.csv"))
     assert set(result["summary"].index) == {"X", "plus"}
@@ -218,11 +219,16 @@ def test_titles_say_mice_and_the_heatmap_title_is_its_file_name(tmp_path, monkey
     capture = capture_figures(monkeypatch)
     run_port_preference_analysis(problems(), tmp_path, scope_label="problem-01")
     figures = saved_figures(capture)
-    category_title = figures["Port Preference X vs Plus"].axes[0].get_title()
-    assert "across mice" in category_title and "n=2 mice" in category_title
-    assert "subjects" not in category_title
-    heatmap_title = figures["Port Preference Per Mouse"]._suptitle.get_text()
-    assert heatmap_title.splitlines()[0] == "Port Preference Per Mouse [problem-01]"
+    category = figures["Port Preference X vs Plus"]
+    assert category.axes[0].get_title() == (
+        "Port Preference: X vs Plus\nmean ± se across mice, n=2 mice"
+    )
+    assert figure_caption(category) == "Data: problem-01."
+    heatmaps = figures["Port Preference Per Mouse"]
+    assert heatmaps._suptitle.get_text() == "Port Preference Per Mouse"
+    caption = figure_caption(heatmaps).splitlines()
+    assert caption[0] == "Data: problem-01; 2 mice."
+    assert caption[2].startswith("Outlines:") and "blue = initiation port" in caption[2]
 
 
 def test_plus_ports_are_labelled_orthogonal():
@@ -239,17 +245,17 @@ def test_a_mouse_offered_one_category_is_excluded_noted_and_counted(tmp_path, mo
     assert result["category_ratios"].query("mouse == 'm3'").ratio.isna().all()
     assert result["summary"].loc["plus", "n_mice"] == 2
     assert "1 mouse excluded: only one category offered" in caplog.text
-    title = saved_figures(capture)["Port Preference X vs Plus"].axes[0].get_title()
-    assert "1 mouse excluded: only one category offered" in title
-    assert "n=2 mice" in title
+    figure = saved_figures(capture)["Port Preference X vs Plus"]
+    assert "1 mouse excluded: only one category offered." in figure_caption(figure)
+    assert figure.axes[0].get_title().endswith("n=2 mice")
 
 
 def test_no_exclusion_note_when_every_mouse_is_kept(tmp_path, monkeypatch):
     capture = capture_figures(monkeypatch)
     result = run_port_preference_analysis(problems(), tmp_path, scope_label="x")
     assert result["single_category_mice"] == []
-    title = saved_figures(capture)["Port Preference X vs Plus"].axes[0].get_title()
-    assert "excluded" not in title
+    figure = saved_figures(capture)["Port Preference X vs Plus"]
+    assert "excluded" not in figure_caption(figure)
 
 
 def test_a_scope_where_every_mouse_is_excluded_still_draws(tmp_path):

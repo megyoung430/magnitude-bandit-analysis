@@ -70,7 +70,7 @@ def test_writes_the_figures_and_no_tables(tmp_path):
             "Maze Heatmaps - Pokes After Choice",
             "Maze Heatmaps - Pokes After Initiation",
         )
-        for ext in ("png", "pdf")
+        for ext in ("png", "pdf", "svg", "caption.txt")
     }
     assert set(result) >= {"long_pokes", "counts", "per_session", "cross_check", "summary", "files"}
 
@@ -214,7 +214,7 @@ def test_files_lists_exactly_what_this_call_wrote(tmp_path):
     result = run_poke_analysis(problem_data(), tmp_path)
     assert tmp_path / "unrelated.csv" not in result["files"]
     assert all(p.exists() for p in result["files"])
-    assert len(result["files"]) == 6
+    assert len(result["files"]) == 9
 
 
 def test_trial_summary_reports_dropped_trials(tmp_path):
@@ -312,13 +312,13 @@ def test_port_finding_maps_are_drawn_only_for_mice_with_port_finding(tmp_path, c
         "m1 (n=5 port-finding trials)"
     ]
     assert {p.name for p in result["files"]} >= {
-        f"{stem}.{ext}" for stem in PORT_FINDING_STEMS for ext in ("png", "pdf")
+        f"{stem}.{ext}" for stem in PORT_FINDING_STEMS for ext in ("png", "pdf", "svg")
     }
 
 
 def test_port_finding_maps_are_written_next_to_the_others(tmp_path):
     result = run_poke_analysis(port_finding_problem(), tmp_path)
-    assert len(result["files"]) == 10
+    assert len(result["files"]) == 15
     assert all(p.exists() for p in result["files"])
 
 
@@ -349,7 +349,7 @@ def test_no_port_finding_map_when_no_mouse_has_port_finding(tmp_path, captured):
     assert len(captured) == 2
     assert result["port_finding_counts"] == {"after_initiation": {}, "after_choice": {}}
     assert not [p for p in tmp_path.iterdir() if "Port Finding" in p.name]
-    assert len(result["files"]) == 6
+    assert len(result["files"]) == 9
 
 
 def test_port_finding_maps_carry_the_same_outlines(tmp_path, captured):

@@ -21,11 +21,8 @@ import pytest
 
 from src.behavior_analysis.get_choice_probs_by_value import count_choice_probs
 from src.behavior_analysis.poke_counts import session_choice_ports
-from src.behavior_analysis.rank_significance import rank_comparison_tests
 from src.behavior_import.import_log import ImportLog
-from src.behavior_visualization.paper_style import paper_figures
 from src.pipelines import all_cohorts_drifting as pipeline
-from src.pipelines import cohort_analysis
 from src.pipelines.all_cohorts_drifting import (
     drifting_problems,
     pool_cohorts,
@@ -46,7 +43,6 @@ from src.pipelines.value_change_analysis import run_value_change_analysis
 from src.pipelines.value_psychometrics import run_value_psychometric_analysis
 from tests.all_cohorts_fixtures import DRIFTING_NAME, synthetic_cohort
 from tests.plot_capture import capture_figures
-from tests.rank_rows import make_row
 
 SUBFOLDERS = {
     "choice-stats",
@@ -56,11 +52,11 @@ SUBFOLDERS = {
     "port-preference",
     "sessions-per-problem",
 }
+FIGURE_FILES = ("caption.txt", "pdf", "png", "svg")
 SESSIONS_FIGURES = {
-    "Sessions per Drifting Problem.png",
-    "Sessions per Drifting Problem.pdf",
-    "Sessions per Drifting Problem by Cohort.png",
-    "Sessions per Drifting Problem by Cohort.pdf",
+    f"{stem}.{ext}"
+    for stem in ("Sessions per Drifting Problem", "Sessions per Drifting Problem by Cohort")
+    for ext in FIGURE_FILES
 }
 MICE_A, MICE_B = ("a1", "a2", "a3"), ("b1", "b2")
 ALL_MICE = {*MICE_A, *MICE_B}
@@ -277,8 +273,7 @@ def test_one_cohort_gets_no_figure_by_cohort(monkeypatch, imported, tmp_path):
     run_all_cohorts_drifting([3], results_root=tmp_path, trials_by_cohort=imported, run_at=RUN_AT)
     folder = tmp_path / "figures/open-field/all-cohorts/sessions-per-problem"
     assert {p.name for p in folder.iterdir()} == {
-        "Sessions per Drifting Problem.png",
-        "Sessions per Drifting Problem.pdf",
+        f"Sessions per Drifting Problem.{ext}" for ext in FIGURE_FILES
     }
     assert capture.saved
 
@@ -393,10 +388,12 @@ def test_a_rerun_with_other_cohorts_removes_the_old_figures_and_rewrites_cohorts
 
 
 def legend_texts(figure) -> list[str]:
+    """Texts of the axes and figure legends (the save step moves some to the figure)."""
+    legends = [*figure.legends, *(ax.get_legend() for ax in figure.axes)]
     return [
         t.get_text()
-        for ax in figure.axes
-        if (legend := ax.get_legend()) is not None
+        for legend in legends
+        if legend is not None
         for t in [*legend.get_texts(), legend.get_title()]
         if t.get_text()
     ]
@@ -488,7 +485,8 @@ def test_the_cohort_runner_pool_still_has_per_mouse_figures_and_mouse_legends(
         pooled.problems, tmp_path, DRIFTING_SELECTION, arm_scope_label=POOLED_DRIFTING_LABEL
     )
     names = capture.saved_names()
-    assert sum("Per Mouse" in n for n in names) == 2 * 4 + 2  # heatmaps (png, pdf) + port ratios
+    # heatmaps and port ratios, each as pdf, png and svg
+    assert sum("Per Mouse" in n for n in names) == 3 * 4 + 3
     rank_figure = next(s.figure for s in capture.saved if "Rank Proportions" in s.path)
     assert set(MICE_A + MICE_B) == set(legend_texts(rank_figure))
     x_vs_plus = next(s.figure for s in capture.saved if "X vs Plus" in s.path)
@@ -546,55 +544,3 @@ def test_the_script_hands_the_cohorts_to_the_pipeline(script, monkeypatch):
     assert seen["cohorts"] == [1, 3] and seen["use_cache"] is False
     script.main(["--cohorts", "4"])
     assert seen["use_cache"] is True
-
-
-def test_the_script_passes_paper_ready_to_the_pipeline(script, monkeypatch):
-    seen = {}
-    monkeypatch.setattr(
-        script, "run_all_cohorts_drifting", lambda cohorts, **kw: seen.update(cohorts=cohorts, **kw)
-    )
-    script.main(["--cohorts", "1", "3", "--paper-ready"])
-    assert seen["paper_ready"] is True
-    script.main(["--cohorts", "1"])
-    assert seen["paper_ready"] is False
-
-
-def test_the_wilcoxon_tests_are_of_the_mouse_values_the_paper_figure_draws(
-    monkeypatch, pooled, tmp_path
-):
-    ranks = pooled_drifting_rank_results(pooled.problems, ("true",), (True, False))
-    capture = capture_figures(monkeypatch)
-    with paper_figures():
-        plot_pooled_drifting_rank(ranks, tmp_path)
-    figures = {s.figure: s.path for s in capture.saved}
-    assert len(figures) == 2
-    for figure, path in figures.items():
-        pool = "Pool Trials True" in path
-        (ax,) = figure.axes
-        mouse_lines = [line for line in ax.lines if line.get_marker() == "o"]
-        assert len(mouse_lines) == len(MICE_A + MICE_B)
-        # the y values of each line are the mouse's best, second and third proportions
-        drawn = {
-            i: dict(zip(("best", "second", "third"), line.get_ydata(), strict=True))
-            for i, line in enumerate(mouse_lines)
-        }
-        assert ranks["true"][pool]["significance"] == rank_comparison_tests(drawn)
-
-
-def test_each_pooling_mode_tests_its_own_proportions_on_a_hand_computed_case(monkeypatch, pooled):
-    # m1's two blocks: averaging the block proportions puts best above second (0.55 vs 0.45),
-    # pooling the trials puts it below (3/12 vs 9/12); m2 and m3 prefer best either way
-    counts = {
-        "m1": [make_row(1, 9, 0), make_row(2, 0, 0)],
-        "m2": [make_row(8, 1, 1)],
-        "m3": [make_row(6, 1, 1)],
-    }
-    monkeypatch.setattr(cohort_analysis, "merge_windows_by_subject", lambda _: counts)
-    ranks = pooled_drifting_rank_results(pooled.problems, ("true",), (True, False))
-    by_blocks = ranks["true"][False]["significance"]["best_vs_second"]
-    by_trials = ranks["true"][True]["significance"]["best_vs_second"]
-    # differences 0.1, 0.7, 0.625: all positive, W = 0, exact p = 2 / 2**3
-    assert by_blocks.statistic == 0 and by_blocks.p == pytest.approx(0.25)
-    # differences -0.5, 0.7, 0.625: ranks 1, 3, 2, so W = 1; 4 of the 8 sign patterns have
-    # W <= 1, so p = 0.5
-    assert by_trials.statistic == 1 and by_trials.p == pytest.approx(0.5)

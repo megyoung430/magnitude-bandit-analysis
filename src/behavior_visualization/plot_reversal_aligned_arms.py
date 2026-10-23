@@ -1,6 +1,6 @@
 """Figure of choice probability and reward magnitude of the three arms around a block change.
 
-Choice probabilities (mean ± SE across mice, or across block changes for an event-weighted
+Choice probabilities (mean ± se across mice, or across block changes for an event-weighted
 result) are solid lines on the left axis; the mean
 reward magnitude of the same three arms is a dashed step line of the same colour on a
 secondary axis on the right. Two labelling schemes, each with its own two kinds of block change
@@ -10,7 +10,7 @@ arm is rewarded again):
 - ``prev``: arms labelled by their rank before the block change (best blue, second green, third
   grey); kinds "Prev Best to Third" and "Prev Second to Third";
 - ``new``: arms labelled by their rank after the block change (best blue, second green, third
-  black); kinds "New Best from Third" and "New Second from Third".
+  grey); kinds "New Best from Third" and "New Second from Third".
 
 Every figure is also made for all block changes ("All"), which averages over both kinds. The title
 and the file name carry the same wording (:func:`figure_heading`, :func:`figure_stem`).
@@ -25,7 +25,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.behavior_analysis.reversal_aligned_arms import ReversalAlignedArms
-from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
+from src.behavior_visualization.plot_helpers import (
+    Title,
+    axes_or_new,
+    count_text,
+    despine,
+    save_or_show,
+    set_title,
+    stats_line,
+)
 
 ROLE_COLORS = {
     "prev_best": "#5DA5DA",
@@ -33,7 +41,9 @@ ROLE_COLORS = {
     "prev_third": "#7f7f7f",
     "new_best": "#5DA5DA",
     "new_second": "#60BD68",
-    "new_third": "black",
+    # the same grey as prev third: a figure draws the roles of one scheme only, so the two
+    # never share a panel
+    "new_third": "#7f7f7f",
 }
 ROLE_LABELS = {role: role.replace("_", " ").title() for role in ROLE_COLORS}
 SCHEME_DESCRIPTIONS = {
@@ -88,35 +98,43 @@ def figure_stem(result: ReversalAlignedArms, scope: str) -> str:
     return f"{heading} ({SCHEME_FILE_LABELS[result.scheme]}) ({scope})"
 
 
-def _average_text(result: ReversalAlignedArms) -> str:
+def _stats(result: ReversalAlignedArms) -> str:
+    """The statistics line: mean (± SE when there are two or more units) across mice or events."""
+    mice = (result.num_subjects, "mouse", "mice")
+    changes = (result.num_reversals, "block change", "block changes")
     if result.weighting == "event":
-        return "mean ± se across block changes, each weighted equally"
-    return "mean ± se across mice"
+        unit, counts = "block changes", [changes, mice]
+    else:
+        unit, counts = "mice", [mice, changes]
+    average = "mean ± se" if counts[0][0] >= 2 else "mean"
+    return stats_line(average, unit, counts)
 
 
-def _title(result: ReversalAlignedArms, scope: str) -> str:
+def _title(result: ReversalAlignedArms, scope: str) -> Title:
+    """Heading and statistics on the figure; scope, labelling, smoothing, caveats in the caption."""
     left_out = result.counts.tied_labels + result.counts.tied_type
-    mice = "mouse" if result.num_subjects == 1 else "mice"
-    detail = f"n={result.num_subjects} {mice}, n={result.num_reversals} block changes"
-    if left_out:
-        detail += f", {left_out} left out for tied magnitudes"
     smoothing = (
-        f"moving average over {result.moving_avg_window} trials ({result.moving_avg_mode})"
+        f"Moving average over {result.moving_avg_window} trials ({result.moving_avg_mode})."
         if result.moving_avg_window > 1
-        else "no moving average"
+        else "No moving average."
     )
-    scope_text = f" [{scope}]" if scope else ""
-    title = (
-        f"{figure_heading(result)}{scope_text}\n"
-        f"{SCHEME_DESCRIPTIONS[result.scheme].capitalize()}\n"
-        f"({_average_text(result)} | {detail})\n{smoothing}"
-    )
+    caption = [
+        f"Data: {scope}." if scope else "",
+        f"{SCHEME_DESCRIPTIONS[result.scheme].capitalize()}.",
+        f"{count_text(left_out, 'block change', 'block changes')} left out for tied magnitudes."
+        if left_out
+        else "",
+        smoothing,
+    ]
     if result.weighting == "event":
-        # Block changes of one mouse are correlated, so the band understates the uncertainty.
-        title += (
-            "\nSE treats block changes as independent, so it is narrower than the true uncertainty"
-        )
-    return title
+        caption.append("Each block change is weighted equally.")
+        if result.num_reversals >= 2:
+            # Block changes of one mouse are correlated, so the band understates the uncertainty.
+            caption.append(
+                "se treats block changes as independent, so it is narrower than the true "
+                "uncertainty."
+            )
+    return Title(figure_heading(result), _stats(result), tuple(line for line in caption if line))
 
 
 def _draw_choice_curves(ax: plt.Axes, result: ReversalAlignedArms) -> None:
@@ -158,7 +176,7 @@ def _draw_magnitude_curves(ax2: plt.Axes, result: ReversalAlignedArms) -> None:
             ls="--",
             color=ROLE_COLORS[role],
             alpha=0.85,
-            label=f"{ROLE_LABELS[role]} magnitude",
+            label=f"{ROLE_LABELS[role]} Magnitude",
         )
         banded = shown & np.isfinite(se)
         if banded.any():
@@ -177,8 +195,9 @@ def plot_reversal_aligned_arms(
     """Choice probabilities and reward magnitudes of the three arms around the block change.
 
     The SE band of a curve is left out where its SE is NaN (fewer than two subjects, or fewer
-    than two block changes for an event-weighted result). The title says which weighting was
-    used.
+    than two block changes for an event-weighted result). The title gives the heading and the
+    statistics line (which weighting, and the n); the scope, labelling, smoothing and caveats go
+    to the figure's caption (see :func:`~src.behavior_visualization.plot_helpers.set_title`).
 
     Args:
         result (ReversalAlignedArms): Output of
@@ -186,7 +205,7 @@ def plot_reversal_aligned_arms(
         ax (plt.Axes | None): Axes for the choice probabilities; a new 10 x 5.5 inch figure if
             None. Its zorder and background are changed so the twin's curves show behind it.
             Default None.
-        scope (str): Text for the title naming the data, e.g. ``"problem-04"`` or
+        scope (str): Text for the caption naming the data, e.g. ``"problem-04"`` or
             ``"pooled"``. Default ``""`` (none).
 
     Returns:
@@ -225,14 +244,14 @@ def plot_reversal_aligned_arms(
             fontsize=10,
             frameon=False,
         )
-        ax.set_title(_title(result, scope), pad=12)
+        set_title(ax, _title(result, scope), pad=12)
     return ax, ax2
 
 
 def save_reversal_aligned_arms(
     result: ReversalAlignedArms, save_path: str | Path | None, *, scope: str = ""
 ) -> None:
-    """Draw the figure and save it as ``<save_path>.png`` and ``.pdf``, or show it.
+    """Draw the figure and save it (pdf, png, svg and a caption), or show it.
 
     Args:
         result (ReversalAlignedArms): See :func:`plot_reversal_aligned_arms`.

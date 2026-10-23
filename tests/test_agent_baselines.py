@@ -56,7 +56,8 @@ def test_compute_and_write(tmp_path):
 
     figures, tables = tmp_path / "figures", tmp_path / "tables"
     write_agent_baselines(result, figures, tables, DRIFTING_SELECTION, "test")
-    assert (figures / "summary.png").exists()
+    for ext in ("pdf", "png", "svg", "caption.txt"):
+        assert (figures / f"summary.{ext}").exists(), ext
     for name in ("agent_fits", "choice_regression_weights", "task_rules_summary"):
         assert (tables / f"{name}.csv").exists()
     for kind in ("magnitude", "binary"):
@@ -94,3 +95,24 @@ def test_a_mouse_simulation_does_not_depend_on_the_other_mice():
             a = drifting_trial_table({problem: {label: animals[label]}})
             b = drifting_trial_table({problem: {label: together[kind][problem][label]}})
             assert a["choice"].tolist() == b["choice"].tolist()
+
+
+def test_the_regression_panel_states_the_mean_and_the_number_of_animals():
+    import pandas as pd
+
+    from src.behavior_analysis.choice_regression import FEATURES
+    from src.behavior_visualization.plot_agent_baselines import plot_regression_weights
+
+    weights = pd.DataFrame(
+        [
+            {"source": source, "mouse": f"m{i}", "feature": feature, "weight": float(i)}
+            for source in ("mice", "magnitude")
+            for i in range(3)
+            for feature in FEATURES
+        ]
+    )
+    ax = plot_regression_weights(weights)
+    assert ax.get_title() == (
+        "Choice regression: what drives port choice\n"
+        "mean ± se across animals of each source, n=3 animals"
+    )

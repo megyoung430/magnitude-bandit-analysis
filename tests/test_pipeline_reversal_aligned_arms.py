@@ -17,6 +17,7 @@ from src.behavior_analysis.reversal_aligned_arms import (
     add_magnitude_windows,
     build_windows_with_magnitudes,
 )
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse as make_counter_mouse
@@ -100,7 +101,7 @@ def test_one_problem_gives_pooled_figures_for_every_scheme_and_non_empty_type(tm
             ("new", "all"),
             ("new", "third_to_best"),
         )
-        for ext in ("pdf", "png")
+        for ext in ("caption.txt", "pdf", "png", "svg")
     )
     # the two weightings each have a subfolder with every figure; nothing is at the top level
     assert sorted(p.name for p in tmp_path.iterdir()) == ["event-weighted", "mouse-weighted"]
@@ -110,7 +111,7 @@ def test_one_problem_gives_pooled_figures_for_every_scheme_and_non_empty_type(tm
     assert set(result["results"]["pooled"]) == {"prev", "new"}
     assert set(result["results"]["pooled"]["prev"]) == {"all", "best_to_third", "second_to_third"}
     assert set(result["results"]["pooled"]["new"]) == {"all", "third_to_best", "third_to_second"}
-    assert len(result["figure_paths"]) == 16
+    assert len(result["figure_paths"]) == 24
     assert {p.parent.name for p in result["figure_paths"]} == {"mouse-weighted", "event-weighted"}
     assert all(p.exists() for p in result["figure_paths"])
 
@@ -145,7 +146,9 @@ def test_each_figure_title_names_its_weighting(tmp_path, capture):
     run(one_problem(), tmp_path)
     titles = {Path(s.path).parent.name: s.figure.axes[0].get_title() for s in capture.saved}
     assert "across mice" in titles["mouse-weighted"]
-    assert "across block changes, each weighted equally" in titles["event-weighted"]
+    assert "across block changes" in titles["event-weighted"]
+    event = next(s.figure for s in capture.saved if Path(s.path).parent.name == "event-weighted")
+    assert "Each block change is weighted equally." in figure_caption(event)
 
 
 def test_several_problems_add_per_problem_figures_and_pool_per_subject(tmp_path, capture):
@@ -272,15 +275,16 @@ def test_numpy_integer_problem_numbers_name_the_scopes(tmp_path):
 
 
 def titles(capture):
-    return [saved.figure.axes[0].get_title() for saved in capture.saved]
+    """The caption of each saved figure, where the scope is named."""
+    return [figure_caption(saved.figure) for saved in capture.saved]
 
 
-def test_the_title_says_pooled_by_default_and_the_scope_label_when_given(tmp_path, capture):
+def test_the_caption_says_pooled_by_default_and_the_scope_label_when_given(tmp_path, capture):
     run(one_problem(), tmp_path)
-    assert titles(capture) and all("[pooled]" in t for t in titles(capture))
+    assert titles(capture) and all("Data: pooled." in t for t in titles(capture))
     capture.saved.clear()
     result = run(one_problem(), tmp_path, scope_label="problem-01")
-    assert all("[problem-01]" in t and "pooled" not in t for t in titles(capture))
+    assert all("Data: problem-01." in t and "pooled" not in t for t in titles(capture))
     # file names and the counts table keep the scope name
     assert f"{stem('new', 'all')}.png" in capture.saved_names()
     assert set(result["counts"]["scope"]) == {"pooled"}
@@ -289,5 +293,5 @@ def test_the_title_says_pooled_by_default_and_the_scope_label_when_given(tmp_pat
 def test_the_scope_label_leaves_the_per_problem_scopes_named(tmp_path, capture):
     run(two_problems(), tmp_path, scope_label="everything")
     by_name = dict(zip(capture.saved_names(), titles(capture), strict=True))
-    assert "[everything]" in by_name[f"{stem('new', 'all')}.png"]
-    assert "[problem-05]" in by_name[f"{stem('new', 'all', 'problem-05')}.png"]
+    assert "Data: everything." in by_name[f"{stem('new', 'all')}.png"]
+    assert "Data: problem-05." in by_name[f"{stem('new', 'all', 'problem-05')}.png"]

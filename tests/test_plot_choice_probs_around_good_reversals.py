@@ -17,6 +17,7 @@ from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
     plot_choice_probs_with_removal,
     plot_cumulative_removed,
 )
+from src.behavior_visualization.plot_helpers import figure_caption
 
 X = np.arange(-3, 12)
 WINDOWS = {"A": [{"reversal_idx": 10}, {"reversal_idx": 20}], "B": [{"reversal_idx": 4}]}
@@ -27,7 +28,7 @@ SERIES = {"good": np.where(X >= 0, 0.2, np.nan), "bad": np.where(X >= 0, 0.1, np
 MISSING_INDEX_MESSAGE = (
     "Cumulative removal needs all_good_idx, all_bad_idx and all_unclassified_idx."
 )
-TITLE = "Good Reversal-Aligned Choices\n(mean ± se across subjects | n=2 subjects, n=3 reversals)\n"
+TITLE = "Good Reversal-Aligned Choices\nmean ± se across mice, n=2 mice, n=3 reversals"
 
 
 @pytest.fixture(autouse=True)
@@ -208,8 +209,7 @@ def test_public_plot_saves_pdf_and_png_and_closes_figure(across, tmp_path, skip)
         X, across, add_cumulative_axis=False, skip_n_trials_after_reversal=skip, save_path=save_path
     )
     assert sorted(p.name for p in save_path.parent.iterdir()) == [
-        "choice probs.pdf",
-        "choice probs.png",
+        f"choice probs.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
     ]
     assert not plt.get_fignums()
 
@@ -220,7 +220,8 @@ def test_public_broken_axis_figure_layout(across, shown):
     )
     (fig,) = shown
     assert tuple(fig.get_size_inches()) == (10, 4.5)
-    assert fig._suptitle.get_text() == TITLE + "(Skipping first 4 trials post-reversal)"
+    assert fig._suptitle.get_text() == TITLE
+    assert figure_caption(fig) == "The first 4 trials after each reversal are skipped."
     assert fig._suptitle.get_position()[1] == 1.03
     assert fig._supxlabel.get_text() == "Trials from Good Reversal"
     left, right = fig.axes
@@ -242,7 +243,9 @@ def test_public_plot_with_cumulative_axis_saves_the_removal_figure(across, tmp_p
         all_unclassified_idx=NONE,
         save_path=save_path,
     )
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["cum.pdf", "cum.png"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        f"cum.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
+    ]
     assert plt.get_fignums() == []  # no stray plain figure is left open
 
 
@@ -349,6 +352,13 @@ def test_chance_line_sits_at_one_third_and_se_bands_are_translucent(across):
     assert list(chance[0].get_ydata()) == pytest.approx([1 / 3, 1 / 3])
     assert len(ax.collections) == 3
     assert [c.get_alpha() for c in ax.collections] == [0.2, 0.2, 0.2]
+
+
+def test_without_an_se_the_title_says_mean_and_no_band_is_drawn(across):
+    one = {**across, "se": {k: np.full(X.size, np.nan) for k in across["se"]}, "num_subjects": 1}
+    ax = plot_choice_probs(X, one)
+    assert ax.get_title().splitlines()[1] == "mean across mice, n=1 mouse, n=3 reversals"
+    assert not any(c.get_paths() for c in ax.collections)
 
 
 @pytest.mark.parametrize(

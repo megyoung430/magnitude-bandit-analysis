@@ -706,7 +706,7 @@ def run_drifting_value_analyses(
         out_dir (Path): Folder that receives ``value-psychometrics``, ``reversal-aligned-arms``,
             ``value-change`` and ``port-preference``.
         selection (AnalysisSelection): Which of the four to run.
-        arm_scope_label (str): Scope named in the titles of the reversal-aligned and
+        arm_scope_label (str): Scope named in the captions of the reversal-aligned and
             port-preference figures, given
             by the caller (``"problem-03"`` for a problem folder, ``POOLED_DRIFTING_LABEL`` for
             the pool) because a pool of one problem is still the pool. Keyword-only.

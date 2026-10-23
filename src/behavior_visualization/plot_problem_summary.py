@@ -35,11 +35,16 @@ from src.behavior_analysis.rank_proportions_summary import (
     rank_mean_and_se,
 )
 from src.behavior_visualization.plot_helpers import (
+    Title,
     despine,
+    error_drawn,
     jitter_rng,
     jittered,
     mouse_color_map,
     save_or_show,
+    set_title,
+    stats_line,
+    title_from_text,
 )
 
 # Notebooks star-import this module and expect MOUSE_COLORS from it.
@@ -140,8 +145,8 @@ def _mouse_points(blocks: list, by_block: dict) -> tuple[np.ndarray, np.ndarray]
     return xs, ys
 
 
-def _default_length_title(ylabel: str, n_mice: int) -> str:
-    return f"{ylabel} per Problem\n(mean ± se across mice | n={n_mice} subjects)"
+def _default_length_title(ylabel: str) -> str:
+    return f"{ylabel} per Problem"
 
 
 def _draw_bars(ax: plt.Axes, blocks: list, means: np.ndarray, ses: np.ndarray) -> None:
@@ -237,7 +242,8 @@ def plot_problem_bars(
         ax (plt.Axes | None): Axes to draw into; a new 10 x 4.8 inch figure is made if None.
             Default None.
         ylabel (str): Y-axis label.
-        title (str): Axes title.
+        title (str): Heading of the axes title; a statistics line with the mouse count is added
+            under it, and any further lines of *title* go to the figure's caption.
         jitter (float): Half-width of the horizontal jitter on the mouse lines; 0 turns it
             off. Default 0.06.
         annotate_y (float | None): Height of the value labels above the bars. Defaults to
@@ -269,7 +275,9 @@ def plot_problem_bars(
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
     ax.set_xlabel("Problem Number", fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
-    ax.set_title(title, pad=style.title_pad)
+    average = "mean ± se" if error_drawn(ses) else "mean"
+    stats = stats_line(average, "mice", [(len(summary["mice"]), "mouse", "mice")])
+    set_title(ax, title_from_text(title, stats), pad=style.title_pad)
     # Known issue: the bottom is fixed at 0, so bars with negative means are clipped.
     ax.set_ylim(0, max(annotate_y, finite_top) * style.ylim_headroom)
     return ax
@@ -313,7 +321,7 @@ def plot_metric_by_problem(
         style=METRIC_STYLE,
     )
     ax.figure.tight_layout()
-    save_or_show(ax.figure, save_path or None, formats=("pdf", "png"))
+    save_or_show(ax.figure, save_path or None)
 
 
 def plot_problem_lengths(
@@ -334,21 +342,22 @@ def plot_problem_lengths(
             :func:`src.behavior_analysis.problem_summary.compute_problem_length_summary`
             or any compatible function; same keys as for :func:`plot_metric_by_problem`.
         ylabel (str): Y-axis label. Default ``"Sessions to Complete"``.
-        title (str | None): Figure title. Auto-generated from *ylabel* and the number of mice
-            if None. Default None.
+        title (str | None): Heading of the title. ``"<ylabel> per Problem"`` if None; the
+            statistics line with the number of mice is added either way. Default None.
         jitter (float): Horizontal jitter half-width for per-mouse markers. Default 0.06.
         annotate_y (float | None): Y-position for value annotations above bars. Defaults to
             ``max(top, 1) * 1.5``, where ``top`` is the tallest bar plus its
             error (1 if every bar is NaN).
-        save_path (str | Path | None): If provided, saves ``.pdf`` and ``.png`` at this
-            extension-less base path; if None or empty, the figure is shown. Default None.
+        save_path (str | Path | None): If provided, saves the figure (pdf, png, svg) and its
+            caption at this extension-less base path; if None or empty, the figure is shown.
+            Default None.
 
     Raises:
         KeyError: If *problem_summary* lacks one of the required keys.
     """
     _require_summary_keys(problem_summary)
     if title is None:
-        title = _default_length_title(ylabel, len(problem_summary["mice"]))
+        title = _default_length_title(ylabel)
     ax = plot_problem_bars(
         problem_summary,
         ylabel=ylabel,
@@ -358,7 +367,7 @@ def plot_problem_lengths(
         style=LENGTHS_STYLE,
     )
     ax.figure.tight_layout()
-    save_or_show(ax.figure, save_path or None, formats=("pdf", "png"))
+    save_or_show(ax.figure, save_path or None)
 
 
 # ---------------------------------------------------------------------------
@@ -408,13 +417,13 @@ def _stats_text(vals: Any, show_n: bool = True) -> str:
         return "no data"
     lines = []
     if show_n:
-        lines.append(f"n = {vals.size}")
-    lines.append(f"median = {np.median(vals):.2f}")
+        lines.append(f"n={vals.size}")
+    lines.append(f"median={np.median(vals):.2f}")
     if vals.size > 1:
-        lines.append(f"sd = {vals.std(ddof=1):.2f}")
+        lines.append(f"std={vals.std(ddof=1):.2f}")
     lines += [
-        f"min = {vals.min():.0f}",
-        f"max = {vals.max():.0f}",
+        f"min={vals.min():.0f}",
+        f"max={vals.max():.0f}",
     ]
     return "\n".join(lines)
 
@@ -557,8 +566,8 @@ def plot_distributions_per_mouse(
         sharex (bool): Share x-axis across subplots. Default False.
         sharey (bool): Share y-axis across subplots. Default False.
         save_dir (str | Path | None): Directory for saved figures, one
-            ``blocklen_distributions_mouse_<mouse>`` (png and pdf) per mouse. If None,
-            figures are shown interactively. Default None.
+            ``blocklen_distributions_mouse_<mouse>`` (pdf, png, svg and a caption) per mouse.
+            If None, figures are shown interactively. Default None.
     """
     problems, mice, data = collect_blocklens(problem_block_stats)
     if drop_last_problem:
@@ -567,7 +576,7 @@ def plot_distributions_per_mouse(
     for m in mice:
         fig = _mouse_histogram_figure(data, m, problems, ncols=ncols, sharex=sharex, sharey=sharey)
         stem = None if save_dir is None else Path(save_dir) / f"blocklen_distributions_mouse_{m}"
-        save_or_show(fig, stem, formats=("png", "pdf"))
+        save_or_show(fig, stem)
 
 
 def plot_distributions_per_problem_all_mice(
@@ -603,7 +612,7 @@ def plot_distributions_per_problem_all_mice(
         problems, mice, data = drop_last_problem_per_mouse_raw(problems, mice, data)
 
     fig = _pooled_histogram_figure(data, problems, mice, ncols=ncols, sharex=sharex, sharey=sharey)
-    save_or_show(fig, save_path or None, formats=("png", "pdf"))
+    save_or_show(fig, save_path or None)
 
 
 # ---------------------------------------------------------------------------
@@ -721,7 +730,9 @@ def plot_rank_proportions_average_panel(
         _, ax = plt.subplots(figsize=(7, 5.5))
     _draw_rank_bars(ax, means, ses, pvalues=pvalues)
     _draw_rank_mouse_lines(ax, per_mouse, jitter=jitter)
-    ax.set_title("Average Across Mice", pad=14)
+    average = "mean ± se" if error_drawn(ses) else "mean"
+    stats = stats_line(average, "mice", [(len(per_mouse), "mouse", "mice")])
+    set_title(ax, Title("Average Across Mice", stats), pad=14)
     ax.set_xticks(np.arange(len(RANK_LABELS)))
     ax.set_xticklabels(RANK_LABELS)
     ax.set_ylabel("Proportion of Choices")
@@ -759,4 +770,4 @@ def plot_rank_proportions_average_without_blocks(
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
     plot_rank_proportions_average_panel(per_mouse, ax=ax, pvalues=average_across_mice_pvalues)
     fig.tight_layout()
-    save_or_show(fig, save_path or None, formats=("pdf", "png"))
+    save_or_show(fig, save_path or None)

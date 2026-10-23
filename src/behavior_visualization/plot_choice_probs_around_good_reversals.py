@@ -37,7 +37,14 @@ from src.behavior_analysis.cumulative_reversal_removal import (
     good_bad_removal_curves,
     total_removal_curves,
 )
-from src.behavior_visualization.plot_helpers import save_or_show
+from src.behavior_visualization.plot_helpers import (
+    Title,
+    error_drawn,
+    save_or_show,
+    set_suptitle,
+    set_title,
+    stats_line,
+)
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP as COLOR_MAP
 
 CURVE_LABELS = [("prev_best", "Previous Best"), ("next_best", "New Best"), ("third", "Third Arm")]
@@ -60,13 +67,13 @@ Y_LABEL = "Choice Probability"
 # ---------------------------------------------------------------------------
 
 
-def _title(across: dict) -> str:
-    return (
-        "Good Reversal-Aligned Choices\n"
-        f"(mean ± se across subjects | "
-        f"n={across.get('num_subjects', 0)} subjects, "
-        f"n={across.get('num_reversals', 0)} reversals)\n"
-    )
+def _title(across: dict, caption: tuple[str, ...] = ()) -> Title:
+    counts = [
+        (across.get("num_subjects", 0), "mouse", "mice"),
+        (across.get("num_reversals", 0), "reversal", "reversals"),
+    ]
+    average = "mean ± se" if error_drawn(*across.get("se", {}).values()) else "mean"
+    return Title("Good Reversal-Aligned Choices", stats_line(average, "mice", counts), caption)
 
 
 def _draw_choice_curves(ax: plt.Axes, x_disp, across: dict, xlim, ylim) -> None:
@@ -127,7 +134,7 @@ def plot_choice_probs(x: ArrayLike, across: dict, ax: plt.Axes | None = None) ->
     _draw_choice_curves(ax, x, across, _full_xlim(x), PLAIN_YLIM)
     ax.set_xlabel(X_LABEL)
     ax.set_ylabel(Y_LABEL)
-    ax.set_title(_title(across), pad=20)
+    set_title(ax, _title(across), pad=20)
     ax.legend(loc="upper right", fontsize=10)
     return ax
 
@@ -315,7 +322,7 @@ def plot_choice_probs_with_removal(
 
     ax.set_xlabel(X_LABEL)
     ax.set_ylabel(Y_LABEL)
-    ax.set_title(_title(across), pad=20)
+    set_title(ax, _title(across), pad=20)
 
     handles, labels = ax.get_legend_handles_labels()
     handles2, labels2 = ax2.get_legend_handles_labels()
@@ -340,10 +347,8 @@ def _broken_axis_figure(
     ax_left, _ = plot_choice_probs_broken_axis(x, across, skip_n_trials_after_reversal)
     fig = ax_left.figure
     fig.supxlabel(X_LABEL)
-    fig.suptitle(
-        f"{_title(across)}(Skipping first {skip_n_trials_after_reversal} trials post-reversal)",
-        y=1.03,
-    )
+    skipped = f"The first {skip_n_trials_after_reversal} trials after each reversal are skipped."
+    set_suptitle(fig, _title(across, (skipped,)), y=1.03)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         fig.tight_layout()

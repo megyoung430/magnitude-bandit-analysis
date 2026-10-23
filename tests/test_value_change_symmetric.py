@@ -19,6 +19,7 @@ from src.behavior_analysis.value_change_windows import (
     summarize_windows,
     truncate_windows_at_rank_swap,
 )
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.pipelines.value_change_analysis import run_value_change_analysis
 from tests.test_value_change_windows import BASE, key, mag, recording, script, session
 
@@ -373,13 +374,14 @@ def test_symmetric_title_says_complete_windows_and_counts_events_after_exclusion
     windows = get_value_change_windows(full, "best", "increase", "all", pre=N, post=N)
     kept, _ = select_symmetric_windows(windows)
     for weighting in ("subject", "event"):
-        title = plot_value_change_panel(summarize_windows(kept, weighting=weighting)).get_title()
-        first, second, *rest = title.split("\n")
-        assert first.endswith("(All Events, Symmetric ±6 Trials)")
-        assert "complete windows only" in second
+        ax = plot_value_change_panel(summarize_windows(kept, weighting=weighting))
+        first, second = ax.get_title().split("\n")
+        caption = figure_caption(ax.figure)
+        assert first.endswith("(All Events)")
+        assert "Window: symmetric ±6 trials, complete windows only." in caption
         assert "n=2 mice" in second and "n=2 events" in second
         if weighting == "event":
-            assert any("independent" in line for line in rest)
+            assert "independent" in caption
     import matplotlib.pyplot as plt
 
     plt.close("all")

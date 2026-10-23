@@ -236,3 +236,14 @@ def test_per_mouse_outline_mapping_must_cover_every_mouse():
             current_ports={"m1": {"A1"}, "m2": {"A1"}},
             save_path=None,
         )
+
+
+def test_the_first_suptitle_line_is_drawn_and_the_rest_is_the_caption(tmp_path):
+    base = save_and_close(
+        tmp_path,
+        per_mouse_counts=per_mouse(),
+        colorbar_label="Pokes (count)",
+        suptitle="Pokes after choice\nColour scale: 0 to each mouse's own maximum count.",
+    )
+    caption = base.with_name(f"{base.name}.caption.txt").read_text()
+    assert caption == "Colour scale: 0 to each mouse's own maximum count.\n"

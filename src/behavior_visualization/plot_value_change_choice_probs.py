@@ -11,8 +11,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 
-from src.behavior_analysis.value_change_windows import ValueChangeCurves, describe_value_change
-from src.behavior_visualization.plot_helpers import axes_or_new, despine, save_or_show
+from src.behavior_analysis.value_change_windows import (
+    ValueChangeCurves,
+    describe_value_change_kind,
+)
+from src.behavior_visualization.plot_helpers import (
+    Title,
+    axes_or_new,
+    count_text,
+    despine,
+    save_or_show,
+    set_title,
+    stats_line,
+)
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
 
 # prev_best / next_best in the shared map are the blue / green of the best / second curves.
@@ -34,28 +45,36 @@ X_LABEL = "Trials from Value Change"
 Y_LABEL = "Choice Probability"
 
 
-def _title(curves: ValueChangeCurves) -> str:
-    symmetric_window = curves.pre if curves.symmetric else None
-    heading = describe_value_change(curves.config, curves.truncate_at_rank_swap, symmetric_window)
-    events = f"n={curves.num_events} events"
-    if curves.truncate_at_rank_swap:
-        events += f", {curves.num_truncated} truncated at swap"
+def _window_caption(curves: ValueChangeCurves) -> str:
+    """The caption line of the window mode, with the events it affects."""
     if curves.symmetric:
-        events += ", complete windows only"
-    mice = "mouse" if curves.num_subjects == 1 else "mice"
+        return f"Window: symmetric ±{curves.pre} trials, complete windows only."
+    if curves.truncate_at_rank_swap:
+        truncated = count_text(curves.num_truncated, "event", "events")
+        return f"Window: truncated at the first rank swap ({truncated} truncated)."
+    return "Window: full window."
+
+
+def _title(curves: ValueChangeCurves, show_individual_mice: bool = False) -> Title:
+    """Heading and statistics on the figure; window mode, weighting, caveats in the caption."""
+    events = (curves.num_events, "event", "events")
+    mice = (curves.num_subjects, "mouse", "mice")
     if curves.weighting == "event":
-        average = "mean ± se" if curves.num_events >= 2 else "mean"
-        across = "across events, each event weighted equally"
+        unit, counts = "events", [events, mice]
     else:
-        average = "mean ± se" if curves.num_subjects >= 2 else "mean"
-        across = "across mice"
-    title = (
-        f"Choice Probabilities Around {heading}\n"
-        f"({average} {across} | n={curves.num_subjects} {mice}, {events})"
-    )
-    if curves.weighting == "event" and curves.num_events >= 2:
-        title += "\nSE treats events as independent, so it is narrower than the true uncertainty"
-    return title
+        unit, counts = "mice", [mice, events]
+    average = "mean ± se" if counts[0][0] >= 2 else "mean"
+    caption = [_window_caption(curves)]
+    if curves.weighting == "event":
+        caption.append("Each event is weighted equally.")
+        if curves.num_events >= 2:
+            caption.append(
+                "se treats events as independent, so it is narrower than the true uncertainty."
+            )
+    if show_individual_mice:
+        caption.append("Grey lines: each mouse's mean.")
+    heading = f"Choice Probabilities Around {describe_value_change_kind(curves.config)}"
+    return Title(heading, stats_line(average, unit, counts), tuple(caption))
 
 
 def _draw_label(ax: plt.Axes, curves: ValueChangeCurves, label: str, individual: bool) -> None:
@@ -98,7 +117,7 @@ def plot_value_change_panel(
         despine(ax)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=10, frameon=False)
-        ax.set_title(_title(curves), pad=12)
+        set_title(ax, _title(curves, show_individual_mice), pad=12)
     return ax
 
 
@@ -108,7 +127,7 @@ def plot_value_change_choice_probs(
     *,
     show_individual_mice: bool = False,
 ) -> None:
-    """Make the figure for one configuration and save it as PNG and PDF, or show it.
+    """Make the figure for one configuration and save it (with its caption), or show it.
 
     Args:
         curves (ValueChangeCurves): Output of ``summarize_windows``.

@@ -3,8 +3,8 @@
 A ``--from-cache`` run (see :func:`~src.behavior_import.load_trials.load_trials_with_log`) may
 miss the newest sessions, and nothing in its figures would show it. Each run therefore writes
 ``from-cache.txt`` into the folders it fills, listing per cohort when its cached import was
-made, and adds one line to every paper-ready caption. A run that read the server removes the
-file again, so a folder only carries it while its contents come from the cache.
+made. A run that read the server removes the file again, so a folder only carries it while its
+contents come from the cache.
 """
 
 from collections.abc import Iterable, Mapping
@@ -68,28 +68,6 @@ def from_cache_description(sources: Mapping[str, CacheSource]) -> str:
         *(_source_line(cohort, source) for cohort, source in sorted(sources.items())),
     ]
     return "\n".join(lines) + "\n"
-
-
-def from_cache_caption(sources: Mapping[str, CacheSource]) -> str | None:
-    """The caption line of a paper-ready figure made from *sources*, or ``None`` if empty.
-
-    Args:
-        sources (Mapping[str, CacheSource]): ``{cohort: source}``.
-
-    Returns:
-        str | None: ``"Data from the cached import of <date>; sessions added since are
-        missing."``, with each cohort's date when there are several.
-    """
-    if not sources:
-        return None
-    if len(sources) == 1:
-        (source,) = sources.values()
-        return (
-            f"Data from the cached import of {_date(source.time)}; sessions added since are "
-            "missing."
-        )
-    dates = ", ".join(f"{_date(s.time)} ({cohort})" for cohort, s in sorted(sources.items()))
-    return f"Data from the cached imports of {dates}; sessions added since are missing."
 
 
 def write_from_cache_notes(folders: Iterable[Path], sources: Mapping[str, CacheSource]) -> None:

@@ -299,15 +299,21 @@ def written_tree(tmp_path, monkeypatch):
     return tmp_path / "results" / "figures" / "value-change-diagnostic" / "cohort-03"
 
 
-def test_tree_has_one_png_per_drifting_session_and_an_index(written_tree):
+def test_tree_has_one_figure_per_drifting_session_and_an_index(written_tree):
     found = sorted(str(p.relative_to(written_tree)) for p in written_tree.rglob("*") if p.is_file())
     assert found == [
         "index.txt",
         "mouse_curves_all-drifting-problems.csv",
         "mouse_curves_problem-01.csv",
-        "problem-01/m1/ses-1_date-20260101.png",
-        "problem-01/m1/ses-2_date-20260102.png",
-        "problem-01/m2/ses-1_date-20260101.png",
+        *(
+            f"problem-01/{session}.{ext}"
+            for session in (
+                "m1/ses-1_date-20260101",
+                "m1/ses-2_date-20260102",
+                "m2/ses-1_date-20260101",
+            )
+            for ext in ("caption.txt", "pdf", "png", "svg")
+        ),
     ]
 
 

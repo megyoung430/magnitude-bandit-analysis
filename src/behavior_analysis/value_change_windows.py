@@ -153,6 +153,19 @@ _FILTER_WORDS = {
 }
 
 
+def describe_value_change_kind(config: ValueChangeConfig) -> str:
+    """Readable name of a configuration without its window mode, for figure headings.
+
+    Args:
+        config (ValueChangeConfig): The rank, direction and event filter.
+
+    Returns:
+        str: E.g. ``"Best-Value Decreases (Rank Swap)"``.
+    """
+    rank, direction = _RANK_WORDS[config.rank], _DIRECTION_WORDS[config.direction]
+    return f"{rank} {direction} ({_FILTER_WORDS[config.rank_filter]})"
+
+
 def describe_value_change(
     config: ValueChangeConfig, truncated: bool, symmetric_window: int | None = None
 ) -> str:

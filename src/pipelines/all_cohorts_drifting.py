@@ -14,8 +14,8 @@ cohorts together, in one folder that belongs to no cohort::
 
 With ``exclude_mice`` a second set is written next to it, from the same problems without those
 mice, into ``figures/open-field/all-cohorts-without-<mice>/`` and
-``tables/open-field/all-cohorts-without-<mice>/`` (same layout, every figure marked "without
-<mice>", plus ``excluded_mice.txt``); the plain set is as without the option.
+``tables/open-field/all-cohorts-without-<mice>/`` (same layout, every figure's caption starting
+"without <mice>", plus ``excluded_mice.txt``); the plain set is as without the option.
 
 Problems stay separate: each cohort's drifting problems are keyed ``(cohort id, number within
 the type)``, so problem 1 of cohort 1 and problem 1 of cohort 3 are two problems, and every
@@ -56,21 +56,18 @@ from src.behavior_analysis.port_finding_sessions import assign_port_finding_sess
 from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table, with_cohort
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
-from src.behavior_visualization.plot_helpers import caption_note, figure_banner
+from src.behavior_visualization.plot_helpers import figure_banner
 from src.pipelines.cache_provenance import (
     cache_sources,
-    from_cache_caption,
     write_from_cache_notes,
 )
 from src.pipelines.cohort_analysis import (
     DEFAULT_RESULTS_ROOT,
     DRIFTING_SELECTION,
-    PAPER_READY_FOLDER,
     TASK,
     cohort_name,
     each_reversal_warning_once,
     load_cohort,
-    paper_scope,
     plot_pooled_drifting_rank,
     pooled_drifting_rank_results,
 )
@@ -328,10 +325,7 @@ def _draw_pool(
     label: str,
     scope: str | None,
 ) -> tuple[dict, dict]:
-    """Draw every figure of the pool into *figures_dir*; return the rank results and tables.
-
-    Which style the figures get (normal or paper) is decided by the caller's context.
-    """
+    """Draw every figure of the pool into *figures_dir*; return the rank results and tables."""
     rank_results = pooled_drifting_rank_results(
         problems, selection.rank_value_bases, selection.rank_pooling_modes
     )
@@ -366,29 +360,26 @@ def _write_pool(
     selection: AnalysisSelection,
     run_at: datetime,
     excluded: tuple[str, ...] = (),
-    paper_dir: Path | None = None,
     sources: dict | None = None,
 ) -> AllCohortsResult:
     """Run and write the all-drifting-problems analyses of *problems* into the two folders.
 
     Anything an earlier run left in the folders this pipeline owns is removed first. With
-    *excluded* the scope text in the titles and the banner on every figure say which mice are
+    *excluded* the scope text and the first line of every figure's caption say which mice are
     left out, and ``excluded_mice.txt`` lists them.
 
     Args:
         problems (dict): ``{(cohort id, k): {mouse: sessions}}`` to pool.
         sessions (pd.DataFrame): The stacked sessions-per-problem table of the problems' mice.
-        ids (list[int]): The cohorts named in the titles.
+        ids (list[int]): The cohorts named in the captions.
         figures_dir (Path): Folder that receives the figures.
         tables_dir (Path): Folder that receives the tables.
         selection (AnalysisSelection): Which drifting analyses run, and the rank settings.
         run_at (datetime): The time written to ``cohorts.txt``.
         excluded (tuple[str, ...]): Mice left out of *problems*; empty for the plain pool.
-        paper_dir (Path | None): If given, the figures are drawn a second time in the paper
-            style into this folder (emptied first). Default None.
         sources (dict | None): ``{cohort: CacheSource}`` of cohorts loaded from the cache
-            without the server; each folder then gets ``from-cache.txt`` and each paper caption
-            a line saying so. Empty or ``None``: the folders' notes are removed. Default None.
+            without the server; each folder then gets ``from-cache.txt`` saying so. Empty or
+            ``None``: the folders' notes are removed. Default None.
 
     Returns:
         AllCohortsResult: The folders, the mice per cohort of *problems*, rank results and tables.
@@ -406,15 +397,6 @@ def _write_pool(
         rank_results, tables = _draw_pool(
             problems, sessions, figures_dir, selection, shown_ids, label, scope
         )
-    if paper_dir is not None:
-        shutil.rmtree(paper_dir, ignore_errors=True)
-        write_from_cache_notes([paper_dir], sources)  # the folder was just emptied
-        with (
-            each_reversal_warning_once(),
-            paper_scope(scope),
-            caption_note(from_cache_caption(sources)),
-        ):
-            _draw_pool(problems, sessions, paper_dir, selection, shown_ids, label, scope)
     tables_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
         table.to_csv(tables_dir / f"{name}.csv", index=False)
@@ -439,7 +421,6 @@ def run_all_cohorts_drifting(
     import_logs: dict[int, ImportLog] | None = None,
     run_at: datetime | None = None,
     exclude_mice: Iterable[str] | None = None,
-    paper_ready: bool = False,
 ) -> AllCohortsResult:
     """Run the all-drifting-problems analyses over the drifting problems of several cohorts.
 
@@ -470,9 +451,6 @@ def run_all_cohorts_drifting(
         exclude_mice (Iterable[str] | None): Mouse ids (of any of the cohorts) to leave out of
             a second set, written to ``all-cohorts-without-<mice>/``. Default ``None``: no
             second set. Keyword-only.
-        paper_ready (bool): Also draw the figures of each set in the Nature/Cell style (pdf, svg,
-            png and a caption file) into ``figures/open-field/paper-ready/<set folder name>/``.
-            The normal outputs are unchanged. Default ``False``. Keyword-only.
 
     Returns:
         AllCohortsResult: The output folders, mice per cohort, rank results and tables; its
@@ -498,7 +476,6 @@ def run_all_cohorts_drifting(
     sessions = _sessions_per_problem(imported, logs)
     root = Path(results_root)
     folders = {kind: root / kind / TASK / ALL_COHORTS_FOLDER for kind in ("figures", "tables")}
-    paper_root = root / "figures" / TASK / PAPER_READY_FOLDER if paper_ready else None
 
     plain = _write_pool(
         pooled.problems,
@@ -508,7 +485,6 @@ def run_all_cohorts_drifting(
         tables_dir=folders["tables"],
         selection=drifting_selection,
         run_at=run_at,
-        paper_dir=paper_root / ALL_COHORTS_FOLDER if paper_root else None,
         sources=sources,
     )
     if not excluded:
@@ -523,7 +499,6 @@ def run_all_cohorts_drifting(
         selection=drifting_selection,
         run_at=run_at,
         excluded=excluded,
-        paper_dir=paper_root / name if paper_root else None,
         sources=sources,
     )
     return plain._replace(without=without)

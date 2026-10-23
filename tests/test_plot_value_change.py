@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.collections import PolyCollection
 
 from src.behavior_analysis.value_change_windows import (
     ValueChangeConfig,
@@ -11,6 +12,7 @@ from src.behavior_analysis.value_change_windows import (
     get_value_change_windows,
     summarize_windows,
 )
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_value_change_choice_probs import (
     plot_value_change_choice_probs,
     plot_value_change_panel,
@@ -98,47 +100,51 @@ def test_individual_mice_lines_are_optional():
 
 
 def test_title_states_what_is_aligned_and_how_many_mice_and_events():
-    title = plot_value_change_panel(curves_for(two_mice(), truncate=True)).get_title()
-    first, second = title.split("\n")
-    assert first == (
-        "Choice Probabilities Around Best-Value Increases (All Events, Truncated at Swap)"
+    ax = plot_value_change_panel(curves_for(two_mice(), truncate=True))
+    assert ax.get_title() == (
+        "Choice Probabilities Around Best-Value Increases (All Events)\n"
+        "mean ± se across mice, n=2 mice, n=4 events"
     )
-    assert "n=2 mice" in second and "n=4 events" in second
-    assert "4 truncated at swap" in second
-    plain = plot_value_change_panel(curves_for(two_mice(), truncate=False)).get_title()
-    assert plain.split("\n")[0].endswith("(All Events, Full Window)")
-    assert "truncated" not in plain.split("\n")[1]
+    assert figure_caption(ax.figure) == (
+        "Window: truncated at the first rank swap (4 events truncated)."
+    )
+    plain = plot_value_change_panel(curves_for(two_mice(), truncate=False))
+    assert figure_caption(plain.figure) == "Window: full window."
     plt.close("all")
 
 
-def test_title_says_mean_only_for_one_mouse_and_has_no_stray_bracket():
-    one = plot_value_change_panel(curves_for({"m1": mouse_sessions()}, truncate=True)).get_title()
-    two = plot_value_change_panel(curves_for(two_mice(), truncate=True)).get_title()
-    assert "(mean across mice" in one and "±" not in one
-    assert "(mean ± se across mice" in two
-    assert not one.endswith("))") and not two.endswith("))")
-    assert "n=1 mouse," in one and "n=2 mice," in two
+def test_title_says_mean_only_for_one_mouse_matching_the_drawn_band():
+    one = plot_value_change_panel(curves_for({"m1": mouse_sessions()}, truncate=True))
+    two = plot_value_change_panel(curves_for(two_mice(), truncate=True))
+    assert one.get_title().splitlines()[1] == "mean across mice, n=1 mouse, n=2 events"
+    assert two.get_title().splitlines()[1].startswith("mean ± se across mice, n=2 mice")
+    bands = [[c for c in ax.collections if isinstance(c, PolyCollection)] for ax in (one, two)]
+    assert not bands[0] and bands[1]
     plt.close("all")
 
 
-def test_event_weighted_title_says_across_events():
+def test_event_weighted_title_says_across_events_and_the_caption_has_the_caveat():
     w = get_value_change_windows(two_mice(), "best", "increase", "all", pre=5, post=15)
-    title = plot_value_change_panel(summarize_windows(w, weighting="event")).get_title()
-    assert "(mean ± se across events, each event weighted equally |" in title
-    assert "n=2 mice" in title and "n=4 events" in title
+    ax = plot_value_change_panel(summarize_windows(w, weighting="event"))
+    assert ax.get_title().splitlines()[1] == "mean ± se across events, n=4 events, n=2 mice"
+    caption = figure_caption(ax.figure).splitlines()
+    assert caption[1:] == [
+        "Each event is weighted equally.",
+        "se treats events as independent, so it is narrower than the true uncertainty.",
+    ]
     plt.close("all")
 
 
-def test_filter_and_mode_are_in_the_heading_for_a_swap_configuration():
+def test_the_heading_has_the_filter_and_the_caption_the_mode_for_a_swap_configuration():
     swap = {"m1": {key(1): session(recording(script(40, BASE, {10: mag(4, 6, 1)})))}}
     curves = curves_for(
         swap, rank="second", direction="increase", rank_filter="rank_swap", truncate=True
     )
-    lines = plot_value_change_panel(curves).get_title().split("\n")
+    ax = plot_value_change_panel(curves)
+    lines = ax.get_title().split("\n")
     assert len(lines) == 2
-    assert lines[0] == (
-        "Choice Probabilities Around Second-Best-Value Increases (Rank Swap, Truncated at Swap)"
-    )
+    assert lines[0] == "Choice Probabilities Around Second-Best-Value Increases (Rank Swap)"
+    assert figure_caption(ax.figure).startswith("Window: truncated at the first rank swap")
     plt.close("all")
 
 
@@ -190,7 +196,7 @@ def expected_files(out_dir, modes=("Full Window", "Truncated at Swap", "Symmetri
             ("Second-Best-Value Decreases", "Rank-Preserving"),
         )
         for m in modes
-        for ext in ("png", "pdf")
+        for ext in ("pdf", "png", "svg", "caption.txt")
     }
 
 
@@ -236,7 +242,8 @@ def test_entry_writes_only_figures_to_the_folder(full_run):
     assert set(out_dir.iterdir()) == {by_mouse, by_event}  # nothing at the top level
     assert set(by_mouse.iterdir()) == expected_files(by_mouse)
     assert set(by_event.iterdir()) == expected_files(by_event)
-    assert set(result["files"]) == expected_files(by_mouse) | expected_files(by_event)
+    figures = {p for p in expected_files(by_mouse) | expected_files(by_event) if p.suffix != ".txt"}
+    assert set(result["files"]) == figures
     assert plt.get_fignums() == []
 
 

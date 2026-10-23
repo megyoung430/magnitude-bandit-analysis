@@ -31,7 +31,9 @@ from tests.test_cohort_runner_integration import (
 )
 from tests.test_sessions_per_problem import ROWS, table_of
 
-FIGURE_FILES = {"Sessions per Drifting Problem.png", "Sessions per Drifting Problem.pdf"}
+FIGURE_FILES = {
+    f"Sessions per Drifting Problem.{ext}" for ext in ("caption.txt", "pdf", "png", "svg")
+}
 
 
 @pytest.fixture

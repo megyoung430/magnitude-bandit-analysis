@@ -28,7 +28,14 @@ from src.behavior_analysis.reversals_by_session import (
     reversal_kinds,
     reversal_totals_by_subject,
 )
-from src.behavior_visualization.plot_helpers import despine, save_or_show
+from src.behavior_visualization.plot_helpers import (
+    Title,
+    despine,
+    save_or_show,
+    set_suptitle,
+    set_title,
+    stats_line,
+)
 from src.behavior_visualization.plot_reversals_by_trial import plot_reversals_by_trial
 from src.behavior_visualization.plot_style import BAD_COLOR, GOOD_COLOR, TOTAL_COLOR
 
@@ -109,7 +116,7 @@ def plot_reversal_curves_across_mice(
     mean_styles: dict[str, tuple[str, str]] | None = None,
     threshold: float | None = None,
     ylabel: str = "",
-    title: str = "",
+    title: Title | str = "",
 ) -> plt.Axes:
     """Faint per-mouse curves plus a bold across-mouse mean for each reversal kind.
 
@@ -125,7 +132,8 @@ def plot_reversal_curves_across_mice(
         threshold (float | None): Draw a dashed reference line at this y-value, if given.
             Default None.
         ylabel (str): Y-axis label. Default ``""``.
-        title (str): Axes title. Default ``""``.
+        title (Title | str): Axes title; the heading and caption of a :class:`Title` are used
+            and a statistics line with the mouse count is added. Default ``""``: none.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -155,7 +163,10 @@ def plot_reversal_curves_across_mice(
     ax.set_xlabel("Session Number")
     ax.set_ylabel(ylabel)
     despine(ax)
-    ax.set_title(title)
+    if title:
+        title = Title(title) if isinstance(title, str) else title
+        stats = stats_line("mean", "mice", [(len(subjects), "mouse", "mice")])
+        set_title(ax, title._replace(stats=stats))
     ax.legend(fontsize=10)
     return ax
 
@@ -222,7 +233,7 @@ def _mouse_grid(n_subjects: int) -> tuple[plt.Figure, np.ndarray]:
     return fig, axes
 
 
-def _by_mouse_figure(df, kinds, *, labels=None, threshold=None, ylabel, title_suffix, suptitle):
+def _by_mouse_figure(df, kinds, *, labels=None, threshold=None, ylabel, caption, suptitle):
     groups = list(df.groupby("subject", sort=True))
     fig, axes = _mouse_grid(len(groups))
     for i, (subject, rows) in enumerate(groups):
@@ -234,18 +245,28 @@ def _by_mouse_figure(df, kinds, *, labels=None, threshold=None, ylabel, title_su
             threshold=threshold,
             show_labels=(i == 0),
             ylabel=ylabel,
-            title=f"{subject}\n(n={len(rows)} {title_suffix})",
+            title=str(subject),
         )
     handles, legend_labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, legend_labels, loc="upper right")
-    fig.suptitle(suptitle, y=1.02, fontsize=14)
+    title = Title(suptitle, None, (*caption, _sessions_per_mouse(df)))
+    set_suptitle(fig, title, y=1.02, fontsize=14)
     fig.tight_layout()
     return fig
 
 
 def _session_span(df: pd.DataFrame) -> str:
     sizes = df.groupby("subject").size()
-    return f"n={len(sizes)} subjects; sessions per subject={sizes.min()}–{sizes.max()}"
+    return f"Sessions per mouse: {sizes.min()}–{sizes.max()}."
+
+
+def _sessions_per_mouse(df: pd.DataFrame) -> str:
+    sizes = df.groupby("subject").size()
+    return "Sessions per mouse: " + ", ".join(f"{m} {n}" for m, n in sizes.items()) + "."
+
+
+# mean_across_subjects pads a shorter mouse with its last value
+_CARRIED_FORWARD = "Mice with fewer sessions are carried forward at their final count in the mean."
 
 
 def _kinds_title(kinds: tuple[str, ...]) -> str:
@@ -262,8 +283,8 @@ def plot_num_reversals(subjects_trials, save_path=None, *, threshold=10):
 
     Args:
         subjects_trials (dict): Nested dict ``{subject: {session_key: session_dict}}``.
-        save_path (str | Path | None): Base path (without extension) for ``.pdf`` and ``.png``
-            output. If None or empty, the figure is shown. Default None.
+        save_path (str | Path | None): Base path (without extension) for the figure (pdf, png,
+            svg) and caption files. If None or empty, the figure is shown. Default None.
         threshold (float | None): Dashed reference line (the criterion reversal count) on the
             single-bar total plot of block-change-only data; the good/bad bars never get one.
             None for none. Default 10. Keyword-only.
@@ -288,8 +309,8 @@ def plot_num_reversals(subjects_trials, save_path=None, *, threshold=10):
 def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
     """Cumulative reversals over sessions, across mice and per mouse.
 
-    Saves ``<save_path> Across Mice`` and ``<save_path> By Mouse`` (``.pdf``
-    and ``.png``), then trial-based companions with a ``(By Trial)`` suffix.
+    Saves ``<save_path> Across Mice`` and ``<save_path> By Mouse`` (pdf, png and
+    svg, with a caption file each), then trial-based companions with a ``(By Trial)`` suffix.
     Shorter mice are carried forward at their final count in the mean.
 
     Args:
@@ -319,7 +340,14 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
         mean_styles={"total": ("#000000", "Mean Total")},
         threshold=threshold,
         ylabel="Cumulative Reversals",
-        title=f"Cumulative {name} Reversals Over Time\n({_session_span(cumulative)})",
+        title=Title(
+            f"Cumulative {name} Reversals Over Time",
+            caption=(
+                "Faint lines: each mouse; bold: the mean across mice.",
+                _session_span(cumulative),
+                _CARRIED_FORWARD,
+            ),
+        ),
     )
     fig1.tight_layout()
     fig2 = _by_mouse_figure(
@@ -328,7 +356,7 @@ def plot_num_reversals_over_time(subjects_trials, threshold=10, save_path=None):
         labels={"total": "Total"},
         threshold=threshold,
         ylabel="Cumulative Reversals",
-        title_suffix="sessions",
+        caption=(),
         suptitle=f"Cumulative {name} Reversals by Subject",
     )
     save_or_show({" Across Mice": fig1, " By Mouse": fig2}, save_path or None)
@@ -375,9 +403,14 @@ def plot_moving_avg_reversals_over_time(
         x_start=1,
         individual_alpha=0.25,
         ylabel="Moving-Average Reversals / Session",
-        title=(
-            f"Moving-Average {name} Reversals Over Time\n"
-            f"({_session_span(smoothed)}; window={window})"
+        title=Title(
+            f"Moving-Average {name} Reversals Over Time",
+            caption=(
+                "Faint lines: each mouse; bold: the mean across mice.",
+                _session_span(smoothed),
+                f"Centred moving average over {window} sessions.",
+                _CARRIED_FORWARD,
+            ),
         ),
     )
     fig1.tight_layout()
@@ -385,7 +418,7 @@ def plot_moving_avg_reversals_over_time(
         smoothed,
         kinds,
         ylabel="Moving-Avg Reversals / Session",
-        title_suffix=f"sessions; window={window}",
+        caption=(f"Centred moving average over {window} sessions.",),
         suptitle=f"Moving-Average {name} Reversals by Subject",
     )
     save_or_show({" Across Mice": fig1, " By Mouse": fig2}, save_path or None)

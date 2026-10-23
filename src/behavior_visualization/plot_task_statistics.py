@@ -14,12 +14,16 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from src.behavior_visualization.plot_helpers import (
+    Title,
     axes_or_new,
     despine,
+    error_drawn,
     jitter_rng,
     jittered,
     mouse_color_map,
     save_or_show,
+    set_title,
+    stats_line,
 )
 
 _BAR_COLOR = "#999999"
@@ -117,12 +121,12 @@ def _plot_mouse_lines(
         xs = jittered(xs, jitter, rng)
         ax.plot(xs, ys, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=6, zorder=3)
         handles.append(
-            Line2D([0], [0], color=c, lw=2.5, marker="o", label=f"{m} (n={len(ys)} blocks)")
+            Line2D([0], [0], color=c, lw=2.5, marker="o", label=f"{m} (n={len(ys)} Blocks)")
         )
     return handles
 
 
-def _style_axes(ax: plt.Axes, x: np.ndarray, blocks: list, n_mice: int) -> None:
+def _style_axes(ax: plt.Axes, x: np.ndarray, blocks: list, n_mice: int, ses: np.ndarray) -> None:
     # Known issue: n_mice counts every mouse in the summary, including those without
     # data that are not drawn.
     despine(ax)
@@ -130,7 +134,9 @@ def _style_axes(ax: plt.Axes, x: np.ndarray, blocks: list, n_mice: int) -> None:
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
     ax.set_xlabel("Block Number", fontsize=12)
     ax.set_ylabel("Block Length (Trials)", fontsize=12)
-    ax.set_title(f"Block Lengths\n(median ± se across mice | n={n_mice} mice)", pad=20)
+    average = "median ± se" if error_drawn(ses) else "median"
+    stats = stats_line(average, "mice", [(n_mice, "mouse", "mice")])
+    set_title(ax, Title("Block Lengths", stats), pad=20)
 
 
 def plot_block_length_panel(
@@ -174,7 +180,7 @@ def plot_block_length_panel(
         _annotate_medians(ax, x, meds, annotate_y)
         handles = _plot_mouse_lines(ax, per_mouse_blocklens, mice, mouse_to_color, blocks, jitter)
         ax.legend(handles=handles, fontsize=10, loc="upper right")
-        _style_axes(ax, x, blocks, len(mice))
+        _style_axes(ax, x, blocks, len(mice), ses)
         ax.set_ylim(0, _y_upper_limit(annotate_y, meds, ses))
     return ax
 
@@ -187,7 +193,7 @@ def plot_block_lengths(
 ) -> None:
     """Plot per-block median lengths with per-mouse overlay lines.
 
-    Draws a bar (median ± SE across mice) for each block number and overlays
+    Draws a bar (median ± se across mice) for each block number and overlays
     connected per-mouse data points with optional x-jitter.
 
     Args:

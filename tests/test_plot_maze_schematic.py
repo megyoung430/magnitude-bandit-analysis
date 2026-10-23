@@ -135,13 +135,14 @@ def test_tower_outlines_are_not_clipped_at_the_axes_edge():
     assert not any(patch.get_clip_on() for patch in towers)
 
 
-def test_saves_svg_pdf_and_png(tmp_path):
+def test_saves_svg_pdf_and_png_and_a_caption(tmp_path):
     base = tmp_path / "problem-05"
     plot_maze_schematic(CHOICES, save_path=base)
     assert {p.name for p in tmp_path.iterdir()} == {
         "problem-05.svg",
         "problem-05.pdf",
         "problem-05.png",
+        "problem-05.caption.txt",
     }
 
 

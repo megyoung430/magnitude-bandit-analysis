@@ -110,8 +110,8 @@ When the share is unmounted or the connection is unreliable, the pooled runs can
 cache alone:
 
 ```bash
-uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --paper-ready --from-cache
-uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 --paper-ready --from-cache
+uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --from-cache
+uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 --from-cache
 ```
 
 `--from-cache` never reads the raw folder (no listing, no file sizes, no existence check, so a
@@ -126,8 +126,7 @@ A `StaleCacheWarning` (also in the cohort's `warnings_log.csv`) gives the date o
 import, how many `.tsv` files it covered and whether the import code has changed since:
 sessions added on the server since then are missing, and import-code changes since then are
 not applied. Every output folder the run writes gets a `from-cache.txt` listing this per
-cohort, and every paper-ready caption ends with "Data from the cached import of <date>;
-sessions added since are missing." A later run that reads the server removes `from-cache.txt`
+cohort. A later run that reads the server removes `from-cache.txt`
 from the folders it rewrites.
 
 With no cached import of a cohort the run stops and lists the cached roots and dates. A cached
@@ -232,8 +231,8 @@ report all failures at the end.
   they are; `warnings_log.csv` is rewritten with this run's warnings only; it cannot be combined
   with `--last-sessions`/`--since`. `--exclude-mice` writes a
   second set, `drifting/all-drifting-problems-without-MY_175_N-MY_66_LL/` (sorted ids, same
-  subfolders), next to the normal one, which is unchanged. Every figure in it is marked
-  "without MY_175_N, MY_66_LL"; its tables are in
+  subfolders), next to the normal one, which is unchanged. Every figure's caption file in it
+  starts with "without MY_175_N, MY_66_LL"; its tables are in
   `tables/open-field/cohort-03/all-drifting-problems-without-MY_175_N-MY_66_LL/` (not in the
   stacked diagnostic tables), and `excluded_mice.txt` in both folders lists the excluded mice and
   the run time. Both folders are emptied before the analyses are rewritten; the extra set's
@@ -306,8 +305,8 @@ report all failures at the end.
   False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
   in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).
   The reversal-aligned-arms and value-change figures each come in two versions, in the
-  subfolders `mouse-weighted/` (each mouse's events pooled into one curve, mean ± SE across mice)
-  and `event-weighted/` (every event counts once, mean ± SE across events; the SE treats events
+  subfolders `mouse-weighted/` (each mouse's events pooled into one curve, mean ± se across mice)
+  and `event-weighted/` (every event counts once, mean ± se across events; the se treats events
   as independent, which events of one mouse are not, so it is narrower than the real
   uncertainty). Nothing is written at the top level of those two folders. The
   `reversal_aligned_arms_counts` table has a `weighting` column (`subject` or `event`).
@@ -331,7 +330,7 @@ report all failures at the end.
   modes), with a `mean_across_mice` row equal to the mouse-weighted value-change curve.
 - **Port preference** (`run_port_preference_analysis`, drifting problems, `port-preference/`, also
   pooled over all drifting problems): `P(chosen) / P(best)` per port (one maze per mouse) and for
-  the X and plus ports (mean ± SE across mice). Relative to the problem's initiation port, plus
+  the X and plus ports (mean ± se across mice). Relative to the problem's initiation port, plus
   ports share its row or column and X ports lie on its diagonals (from B2 these are the eight
   neighbours). A mouse offered ports from one category only has that category's ratio of 1 by
   construction; it is left out of the X vs plus figure, which says how many mice were excluded.
@@ -441,7 +440,7 @@ cohorts pooled, the mice per cohort and the time of the run; the diagnostic tabl
 to `results/tables/open-field/all-cohorts/`, with `sessions_per_problem.csv` (a `cohort` column in front)
 as a fifth table. `sessions-per-problem/` also has a figure with one mean line per cohort (n mice at each point)
 when several cohorts are pooled. A rerun replaces those six folders and five tables, so
-the files always match `cohorts.txt`; the titles say "all drifting problems, cohorts 1, 3, 4".
+the files always match `cohorts.txt`; the captions say "all drifting problems, cohorts 1, 3, 4".
 
 - Problems stay separate: each is keyed `(cohort, drifting problem number)`, beliefs reset at each
   problem, and windows and events never cross a problem boundary.
@@ -493,40 +492,33 @@ settings and `value_agent.MODEL_VERSION` (bump it when the model changes); `--no
 refits. Drift rate and block lengths are pooled over the cohorts given, so pool cohorts that
 ran with the same task settings. The code is `src/pipelines/agent_baselines.py`.
 
-### Paper-ready figures
+### Figure files, titles and captions
 
-```bash
-uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --pooled-only --paper-ready
-uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 --paper-ready
-```
+Every figure is saved as `.pdf`, `.png` (300 dpi; 180 dpi for the review summaries) and `.svg`,
+with `<name>.caption.txt` next to it; the file names are the same as before.
 
-`--paper-ready` also draws the pooled drifting figures (choice stats, value psychometrics,
-value change, reversal-aligned arms, port preference, sessions per problem) in a Nature/Cell
-style, next to the normal ones and without changing them. They go to
-`results/figures/open-field/paper-ready/<cohort>/drifting/all-drifting-problems/` (and
-`...-without-<mice>/` with `--exclude-mice`) and, for the all-cohorts script, to
-`paper-ready/all-cohorts/` (and `all-cohorts-without-<mice>/`), with the same subfolders as the
-normal set. Each figure is written as `.pdf`, `.svg` and `.png` (600 dpi) plus a
-`<name>.caption.txt`.
-
-- Arial (Helvetica, then Liberation Sans, as fallbacks), 7 pt text, thin lines, outward ticks,
-  no top or right spine, axes trimmed to the outermost ticks, unboxed legends, Okabe-Ito
-  colours that keep the meaning of the originals (best blue, second green, third grey), and
-  editable text (TrueType in the PDF, live `<text>` in the SVG).
-- Widths are 89 mm (one panel), 120 mm (two panels, a legend beside the axes or a second y axis)
-  or 183 mm (three or more panel columns).
-- The figure keeps only short panel titles. The descriptive title (n mice, n events, scope) and
-  any note under the figure, such as the "without MY_175_N" marker, are in the caption file.
-- The rank-proportion figures ("... by Average Across Mice") show significance brackets with
-  stars instead of p-values: two-sided Wilcoxon signed-rank tests across mice, Holm-corrected
-  for the three comparisons, stars from the corrected p (`*` < 0.05, `**` < 0.01,
-  `***` < 0.001, `n.s.` otherwise). The caption gives n, W, the raw and corrected p of each
-  comparison and the bar means; with few mice it also says that no comparison can reach
-  significance (with 5 mice the smallest possible p is 0.0625). The normal figures keep the
-  paired t-test p-values (`src/behavior_analysis/rank_significance.py` has the tests).
-- The style is in `src/behavior_visualization/paper_style.py`, applied where figures are saved,
-  so the plotting functions are unchanged. The trimmed spines follow
-  [sciplotlib](https://github.com/Timothysit/sciplotlib)'s `set_bounds`.
+- **Titles** are short: the heading (e.g. "Choice Probabilities Around Block Changes (All)") and,
+  for a panel that shows a mean with an error bar or band, one line naming the statistic, what it
+  is taken across and the n, e.g. "mean ± se across mice, n=13 mice" or
+  "mean ± se across events, n=120 events, n=13 mice". "± se" appears only when an error is
+  drawn (one mouse gives "mean").
+- **Captions** hold everything else that used to be in titles, subtitles and notes on the figure:
+  the scope (cohort, problem, "without <mice>" for an exclusion set), labelling, smoothing,
+  window mode, weighting, tie handling, left-out events and caveats. The file is written for
+  every figure, empty when there is nothing to add. The code is `Title`, `set_title` and
+  `add_caption` in `src/behavior_visualization/plot_helpers.py`.
+- **Legends and labels** are tidied when a figure is saved
+  (`src/behavior_visualization/plot_legends.py`): no frame, short handles, moved out of the data
+  (below the axes when short, beside them for long mouse lists), drawn once when repeated on
+  several panels, and a legend entry for a single mouse goes to the caption as
+  "line: MY_175_L". Legend, axis and colour-bar labels are in title case (articles,
+  prepositions and the statistics "se"/"std" lower case; units in parentheses as written).
+- **Font**: Arial (then Helvetica, Liberation Sans, DejaVu Sans where Arial is missing), with
+  editable text in the PDF and SVG files. It is set in `plot_style.FONT_RC`, applied when the
+  plotting package is imported; font sizes are those of each plot.
+- **Mouse colours** (`plot_style.MOUSE_COLORS`): the Okabe-Ito colours (orange, sky blue,
+  vermillion, reddish purple, yellow, blue, bluish green), then a darker shade of each in the
+  same order, so up to 14 mice in one figure get different colours.
 
 ### Reversals at session boundaries
 

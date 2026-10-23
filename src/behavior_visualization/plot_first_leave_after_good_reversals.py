@@ -14,10 +14,14 @@ from matplotlib.lines import Line2D
 
 from src.behavior_analysis.first_leave_fractions import first_leave_fractions
 from src.behavior_visualization.plot_helpers import (
+    Title,
     axes_or_new,
     despine,
+    error_drawn,
     palette_color,
     save_or_show,
+    set_title,
+    stats_line,
 )
 
 # Notebooks star-import this module and expect MOUSE_COLORS from it.
@@ -29,7 +33,7 @@ _JITTER = 0.03
 
 
 def _plot_mean_bars(ax: plt.Axes, x: np.ndarray, means: list, errs: list) -> None:
-    """Two bars (mean ± SE across subjects), each labelled with its mean above the axes data."""
+    """Two bars (mean ± se across subjects), each labelled with its mean above the axes data."""
     ax.bar(
         x,
         means,
@@ -73,13 +77,13 @@ def _plot_subject_lines(ax: plt.Axes, per_subject_counts: dict) -> list[Line2D]:
                 color=c,
                 lw=2.5,
                 marker="o",
-                label=f"{subj} (n={counts['total']} reversals)",
+                label=f"{subj} (n={counts['total']} Reversals)",
             )
         )
     return handles
 
 
-def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int) -> None:
+def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int, errs: list) -> None:
     # Known issue: n_subjects counts every subject in the input, including those
     # without reversals that are not drawn.
     despine(ax)
@@ -87,12 +91,9 @@ def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int) -> Non
     ax.set_xticklabels(_LABELS, fontsize=12)
     ax.set_ylabel("Fraction of Good Reversals", fontsize=12)
     ax.set_ylim(0.0, 1.07)
-    ax.set_title(
-        "First Choice After Leaving Previous Best\n"
-        f"(mean ± se across subjects | n={n_subjects} subjects "
-        f"and n={mean['num_reversals']} reversals)",
-        pad=20,
-    )
+    counts = [(n_subjects, "mouse", "mice"), (mean["num_reversals"], "reversal", "reversals")]
+    stats = stats_line("mean ± se" if error_drawn(errs) else "mean", "mice", counts)
+    set_title(ax, Title("First Choice After Leaving Previous Best", stats), pad=20)
 
 
 def plot_first_leave_panel(
@@ -125,7 +126,7 @@ def plot_first_leave_panel(
         _plot_mean_bars(ax, x, means, errs)
         handles = _plot_subject_lines(ax, per_subject_counts)
         ax.legend(handles=handles, fontsize=10, loc="upper right")
-        _style_axes(ax, x, mean, len(per_subject_counts))
+        _style_axes(ax, x, mean, len(per_subject_counts), errs)
         if p_value is not None:
             ax.text(0.5, 1.02, f"p-value: {p_value:.3f}", ha="center", va="bottom", fontsize=12)
     return ax
@@ -140,7 +141,7 @@ def plot_first_leave_after_good_reversals(
 ) -> None:
     """Plot a bar chart of first-leave proportions (new-best vs third arm).
 
-    Draws two bars (New Best and Third Arm) with mean ± SE across subjects,
+    Draws two bars (New Best and Third Arm) with mean ± se across subjects,
     overlays individual-subject lines with jitter, and optionally annotates
     with a p-value.
 

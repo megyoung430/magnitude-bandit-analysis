@@ -26,7 +26,12 @@ from src.behavior_analysis.trial_count_summaries import (
 from src.behavior_visualization.plot_helpers import (
     FigureOutput,
     TableOutput,
+    Title,
+    error_drawn,
     palette_color,
+    set_suptitle,
+    set_title,
+    stats_line,
     write_outputs,
 )
 
@@ -43,12 +48,19 @@ def _label_height(value: float, error: float) -> float:
     return value + (error if np.isfinite(error) else 0) + 0.035
 
 
-def _comparison_grid(labels: list[str], rows, title: str) -> tuple[plt.Figure, np.ndarray]:
+def _mean_stats(n_mice: int, sem) -> str:
+    """Statistics line of a mean-across-mice panel; "± se" only where an error bar is drawn."""
+    return stats_line(
+        "mean ± se" if error_drawn(sem) else "mean", "mice", [(n_mice, "mouse", "mice")]
+    )
+
+
+def _comparison_grid(labels: list[str], rows, title: Title) -> tuple[plt.Figure, np.ndarray]:
     """One row per problem, one column per cohort; panels share axes within a row."""
     fig, axes = plt.subplots(
         len(rows), 2, figsize=(13, 4 * len(rows)), sharex="row", sharey="row", squeeze=False
     )
-    fig.suptitle(title, fontsize=16)
+    set_suptitle(fig, title, fontsize=16)
     for i, p in enumerate(rows):
         for j, label in enumerate(labels):
             axes[i, j].set_title(f"{label} — problem {p}")
@@ -119,10 +131,11 @@ def _plot_across_problems_panel(
         fmt="o-",
         capsize=4,
         lw=2,
-        label="Mean ± SEM across mice",
+        label="Mean ± se across Mice",
     )
     ax.set_xticks(list(problems), [f"{p}\n(n={int(means.loc[p, 'n_mice'])})" for p in problems])
-    ax.set(title=label, xlabel="Problem (number of mice)", ylabel=f"Mean trials per {unit}")
+    ax.set(xlabel="Problem (number of mice)", ylabel=f"Mean trials per {unit}")
+    set_title(ax, Title(label, _mean_stats(per_mouse["mouse"].nunique(), means["sem"])))
     ax.legend(fontsize=8, ncol=2)
 
 
@@ -132,7 +145,14 @@ def _plot_across_problems_panel(
 
 
 def _distributions_figure(tables: dict, labels, problems, unit: str) -> plt.Figure:
-    fig, axes = _comparison_grid(labels, problems, f"Trials per {unit}: distributions (full data)")
+    title = Title(
+        f"Trials per {unit}: distributions",
+        caption=(
+            "Full data.",
+            "Faint lines: each mouse's ECDF; black: the pooled observations of the cohort.",
+        ),
+    )
+    fig, axes = _comparison_grid(labels, problems, title)
     for i, p in enumerate(problems):
         for j, label in enumerate(labels):
             _plot_distribution_panel(axes[i, j], _problem_rows(tables[label][unit], p), unit)
@@ -140,7 +160,8 @@ def _distributions_figure(tables: dict, labels, problems, unit: str) -> plt.Figu
 
 
 def _over_time_figure(tables: dict, labels, problems, unit: str) -> plt.Figure:
-    fig, axes = _comparison_grid(labels, problems, f"Trials per {unit}: over time (full data)")
+    title = Title(f"Trials per {unit}: over time", caption=("Full data.",))
+    fig, axes = _comparison_grid(labels, problems, title)
     for i, p in enumerate(problems):
         for j, label in enumerate(labels):
             t = _problem_rows(tables[label][unit], p)
@@ -161,7 +182,8 @@ def _across_problems_outputs(
         per_mouse = mean_trials_by_problem_and_mouse(tables[label][unit])
         yield TableOutput(f"{label}_{unit}_means_by_mouse.csv", per_mouse)
         _plot_across_problems_panel(axes[j], per_mouse, problems, label, unit)
-    fig.suptitle(f"Trials per {unit}: across problems (equal weight per mouse)")
+    caption = ("Each mouse is weighted equally (its mean per problem).",)
+    set_suptitle(fig, Title(f"Trials per {unit}: across problems", caption=caption))
     yield FigureOutput(f"Trials per {unit} - across problems", fig)
 
 
@@ -204,17 +226,18 @@ def _finish_summary_panel(
     annotate: bool,
 ) -> None:
     """Mean ± SEM over mice (bars, error bars, optional value labels), then axis text."""
-    stats = mean_and_sem(values)
-    if stats is not None:
-        mean, sem = stats
+    summary = mean_and_sem(values)
+    sem = np.nan
+    if summary is not None:
+        mean, sem = summary
         ax.bar(_CATEGORIES, mean, color="gray", alpha=0.2, zorder=0)
-        ax.errorbar(_CATEGORIES, mean, yerr=sem, fmt="ko", capsize=4, label="Mean ± SEM")
+        ax.errorbar(_CATEGORIES, mean, yerr=sem, fmt="ko", capsize=4, label="Mean ± se")
         if annotate:
             _annotate_means(ax, mean, sem)
     ax.set_xticks(_CATEGORIES, names)
     ax.set_ylabel(ylabel)
     ax.legend(fontsize=8, ncol=2)
-    ax.set_title(f"{title} (n={len(values)} mice)")
+    set_title(ax, Title(title, _mean_stats(len(values), sem)))
 
 
 def _draw_cell(
@@ -264,10 +287,13 @@ def _rank_and_reversal_outputs(
     datasets: dict, labels, problems, suffix: str
 ) -> Iterator[TableOutput | FigureOutput]:
     """Rank-proportion and reversal-total figures and their tables for *datasets*."""
+    data = (f"Data: {suffix}.",)
     rank_fig, rank_axes = _comparison_grid(
-        labels, problems, f"Pooled true-value rank proportions — {suffix}"
+        labels, problems, Title("Pooled true-value rank proportions", caption=data)
     )
-    rev_fig, rev_axes = _comparison_grid(labels, problems, f"Total reversals per mouse — {suffix}")
+    rev_fig, rev_axes = _comparison_grid(
+        labels, problems, Title("Total reversals per mouse", caption=data)
+    )
     rank_records, rev_records = [], []
     for i, p in enumerate(problems):
         for j, label in enumerate(labels):
@@ -331,8 +357,8 @@ def plot_cohort_comparison(
         show (bool): Also display each figure after saving it. Default False.
 
     Returns:
-        list[Path]: The saved PNG and PDF paths, in figure order (PNG first for each
-        figure). The CSV tables are written too but not listed.
+        list[Path]: The saved PNG, PDF and SVG paths, in figure order (PNG first for each
+        figure). The CSV tables and caption files are written too but not listed.
 
     Raises:
         ValueError: If *cohorts* does not hold exactly two cohorts, or a cohort lacks one of

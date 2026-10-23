@@ -9,7 +9,7 @@ Entry points:
   choice ports from the full ordered problem dict; the runner passes the result of the second as
   ``previous_choice_towers``.
 
-Figures written to ``out_dir`` (PNG and PDF):
+Figures written to ``out_dir`` (PNG, PDF and SVG, each with a caption file):
 
 - ``Long Pokes by Relative Session``: mean non-choice long pokes per trial (``num_long_pokes``)
   for each relative session of the problem, bars = mean +/- SE across mice, lines = mice.
@@ -55,6 +55,7 @@ from src.behavior_analysis.port_finding_check import port_finding_check_table
 from src.behavior_analysis.stats import mean_se_n
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
 from src.behavior_import.session_order import ordered_session_keys
+from src.behavior_visualization.plot_helpers import OUTPUT_FORMATS
 from src.behavior_visualization.plot_maze_heatmaps import plot_maze_heatmaps_across_mice
 from src.behavior_visualization.plot_num_long_pokes import (
     plot_num_pokes_across_mice,
@@ -66,7 +67,7 @@ AFTER_CHOICE_STEM = "Maze Heatmaps - Pokes After Choice"
 AFTER_INITIATION_STEM = "Maze Heatmaps - Pokes After Initiation"
 PORT_FINDING_AFTER_CHOICE_STEM = f"{AFTER_CHOICE_STEM} (Port Finding)"
 PORT_FINDING_AFTER_INITIATION_STEM = f"{AFTER_INITIATION_STEM} (Port Finding)"
-_SCALE_NOTE = "colour scale: 0 to each mouse's own maximum count"
+_SCALE_NOTE = "Colour scale: 0 to each mouse's own maximum count."
 _JITTER_SEED = 0
 
 
@@ -314,8 +315,8 @@ def run_poke_analysis(
         n_long_poke_checked, n_long_poke_agree, parse_error``), ``"port_finding_check"`` (one
         row per mouse with port-finding trials against the minimum ``n_ports x found_t_thresh``,
         see :func:`~src.behavior_analysis.port_finding_check.port_finding_check_table`) and
-        ``"files"`` (the figure paths written, PNG then PDF per figure; the port-finding figures
-        only if drawn). No table is written to disk.
+        ``"files"`` (the figure paths written, PNG, PDF then SVG per figure; the port-finding
+        figures only if drawn). No table is written to disk.
 
     Raises:
         ValueError: If the input is not one problem's ``{mouse: {session: session}}`` with raw
@@ -416,5 +417,5 @@ def run_poke_analysis(
             per_session, port_finding_only={mouse: set(records) for mouse, records in found.items()}
         ),
         "port_finding_check": check,
-        "files": [out_dir / f"{s}.{e}" for s in stems for e in ("png", "pdf")],
+        "files": [out_dir / f"{s}.{e}" for s in stems for e in OUTPUT_FORMATS],
     }

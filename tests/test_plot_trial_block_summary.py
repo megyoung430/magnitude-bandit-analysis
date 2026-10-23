@@ -16,6 +16,7 @@ from src.behavior_analysis.trial_count_summaries import (
     summarize_trials_by_problem,
 )
 from src.behavior_visualization import plot_trial_block_summary as pbs
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 from src.behavior_visualization.plot_trial_block_summary import (
     _plot_problem_means,
@@ -110,7 +111,7 @@ def test_problem_means_weigh_mice_equally_with_sem_and_count():
 # ---------------------------------------------------------------- outputs
 
 
-def test_returns_png_then_pdf_path_for_each_figure_in_order(capture, tables, tmp_path):
+def test_returns_png_pdf_then_svg_path_for_each_figure_in_order(capture, tables, tmp_path):
     paths, _ = run(capture, tables, tmp_path)
     stems = [
         "Trials per session - distributions",
@@ -120,14 +121,22 @@ def test_returns_png_then_pdf_path_for_each_figure_in_order(capture, tables, tmp
         "Trials per block - over time",
         "Trials per block - across problems",
     ]
-    assert paths == [tmp_path / "figs" / f"{s}.{e}" for s in stems for e in ("png", "pdf")]
+    assert paths == [tmp_path / "figs" / f"{s}.{e}" for s in stems for e in ("png", "pdf", "svg")]
     assert [s.path for s in capture.saved] == [str(p) for p in paths]
-    assert all(s.kwargs == {"dpi": 180, "bbox_inches": "tight"} for s in capture.saved)
+    assert all(
+        s.kwargs
+        == (
+            {"bbox_inches": "tight"}
+            if s.path.endswith(".svg")
+            else {"dpi": 180, "bbox_inches": "tight"}
+        )
+        for s in capture.saved
+    )
 
 
 def test_source_tables_and_summaries_are_written(capture, tables, tmp_path):
     run(capture, tables, tmp_path)
-    written = sorted(p.name for p in (tmp_path / "figs").iterdir())
+    written = sorted(p.name for p in (tmp_path / "figs").iterdir() if p.suffix == ".csv")
     assert written == [
         "block_trial_counts.csv",
         "block_trials_by_problem_per_mouse.csv",
@@ -166,11 +175,12 @@ def test_distribution_figure_layout_for_session_counts(capture, tables, tmp_path
     _, figures = run(capture, tables, tmp_path)
     fig = figures["Trials per session - distributions"]
     assert tuple(fig.get_size_inches()) == (17, 5) and len(fig.axes) == 3
-    assert fig.get_suptitle() == ("Trials per session: distributions\nEach point is one session.")
+    assert fig.get_suptitle() == "Trials per session: distributions"
+    assert figure_caption(fig) == "Each point is one session."
     assert fig._suptitle.get_fontsize() == 13
     boxes, low, high = fig.axes
     assert boxes.get_title() == "Distribution by mouse"
-    assert boxes.get_ylabel() == "Trials per session"
+    assert boxes.get_ylabel() == "Trials per Session"
     labels = boxes.get_xticklabels()
     assert [t.get_text() for t in labels] == [
         "sub-01\nm1\nn=3",
@@ -181,8 +191,8 @@ def test_distribution_figure_layout_for_session_counts(capture, tables, tmp_path
     assert boxes.get_position().width > 1.5 * low.get_position().width  # width ratio 2 : 1 : 1
     assert (low.get_title(), high.get_title()) == ("sub-01–04 (n=8)", "sub-05–08 (n=1)")
     for ax in (low, high):
-        assert ax.get_xlabel() == "Trials per session"
-        assert ax.get_ylabel() == "Cumulative fraction" and ax.get_ylim() == (0, 1.03)
+        assert ax.get_xlabel() == "Trials per Session"
+        assert ax.get_ylabel() == "Cumulative Fraction" and ax.get_ylim() == (0, 1.03)
 
 
 def test_scatter_points_use_each_mouses_colour(capture, tables, tmp_path):
@@ -207,22 +217,19 @@ def test_group_ecdfs_show_each_mouse_and_the_pooled_observations(capture, tables
     assert (m1.get_label(), m1.get_color(), m1.get_alpha()) == ("m1", MOUSE_COLORS[0], 0.65)
     assert (m2.get_label(), m2.get_color()) == ("m2", MOUSE_COLORS[1])
     assert m1.get_drawstyle() == "steps-post"
-    assert pooled.get_label() == "Pooled observations"
+    assert pooled.get_label() == "Pooled Observations"
     assert pooled.get_color() == "black" and pooled.get_linewidth() == 2
     assert pooled.get_xdata().tolist() == [16] * 5 + [24] * 3
-    assert [t.get_text() for t in low.get_legend().get_texts()] == [
-        "m1",
-        "m2",
-        "Pooled observations",
-    ]
+    # the save step moves the legend of the panel out of the data
+    labels = [[t.get_text() for t in leg.get_texts()] for leg in low.figure.legends]
+    assert ["m1", "m2", "Pooled Observations"] in labels
 
 
 def test_block_distributions_use_the_block_note(capture, tables, tmp_path):
     _, figures = run(capture, tables, tmp_path)
     fig = figures["Trials per block - distributions"]
-    assert fig.get_suptitle() == (
-        "Trials per block: distributions\nBlocks include observed portions at problem edges."
-    )
+    assert fig.get_suptitle() == "Trials per block: distributions"
+    assert figure_caption(fig) == "Blocks include observed portions at problem edges."
 
 
 def test_without_subject_groups_one_pooled_panel_is_drawn(capture, tables, tmp_path):
@@ -248,8 +255,8 @@ def test_over_time_plots_daily_means_per_mouse(capture, tables, tmp_path):
     fig = figures["Trials per session - over time"]
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (12, 5)
-    assert ax.get_xlabel() == "Calendar date"
-    assert ax.get_ylabel() == "Mean trials per session on that date"
+    assert ax.get_xlabel() == "Calendar Date"
+    assert ax.get_ylabel() == "Mean Trials per Session on That Date"
     assert ax.get_title() == "Trials per session over time"
     lines = {ln.get_label(): ln for ln in ax.lines}
     assert list(lines) == ["m1", "m2", "m3"]
@@ -261,15 +268,16 @@ def test_over_time_plots_daily_means_per_mouse(capture, tables, tmp_path):
     ]  # one point per date, in calendar order
     assert lines["m1"].get_color() == MOUSE_COLORS[0] and lines["m1"].get_alpha() == 0.8
     assert lines["m1"].get_marker() == "." and lines["m1"].get_linestyle() == "-"
-    assert ax.get_legend()._ncols == 4
-    assert ax.get_legend().get_texts()[0].get_fontsize() == 9
+    # the save step moves the legend out of the data, keeping its font size
+    (legend,) = ax.figure.legends
+    assert legend.get_texts()[0].get_fontsize() == 9
 
 
 def test_block_over_time_uses_the_block_end_date_label(capture, tables, tmp_path):
     _, figures = run(capture, tables, tmp_path)
     ax = figures["Trials per block - over time"].axes[0]
-    assert ax.get_xlabel() == "Block end date (last observed trial)"
-    assert ax.get_ylabel() == "Mean trials per block on that date"
+    assert ax.get_xlabel() == "Block End Date (last observed trial)"
+    assert ax.get_ylabel() == "Mean Trials per Block on That Date"
 
 
 # ---------------------------------------------------------------- across problems
@@ -281,14 +289,15 @@ def test_problem_figure_shows_mouse_means_and_mean_sem_with_mouse_counts(capture
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (9, 5)
     assert ax.get_xlabel() == "Problem (number of mice)"
-    assert ax.get_ylabel() == "Mean trials per session"
-    assert ax.get_title() == "Trials per session across problems — equal weight per mouse"
+    assert ax.get_ylabel() == "Mean Trials per Session"
+    assert ax.get_title() == "Trials per session across problems\nmean ± se across mice, n=3 mice"
+    assert figure_caption(fig).startswith("Each mouse is weighted equally")
     assert [t.get_text() for t in ax.get_xticklabels()] == ["1\n(n=3)", "2\n(n=2)"]
     mouse_lines = [ln for ln in ax.lines if ln.get_label() in ("m1", "m2", "m3")]
     assert [ln.get_ydata().tolist() for ln in mouse_lines] == [[24, 24], [16, 16], [24]]
     assert [ln.get_alpha() for ln in mouse_lines] == [0.5] * 3
     (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
-    assert errorbar.get_label() == "Across mice: mean ± SEM"
+    assert errorbar.get_label() == "Mean ± se across Mice"
     mean_line = errorbar.lines[0]
     assert mean_line.get_color() == "black" and mean_line.get_linewidth() == 2.5
     np.testing.assert_allclose(np.asarray(mean_line.get_ydata(), dtype=float), [64 / 3, 20])
@@ -296,8 +305,8 @@ def test_problem_figure_shows_mouse_means_and_mean_sem_with_mouse_counts(capture
     segments = errorbar.lines[2][0].get_segments()
     half_lengths = [float(seg[1, 1] - seg[0, 1]) / 2 for seg in segments]
     np.testing.assert_allclose(half_lengths, sem)
-    assert ax.get_legend()._ncols == 3
-    assert ax.get_legend().get_texts()[0].get_fontsize() == 8
+    (legend,) = ax.figure.legends
+    assert legend.get_texts()[0].get_fontsize() == 8
 
 
 # ---------------------------------------------------------------- styling that is easy to lose
@@ -364,6 +373,7 @@ def test_a_figure_that_raises_while_drawing_leaves_no_figure_open(
     assert [s.path.rsplit("/", 1)[-1] for s in capture.saved] == [
         "Trials per session - distributions.png",
         "Trials per session - distributions.pdf",
+        "Trials per session - distributions.svg",
     ]
 
 

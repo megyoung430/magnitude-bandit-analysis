@@ -12,6 +12,7 @@ from src.behavior_visualization.plot_averaged_choice_probs import (
     plot_choice_probs_with_fraction_removed_axis,
     plot_choice_probs_with_fraction_removed_panel,
 )
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
 from tests.plot_capture import (
     capture_figures,
@@ -164,8 +165,8 @@ def test_figure_layout_and_labels(capture):
     assert not left.spines["top"].get_visible() and not left.spines["right"].get_visible()
     assert not right.spines["top"].get_visible()
     assert left.get_title() == (
-        "Reversal-Aligned Choices\n(mean ± se across problems | "
-        "n=4 subjects, n=21 reversals, n=3 problems)\n"
+        "Reversal-Aligned Choices\n"
+        "mean ± se across problems, n=3 problems, n=4 mice, n=21 reversals"
     )
 
 
@@ -217,9 +218,10 @@ def test_legend_merges_both_axes(capture):
     assert legend.get_texts()[0].get_fontsize() == 10
 
 
-def test_title_extra_is_appended(capture):
+def test_title_extra_goes_to_the_caption(capture):
     _, left, _ = draw(capture, title_extra="Early reversals")
-    assert left.get_title().endswith("n=3 problems)\nEarly reversals")
+    assert left.get_title().endswith("n=21 reversals")
+    assert figure_caption(left.figure) == "Early reversals"
 
 
 def test_all_nan_curve_is_not_drawn_and_missing_fraction_has_no_step(capture):
@@ -237,7 +239,8 @@ def test_save_path_writes_pdf_then_png_and_creates_parent(capture, tmp_path):
     base = tmp_path / "new_dir" / "Choice Probabilities"
     plot_choice_probs_with_fraction_removed_axis(AX, ACROSS, FRAC, save_path=base)
     assert capture.shown == []
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert base.parent.is_dir()

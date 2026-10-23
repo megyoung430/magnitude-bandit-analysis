@@ -18,7 +18,12 @@ from src.behavior_analysis.trial_count_summaries import (
 from src.behavior_visualization.plot_helpers import (
     FigureOutput,
     TableOutput,
+    Title,
+    error_drawn,
     mouse_color_map,
+    set_suptitle,
+    set_title,
+    stats_line,
     write_outputs,
 )
 
@@ -64,7 +69,7 @@ def _plot_group_ecdfs(
         ax.step(x, y, where="post", color=colors[mouse], alpha=0.65, label=mouse)
     x, y = ecdf(group_table.trials.to_numpy())
     if len(x):
-        ax.step(x, y, where="post", color="black", lw=2, label="Pooled observations")
+        ax.step(x, y, where="post", color="black", lw=2, label="Pooled Observations")
         ax.legend(fontsize=8)
     ax.set(
         title=f"{group} (n={len(x)})", xlabel=xlabel, ylabel="Cumulative fraction", ylim=(0, 1.03)
@@ -90,7 +95,7 @@ def _plot_problem_means(
         color="black",
         lw=2.5,
         capsize=4,
-        label="Across mice: mean ± SEM",
+        label="Mean ± se across Mice",
     )
     ax.set_xticks(summary.index, [f"{p}\n(n={int(row.n_mice)})" for p, row in summary.iterrows()])
 
@@ -122,7 +127,7 @@ def _distribution_figure(
         # "Other", which matches neither panel, so they are left out of both ECDFs.
         group_table = table[table.group == group] if split_subject_groups else table
         _plot_group_ecdfs(ax, group_table, group, colors, title)
-    fig.suptitle(f"{title}: distributions\n{note}", fontsize=13)
+    set_suptitle(fig, Title(f"{title}: distributions", None, (note,)), fontsize=13)
     return fig
 
 
@@ -145,11 +150,14 @@ def _problem_figure(
 ) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(9, 5))
     _plot_problem_means(ax, per_mouse, summary, colors)
-    ax.set(
-        xlabel="Problem (number of mice)",
-        ylabel=f"Mean trials per {unit}",
-        title=f"Trials per {unit} across problems — equal weight per mouse",
+    ax.set(xlabel="Problem (number of mice)", ylabel=f"Mean trials per {unit}")
+    average = "mean ± se" if error_drawn(summary["sem"]) else "mean"
+    stats = stats_line(average, "mice", [(per_mouse["mouse"].nunique(), "mouse", "mice")])
+    caption = (
+        "Each mouse is weighted equally (its mean per problem); the n under each problem is the "
+        "number of mice behind its mean.",
     )
+    set_title(ax, Title(f"Trials per {unit} across problems", stats, caption))
     ax.legend(fontsize=8, ncol=3)
     return fig
 
@@ -212,8 +220,8 @@ def plot_trial_block_summaries(
             those panels. Default True.
 
     Returns:
-        list[Path]: The saved PNG and PDF paths, in figure order (PNG first for each
-        figure). The CSV tables are written too but not listed.
+        list[Path]: The saved PNG, PDF and SVG paths, in figure order (PNG first for each
+        figure). The CSV tables and caption files are written too but not listed.
 
     Raises:
         ValueError: If *sessions* or *blocks* is empty.

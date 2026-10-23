@@ -137,7 +137,7 @@ def test_jitter_is_uniform_within_the_requested_width(capture):
 def test_legend_counts_blocks_per_mouse_and_skips_mice_without_data(capture):
     _, ax = draw(capture, jitter=0)
     legend = ax.get_legend()
-    assert [t.get_text() for t in legend.get_texts()] == ["a (n=2 blocks)", "b (n=3 blocks)"]
+    assert [t.get_text() for t in legend.get_texts()] == ["a (n=2 Blocks)", "b (n=3 Blocks)"]
     assert legend._loc == 1 and legend.get_texts()[0].get_fontsize() == 10
 
 
@@ -148,7 +148,7 @@ def test_axis_text_and_title(capture):
     labels = ax.get_xticklabels()
     assert [t.get_text() for t in labels] == ["1", "2", "3"]
     assert all(t.get_fontsize() == 12 for t in labels)
-    assert ax.get_title() == "Block Lengths\n(median ± se across mice | n=3 mice)"
+    assert ax.get_title() == "Block Lengths\nmedian ± se across mice, n=3 mice"
     assert not ax.spines["top"].get_visible() and not ax.spines["right"].get_visible()
 
 
@@ -157,7 +157,8 @@ def test_show_without_save_path_and_save_with_one(capture, tmp_path):
     assert len(capture.shown) == 1 and not plt.fignum_exists(fig.number)
     base = tmp_path / "deep" / "Median Block Lengths"
     plot_block_lengths(summary(), jitter=0, save_path=base)
-    pdf, png = capture.saved
+    pdf, png, svg = capture.saved
+    assert svg.path == str(base) + ".svg" and svg.kwargs == {"bbox_inches": "tight"}
     assert pdf.path == str(base) + ".pdf" and pdf.kwargs == {"bbox_inches": "tight"}
     assert png.path == str(base) + ".png" and png.kwargs == {"dpi": 300, "bbox_inches": "tight"}
     assert base.parent.is_dir()
