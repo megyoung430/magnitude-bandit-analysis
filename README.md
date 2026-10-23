@@ -120,21 +120,30 @@ uv run python scripts/full_pipelines/run_cohorts.py --cohorts 3 --refresh-cache 
 ```
 
 - `check` lists the server (sizes and dates only) and says, per cohort, when its cache was made,
-  whether the import code changed since, and which subjects, sessions and files are new,
-  changed or removed. It exits 0 when every cohort is up to date and 1 otherwise; `--json`
-  prints the same as JSON.
-- `refresh` parses the new and changed files, writes a new snapshot and then prunes
-  (`--keep-old` to skip). If the server fails part-way it stops with an error and the previous
-  snapshot stays in use; snapshots are written to a temporary folder and renamed into place.
-- `prune` removes snapshots older than the newest of their cohort, old-style caches that a
-  snapshot has replaced, and per-file parses no kept snapshot uses, printing the space freed.
-  A cohort's only cache is never removed.
+  whether the import or parsing code (or pandas) changed since, and which subjects, sessions
+  and files are new, changed, removed or were skipped as unreadable. It exits 0 when a refresh
+  would change nothing, 1 otherwise, and 2 when the server or the settings are missing;
+  `--json` prints the same as JSON.
+- `refresh` parses the new and changed files, writes a new snapshot and then prunes that raw
+  folder's older snapshots (`--keep-old` to skip). If the server stops answering part-way it
+  stops with an error and the previous snapshot stays in use; a single unreadable file is
+  skipped, as a plain import skips it, and tried again by the next refresh. Snapshots are
+  written to a temporary folder and renamed into place.
+- `prune` removes snapshots older than the newest of the same raw folder (a partial copy at
+  another path keeps its own), old-style caches that a snapshot of their folder has replaced,
+  per-file parses no kept snapshot uses, and leftovers of interrupted writes, printing the
+  space freed. A cohort's only cache is never removed.
 
 `--refresh-cache` on either run script refreshes the listed cohorts first; `--no-cache`
 (`run_all_drifting_problems.py`) re-imports everything without the cache. `--from-cache` is
-still accepted and changes nothing. In code, `load_trials_with_log(root)` refreshes and
-`load_trials_with_log(root, from_cache=True)` is cache-first. Nothing is ever written under the
-data root. Delete `.cache/` at any time; it only costs a re-import.
+still accepted and changes nothing.
+
+In code (notebooks), `load_trials_with_log(root)` refreshes **and prunes**: the first call on a
+cohort deletes its old-style caches once its snapshot exists, and later calls remove its older
+snapshots. `load_trials_with_log(root, from_cache=True)` is cache-first, and `use_cache=False`
+leaves the cache alone. Nothing is ever written under the data root: a refresh or prune stops
+with an error if `BANDIT_CACHE_DIR` points inside `BANDIT_DATA_ROOT`. Delete `.cache/` at any
+time; it only costs a re-import.
 
 ### Resumable cohort cross-validation and recovery runs
 

@@ -30,18 +30,27 @@ Results change: none (same trials); runs read the cache by default.
   paths=...)`), and the result is stored as a snapshot in `import-snapshots/<name>/` with a
   JSON `manifest.json` (root, classify flag, import and file code versions, created, file
   list). The snapshot is written to a `.tmp-` folder renamed into place last.
-- `refresh_import_cache` (load_trials.py) loads the newest snapshot as is when its manifest
-  matches the listing and the code; otherwise it assembles a new one and prunes the cohort.
-  A failure to list or read the share raises `ShareReadError` (never a silent skip) and leaves
-  the previous snapshot in use; files that are read but cannot be parsed are skipped as before
-  and are not cached.
+- `refresh_import_cache` (cache_refresh.py) loads the newest snapshot as is when its manifest
+  matches the listing and the code; otherwise it assembles a new one and prunes that root.
+  A share that stops answering (timeout, EIO, ENOTCONN, EHOSTDOWN, ESTALE, root gone) raises
+  `ShareReadError` and leaves the previous snapshot in use; a single unreadable file (EACCES,
+  ENOENT, a parse error) is skipped as a fresh import skips it, recorded as `skipped` in the
+  manifest and tried again by the next refresh. Library loads refresh and auto-prune, so a
+  notebook's first load deletes that root's legacy entries once a snapshot exists. No write or
+  prune happens with the cache directory inside the data root or the refreshed folder.
+- Both frames are cached per file: on 50 real recordings expanding cost 39 ms a file against
+  3-49 ms reading and 5 ms unpickling, but the expanded frames are ~25x the raw ones on disk.
+- Replayed warnings are placed by their parsing function and offset, so code moving above them
+  does not make the line numbers stale; `module=` is passed so module filters apply.
 - Cache-first (`load_trials_with_log(..., from_cache=True)`): newest snapshot (exact root, else
   path tail), else the newest legacy joblib `_load` entry as before, else import and cache from
   the server. `load_trials_with_log(root)` refreshes.
 - `cache_diff` (pure) and `cache_check.check_import_cache` / `describe_check`: the snapshot's
   manifest (or a legacy entry's recorded fingerprint) against the server listing, by subject
   and session. Exit code 1 also when only the import code changed.
-- `cache_prune.prune_plan` (pure) and `apply_prune` (refuses paths outside the cache).
+- `cache_prune.prune_plan` (pure; newest snapshot kept per exact root and flag, tail matching
+  is only a load fallback) and `apply_prune` (refuses paths outside the cache).
+- `import_code_version` leaves out `cache_check.py`, `cache_diff.py` and `cache_prune.py`.
 
 ## Interfaces
 
