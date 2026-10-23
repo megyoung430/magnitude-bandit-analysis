@@ -64,7 +64,7 @@ def plot_reversals_by_trial(subjects_trials, *, window=None, threshold=None, sav
             mean,
             color=colors[kind],
             lw=2.5,
-            label=f"{kind.title()} (mean of observed mice)",
+            label=f"{kind.title()} (Mean of Observed Mice)",
         )
     if window is None and threshold is not None:
         ax.axhline(threshold, color="gray", ls="--", label="Threshold")

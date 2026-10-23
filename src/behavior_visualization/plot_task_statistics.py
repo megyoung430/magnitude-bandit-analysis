@@ -121,7 +121,7 @@ def _plot_mouse_lines(
         xs = jittered(xs, jitter, rng)
         ax.plot(xs, ys, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=6, zorder=3)
         handles.append(
-            Line2D([0], [0], color=c, lw=2.5, marker="o", label=f"{m} (n={len(ys)} blocks)")
+            Line2D([0], [0], color=c, lw=2.5, marker="o", label=f"{m} (n={len(ys)} Blocks)")
         )
     return handles
 

@@ -77,7 +77,7 @@ def _plot_subject_lines(ax: plt.Axes, per_subject_counts: dict) -> list[Line2D]:
                 color=c,
                 lw=2.5,
                 marker="o",
-                label=f"{subj} (n={counts['total']} reversals)",
+                label=f"{subj} (n={counts['total']} Reversals)",
             )
         )
     return handles

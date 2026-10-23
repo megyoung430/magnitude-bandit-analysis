@@ -32,7 +32,7 @@ from src.behavior_visualization.plot_helpers import (
 )
 
 MEAN_LABEL = "Mean ± se (Completed Problems)"
-RUNNING_LABEL = "Still running"
+RUNNING_LABEL = "Still Running"
 _JITTER = 0.06  # keeps mice with the same count from drawing over each other
 _MEAN_COLOR = "black"
 _FIGSIZE = (11, 6)

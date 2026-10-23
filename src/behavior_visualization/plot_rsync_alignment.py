@@ -50,7 +50,7 @@ def plot_rsync_alignment(
 
     log_mse, matched = aligner.log_mse, aligner.valid_matches
     ax_mse.hist(log_mse[matched], 20, color=_MATCH_COLOR, label="Match")
-    ax_mse.hist(log_mse[~matched], 20, color=_NON_MATCH_COLOR, label="Non-match")
+    ax_mse.hist(log_mse[~matched], 20, color=_NON_MATCH_COLOR, label="Non-Match")
     ax_mse.legend(loc="upper center")
     ax_mse.set(xlabel="Log mean squared error", ylabel="# chunks")
 

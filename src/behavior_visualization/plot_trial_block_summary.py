@@ -69,7 +69,7 @@ def _plot_group_ecdfs(
         ax.step(x, y, where="post", color=colors[mouse], alpha=0.65, label=mouse)
     x, y = ecdf(group_table.trials.to_numpy())
     if len(x):
-        ax.step(x, y, where="post", color="black", lw=2, label="Pooled observations")
+        ax.step(x, y, where="post", color="black", lw=2, label="Pooled Observations")
         ax.legend(fontsize=8)
     ax.set(
         title=f"{group} (n={len(x)})", xlabel=xlabel, ylabel="Cumulative fraction", ylim=(0, 1.03)

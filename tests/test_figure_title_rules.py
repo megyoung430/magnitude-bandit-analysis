@@ -28,6 +28,23 @@ STATS_LINE = re.compile(
 )
 
 
+# {figure base path: legends drawn over a panel}, filled by the saved fixture
+covered: dict = {}
+
+
+def legends_over_panels(fig) -> list[str]:
+    """The labels of each legend whose box overlaps the data area of a panel."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    legends = [*fig.legends, *(ax.get_legend() for ax in fig.axes if ax.get_legend())]
+    panels = [ax for ax in fig.axes if ax.get_visible() and ax.axison]
+    return [
+        " / ".join(t.get_text() for t in legend.get_texts())
+        for legend in legends
+        if any(legend.get_window_extent(renderer).overlaps(ax.bbox) for ax in panels)
+    ]
+
+
 @pytest.fixture(scope="module")
 def saved(tmp_path_factory):
     """``[(base path, suptitle, [axes titles])]`` of every figure the two runs save."""
@@ -38,7 +55,9 @@ def saved(tmp_path_factory):
     def spy(fig, base, formats, dpi):
         titles = [ax.get_title() for ax in fig.axes if ax.get_visible() and ax.get_title()]
         records.append((Path(str(base)), fig.get_suptitle(), titles))
-        return real(fig, base, formats, dpi)
+        paths = real(fig, base, formats, dpi)
+        covered[Path(str(base))] = legends_over_panels(fig)
+        return paths
 
     with pytest.MonkeyPatch.context() as patch, warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -100,3 +119,8 @@ def test_the_extra_set_names_its_mice_in_every_caption_and_the_file_names_are_un
         "Choice Probabilities Around Block Changes (All) (Arms Labelled by Rank Before) (pooled)"
         in names
     )
+
+
+def test_no_legend_covers_the_data_of_a_panel(saved):
+    assert covered
+    assert {base.name: labels for base, labels in covered.items() if labels} == {}

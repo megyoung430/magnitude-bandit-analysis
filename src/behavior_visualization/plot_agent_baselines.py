@@ -13,7 +13,7 @@ import pandas as pd
 from src.behavior_analysis.choice_regression import FEATURES
 from src.behavior_visualization.plot_helpers import Title, save_or_show, set_title, stats_line
 
-SOURCE_LABELS = {"mice": "Mice", "magnitude": "Magnitude agent", "binary": "Binary agent"}
+SOURCE_LABELS = {"mice": "Mice", "magnitude": "Magnitude Agent", "binary": "Binary Agent"}
 SOURCE_COLORS = {"mice": "#333333", "magnitude": "#4C8BC9", "binary": "#D9822B"}
 FEATURE_LABELS = {
     "last_value": "Last value\n(per unit)",

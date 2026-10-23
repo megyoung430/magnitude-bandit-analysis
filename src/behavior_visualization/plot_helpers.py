@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 from matplotlib._pylab_helpers import Gcf  # private matplotlib API; may need updating on an upgrade
 
+from src.behavior_visualization.plot_legends import tidy_legends
 from src.behavior_visualization.plot_style import MOUSE_COLORS
 
 # Every figure is written in these formats: vector files for editing, PNG for quick looks.
@@ -312,10 +313,13 @@ def _write_figure_files(
 ) -> list[Path]:
     """Save *fig* as ``<base>.<format>`` for each of *formats*, in order; return the paths.
 
+    The legends are tidied first (see
+    :func:`~src.behavior_visualization.plot_legends.tidy_legends`).
     ``<base>.caption.txt`` is written too, empty when the figure has no caption, so every
     figure has one.
     """
     paths = figure_paths(base, formats)
+    add_caption(fig, *tidy_legends(fig))
     for path in paths:
         fmt = path.suffix.removeprefix(".")
         dpi_kwargs = {"dpi": dpi[fmt]} if fmt in dpi else {}

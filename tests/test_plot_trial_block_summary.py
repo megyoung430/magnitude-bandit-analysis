@@ -217,14 +217,12 @@ def test_group_ecdfs_show_each_mouse_and_the_pooled_observations(capture, tables
     assert (m1.get_label(), m1.get_color(), m1.get_alpha()) == ("m1", MOUSE_COLORS[0], 0.65)
     assert (m2.get_label(), m2.get_color()) == ("m2", MOUSE_COLORS[1])
     assert m1.get_drawstyle() == "steps-post"
-    assert pooled.get_label() == "Pooled observations"
+    assert pooled.get_label() == "Pooled Observations"
     assert pooled.get_color() == "black" and pooled.get_linewidth() == 2
     assert pooled.get_xdata().tolist() == [16] * 5 + [24] * 3
-    assert [t.get_text() for t in low.get_legend().get_texts()] == [
-        "m1",
-        "m2",
-        "Pooled observations",
-    ]
+    # the save step moves the legend of the panel out of the data
+    labels = [[t.get_text() for t in leg.get_texts()] for leg in low.figure.legends]
+    assert ["m1", "m2", "Pooled Observations"] in labels
 
 
 def test_block_distributions_use_the_block_note(capture, tables, tmp_path):
@@ -270,8 +268,9 @@ def test_over_time_plots_daily_means_per_mouse(capture, tables, tmp_path):
     ]  # one point per date, in calendar order
     assert lines["m1"].get_color() == MOUSE_COLORS[0] and lines["m1"].get_alpha() == 0.8
     assert lines["m1"].get_marker() == "." and lines["m1"].get_linestyle() == "-"
-    assert ax.get_legend()._ncols == 4
-    assert ax.get_legend().get_texts()[0].get_fontsize() == 9
+    # the save step moves the legend out of the data, keeping its font size
+    (legend,) = ax.figure.legends
+    assert legend.get_texts()[0].get_fontsize() == 9
 
 
 def test_block_over_time_uses_the_block_end_date_label(capture, tables, tmp_path):
@@ -306,8 +305,8 @@ def test_problem_figure_shows_mouse_means_and_mean_sem_with_mouse_counts(capture
     segments = errorbar.lines[2][0].get_segments()
     half_lengths = [float(seg[1, 1] - seg[0, 1]) / 2 for seg in segments]
     np.testing.assert_allclose(half_lengths, sem)
-    assert ax.get_legend()._ncols == 3
-    assert ax.get_legend().get_texts()[0].get_fontsize() == 8
+    (legend,) = ax.figure.legends
+    assert legend.get_texts()[0].get_fontsize() == 8
 
 
 # ---------------------------------------------------------------- styling that is easy to lose

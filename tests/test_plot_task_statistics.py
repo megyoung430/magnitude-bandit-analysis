@@ -137,7 +137,7 @@ def test_jitter_is_uniform_within_the_requested_width(capture):
 def test_legend_counts_blocks_per_mouse_and_skips_mice_without_data(capture):
     _, ax = draw(capture, jitter=0)
     legend = ax.get_legend()
-    assert [t.get_text() for t in legend.get_texts()] == ["a (n=2 blocks)", "b (n=3 blocks)"]
+    assert [t.get_text() for t in legend.get_texts()] == ["a (n=2 Blocks)", "b (n=3 Blocks)"]
     assert legend._loc == 1 and legend.get_texts()[0].get_fontsize() == 10
 
 

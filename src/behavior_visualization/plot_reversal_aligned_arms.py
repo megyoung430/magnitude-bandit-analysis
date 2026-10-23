@@ -176,7 +176,7 @@ def _draw_magnitude_curves(ax2: plt.Axes, result: ReversalAlignedArms) -> None:
             ls="--",
             color=ROLE_COLORS[role],
             alpha=0.85,
-            label=f"{ROLE_LABELS[role]} magnitude",
+            label=f"{ROLE_LABELS[role]} Magnitude",
         )
         banded = shown & np.isfinite(se)
         if banded.any():

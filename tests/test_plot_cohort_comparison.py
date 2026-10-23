@@ -241,7 +241,8 @@ def test_distribution_panels_pool_observations_and_draw_faint_mouse_ecdfs(run):
     assert pooled.get_xdata().tolist() == [24, 24, 24]
     assert a1.get_xlabel() == "Trials per session" and a1.get_ylabel() == "Cumulative fraction"
     assert a1.get_ylim() == (0, 1.03)
-    assert a1.get_legend().get_texts()[0].get_fontsize() == 9
+    # the save step moves the panels' legends out of the data, keeping their font size
+    assert all(leg.get_texts()[0].get_fontsize() == 9 for leg in a1.figure.legends)
 
 
 def test_block_distribution_axis_names_blocks(run):
@@ -261,7 +262,7 @@ def test_over_time_x_is_days_since_the_mouses_first_session_in_the_problem(run):
     assert second.get_xdata().tolist() == [0]
     assert a1.get_xlabel() == "Days since first observed session in this problem"
     assert a1.get_ylabel() == "Daily mean trials per session"
-    assert a1.get_legend()._ncols == 2 and a1.get_legend().get_texts()[0].get_fontsize() == 8
+    assert all(leg.get_texts()[0].get_fontsize() == 8 for leg in a1.figure.legends)
 
 
 def test_over_time_origin_is_the_first_session_of_the_same_problem(run):
@@ -334,7 +335,7 @@ def test_rank_panel_shows_pooled_proportions_with_mean_sem_and_labels(run):
     labels = [(t.get_text(), t.get_position()) for t in ax.texts]
     assert labels == [("0.50", (0, 1.035)), ("0.50", (1, 1.035)), ("0.00", (2, 0.035))]
     assert all(t.get_fontsize() == 11 for t in ax.texts)
-    assert ax.get_legend()._ncols == 2
+    assert ax.figure.legends and ax.get_legend() is None
 
 
 def test_reversal_panel_shows_good_bad_and_all_counts_per_mouse(run):

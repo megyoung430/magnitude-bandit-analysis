@@ -89,8 +89,8 @@ def test_legend_gives_each_subject_its_reversal_count(capture):
     _, ax = draw(capture)
     legend = ax.get_legend()
     assert [t.get_text() for t in legend.get_texts()] == [
-        "s1 (n=4 reversals)",
-        "s2 (n=8 reversals)",
+        "s1 (n=4 Reversals)",
+        "s2 (n=8 Reversals)",
     ]
     assert legend._loc == 1 and legend.get_texts()[0].get_fontsize() == 10
 
