@@ -500,7 +500,7 @@ with `<name>.caption.txt` next to it; the file names are the same as before.
 - **Titles** are short: the heading (e.g. "Choice Probabilities Around Block Changes (All)") and,
   for a panel that shows a mean with an error bar or band, one line naming the statistic, what it
   is taken across and the n, e.g. "mean ± se across mice, n=13 mice" or
-  "mean ± se across events, n=120 events, n=13 mice". "± SE" appears only when an error is
+  "mean ± se across events, n=120 events, n=13 mice". "± se" appears only when an error is
   drawn (one mouse gives "mean").
 - **Captions** hold everything else that used to be in titles, subtitles and notes on the figure:
   the scope (cohort, problem, "without <mice>" for an exclusion set), labelling, smoothing,
