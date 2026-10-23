@@ -47,22 +47,22 @@ def test_counts_agree_in_number(n, text):
 
 
 def test_a_stats_line_names_the_statistic_the_unit_and_each_count():
-    line = stats_line("mean ± SE", "mice", [(13, "mouse", "mice")])
-    assert line == "mean ± SE across mice, n = 13 mice"
-    line = stats_line("mean ± SE", "events", [(120, "event", "events"), (1, "mouse", "mice")])
-    assert line == "mean ± SE across events, n = 120 events, n = 1 mouse"
+    line = stats_line("mean ± se", "mice", [(13, "mouse", "mice")])
+    assert line == "mean ± se across mice, n=13 mice"
+    line = stats_line("mean ± se", "events", [(120, "event", "events"), (1, "mouse", "mice")])
+    assert line == "mean ± se across events, n=120 events, n=1 mouse"
 
 
 def test_a_title_shows_its_heading_and_stats_and_keeps_the_rest_for_the_caption():
-    title = Title("Average Across Mice", "mean ± SE across mice, n = 3 mice", ("pooled",))
-    assert title.shown == "Average Across Mice\nmean ± SE across mice, n = 3 mice"
+    title = Title("Average Across Mice", "mean ± se across mice, n=3 mice", ("pooled",))
+    assert title.shown == "Average Across Mice\nmean ± se across mice, n=3 mice"
     assert Title("Value of Best").shown == "Value of Best"
 
 
 def test_set_title_draws_the_shown_part_and_adds_the_rest_to_the_caption():
     fig, ax = small_figure()
-    set_title(ax, Title("Heading", "mean ± SE across mice, n = 2 mice", ("note one", "note two")))
-    assert ax.get_title() == "Heading\nmean ± SE across mice, n = 2 mice"
+    set_title(ax, Title("Heading", "mean ± se across mice, n=2 mice", ("note one", "note two")))
+    assert ax.get_title() == "Heading\nmean ± se across mice, n=2 mice"
     assert figure_caption(fig) == "note one\nnote two"
 
 

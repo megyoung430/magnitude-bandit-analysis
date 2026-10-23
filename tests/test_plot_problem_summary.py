@@ -114,7 +114,7 @@ def test_metric_figure_text_scales_and_style(drawn):
     (fig,) = drawn.figures
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (10, 4.8)
-    assert ax.get_title() == "My title\nmean ± SE across mice, n = 4 mice"
+    assert ax.get_title() == "My title\nmean ± se across mice, n=4 mice"
     assert ax.get_ylabel() == "My Y"
     assert ax.get_xlabel() == "Problem Number"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["1", "2", "3"]
@@ -158,7 +158,7 @@ def test_lengths_figure_defaults_and_style(drawn):
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (10, 4.8)
     assert ax.get_ylabel() == "Sessions to Complete"
-    assert ax.get_title() == "Sessions to Complete per Problem\nmean ± SE across mice, n = 4 mice"
+    assert ax.get_title() == "Sessions to Complete per Problem\nmean ± se across mice, n=4 mice"
     assert [t.get_text() for t in ax.texts] == ["2.0", "4.5"]
     assert title_pad_points(ax) == pytest.approx(20)
     assert ax.get_ylim() == pytest.approx((0, 6.75))  # no headroom, unlike the metric chart
@@ -173,7 +173,7 @@ def test_lengths_custom_ylabel_title_and_annotate_y(drawn):
     )
     (ax,) = drawn.figures[0].axes
     assert ax.get_ylabel() == "Mean Block Length"
-    assert ax.get_title() == "Custom\nmean ± SE across mice, n = 4 mice"
+    assert ax.get_title() == "Custom\nmean ± se across mice, n=4 mice"
     assert ax.get_ylim() == pytest.approx((0, 9.0))
 
 
@@ -342,7 +342,7 @@ def test_pooled_panels_share_the_data_range_and_summarise_each_problem(drawn):
     pps.plot_distributions_per_problem_all_mice(block_stats())
     first, second = visible(drawn.figures[0])
     assert first.get_xlim() == second.get_xlim() == (10.0, 40.0)
-    assert first.texts[0].get_text().startswith("n = 2\nmedian = 15.00")
+    assert first.texts[0].get_text().startswith("n=2\nmedian=15.00")
     np.testing.assert_allclose(first.lines[0].get_xdata(), 15.0)  # mean line
     np.testing.assert_allclose(second.lines[0].get_xdata(), 35.0)
 
@@ -409,7 +409,7 @@ def test_drop_last_problem_removes_each_mouses_last_problem_pooled(drawn):
         "Problem 1 (blocks=2, mice=2)",
         "Problem 2 (blocks=2, mice=1)",
     ]
-    assert visible(fig)[1].texts[0].get_text().startswith("n = 2\nmedian = 35.00")
+    assert visible(fig)[1].texts[0].get_text().startswith("n=2\nmedian=35.00")
 
 
 def test_drop_last_problem_removes_each_mouses_last_problem_per_mouse(drawn):
@@ -453,7 +453,7 @@ def test_blocklen_histogram_panel_draws_stats_and_xlim():
     _, ax = plt.subplots()
     pps.plot_blocklen_histogram(np.array([10.0, 20.0, 30.0]), ax=ax, title="P", xlim=(0, 50))
     assert ax.get_xlim() == (0, 50) and ax.get_title() == "P"
-    assert ax.texts[0].get_text().startswith("n = 3")
+    assert ax.texts[0].get_text().startswith("n=3")
     assert len(ax.lines) == 1  # mean line
 
 
@@ -461,7 +461,7 @@ def test_blocklen_histogram_panel_prints_median_sample_sd_and_draws_the_mean_lin
     _, ax = plt.subplots()
     pps.plot_blocklen_histogram(np.array([1.0, 2.0, 3.0, 10.0]), ax=ax, title="P")
     # median 2.5; sd with ddof=1 is sqrt(50 / 3) = 4.08 (ddof=0 would print 3.54)
-    assert ax.texts[0].get_text() == "n = 4\nmedian = 2.50\nsd = 4.08\nmin = 1\nmax = 10"
+    assert ax.texts[0].get_text() == "n=4\nmedian=2.50\nstd=4.08\nmin=1\nmax=10"
     assert list(ax.lines[0].get_xdata()) == [4.0, 4.0]  # the mean, not the median
 
 
@@ -470,7 +470,7 @@ def test_blocklen_histogram_panel_prints_no_sd_for_a_single_value():
     # instead of printing 0.00.
     _, ax = plt.subplots()
     pps.plot_blocklen_histogram(np.array([7.0]), ax=ax, title="P")
-    assert ax.texts[0].get_text() == "n = 1\nmedian = 7.00\nmin = 7\nmax = 7"
+    assert ax.texts[0].get_text() == "n=1\nmedian=7.00\nmin=7\nmax=7"
 
 
 # ---- rank proportions ----
@@ -481,7 +481,7 @@ def test_rank_figure_text_scales_and_style(drawn):
     (fig,) = drawn.figures
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (7, 5.5)
-    assert ax.get_title() == "Average Across Mice\nmean ± SE across mice, n = 2 mice"
+    assert ax.get_title() == "Average Across Mice\nmean ± se across mice, n=2 mice"
     assert title_pad_points(ax) == pytest.approx(14)
     assert ax.get_ylabel() == "Proportion of Choices"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Best", "Second", "Third"]
@@ -587,5 +587,5 @@ def test_block_length_helpers_are_reexported():
 def test_extra_lines_of_a_given_title_go_to_the_caption(drawn):
     pps.plot_metric_by_problem(summary(), title="T\n(cohort 3)", ylabel="Y")
     ax = drawn.figures[0].axes[0]
-    assert ax.get_title() == "T\nmean ± SE across mice, n = 4 mice"
+    assert ax.get_title() == "T\nmean ± se across mice, n=4 mice"
     assert figure_caption(ax.figure) == "(cohort 3)"

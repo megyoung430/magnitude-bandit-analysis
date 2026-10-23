@@ -115,7 +115,7 @@ def test_the_title_has_the_heading_and_statistics_and_the_caption_the_scope_and_
     ax = plot_sessions_per_problem_panel(summary, scope_label="cohort 3")
     n_mice = len(summary.mice)
     assert ax.get_title() == (
-        f"Sessions per Drifting Problem\nmean ± SE across mice, n = {n_mice} mice"
+        f"Sessions per Drifting Problem\nmean ± se across mice, n={n_mice} mice"
     )
     caption = figure_caption(ax.figure)
     assert "Data: cohort 3." in caption and "Sessions counted: bandit sessions." in caption
@@ -175,7 +175,7 @@ def test_each_cohort_is_a_line_of_its_mean_with_its_own_colour(by_cohort):
     assert list(lines["cohort-03 (1 mouse)"].get_ydata()) == [10.0]  # problem 2 is still running
     assert lines["cohort-01 (2 mice)"].get_color() != lines["cohort-03 (1 mouse)"].get_color()
     assert ax.get_title() == (
-        "Sessions per Drifting Problem by Cohort\nmean ± SE across mice, n = 3 mice"
+        "Sessions per Drifting Problem by Cohort\nmean ± se across mice, n=3 mice"
     )
     assert "Data: cohorts 1, 3." in figure_caption(ax.figure)
     assert ax.get_ylim()[0] == 0 and list(ax.get_xticks()) == [1, 2]

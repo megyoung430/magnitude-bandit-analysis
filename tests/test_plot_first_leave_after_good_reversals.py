@@ -102,8 +102,7 @@ def test_axis_text_limits_and_title(capture):
     assert ax.get_ylabel() == "Fraction of Good Reversals" and ax.yaxis.label.get_fontsize() == 12
     assert ax.get_ylim() == (0.0, 1.07)
     assert ax.get_title() == (
-        "First Choice After Leaving Previous Best\n"
-        "mean ± SE across mice, n = 3 mice, n = 20 reversals"
+        "First Choice After Leaving Previous Best\nmean ± se across mice, n=3 mice, n=20 reversals"
     )
     assert not ax.spines["top"].get_visible() and not ax.spines["right"].get_visible()
 
@@ -144,7 +143,7 @@ def test_files_are_really_written(monkeypatch, tmp_path):
 
 def test_no_subjects_draws_bars_only(capture):
     _, ax = draw(capture, counts={})
-    assert subject_lines(ax) == [] and "n = 0 mice" in ax.get_title()
+    assert subject_lines(ax) == [] and "n=0 mice" in ax.get_title()
 
 
 def test_layout_is_tightened_and_padding_and_caps_are_kept(capture):

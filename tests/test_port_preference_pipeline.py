@@ -221,7 +221,7 @@ def test_titles_say_mice_and_the_heatmap_title_is_its_file_name(tmp_path, monkey
     figures = saved_figures(capture)
     category = figures["Port Preference X vs Plus"]
     assert category.axes[0].get_title() == (
-        "Port Preference: X vs Plus\nmean ± SE across mice, n = 2 mice"
+        "Port Preference: X vs Plus\nmean ± se across mice, n=2 mice"
     )
     assert figure_caption(category) == "Data: problem-01."
     heatmaps = figures["Port Preference Per Mouse"]
@@ -247,7 +247,7 @@ def test_a_mouse_offered_one_category_is_excluded_noted_and_counted(tmp_path, mo
     assert "1 mouse excluded: only one category offered" in caplog.text
     figure = saved_figures(capture)["Port Preference X vs Plus"]
     assert "1 mouse excluded: only one category offered." in figure_caption(figure)
-    assert figure.axes[0].get_title().endswith("n = 2 mice")
+    assert figure.axes[0].get_title().endswith("n=2 mice")
 
 
 def test_no_exclusion_note_when_every_mouse_is_kept(tmp_path, monkeypatch):

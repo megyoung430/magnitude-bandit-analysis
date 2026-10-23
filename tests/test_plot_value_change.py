@@ -103,7 +103,7 @@ def test_title_states_what_is_aligned_and_how_many_mice_and_events():
     ax = plot_value_change_panel(curves_for(two_mice(), truncate=True))
     assert ax.get_title() == (
         "Choice Probabilities Around Best-Value Increases (All Events)\n"
-        "mean ± SE across mice, n = 2 mice, n = 4 events"
+        "mean ± se across mice, n=2 mice, n=4 events"
     )
     assert figure_caption(ax.figure) == (
         "Window: truncated at the first rank swap (4 events truncated)."
@@ -116,8 +116,8 @@ def test_title_states_what_is_aligned_and_how_many_mice_and_events():
 def test_title_says_mean_only_for_one_mouse_matching_the_drawn_band():
     one = plot_value_change_panel(curves_for({"m1": mouse_sessions()}, truncate=True))
     two = plot_value_change_panel(curves_for(two_mice(), truncate=True))
-    assert one.get_title().splitlines()[1] == "mean across mice, n = 1 mouse, n = 2 events"
-    assert two.get_title().splitlines()[1].startswith("mean ± SE across mice, n = 2 mice")
+    assert one.get_title().splitlines()[1] == "mean across mice, n=1 mouse, n=2 events"
+    assert two.get_title().splitlines()[1].startswith("mean ± se across mice, n=2 mice")
     bands = [[c for c in ax.collections if isinstance(c, PolyCollection)] for ax in (one, two)]
     assert not bands[0] and bands[1]
     plt.close("all")
@@ -126,11 +126,11 @@ def test_title_says_mean_only_for_one_mouse_matching_the_drawn_band():
 def test_event_weighted_title_says_across_events_and_the_caption_has_the_caveat():
     w = get_value_change_windows(two_mice(), "best", "increase", "all", pre=5, post=15)
     ax = plot_value_change_panel(summarize_windows(w, weighting="event"))
-    assert ax.get_title().splitlines()[1] == "mean ± SE across events, n = 4 events, n = 2 mice"
+    assert ax.get_title().splitlines()[1] == "mean ± se across events, n=4 events, n=2 mice"
     caption = figure_caption(ax.figure).splitlines()
     assert caption[1:] == [
         "Each event is weighted equally.",
-        "SE treats events as independent, so it is narrower than the true uncertainty.",
+        "se treats events as independent, so it is narrower than the true uncertainty.",
     ]
     plt.close("all")
 

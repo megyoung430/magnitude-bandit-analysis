@@ -81,7 +81,7 @@ def run_port_preference_analysis(
 
     Writes, as PDF, PNG and SVG with a caption file:
 
-    - ``Port Preference X vs Plus``: bars of mean ± SE across mice, one line per mouse;
+    - ``Port Preference X vs Plus``: bars of mean ± se across mice, one line per mouse;
     - ``Port Preference Per Mouse``: one 3 x 3 maze per mouse coloured by the port ratios
       (log2 scale centred on 1, grey where undefined); not with ``per_mouse_heatmap=False``.
 

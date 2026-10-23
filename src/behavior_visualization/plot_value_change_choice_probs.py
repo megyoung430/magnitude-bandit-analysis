@@ -63,13 +63,13 @@ def _title(curves: ValueChangeCurves, show_individual_mice: bool = False) -> Tit
         unit, counts = "events", [events, mice]
     else:
         unit, counts = "mice", [mice, events]
-    average = "mean ± SE" if counts[0][0] >= 2 else "mean"
+    average = "mean ± se" if counts[0][0] >= 2 else "mean"
     caption = [_window_caption(curves)]
     if curves.weighting == "event":
         caption.append("Each event is weighted equally.")
         if curves.num_events >= 2:
             caption.append(
-                "SE treats events as independent, so it is narrower than the true uncertainty."
+                "se treats events as independent, so it is narrower than the true uncertainty."
             )
     if show_individual_mice:
         caption.append("Grey lines: each mouse's mean.")

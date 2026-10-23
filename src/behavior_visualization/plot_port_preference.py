@@ -144,7 +144,7 @@ def plot_category_ratios(
     n_included = n_mice - n_excluded
     ax = plot_category_ratios_panel(per_mouse, summary)
     fig = ax.figure
-    average = "mean ± SE" if error_drawn(summary["se"]) else "mean"
+    average = "mean ± se" if error_drawn(summary["se"]) else "mean"
     caption = [f"Data: {scope_label}."]
     if n_excluded:
         caption.append(

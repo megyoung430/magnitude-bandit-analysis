@@ -297,14 +297,14 @@ def test_across_problems_figure_has_one_panel_per_cohort_with_mouse_counts(run):
     assert figure_caption(fig) == "Each mouse is weighted equally (its mean per problem)."
     left, right = fig.axes
     assert (left.get_title(), right.get_title()) == (
-        "cohort-A\nmean ± SE across mice, n = 2 mice",
-        "cohort-B\nmean ± SE across mice, n = 2 mice",
+        "cohort-A\nmean ± se across mice, n=2 mice",
+        "cohort-B\nmean ± se across mice, n=2 mice",
     )
     assert [t.get_text() for t in left.get_xticklabels()] == ["1\n(n=2)", "2\n(n=2)"]
     assert left.get_xlabel() == "Problem (number of mice)"
     assert left.get_ylabel() == "Mean trials per session"
     (errorbar,) = [c for c in left.containers if isinstance(c, ErrorbarContainer)]
-    assert errorbar.get_label() == "Mean ± SEM across mice"
+    assert errorbar.get_label() == "Mean ± se across Mice"
     assert errorbar.lines[0].get_color() == "black" and errorbar.lines[0].get_linewidth() == 2
     assert [ln.get_alpha() for ln in left.lines if ln.get_label() in ("a1", "a2")] == [0.45, 0.45]
 
@@ -314,7 +314,7 @@ def test_rank_panel_shows_pooled_proportions_with_mean_sem_and_labels(run):
     assert fig.get_suptitle() == "Pooled true-value rank proportions"
     assert figure_caption(fig) == "Data: full data."
     ax = fig.axes[0]  # cohort-A, problem 1: a1 always best, a2 always second
-    assert ax.get_title() == "cohort-A — problem 1\nmean ± SE across mice, n = 2 mice"
+    assert ax.get_title() == "cohort-A — problem 1\nmean ± se across mice, n=2 mice"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Best", "Second", "Third"]
     assert ax.get_ylabel() == "Proportion of choices" and ax.get_ylim() == (0, 1)
     a1, a2 = [ln for ln in ax.lines if ln.get_label() in ("a1", "a2")]
@@ -328,7 +328,7 @@ def test_rank_panel_shows_pooled_proportions_with_mean_sem_and_labels(run):
     assert [p.get_height() for p in ax.patches] == [0.5, 0.5, 0]
     assert all(p.get_alpha() == 0.2 and p.get_zorder() == 0 for p in ax.patches)
     (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
-    assert errorbar.get_label() == "Mean ± SEM"
+    assert errorbar.get_label() == "Mean ± se"
     segments = errorbar.lines[2][0].get_segments()
     assert [float(seg[1, 1] - seg[0, 1]) / 2 for seg in segments] == pytest.approx([0.5, 0.5, 0])
     labels = [(t.get_text(), t.get_position()) for t in ax.texts]
@@ -341,7 +341,7 @@ def test_reversal_panel_shows_good_bad_and_all_counts_per_mouse(run):
     fig = run[1]["Reversal totals - full data"]
     assert fig.get_suptitle() == "Total reversals per mouse"
     ax = fig.axes[0]  # a1 has two sessions of two good reversals, a2 one
-    assert ax.get_title() == "cohort-A — problem 1\nmean ± SE across mice, n = 2 mice"
+    assert ax.get_title() == "cohort-A — problem 1\nmean ± se across mice, n=2 mice"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Good", "Bad", "All"]
     assert ax.get_ylabel() == "Number of reversals"
     a1, a2 = [ln for ln in ax.lines if ln.get_label() in ("a1", "a2")]
@@ -359,8 +359,8 @@ def test_capped_comparison_covers_problem_two_only(run):
     assert figure_caption(fig) == f"Data: {CAPPED}."
     left, right = fig.axes
     assert (left.get_title(), right.get_title()) == (
-        "cohort-A — problem 2\nmean ± SE across mice, n = 2 mice",
-        "cohort-B — problem 2\nmean ± SE across mice, n = 2 mice",
+        "cohort-A — problem 2\nmean ± se across mice, n=2 mice",
+        "cohort-B — problem 2\nmean ± se across mice, n=2 mice",
     )
     # a1 keeps its first session (2 good reversals) and 6 trials of the second, before any reversal
     a1 = [ln for ln in left.lines if ln.get_label() == "a1"][0]

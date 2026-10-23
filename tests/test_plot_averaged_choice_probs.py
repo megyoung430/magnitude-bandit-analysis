@@ -166,7 +166,7 @@ def test_figure_layout_and_labels(capture):
     assert not right.spines["top"].get_visible()
     assert left.get_title() == (
         "Reversal-Aligned Choices\n"
-        "mean ± SE across problems, n = 3 problems, n = 4 mice, n = 21 reversals"
+        "mean ± se across problems, n=3 problems, n=4 mice, n=21 reversals"
     )
 
 
@@ -220,7 +220,7 @@ def test_legend_merges_both_axes(capture):
 
 def test_title_extra_goes_to_the_caption(capture):
     _, left, _ = draw(capture, title_extra="Early reversals")
-    assert left.get_title().endswith("n = 21 reversals")
+    assert left.get_title().endswith("n=21 reversals")
     assert figure_caption(left.figure) == "Early reversals"
 
 

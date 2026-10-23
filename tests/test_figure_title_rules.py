@@ -1,6 +1,6 @@
 """Every figure a cohort run and an all-cohorts run save keeps short titles and has a caption.
 
-A title is its heading, plus at most one statistics line ("mean ± SE across mice, n = 13 mice");
+A title is its heading, plus at most one statistics line ("mean ± se across mice, n=13 mice");
 everything else is in ``<name>.caption.txt`` next to the figure, which every figure has.
 """
 
@@ -23,8 +23,8 @@ from tests.all_cohorts_fixtures import synthetic_cohort
 from tests.cohort_fixtures import blocked_then_two_drifting
 
 STATS_LINE = re.compile(
-    r"(mean|median|proportion)( ± (SE|SD))? across [a-z ]+"
-    r"(, n = \d+ [a-z]+( [a-z]+)*)+"
+    r"(mean|median|proportion)( ± (se|std))? across [a-z ]+"
+    r"(, n=\d+ [a-z]+( [a-z]+)*)+"
 )
 
 

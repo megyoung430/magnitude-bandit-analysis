@@ -291,14 +291,14 @@ def test_problem_figure_shows_mouse_means_and_mean_sem_with_mouse_counts(capture
     assert tuple(fig.get_size_inches()) == (9, 5)
     assert ax.get_xlabel() == "Problem (number of mice)"
     assert ax.get_ylabel() == "Mean trials per session"
-    assert ax.get_title() == "Trials per session across problems\nmean ± SE across mice, n = 3 mice"
+    assert ax.get_title() == "Trials per session across problems\nmean ± se across mice, n=3 mice"
     assert figure_caption(fig).startswith("Each mouse is weighted equally")
     assert [t.get_text() for t in ax.get_xticklabels()] == ["1\n(n=3)", "2\n(n=2)"]
     mouse_lines = [ln for ln in ax.lines if ln.get_label() in ("m1", "m2", "m3")]
     assert [ln.get_ydata().tolist() for ln in mouse_lines] == [[24, 24], [16, 16], [24]]
     assert [ln.get_alpha() for ln in mouse_lines] == [0.5] * 3
     (errorbar,) = [c for c in ax.containers if isinstance(c, ErrorbarContainer)]
-    assert errorbar.get_label() == "Across mice: mean ± SEM"
+    assert errorbar.get_label() == "Mean ± se across Mice"
     mean_line = errorbar.lines[0]
     assert mean_line.get_color() == "black" and mean_line.get_linewidth() == 2.5
     np.testing.assert_allclose(np.asarray(mean_line.get_ydata(), dtype=float), [64 / 3, 20])

@@ -305,8 +305,8 @@ report all failures at the end.
   False})` to `run_cohort`. The reversal-aligned figure titles name their scope: `[problem-KK]`
   in a problem folder and `[all drifting problems]` in the pooled one (file names keep `pooled`).
   The reversal-aligned-arms and value-change figures each come in two versions, in the
-  subfolders `mouse-weighted/` (each mouse's events pooled into one curve, mean ± SE across mice)
-  and `event-weighted/` (every event counts once, mean ± SE across events; the SE treats events
+  subfolders `mouse-weighted/` (each mouse's events pooled into one curve, mean ± se across mice)
+  and `event-weighted/` (every event counts once, mean ± se across events; the se treats events
   as independent, which events of one mouse are not, so it is narrower than the real
   uncertainty). Nothing is written at the top level of those two folders. The
   `reversal_aligned_arms_counts` table has a `weighting` column (`subject` or `event`).
@@ -330,7 +330,7 @@ report all failures at the end.
   modes), with a `mean_across_mice` row equal to the mouse-weighted value-change curve.
 - **Port preference** (`run_port_preference_analysis`, drifting problems, `port-preference/`, also
   pooled over all drifting problems): `P(chosen) / P(best)` per port (one maze per mouse) and for
-  the X and plus ports (mean ± SE across mice). Relative to the problem's initiation port, plus
+  the X and plus ports (mean ± se across mice). Relative to the problem's initiation port, plus
   ports share its row or column and X ports lie on its diagonals (from B2 these are the eight
   neighbours). A mouse offered ports from one category only has that category's ratio of 1 by
   construction; it is left out of the X vs plus figure, which says how many mice were excluded.
@@ -499,8 +499,8 @@ with `<name>.caption.txt` next to it; the file names are the same as before.
 
 - **Titles** are short: the heading (e.g. "Choice Probabilities Around Block Changes (All)") and,
   for a panel that shows a mean with an error bar or band, one line naming the statistic, what it
-  is taken across and the n, e.g. "mean ± SE across mice, n = 13 mice" or
-  "mean ± SE across events, n = 120 events, n = 13 mice". "± SE" appears only when an error is
+  is taken across and the n, e.g. "mean ± se across mice, n=13 mice" or
+  "mean ± se across events, n=120 events, n=13 mice". "± SE" appears only when an error is
   drawn (one mouse gives "mean").
 - **Captions** hold everything else that used to be in titles, subtitles and notes on the figure:
   the scope (cohort, problem, "without <mice>" for an exclusion set), labelling, smoothing,

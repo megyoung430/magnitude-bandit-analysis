@@ -275,7 +275,7 @@ def plot_problem_bars(
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
     ax.set_xlabel("Problem Number", fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
-    average = "mean ± SE" if error_drawn(ses) else "mean"
+    average = "mean ± se" if error_drawn(ses) else "mean"
     stats = stats_line(average, "mice", [(len(summary["mice"]), "mouse", "mice")])
     set_title(ax, title_from_text(title, stats), pad=style.title_pad)
     # Known issue: the bottom is fixed at 0, so bars with negative means are clipped.
@@ -417,13 +417,13 @@ def _stats_text(vals: Any, show_n: bool = True) -> str:
         return "no data"
     lines = []
     if show_n:
-        lines.append(f"n = {vals.size}")
-    lines.append(f"median = {np.median(vals):.2f}")
+        lines.append(f"n={vals.size}")
+    lines.append(f"median={np.median(vals):.2f}")
     if vals.size > 1:
-        lines.append(f"sd = {vals.std(ddof=1):.2f}")
+        lines.append(f"std={vals.std(ddof=1):.2f}")
     lines += [
-        f"min = {vals.min():.0f}",
-        f"max = {vals.max():.0f}",
+        f"min={vals.min():.0f}",
+        f"max={vals.max():.0f}",
     ]
     return "\n".join(lines)
 
@@ -730,7 +730,7 @@ def plot_rank_proportions_average_panel(
         _, ax = plt.subplots(figsize=(7, 5.5))
     _draw_rank_bars(ax, means, ses, pvalues=pvalues)
     _draw_rank_mouse_lines(ax, per_mouse, jitter=jitter)
-    average = "mean ± SE" if error_drawn(ses) else "mean"
+    average = "mean ± se" if error_drawn(ses) else "mean"
     stats = stats_line(average, "mice", [(len(per_mouse), "mouse", "mice")])
     set_title(ax, Title("Average Across Mice", stats), pad=14)
     ax.set_xticks(np.arange(len(RANK_LABELS)))

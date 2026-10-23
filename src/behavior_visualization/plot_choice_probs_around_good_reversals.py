@@ -72,7 +72,7 @@ def _title(across: dict, caption: tuple[str, ...] = ()) -> Title:
         (across.get("num_subjects", 0), "mouse", "mice"),
         (across.get("num_reversals", 0), "reversal", "reversals"),
     ]
-    average = "mean ± SE" if error_drawn(*across.get("se", {}).values()) else "mean"
+    average = "mean ± se" if error_drawn(*across.get("se", {}).values()) else "mean"
     return Title("Good Reversal-Aligned Choices", stats_line(average, "mice", counts), caption)
 
 

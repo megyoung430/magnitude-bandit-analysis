@@ -95,7 +95,7 @@ def _plot_problem_means(
         color="black",
         lw=2.5,
         capsize=4,
-        label="Across mice: mean ± SEM",
+        label="Mean ± se across Mice",
     )
     ax.set_xticks(summary.index, [f"{p}\n(n={int(row.n_mice)})" for p, row in summary.iterrows()])
 
@@ -151,7 +151,7 @@ def _problem_figure(
     fig, ax = plt.subplots(figsize=(9, 5))
     _plot_problem_means(ax, per_mouse, summary, colors)
     ax.set(xlabel="Problem (number of mice)", ylabel=f"Mean trials per {unit}")
-    average = "mean ± SE" if error_drawn(summary["sem"]) else "mean"
+    average = "mean ± se" if error_drawn(summary["sem"]) else "mean"
     stats = stats_line(average, "mice", [(per_mouse["mouse"].nunique(), "mouse", "mice")])
     caption = (
         "Each mouse is weighted equally (its mean per problem); the n under each problem is the "

@@ -191,8 +191,8 @@ def _draw_line(ax, y, color, label, *, rng, jitter, linewidth, **style):
 
 
 def _bar_stats(ses, unit, counts, average="mean"):
-    """Statistics line of a bar panel: "± SE" only when an error bar is drawn."""
-    shown = f"{average} ± SE" if _helpers.error_drawn(ses) else average
+    """Statistics line of a bar panel: "± se" only when an error bar is drawn."""
+    shown = f"{average} ± se" if _helpers.error_drawn(ses) else average
     return _helpers.stats_line(shown, unit, counts)
 
 
@@ -243,7 +243,7 @@ def plot_average_across_mice(
     mouse_legend: bool = True,
     ax: plt.Axes | None = None,
 ) -> plt.Axes:
-    """Bars (mean ± SE across mice) with one coloured line per mouse.
+    """Bars (mean ± se across mice) with one coloured line per mouse.
 
     Args:
         rank_counts (_summary.RankCounts): ``{subject: list[rank_count_dict]}``; every row of
@@ -304,7 +304,7 @@ def plot_average_across_mice(
 def plot_average_across_blocks(
     rank_counts: _summary.RankCounts, *, ax: plt.Axes | None = None
 ) -> plt.Axes:
-    """Bars (mean ± SE across blocks) with one coloured line per block.
+    """Bars (mean ± se across blocks) with one coloured line per block.
 
     Every row of every subject is a block; block *b* averages the subjects that have it.
 
@@ -413,7 +413,7 @@ def plot_block_panel(
     ax: plt.Axes | None = None,
     show_ylabel: bool = True,
 ) -> plt.Axes:
-    """One block: a coloured line per mouse over bars of the mean ± SE across mice.
+    """One block: a coloured line per mouse over bars of the mean ± se across mice.
 
     The lines and the bars cover the same mice: those with a row at *block_idx*.
 
@@ -468,7 +468,7 @@ def plot_rank_proportions_average(
 ):
     """Two-panel summary of rank-proportion averages across mice and blocks.
 
-    The left panel shows bars (mean ± SE across mice) with individual mouse
+    The left panel shows bars (mean ± se across mice) with individual mouse
     lines overlaid in ``MOUSE_COLORS``.  The right panel shows bars (mean ± SE
     across blocks) with individual block lines overlaid in ``BLOCK_COLORS``.
 
@@ -583,7 +583,7 @@ def plot_rank_proportions_by_mouse(
     """Plot rank proportions in a per-subject grid, with blocks as coloured lines.
 
     Draws one subplot per subject arranged in a 2-row grid.  Within each
-    subplot, bars (mean ± SE across blocks) are shown with individual block
+    subplot, bars (mean ± se across blocks) are shown with individual block
     lines overlaid using ``BLOCK_COLORS``.
 
     Args:
@@ -626,7 +626,7 @@ def plot_rank_proportions_by_block(rank_counts_by_good_reversal, save_path=None)
     """Plot rank proportions in a per-block grid, with subjects as coloured lines.
 
     Draws one subplot per block number arranged in a 2-row grid.  Within each
-    subplot, bars (mean ± SE across subjects) are shown with individual subject
+    subplot, bars (mean ± se across subjects) are shown with individual subject
     lines overlaid using ``MOUSE_COLORS``.
 
     Args:

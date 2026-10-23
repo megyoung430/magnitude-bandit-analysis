@@ -117,7 +117,7 @@ def _style_axes(
     ax.tick_params(axis="y", labelsize=13)
     ax.set_ylim(0, y_text)
     despine(ax)
-    average = "mean ± SE" if error_drawn(summary.se) else "mean"
+    average = "mean ± se" if error_drawn(summary.se) else "mean"
     stats = stats_line(average, "mice", [(len(summary.mice), "mouse", "mice")])
     heading = "Mean Non-Choice Long Pokes Across Sessions" if title is None else title
     set_title(ax, Title(heading, stats), fontsize=16, pad=25)
@@ -181,7 +181,7 @@ def plot_num_pokes_across_mice(
 ) -> None:
     """Plot mean non-choice long-poke counts per session with per-mouse overlays.
 
-    Draws a bar for each session (mean ± SE across mice) and overlays
+    Draws a bar for each session (mean ± se across mice) and overlays
     individual mouse lines with jitter.  Sessions are sorted by numeric
     ``ses-XX`` index; x-tick labels show the short ``ses-XX`` form.
 

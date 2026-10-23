@@ -94,7 +94,7 @@ def test_the_title_keeps_the_heading_and_the_statistics_and_the_rest_goes_to_the
         ax, _ = plot_reversal_aligned_arms(result_for(scheme, moving_avg_window=4), scope="pooled")
         assert ax.get_title() == (
             "Choice Probabilities Around Block Changes (All)\n"
-            "mean ± SE across mice, n = 2 mice, n = 2 block changes"
+            "mean ± se across mice, n=2 mice, n=2 block changes"
         )
         caption = figure_caption(ax.figure).splitlines()
         assert caption == [
@@ -107,26 +107,26 @@ def test_the_title_keeps_the_heading_and_the_statistics_and_the_rest_goes_to_the
 def test_the_event_weighted_title_averages_across_block_changes_and_the_caption_has_the_caveat():
     ax, _ = plot_reversal_aligned_arms(result_for("prev", weighting="event"), scope="pooled")
     stats = ax.get_title().splitlines()[1]
-    assert stats == "mean ± SE across block changes, n = 2 block changes, n = 2 mice"
+    assert stats == "mean ± se across block changes, n=2 block changes, n=2 mice"
     caption = figure_caption(ax.figure)
     assert "Each block change is weighted equally." in caption
-    assert caption.splitlines()[-1].startswith("SE treats block changes as independent")
+    assert caption.splitlines()[-1].startswith("se treats block changes as independent")
 
 
 def test_a_single_mouse_is_a_mean_without_se_and_called_a_mouse():
     ax, _ = plot_reversal_aligned_arms(result_for("prev", subjects=1))
     # one mouse has no SE band, so the title does not claim one
     assert not [c for c in ax.collections if isinstance(c, PolyCollection)]
-    assert ax.get_title().splitlines()[1] == "mean across mice, n = 1 mouse, n = 1 block change"
+    assert ax.get_title().splitlines()[1] == "mean across mice, n=1 mouse, n=1 block change"
 
 
 def test_the_stated_n_matches_the_result_and_the_band_matches_the_statistic():
     result = result_for("prev", subjects=2)
     ax, _ = plot_reversal_aligned_arms(result)
     stats = ax.get_title().splitlines()[1]
-    assert f"n = {result.num_subjects} mice" in stats
-    assert f"n = {result.num_reversals} block changes" in stats
-    assert stats.startswith("mean ± SE") == bool(
+    assert f"n={result.num_subjects} mice" in stats
+    assert f"n={result.num_reversals} block changes" in stats
+    assert stats.startswith("mean ± se") == bool(
         [c for c in ax.collections if isinstance(c, PolyCollection)]
     )
 

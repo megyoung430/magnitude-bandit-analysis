@@ -25,7 +25,7 @@ FEATURE_LABELS = {
 
 
 def plot_regression_weights(weights: pd.DataFrame, ax: plt.Axes | None = None) -> plt.Axes:
-    """Regression weight per feature for each source: one dot per animal, mean ± SE across them.
+    """Regression weight per feature for each source: one dot per animal, mean ± se across them.
 
     Args:
         weights (pd.DataFrame): Columns ``source`` (a key of ``SOURCE_LABELS``), ``mouse``,
@@ -57,7 +57,7 @@ def plot_regression_weights(weights: pd.DataFrame, ax: plt.Axes | None = None) -
     ax.set_ylabel("Weight (logit)")
     n_animals = int(weights.groupby("source")["mouse"].nunique().max()) if len(weights) else 0
     # a single animal has no SE (see the errorbars above)
-    average = "mean ± SE" if n_animals >= 2 else "mean"
+    average = "mean ± se" if n_animals >= 2 else "mean"
     stats = stats_line(average, "animals of each source", [(n_animals, "animal", "animals")])
     set_title(ax, Title("Choice regression: what drives port choice", stats))
     ax.legend(frameon=False, fontsize=8)

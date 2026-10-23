@@ -1,6 +1,6 @@
 """Figure of choice probability and reward magnitude of the three arms around a block change.
 
-Choice probabilities (mean ± SE across mice, or across block changes for an event-weighted
+Choice probabilities (mean ± se across mice, or across block changes for an event-weighted
 result) are solid lines on the left axis; the mean
 reward magnitude of the same three arms is a dashed step line of the same colour on a
 secondary axis on the right. Two labelling schemes, each with its own two kinds of block change
@@ -106,7 +106,7 @@ def _stats(result: ReversalAlignedArms) -> str:
         unit, counts = "block changes", [changes, mice]
     else:
         unit, counts = "mice", [mice, changes]
-    average = "mean ± SE" if counts[0][0] >= 2 else "mean"
+    average = "mean ± se" if counts[0][0] >= 2 else "mean"
     return stats_line(average, unit, counts)
 
 
@@ -131,7 +131,7 @@ def _title(result: ReversalAlignedArms, scope: str) -> Title:
         if result.num_reversals >= 2:
             # Block changes of one mouse are correlated, so the band understates the uncertainty.
             caption.append(
-                "SE treats block changes as independent, so it is narrower than the true "
+                "se treats block changes as independent, so it is narrower than the true "
                 "uncertainty."
             )
     return Title(figure_heading(result), _stats(result), tuple(line for line in caption if line))

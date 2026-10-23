@@ -316,7 +316,7 @@ def plot_overall_heatmaps(
         title = Title(
             f"Heatmaps ({value_label} Value)",
             stats_line("mean", "mice", [(n_mice, "mouse", "mice")]),
-            ("Each cell: the mean across mice; n = trials summed over mice.",)
+            ("Each cell: the mean across mice; n=trials summed over mice.",)
             + _tie_caption(tables.ties, tie_mode),
         )
         _finish_figure(fig, title)
@@ -445,7 +445,7 @@ def plot_psychometric_panel(
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Choice Probability", fontsize=12)
         n_mice = len(curve_best.mice)
-        average = "mean ± SE" if error_drawn(curve_best.se, curve_second.se) else "mean"
+        average = "mean ± se" if error_drawn(curve_best.se, curve_second.se) else "mean"
         stats = stats_line(average, "mice", [(n_mice, "mouse", "mice")])
         set_title(ax, Title(xlabel, stats), fontsize=14)
         ax.set_ylim(0, 1)

@@ -177,7 +177,7 @@ def _figure_title(across: dict, title_extra: str) -> Title:
         (across.get("num_subjects", 0), "mouse", "mice"),
         (across.get("num_reversals", 0), "reversal", "reversals"),
     ]
-    stats = stats_line("mean ± SE" if has_se else "mean", "problems", counts)
+    stats = stats_line("mean ± se" if has_se else "mean", "problems", counts)
     return Title("Reversal-Aligned Choices", stats, (str(title_extra),) if title_extra else ())
 
 

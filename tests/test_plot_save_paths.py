@@ -159,7 +159,7 @@ def test_reversal_curves_across_mice_state_the_mean_and_n_and_caption_the_rest(
     across = figures["Mov Across Mice.png"].axes[0]
     assert (
         across.get_title()
-        == "Moving-Average Good and Bad Reversals Over Time\nmean across mice, n = 2 mice"
+        == "Moving-Average Good and Bad Reversals Over Time\nmean across mice, n=2 mice"
     )
     caption = figure_caption(across.figure)
     assert "Centred moving average over 2 sessions." in caption
@@ -171,4 +171,4 @@ def test_reversal_curves_across_mice_state_the_mean_and_n_and_caption_the_rest(
     ]
     assert "Sessions per mouse: m1 2, m2 1." in figure_caption(by_mouse)
     trials = figures["Mov (By Trial, 2-Trial Window) Across Mice.png"].axes[0]
-    assert trials.get_title() == "Trailing 2-trial reversal rate\nmean across mice, n = 2 mice"
+    assert trials.get_title() == "Trailing 2-trial reversal rate\nmean across mice, n=2 mice"

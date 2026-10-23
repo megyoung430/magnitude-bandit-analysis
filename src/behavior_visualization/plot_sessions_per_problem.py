@@ -1,7 +1,7 @@
 """Figures of the sessions a mouse needed to complete each drifting problem.
 
 :func:`plot_sessions_per_problem` draws one line per mouse over the drifting problems, with the
-mean ± SE across mice of the completed problems in thick black. A problem the mouse is still
+mean ± se across mice of the completed problems in thick black. A problem the mouse is still
 running is a hollow point joined by a dashed segment; it is left out of the mean.
 :func:`plot_sessions_per_problem_by_cohort` draws one mean line per cohort instead, for many
 mice.
@@ -31,7 +31,7 @@ from src.behavior_visualization.plot_helpers import (
     stats_line,
 )
 
-MEAN_LABEL = "Mean ± SE (completed problems)"
+MEAN_LABEL = "Mean ± se (Completed Problems)"
 RUNNING_LABEL = "Still running"
 _JITTER = 0.06  # keeps mice with the same count from drawing over each other
 _MEAN_COLOR = "black"
@@ -49,11 +49,11 @@ def _title(heading: str, scope_label: str, summaries: list[SessionsPerProblem]) 
     """Heading and statistics on the figure; scope, sessions counted and the rule in the caption."""
     n_mice = sum(len(s.mice) for s in summaries)
     has_se = any(np.isfinite(s.se).any() for s in summaries)
-    stats = stats_line("mean ± SE" if has_se else "mean", "mice", [(n_mice, "mouse", "mice")])
+    stats = stats_line("mean ± se" if has_se else "mean", "mice", [(n_mice, "mouse", "mice")])
     caption = (
         f"Data: {scope_label}.",
         f"Sessions counted: {_count_phrase(summaries[0])}.",
-        "Means and SEs use completed problems only; the n at each problem is the number of mice "
+        "Means and se use completed problems only; the n at each problem is the number of mice "
         "behind its mean.",
     )
     return Title(heading, stats, caption)

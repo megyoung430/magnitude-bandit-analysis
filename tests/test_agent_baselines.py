@@ -114,5 +114,5 @@ def test_the_regression_panel_states_the_mean_and_the_number_of_animals():
     ax = plot_regression_weights(weights)
     assert ax.get_title() == (
         "Choice regression: what drives port choice\n"
-        "mean ± SE across animals of each source, n = 3 animals"
+        "mean ± se across animals of each source, n=3 animals"
     )

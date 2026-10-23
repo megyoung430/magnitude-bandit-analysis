@@ -49,9 +49,9 @@ def _label_height(value: float, error: float) -> float:
 
 
 def _mean_stats(n_mice: int, sem) -> str:
-    """Statistics line of a mean-across-mice panel; "± SE" only where an error bar is drawn."""
+    """Statistics line of a mean-across-mice panel; "± se" only where an error bar is drawn."""
     return stats_line(
-        "mean ± SE" if error_drawn(sem) else "mean", "mice", [(n_mice, "mouse", "mice")]
+        "mean ± se" if error_drawn(sem) else "mean", "mice", [(n_mice, "mouse", "mice")]
     )
 
 
@@ -131,7 +131,7 @@ def _plot_across_problems_panel(
         fmt="o-",
         capsize=4,
         lw=2,
-        label="Mean ± SEM across mice",
+        label="Mean ± se across Mice",
     )
     ax.set_xticks(list(problems), [f"{p}\n(n={int(means.loc[p, 'n_mice'])})" for p in problems])
     ax.set(xlabel="Problem (number of mice)", ylabel=f"Mean trials per {unit}")
@@ -231,7 +231,7 @@ def _finish_summary_panel(
     if summary is not None:
         mean, sem = summary
         ax.bar(_CATEGORIES, mean, color="gray", alpha=0.2, zorder=0)
-        ax.errorbar(_CATEGORIES, mean, yerr=sem, fmt="ko", capsize=4, label="Mean ± SEM")
+        ax.errorbar(_CATEGORIES, mean, yerr=sem, fmt="ko", capsize=4, label="Mean ± se")
         if annotate:
             _annotate_means(ax, mean, sem)
     ax.set_xticks(_CATEGORIES, names)

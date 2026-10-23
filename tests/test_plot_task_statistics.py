@@ -148,7 +148,7 @@ def test_axis_text_and_title(capture):
     labels = ax.get_xticklabels()
     assert [t.get_text() for t in labels] == ["1", "2", "3"]
     assert all(t.get_fontsize() == 12 for t in labels)
-    assert ax.get_title() == "Block Lengths\nmedian ± SE across mice, n = 3 mice"
+    assert ax.get_title() == "Block Lengths\nmedian ± se across mice, n=3 mice"
     assert not ax.spines["top"].get_visible() and not ax.spines["right"].get_visible()
 
 

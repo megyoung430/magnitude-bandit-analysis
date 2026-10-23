@@ -161,7 +161,7 @@ def test_average_across_mice_pooled_bars_use_each_mouses_pooled_proportion(count
     means, ses = mean_and_se(mouse_pooled)
     assert bar_heights(ax) == pytest.approx(means)
     assert error_bar_lengths(ax) == pytest.approx(ses)
-    assert ax.get_title() == "Pooled Trials Within Mouse\nmean ± SE across mice, n = 3 mice"
+    assert ax.get_title() == "Pooled Trials Within Mouse\nmean ± se across mice, n=3 mice"
     assert "pools its trials" in figure_caption(ax.figure)
 
 
@@ -174,7 +174,7 @@ def test_average_across_mice_lines_are_one_per_mouse_in_rank_order(counts):
 
 def test_average_across_mice_title_names_the_aggregation_and_the_statistic_drawn(counts):
     ax = plot_average_across_mice(counts)
-    assert ax.get_title() == "Average Across Mice\nmean ± SE across mice, n = 3 mice"
+    assert ax.get_title() == "Average Across Mice\nmean ± se across mice, n=3 mice"
     assert len(data_lines(ax)) == 3 and np.isfinite(error_bar_lengths(ax)).all()
     assert figure_caption(ax.figure) == (
         "Each mouse's proportion is the mean of its block proportions."
@@ -184,7 +184,7 @@ def test_average_across_mice_title_names_the_aggregation_and_the_statistic_drawn
 def test_one_mouse_has_no_error_bars_and_the_title_says_mean(counts):
     ax = plot_average_across_mice({"m1": counts["m1"]})
     assert np.isnan(error_bar_lengths(ax)).all()
-    assert ax.get_title().splitlines()[1] == "mean across mice, n = 1 mouse"
+    assert ax.get_title().splitlines()[1] == "mean across mice, n=1 mouse"
 
 
 def test_the_p_values_stay_on_the_figure_and_the_caption_names_the_test(counts):
@@ -196,7 +196,7 @@ def test_the_p_values_stay_on_the_figure_and_the_caption_names_the_test(counts):
 
 def test_the_blocks_panel_states_the_number_of_blocks(counts):
     ax = plot_average_across_blocks(counts)
-    assert ax.get_title() == "Average Across Blocks\nmean ± SE across blocks, n = 4 blocks"
+    assert ax.get_title() == "Average Across Blocks\nmean ± se across blocks, n=4 blocks"
 
 
 def test_mean_labels_are_two_decimals_above_each_bar():
@@ -334,7 +334,7 @@ def test_mouse_panel_draws_one_line_per_row_and_labels_blocks(counts):
     ax = plot_mouse_panel("m2", counts["m2"])
     assert len(data_lines(ax)) == 4
     assert legend_texts(ax) == ["Block 1", "Block 2", "Block 3", "Block 4"]
-    assert ax.get_title() == f"m2\nmean ± SE across blocks, n = {len(counts['m2'])} blocks"
+    assert ax.get_title() == f"m2\nmean ± se across blocks, n={len(counts['m2'])} blocks"
     assert ax.get_ylabel() == "Proportion of Choices"
     assert plot_mouse_panel("m2", counts["m2"], show_ylabel=False).get_ylabel() == ""
 
@@ -357,7 +357,7 @@ def test_mouse_panel_single_row_has_nan_error_bars(counts):
 
 def test_block_panel_bars_average_the_mice_that_have_the_block(counts):
     ax = plot_block_panel(counts, 1)
-    assert ax.get_title() == "Block 2\nmean ± SE across mice, n = 3 mice"
+    assert ax.get_title() == "Block 2\nmean ± se across mice, n=3 mice"
     assert legend_texts(ax) == ["m1 (n=10 trials)", "m2 (n=10 trials)", "m3 (n=10 trials)"]
     means, ses = mean_and_se(
         {rank: [props(rows, rank)[1] for rows in counts.values()] for rank in RANKS}

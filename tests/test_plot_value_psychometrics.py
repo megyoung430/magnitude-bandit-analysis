@@ -191,7 +191,7 @@ def test_curves_figure_panels_and_title(monkeypatch):
     assert fig._suptitle.get_text() == "Psychometric Curves (Believed Value)"
     assert figure_caption(fig).startswith("Trials pooled within mouse")
     assert [a.get_title() for a in fig.axes] == [
-        f"{x}\nmean ± SE across mice, n = 2 mice"
+        f"{x}\nmean ± se across mice, n=2 mice"
         for x in ("Value of Best", "Value of Second", "Value of Best - Second")
     ]
 
@@ -366,11 +366,11 @@ def test_per_mouse_title_clears_the_first_row(monkeypatch):
 def test_one_mouse_is_not_pluralised(monkeypatch):
     seen = capture_figure(monkeypatch)
     plot_overall_heatmaps(heatmap_tables({"m1": counts_for(CELLS)}), "True", "split")
-    assert seen["fig"]._suptitle.get_text().endswith("mean across mice, n = 1 mouse")
+    assert seen["fig"]._suptitle.get_text().endswith("mean across mice, n=1 mouse")
     curves = psychometric_curves({"m1": counts_for(CELLS)}, pool_trials=True, tie_mode="split")
     plot_psychometric_curves(curves, "True", True, TIES, "split")
     # one mouse has no SE band, so the panels say mean only
-    assert seen["fig"].axes[0].get_title().endswith("mean across mice, n = 1 mouse")
+    assert seen["fig"].axes[0].get_title().endswith("mean across mice, n=1 mouse")
 
 
 # --- side labels, NaN means, centring, whitespace ------------------------------------------

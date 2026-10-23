@@ -28,7 +28,7 @@ SERIES = {"good": np.where(X >= 0, 0.2, np.nan), "bad": np.where(X >= 0, 0.1, np
 MISSING_INDEX_MESSAGE = (
     "Cumulative removal needs all_good_idx, all_bad_idx and all_unclassified_idx."
 )
-TITLE = "Good Reversal-Aligned Choices\nmean ± SE across mice, n = 2 mice, n = 3 reversals"
+TITLE = "Good Reversal-Aligned Choices\nmean ± se across mice, n=2 mice, n=3 reversals"
 
 
 @pytest.fixture(autouse=True)
@@ -357,7 +357,7 @@ def test_chance_line_sits_at_one_third_and_se_bands_are_translucent(across):
 def test_without_an_se_the_title_says_mean_and_no_band_is_drawn(across):
     one = {**across, "se": {k: np.full(X.size, np.nan) for k in across["se"]}, "num_subjects": 1}
     ax = plot_choice_probs(X, one)
-    assert ax.get_title().splitlines()[1] == "mean across mice, n = 1 mouse, n = 3 reversals"
+    assert ax.get_title().splitlines()[1] == "mean across mice, n=1 mouse, n=3 reversals"
     assert not any(c.get_paths() for c in ax.collections)
 
 

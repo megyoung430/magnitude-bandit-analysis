@@ -189,22 +189,22 @@ def stats_line(average: str, unit: str, counts: Sequence[tuple[int, str, str]]) 
     """The statistics line of a panel title: what the marks show, across what, and the n.
 
     Args:
-        average (str): The statistic drawn, e.g. ``"mean ± SE"``, ``"mean ± SD"`` or ``"mean"``.
+        average (str): The statistic drawn, e.g. ``"mean ± se"``, ``"mean ± SD"`` or ``"mean"``.
         unit (str): What it is taken across, plural, e.g. ``"mice"`` or ``"events"``.
         counts (Sequence[tuple[int, str, str]]): ``(n, singular, plural)`` of each count to
             state, the averaged unit first.
 
     Returns:
-        str: E.g. ``"mean ± SE across events, n = 120 events, n = 13 mice"``.
+        str: E.g. ``"mean ± se across events, n=120 events, n=13 mice"``.
     """
-    numbers = ", ".join(f"n = {count_text(*count)}" for count in counts)
+    numbers = ", ".join(f"n={count_text(*count)}" for count in counts)
     return f"{average} across {unit}, {numbers}"
 
 
 def error_drawn(*errors) -> bool:
     """Whether any of *errors* (arrays or numbers of SE/SD values) is finite, i.e. drawn.
 
-    A title states "± SE" only when an error bar or band is actually drawn.
+    A title states "± se" only when an error bar or band is actually drawn.
     """
     return any(np.isfinite(np.asarray(e, dtype=float)).any() for e in errors)
 

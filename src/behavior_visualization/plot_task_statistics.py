@@ -134,7 +134,7 @@ def _style_axes(ax: plt.Axes, x: np.ndarray, blocks: list, n_mice: int, ses: np.
     ax.set_xticklabels([str(b) for b in blocks], fontsize=12)
     ax.set_xlabel("Block Number", fontsize=12)
     ax.set_ylabel("Block Length (Trials)", fontsize=12)
-    average = "median ± SE" if error_drawn(ses) else "median"
+    average = "median ± se" if error_drawn(ses) else "median"
     stats = stats_line(average, "mice", [(n_mice, "mouse", "mice")])
     set_title(ax, Title("Block Lengths", stats), pad=20)
 
@@ -193,7 +193,7 @@ def plot_block_lengths(
 ) -> None:
     """Plot per-block median lengths with per-mouse overlay lines.
 
-    Draws a bar (median ± SE across mice) for each block number and overlays
+    Draws a bar (median ± se across mice) for each block number and overlays
     connected per-mouse data points with optional x-jitter.
 
     Args:

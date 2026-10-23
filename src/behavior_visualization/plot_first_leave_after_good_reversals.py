@@ -33,7 +33,7 @@ _JITTER = 0.03
 
 
 def _plot_mean_bars(ax: plt.Axes, x: np.ndarray, means: list, errs: list) -> None:
-    """Two bars (mean ± SE across subjects), each labelled with its mean above the axes data."""
+    """Two bars (mean ± se across subjects), each labelled with its mean above the axes data."""
     ax.bar(
         x,
         means,
@@ -92,7 +92,7 @@ def _style_axes(ax: plt.Axes, x: np.ndarray, mean: dict, n_subjects: int, errs: 
     ax.set_ylabel("Fraction of Good Reversals", fontsize=12)
     ax.set_ylim(0.0, 1.07)
     counts = [(n_subjects, "mouse", "mice"), (mean["num_reversals"], "reversal", "reversals")]
-    stats = stats_line("mean ± SE" if error_drawn(errs) else "mean", "mice", counts)
+    stats = stats_line("mean ± se" if error_drawn(errs) else "mean", "mice", counts)
     set_title(ax, Title("First Choice After Leaving Previous Best", stats), pad=20)
 
 
@@ -141,7 +141,7 @@ def plot_first_leave_after_good_reversals(
 ) -> None:
     """Plot a bar chart of first-leave proportions (new-best vs third arm).
 
-    Draws two bars (New Best and Third Arm) with mean ± SE across subjects,
+    Draws two bars (New Best and Third Arm) with mean ± se across subjects,
     overlays individual-subject lines with jitter, and optionally annotates
     with a p-value.
 
