@@ -505,3 +505,62 @@ def load_parsed(location: Path) -> CachedParse | None:
         )
         return None
     return loaded
+
+
+@dataclass
+class CachedParser:
+    """A ``parse`` for :func:`~src.behavior_import.import_data.import_data` that reuses parses.
+
+    Each file is looked up by the :func:`file_key` of its listed state; on a miss it is parsed
+    and stored. Either way its warnings are raised again (:func:`replay`), so the import looks
+    the same as one that parsed every file.
+
+    Attributes:
+        root (Path): The raw-data folder the paths are under.
+        store (Path): The cohort's per-file folder (:func:`files_dir`).
+        listing (dict[str, ServerFile]): ``{relative path: listed file}``.
+        code_version (str): :func:`file_code_version`.
+        parsed (list[str]): Relative paths parsed in this import, in order.
+        reused (list[str]): Relative paths loaded from the store, in order.
+    """
+
+    root: Path
+    store: Path
+    listing: dict[str, ServerFile]
+    code_version: str
+    parsed: list[str] = field(default_factory=list)
+    reused: list[str] = field(default_factory=list)
+    _registry: dict = field(default_factory=dict, repr=False)
+
+    def __call__(self, path: Path) -> ParsedFile:
+        """The parse of one listed file.
+
+        Raises:
+            ShareReadError: If the file cannot be read from the server (unreachable, or gone
+                since it was listed); a file that is read but cannot be parsed raises its own
+                error, which the import turns into a skip.
+            ImportAborted: If the parse cannot be stored in the cache.
+        """
+        relative = Path(path).relative_to(self.root).as_posix()
+        location = self.store / f"{file_key(self.listing[relative], self.code_version)}.pkl"
+        cached = load_parsed(location)
+        if cached is None:
+            cached = self._parse(Path(path))
+            try:
+                save_parsed(location, cached)
+            except OSError as err:
+                raise ImportAborted(f"Cannot write the import cache {location}: {err}") from err
+            self.parsed.append(relative)
+        else:
+            self.reused.append(relative)
+        return replay(cached, Path(path), self._registry)
+
+    @staticmethod
+    def _parse(path: Path) -> CachedParse:
+        try:
+            return parse_and_record(path)
+        except OSError as err:
+            raise ShareReadError(
+                f"Could not read {path}: {type(err).__name__}: {err}. The import cache is "
+                "unchanged."
+            ) from err

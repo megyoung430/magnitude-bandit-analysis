@@ -24,7 +24,7 @@ def computed(monkeypatch):
     """Replace the slow import with a counter so tests need no real sessions."""
     calls = []
 
-    def fake_import(root, classify_task_types=False):
+    def fake_import(root, classify_task_types=False, **import_options):
         calls.append(root)
         return ImportedTrials({1: {"M1": {"n_calls": len(calls)}}}, ImportLog())
 

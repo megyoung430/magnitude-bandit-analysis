@@ -62,7 +62,7 @@ def share(tmp_path_factory):
     data_root = base / "share"
     with pytest.MonkeyPatch.context() as patch:
 
-        def fake_import(root, classify_task_types=False):
+        def fake_import(root, classify_task_types=False, **import_options):
             cohort_id = int(Path(root).name.removeprefix("cohort-"))
             return ImportedTrials(COHORTS[cohort_id], ImportLog())
 
