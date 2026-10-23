@@ -23,6 +23,7 @@ from src.behavior_analysis.reversal_aligned_arms import (
     compute_reversal_aligned_arms,
 )
 from src.behavior_analysis.suspect_reversal_table import suspect_reversal_table
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_reversal_aligned_arms import plot_reversal_aligned_arms
 from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from tests.plot_capture import capture_figures
@@ -263,9 +264,9 @@ def test_the_title_names_the_analysis_the_type_and_the_labelling(scheme, reversa
     ax, _ = plot_reversal_aligned_arms(arms(scheme, reversal_type), scope="pooled")
     lines = ax.get_title().split("\n")
     assert lines[0].startswith(heading)
-    assert lines[1] == labelling.capitalize()
     n_block_changes = 4 if reversal_type == "all" else 2
-    assert f"n=1 mouse, n={n_block_changes} block changes" in lines[2]
+    assert f"n=1 mouse, n={n_block_changes} block changes" in lines[1]
+    assert f"{labelling.capitalize()}." in figure_caption(ax.figure).splitlines()
 
 
 def test_the_pipeline_names_each_figure_after_its_title_and_writes_no_csv(tmp_path, capture):

@@ -388,10 +388,12 @@ def test_a_rerun_with_other_cohorts_removes_the_old_figures_and_rewrites_cohorts
 
 
 def legend_texts(figure) -> list[str]:
+    """Texts of the axes and figure legends (the save step moves some to the figure)."""
+    legends = [*figure.legends, *(ax.get_legend() for ax in figure.axes)]
     return [
         t.get_text()
-        for ax in figure.axes
-        if (legend := ax.get_legend()) is not None
+        for legend in legends
+        if legend is not None
         for t in [*legend.get_texts(), legend.get_title()]
         if t.get_text()
     ]
@@ -483,7 +485,8 @@ def test_the_cohort_runner_pool_still_has_per_mouse_figures_and_mouse_legends(
         pooled.problems, tmp_path, DRIFTING_SELECTION, arm_scope_label=POOLED_DRIFTING_LABEL
     )
     names = capture.saved_names()
-    assert sum("Per Mouse" in n for n in names) == 2 * 4 + 2  # heatmaps (png, pdf) + port ratios
+    # heatmaps and port ratios, each as pdf, png and svg
+    assert sum("Per Mouse" in n for n in names) == 3 * 4 + 3
     rank_figure = next(s.figure for s in capture.saved if "Rank Proportions" in s.path)
     assert set(MICE_A + MICE_B) == set(legend_texts(rank_figure))
     x_vs_plus = next(s.figure for s in capture.saved if "X vs Plus" in s.path)

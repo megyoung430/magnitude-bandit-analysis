@@ -14,6 +14,7 @@ from src.behavior_analysis.reversal_format import (
     check_block_change_windows,
     check_blocks_only_sessions,
 )
+from src.behavior_visualization.plot_helpers import figure_caption
 from src.behavior_visualization.plot_reversal_aligned_arms import plot_reversal_aligned_arms
 from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from src.pipelines.value_change_analysis import run_value_change_analysis
@@ -156,7 +157,7 @@ def test_figure_title_and_axis_say_block_change():
     result = compute_reversal_aligned_arms(windows, scheme="prev", pre=4, post=3)
     ax, _ = plot_reversal_aligned_arms(result)
     assert "Around Block Changes (All)" in ax.get_title()
-    assert "n=1 block changes" in ax.get_title()
-    assert "before the block change" in ax.get_title()
+    assert "n=1 block change" in ax.get_title()
+    assert "before the block change" in figure_caption(ax.figure)
     assert ax.get_xlabel() == "Trials from Block Change"
     assert "eversal" not in ax.get_title()
