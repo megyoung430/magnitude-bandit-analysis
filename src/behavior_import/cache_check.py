@@ -12,7 +12,12 @@ from typing import NamedTuple
 
 from src.behavior_import import load_trials
 from src.behavior_import.cache_diff import CacheDiff, cache_diff, describe_diff
-from src.behavior_import.cache_store import ServerFile, list_server_files, list_snapshots
+from src.behavior_import.cache_store import (
+    ServerFile,
+    file_code_version,
+    list_server_files,
+    list_snapshots,
+)
 from src.behavior_import.load_trials import format_time
 from src.settings import get_unchecked_settings
 
@@ -26,6 +31,9 @@ class CachedState(NamedTuple):
         time (float): When it was made, in epoch seconds.
         code_matches (bool): Whether it was made with the current import code.
         files (tuple[ServerFile, ...]): The files it was made from.
+        file_code_matches (bool): Whether its per-file parses were made with the current
+            parsing code and pandas version (a legacy import has none). Default True.
+        skipped (tuple[ServerFile, ...]): Files its import skipped as unreadable. Default none.
     """
 
     kind: str
@@ -33,6 +41,8 @@ class CachedState(NamedTuple):
     time: float
     code_matches: bool
     files: tuple[ServerFile, ...]
+    file_code_matches: bool = True
+    skipped: tuple[ServerFile, ...] = ()
 
 
 class CacheCheck(NamedTuple):
@@ -52,8 +62,10 @@ class CacheCheck(NamedTuple):
 
     @property
     def up_to_date(self) -> bool:
-        """A cache made from exactly the server's files, with the current import code."""
-        return self.cached is not None and self.cached.code_matches and self.diff.up_to_date
+        """A cache made from exactly the server's files, with the current import and parsing
+        code: a refresh would change nothing."""
+        c = self.cached
+        return c is not None and c.code_matches and c.file_code_matches and self.diff.up_to_date
 
 
 def _cached_state(root: str, cache_dir: Path, classify_task_types: bool) -> CachedState | None:
@@ -64,7 +76,15 @@ def _cached_state(root: str, cache_dir: Path, classify_task_types: bool) -> Cach
     )
     if snapshot is not None:
         m = snapshot.manifest
-        return CachedState("snapshot", m.root, m.created, m.code_version == code, m.files)
+        return CachedState(
+            "snapshot",
+            m.root,
+            m.created,
+            m.code_version == code,
+            m.files,
+            m.file_code_version == file_code_version(),
+            m.skipped,
+        )
     entries = load_trials.cached_import_entries(cache_dir).entries
     if not load_trials.has_legacy_import(entries, root, classify_task_types):
         return None
@@ -104,7 +124,8 @@ def check_import_cache(
     if not Path(wanted).is_dir():
         raise FileNotFoundError(f"Raw data folder not found (is the share mounted?): {wanted}")
     server = list_server_files(Path(wanted), progress)
-    return CacheCheck(wanted, cached, server, cache_diff(cached.files if cached else (), server))
+    diff = cache_diff(cached.files, server, cached.skipped) if cached else cache_diff((), server)
+    return CacheCheck(wanted, cached, server, diff)
 
 
 def describe_check(check: CacheCheck, label: str) -> list[str]:
@@ -115,9 +136,10 @@ def describe_check(check: CacheCheck, label: str) -> list[str]:
         label (str): What to call the folder, e.g. ``"cohort-03"``.
 
     Returns:
-        list[str]: A header with the cache's date, kind, file count and import code and the
-        server's file count, then "up to date" or the counts of new, changed and removed files
-        and those files grouped by subject and session.
+        list[str]: A header with the cache's date, kind, file count and import code, the
+        server's file count, a line if the parsing code changed, then "up to date" (or "files
+        up to date" when only code changed) or the counts of new, changed, removed and
+        unreadable files and those files grouped by subject and session.
     """
     n_server, d = len(check.server_files), check.diff
     if check.cached is None:
@@ -132,13 +154,19 @@ def describe_check(check: CacheCheck, label: str) -> list[str]:
         f"{label}: cache of {format_time(c.time)} ({c.kind}, {len(c.files)} .tsv files, {code})",
         f"  server: {n_server} .tsv files in {check.root}",
     ]
+    if not c.file_code_matches:
+        lines.append(
+            "  the parsing code or the pandas version changed since: a refresh parses every "
+            "file again"
+        )
     if d.up_to_date:
-        state = "up to date" if c.code_matches else "files up to date, but the import code changed"
-        return [*lines, f"  {state}"]
+        return [*lines, "  up to date" if check.up_to_date else "  files up to date"]
+    unreadable = d.count("unreadable")
     lines.append(
         f"  not in the cache: {d.count('new')} new file(s) ({len(d.new_subjects)} new "
         f"subject(s), {len(d.new_sessions)} new session(s)), {d.count('changed')} changed, "
         f"{d.count('removed')} removed"
+        + (f", {unreadable} skipped as unreadable" if unreadable else "")
     )
     return [*lines, *(f"  {line}" for line in describe_diff(d))]
 
@@ -163,11 +191,12 @@ def check_to_dict(check: CacheCheck, label: str) -> dict:
             "kind": c.kind,
             "created": datetime.fromtimestamp(c.time).isoformat(timespec="seconds"),
             "code_matches": c.code_matches,
+            "file_code_matches": c.file_code_matches,
             "files": len(c.files),
         }
     by_status = {
         status: [x.path for x in check.diff.changes if x.status == status]
-        for status in ("new", "changed", "removed")
+        for status in ("new", "changed", "removed", "unreadable")
     }
     return {
         "cohort": label,

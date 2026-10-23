@@ -5,8 +5,10 @@ and the comparison with a fresh import all run the real import code.
 """
 
 import builtins
+import errno
 import hashlib
 import os
+import shutil
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,16 +16,16 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import src.behavior_import.cache_check as cache_check
+import src.behavior_import.cache_refresh as cache_refresh
 import src.behavior_import.cache_store as cache_store
 import src.behavior_import.load_trials as load_trials
+import src.settings as settings
 from src.behavior_import.cache_check import check_import_cache, describe_check
 from src.behavior_import.cache_prune import list_file_entries
-from src.behavior_import.cache_store import ShareReadError, list_snapshots
-from src.behavior_import.load_trials import (
-    StaleCacheWarning,
-    load_trials_with_log,
-    refresh_import_cache,
-)
+from src.behavior_import.cache_refresh import prune_import_cache, refresh_import_cache
+from src.behavior_import.cache_store import CacheLocationError, ShareReadError, list_snapshots
+from src.behavior_import.load_trials import StaleCacheWarning, load_trials_with_log
 from tests.test_import_data import run_start_for, session_dir, write_tsv
 
 pytestmark = pytest.mark.filterwarnings("ignore")
@@ -46,15 +48,17 @@ def with_traceback(path):
     return path
 
 
-def first_cohort(root):
-    """Mouse M1 with three sessions (layout A then B), an unreadable file and a test session."""
+def first_cohort(root, unreadable=True):
+    """Mouse M1 with three sessions (layout A then B), a test session and, with *unreadable*,
+    an empty file that cannot be read."""
     recording(root, "sub-01_id-M1", "ses-1_date-20260101", "M1-2026-01-01-100000.tsv")
     recording(root, "sub-01_id-M1", "ses-1_date-20260101", "M1-2026-01-01-110000.tsv")
     recording(root, "sub-01_id-M1", "ses-2_date-20260102", "M1-2026-01-02-100000.tsv")
     with_traceback(
         recording(root, "sub-01_id-M1", "ses-3_date-20260103", "M1-2026-01-03-100000.tsv", LAYOUT_B)
     )
-    (session_dir(root, "sub-01_id-M1", "ses-2_date-20260102") / "empty.tsv").write_text("")
+    if unreadable:
+        (session_dir(root, "sub-01_id-M1", "ses-2_date-20260102") / "empty.tsv").write_text("")
     recording(root, "sub-01_id-M1", "ses-test_date-20260104", "M1.tsv")
     return root
 
@@ -76,6 +80,12 @@ def grow(root):
 @pytest.fixture
 def raw(tmp_path):
     return first_cohort(tmp_path / "exp" / "rawdata" / "cohort-01")
+
+
+@pytest.fixture
+def clean(tmp_path):
+    """The first cohort without the unreadable file."""
+    return first_cohort(tmp_path / "exp" / "rawdata" / "cohort-01", unreadable=False)
 
 
 @pytest.fixture
@@ -124,14 +134,83 @@ def assert_same_import(cached, fresh):
 # --- incremental refresh --------------------------------------------------------------------
 
 
-def test_a_first_refresh_parses_every_readable_file_and_a_second_none(raw, cache, parse_calls):
-    first = refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+def test_a_first_refresh_parses_every_file_and_a_second_none(clean, cache, parse_calls):
+    first = refresh_import_cache(clean, cache_dir=cache, classify_task_types=True)
     assert len(first.parsed) == 5 and first.reused == () and not first.up_to_date
-    assert sorted(parse_calls) == sorted(p.name for p in raw.rglob("*.tsv"))
+    assert sorted(parse_calls) == sorted(p.name for p in clean.rglob("*.tsv"))
     parse_calls.clear()
-    again = refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    again = refresh_import_cache(clean, cache_dir=cache, classify_task_types=True)
     assert again.up_to_date and again.parsed == () and parse_calls == []
     assert again.snapshot == first.snapshot
+
+
+def test_a_file_skipped_as_unreadable_is_tried_again_by_the_next_refresh(raw, cache, parse_calls):
+    first = refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    assert [Path(p).name for p in first.skipped] == ["empty.tsv"]
+    assert [f.path for f in first.snapshot.manifest.skipped] == list(first.skipped)
+    assert all(not f.path.endswith("empty.tsv") for f in first.snapshot.manifest.files)
+    parse_calls.clear()
+    again = refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    assert not again.up_to_date and parse_calls == ["empty.tsv"]
+    assert again.parsed == () and len(again.reused) == 5
+
+
+def test_a_file_without_read_permission_is_skipped_as_a_fresh_import_skips_it(
+    clean, cache, monkeypatch
+):
+    name = "M1-2026-01-02-100000.tsv"
+    read_csv = pd.read_csv
+
+    def denied(path, *args, **kwargs):
+        if Path(path).name == name:
+            raise PermissionError(13, "Permission denied", str(path))
+        return read_csv(path, *args, **kwargs)
+
+    monkeypatch.setattr(pd, "read_csv", denied)
+    warnings.simplefilter("always")
+    refreshed = refresh_import_cache(clean, cache_dir=cache, classify_task_types=True)
+    assert [Path(p).name for p in refreshed.skipped] == [name]
+    fresh = load_trials_with_log(clean, use_cache=False, classify_task_types=True)
+    assert_same_import(refreshed.imported, fresh)
+    (skip,) = [s for s in fresh.log.skips if s.kind == "unreadable_file"]
+    assert "Permission denied" in skip.reason
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("timed out"),
+        OSError(errno.EIO, "Input/output error"),
+        OSError(errno.ESTALE, "Stale file handle"),
+        OSError(errno.ENOTCONN, "Socket is not connected"),
+    ],
+)
+def test_a_share_that_stops_answering_aborts_the_refresh(raw, cache, monkeypatch, error):
+    original = cache_store.parse_tsv_file
+
+    def failing(path):
+        if "M1-2026-01-02" in Path(path).name:
+            raise error
+        return original(path)
+
+    monkeypatch.setattr(cache_store, "parse_tsv_file", failing)
+    with pytest.raises(ShareReadError, match="cache is unchanged"):
+        refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    assert list_snapshots(cache).snapshots == ()
+
+
+def test_a_root_gone_mid_refresh_aborts_it_whatever_the_error(raw, cache, monkeypatch, tmp_path):
+    original = cache_store.parse_tsv_file
+
+    def unmounting(path):
+        if "M1-2026-01-02" in Path(path).name:
+            raw.rename(tmp_path / "unmounted")
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+        return original(path)
+
+    monkeypatch.setattr(cache_store, "parse_tsv_file", unmounting)
+    with pytest.raises(ShareReadError):
+        refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
 
 
 def test_only_new_and_changed_files_are_parsed(raw, cache, parse_calls):
@@ -233,7 +312,7 @@ def test_a_snapshot_write_failing_leaves_the_old_snapshot_in_use(raw, cache, mon
     def crash(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr(load_trials, "write_snapshot", crash)
+    monkeypatch.setattr(cache_refresh, "write_snapshot", crash)
     with pytest.raises(OSError, match="disk full"):
         refresh_import_cache(grow(raw), cache_dir=cache, classify_task_types=True)
     assert list_snapshots(cache).snapshots == (first.snapshot,)
@@ -267,6 +346,9 @@ def writes_under(prefix: str):
         patch.setattr(builtins, "open", spy("open", builtins.open, write_mode))
         for name in ("rename", "replace", "mkdir", "makedirs", "remove", "unlink", "rmdir"):
             patch.setattr(os, name, spy(name, getattr(os, name)))
+        # rmtree removes by names relative to a folder descriptor, which the os spies cannot
+        # place, so it is watched as a whole
+        patch.setattr(shutil, "rmtree", spy("rmtree", shutil.rmtree))
         yield seen
 
 
@@ -275,7 +357,7 @@ def test_refresh_check_and_prune_never_write_under_the_raw_folder(raw, cache):
     with writes_under(str(raw)) as seen:
         refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
         check_import_cache(raw, cache_dir=cache, classify_task_types=True)
-        load_trials.prune_import_cache(cache, dry_run=False)
+        prune_import_cache(cache, dry_run=False)
     assert seen == []
     assert tree_digest(raw) == before
 
@@ -329,7 +411,7 @@ def test_a_cache_first_load_prints_the_date_the_files_and_how_to_refresh(raw, ca
     capsys.readouterr()
     load_trials_with_log(raw, cache_dir=cache, classify_task_types=True, from_cache=True)
     out = capsys.readouterr().out
-    assert "import cache of" in out and "6 .tsv files" in out and "--refresh-cache" in out
+    assert "import cache of" in out and "5 .tsv files" in out and "--refresh-cache" in out
 
 
 def test_a_snapshot_is_preferred_to_a_newer_legacy_import(raw, cache, monkeypatch):
@@ -374,7 +456,8 @@ def test_with_no_cache_and_no_share_the_error_says_both(cache, tmp_path):
 # --- check ----------------------------------------------------------------------------------
 
 
-def test_check_reports_new_changed_and_removed_files_by_subject_and_session(raw, cache):
+def test_check_reports_new_changed_and_removed_files_by_subject_and_session(clean, cache):
+    raw = clean
     refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
     up_to_date = check_import_cache(raw, cache_dir=cache, classify_task_types=True)
     assert up_to_date.up_to_date
@@ -387,7 +470,7 @@ def test_check_reports_new_changed_and_removed_files_by_subject_and_session(raw,
         1,
     )
     text = "\n".join(describe_check(check, "cohort-01"))
-    assert "cohort-01: cache of" in text and "snapshot, 6 .tsv files, current import code" in text
+    assert "cohort-01: cache of" in text and "snapshot, 5 .tsv files, current import code" in text
     assert "3 new file(s) (1 new subject(s), 3 new session(s)), 1 changed, 1 removed" in text
     assert "M2 (new subject)" in text
     assert "ses-4_date-20260104 (new session)" in text
@@ -395,12 +478,32 @@ def test_check_reports_new_changed_and_removed_files_by_subject_and_session(raw,
     assert "changed  M1-2026-01-02-100000.tsv (size" in text
 
 
-def test_check_without_a_cache_says_so(raw, cache):
-    check = check_import_cache(raw, cache_dir=cache, classify_task_types=True)
+def test_check_without_a_cache_says_so(clean, cache):
+    check = check_import_cache(clean, cache_dir=cache, classify_task_types=True)
     assert check.cached is None and not check.up_to_date
     lines = describe_check(check, "cohort-01")
     assert lines[0].startswith("cohort-01: no import cache of")
-    assert "6 .tsv files, 1 subject(s), 4 session(s); none are cached" in lines[1]
+    assert "5 .tsv files, 1 subject(s), 4 session(s); none are cached" in lines[1]
+
+
+def test_check_reports_a_skipped_file_as_not_up_to_date(raw, cache):
+    refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    check = check_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    assert not check.up_to_date and check.diff.count("unreadable") == 1
+    text = "\n".join(describe_check(check, "cohort-01"))
+    assert "1 skipped as unreadable" in text
+    assert "skipped  empty.tsv (could not be read at the last refresh" in text
+    assert "(new session)" not in text
+
+
+def test_check_says_when_the_parsing_code_or_pandas_changed(clean, cache, monkeypatch):
+    refresh_import_cache(clean, cache_dir=cache, classify_task_types=True)
+    monkeypatch.setattr(cache_check, "file_code_version", lambda: "pandas bumped")
+    check = check_import_cache(clean, cache_dir=cache, classify_task_types=True)
+    assert check.diff.up_to_date and not check.up_to_date
+    lines = describe_check(check, "cohort-01")
+    assert any("parsing code or the pandas version changed" in line for line in lines)
+    assert lines[-1] == "  files up to date"
 
 
 def test_check_compares_a_legacy_import_by_its_recorded_files(raw, cache, monkeypatch):
@@ -422,3 +525,46 @@ def test_check_compares_a_legacy_import_by_its_recorded_files(raw, cache, monkey
 def test_check_fails_clearly_when_the_share_is_missing(cache, tmp_path):
     with pytest.raises(FileNotFoundError, match="is the share mounted"):
         check_import_cache(tmp_path / "gone", cache_dir=cache)
+
+
+# --- where the cache may be, and what a refresh prunes ------------------------------------------
+
+
+def test_a_cache_inside_the_data_root_is_refused_before_anything_is_written(raw, monkeypatch):
+    data_root = raw.parents[2]
+    monkeypatch.setenv("BANDIT_DATA_ROOT", str(data_root))
+    settings.get_unchecked_settings.cache_clear()
+    try:
+        before = tree_digest(data_root)
+        for cache in (data_root / ".cache", raw / "cache"):
+            with pytest.raises(CacheLocationError, match="never written to"):
+                refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+            with pytest.raises(CacheLocationError):
+                prune_import_cache(data_root / ".cache")
+        assert tree_digest(data_root) == before
+    finally:
+        settings.get_unchecked_settings.cache_clear()
+
+
+def test_a_refresh_of_a_partial_copy_leaves_the_shares_snapshot(raw, cache, tmp_path):
+    share = refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    copy = tmp_path / "copy" / "exp" / "rawdata" / "cohort-01"
+    first_cohort(copy, unreadable=False)
+    (session_dir(copy, "sub-01_id-M1", "ses-1_date-20260101") / "M1-2026-01-01-110000.tsv").unlink()
+    of_copy = refresh_import_cache(copy, cache_dir=cache, classify_task_types=True)
+    assert set(list_snapshots(cache).snapshots) == {share.snapshot, of_copy.snapshot}
+    assert share.snapshot.path not in {i.path for i in of_copy.pruned}
+    # the share's parses are all still there: its next refresh parses nothing
+    again = refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    assert again.parsed == () and len(again.reused) == len(share.snapshot.manifest.files)
+
+
+def test_a_whole_cache_prune_removes_old_parse_temporaries(raw, cache):
+    refresh_import_cache(raw, cache_dir=cache, classify_task_types=True)
+    folder = next((cache / "import-files").iterdir())
+    old, running = folder / ".tmp-a.pkl.1", folder / ".tmp-b.pkl.2"
+    for temp in (old, running):
+        temp.write_bytes(b"partial")
+    os.utime(old, (0, 0))
+    prune_import_cache(cache)
+    assert not old.exists() and running.exists()

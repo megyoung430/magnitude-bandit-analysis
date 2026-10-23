@@ -2,14 +2,16 @@
 
 :func:`prune_plan` decides, from listings alone, what goes:
 
-- a cohort snapshot older than the newest one of the same cohort and ``classify_task_types``
-  (the cohort is the raw folder's :func:`~src.behavior_import.cache_store.path_tail`, so the
-  same folder reached through another mount point counts as the same cohort);
-- a legacy joblib import of a cohort that has a newer snapshot with the same flag;
-- a per-file parse that no kept snapshot of its cohort refers to;
-- a temporary snapshot folder older than a day (a write that was cut off).
+- a cohort snapshot older than the newest one of the same raw folder (its exact root) and
+  ``classify_task_types``; the same cohort reached through another path (a partial copy, another
+  mount point) keeps its own newest snapshot, since matching on the path's tail is only a
+  fallback for loading;
+- a legacy joblib import of a root that has a newer snapshot with the same flag;
+- a per-file parse that no kept snapshot of its cohort folder refers to;
+- a temporary snapshot folder or per-file parse temporary older than a day (a write that was
+  cut off).
 
-The newest snapshot of a cohort is always kept, and a legacy import only goes once a snapshot
+The newest snapshot of a root is always kept, and a legacy import only goes once a snapshot
 replaces it, so a cohort's only cache is never removed. :func:`apply_prune` deletes the plan,
 refusing any path outside the cache directory.
 """
@@ -75,9 +77,10 @@ def _time(epoch_seconds: float) -> str:
 
 
 def _newest_snapshots(snapshots: Iterable[Snapshot]) -> dict[tuple[str, bool], Snapshot]:
+    """``{(root, classify_task_types): newest snapshot}``."""
     newest: dict[tuple[str, bool], Snapshot] = {}
     for s in snapshots:
-        key = (cohort_slug(s.manifest.root), s.manifest.classify_task_types)
+        key = (s.manifest.root, s.manifest.classify_task_types)
         if key not in newest or s.manifest.created > newest[key].manifest.created:
             newest[key] = s
     return newest
@@ -91,6 +94,26 @@ def _referenced_files(kept: Iterable[Snapshot]) -> set[tuple[str, str]]:
     }
 
 
+class _Scope(NamedTuple):
+    """Which entries a plan may touch: exact roots and/or cohort folders; ``None`` is all."""
+
+    roots: frozenset[str] | None
+    slugs: frozenset[str] | None
+
+    def has_root(self, root: str) -> bool:
+        in_roots = self.roots is None or root in self.roots
+        return in_roots and (self.slugs is None or cohort_slug(root) in self.slugs)
+
+    def has_slug(self, slug: str) -> bool:
+        if self.roots is not None and slug not in {cohort_slug(r) for r in self.roots}:
+            return False
+        return self.slugs is None or slug in self.slugs
+
+    @property
+    def whole_cache(self) -> bool:
+        return self.roots is None and self.slugs is None
+
+
 def prune_plan(
     snapshots: Iterable[Snapshot],
     legacy: Iterable[LegacyEntry],
@@ -98,6 +121,7 @@ def prune_plan(
     incomplete: Iterable[tuple[Path, float]],
     *,
     now: float,
+    roots: Iterable[str] | None = None,
     cohorts: Iterable[str] | None = None,
 ) -> list[PruneItem]:
     """What to remove from the cache (see the module docstring for the rules).
@@ -106,45 +130,45 @@ def prune_plan(
         snapshots (Iterable[Snapshot]): The listed snapshots.
         legacy (Iterable[LegacyEntry]): The legacy joblib imports.
         files (Iterable[FileEntry]): The per-file parses.
-        incomplete (Iterable[tuple[Path, float]]): ``(folder, mtime)`` of temporary snapshot
-            folders.
+        incomplete (Iterable[tuple[Path, float]]): ``(path, mtime)`` of temporary snapshot
+            folders and per-file parse temporaries.
         now (float): The current time, in epoch seconds. Keyword-only.
-        cohorts (Iterable[str] | None): Raw-data folders to limit the plan to; ``None`` for the
-            whole cache. Temporary folders are only removed for the whole cache. Keyword-only.
+        roots (Iterable[str] | None): Exact raw-data folders to limit the plan to (a refresh
+            prunes only the root it refreshed); ``None`` for no such limit. Keyword-only.
+        cohorts (Iterable[str] | None): Raw-data folders whose cohort (path tail) limits the plan,
+            whatever root it was cached from; ``None`` for no such limit. Temporaries are only
+            removed when neither limit is given. Keyword-only.
 
     Returns:
-        list[PruneItem]: Snapshots, then legacy imports, per-file parses and temporary folders.
+        list[PruneItem]: Snapshots, then legacy imports, per-file parses and temporaries.
     """
     snapshots = list(snapshots)
     newest = _newest_snapshots(snapshots)
-    wanted = None if cohorts is None else {cohort_slug(str(c)) for c in cohorts}
+    scope = _Scope(
+        None if roots is None else frozenset(str(r) for r in roots),
+        None if cohorts is None else frozenset(cohort_slug(str(c)) for c in cohorts),
+    )
 
-    def in_scope(slug: str) -> bool:
-        return wanted is None or slug in wanted
+    def newest_of(s: Snapshot) -> Snapshot:
+        return newest[(s.manifest.root, s.manifest.classify_task_types)]
 
     items = [
-        PruneItem(
-            s.path,
-            SNAPSHOT,
-            f"older than the snapshot of {_time(keep.manifest.created)}",
-        )
+        PruneItem(s.path, SNAPSHOT, f"older than the snapshot of {_time(keep.manifest.created)}")
         for s in snapshots
-        if in_scope(cohort_slug(s.manifest.root))
-        and (keep := newest[(cohort_slug(s.manifest.root), s.manifest.classify_task_types)]) != s
+        if scope.has_root(s.manifest.root) and (keep := newest_of(s)) != s
     ]
     for entry in legacy:
-        slug = cohort_slug(entry.root)
-        replacement = newest.get((slug, entry.classify_task_types))
-        if in_scope(slug) and replacement and replacement.manifest.created > entry.time:
+        replacement = newest.get((entry.root, entry.classify_task_types))
+        if scope.has_root(entry.root) and replacement and replacement.manifest.created > entry.time:
             reason = f"replaced by the snapshot of {_time(replacement.manifest.created)}"
             items.append(PruneItem(entry.path, LEGACY, reason))
     referenced = _referenced_files(newest.values())
     items += [
         PruneItem(f.path, FILE, "no kept snapshot uses this parse")
         for f in files
-        if in_scope(f.cohort) and (f.cohort, f.key) not in referenced
+        if scope.has_slug(f.cohort) and (f.cohort, f.key) not in referenced
     ]
-    if wanted is None:
+    if scope.whole_cache:
         items += [
             PruneItem(path, INCOMPLETE, f"an interrupted write of {_time(mtime)}")
             for path, mtime in incomplete

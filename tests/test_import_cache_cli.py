@@ -28,7 +28,7 @@ def cli():
 def share(tmp_path, monkeypatch):
     """``(cohort 3's raw folder, cache dir)`` with the settings pointing at them."""
     data_root, cache = tmp_path / "share", tmp_path / "cache"
-    raw = first_cohort(cohort_raw_dir(data_root, 3))
+    raw = first_cohort(cohort_raw_dir(data_root, 3), unreadable=False)
     monkeypatch.setenv("BANDIT_DATA_ROOT", str(data_root))
     monkeypatch.setenv("BANDIT_CACHE_DIR", str(cache))
     settings.get_settings.cache_clear()
@@ -71,7 +71,7 @@ def test_check_as_json(cli, share, capsys):
     assert cli.main(["check", "--cohorts", "3", "--json"]) == cli.NOT_UP_TO_DATE
     (report,) = json.loads(capsys.readouterr().out)
     assert report["cohort"] == "cohort-03" and report["up_to_date"] is False
-    assert report["cache"]["kind"] == "snapshot" and report["cache"]["files"] == 6
+    assert report["cache"]["kind"] == "snapshot" and report["cache"]["files"] == 5
     assert (len(report["new"]), len(report["changed"]), len(report["removed"])) == (3, 1, 1)
     assert report["new_subjects"] == ["M2"]
 
@@ -122,3 +122,16 @@ def test_refresh_cache_then_run_uses_the_new_data_and_later_runs_read_it(share, 
     later = load_cohort(3, None, True, True)
     assert later.log.cache_source.time == snapshot.manifest.created
     assert "M2" in str(later.trials_by_problem)
+
+
+def test_missing_settings_are_one_error_line_and_exit_code_2(cli, monkeypatch, capsys):
+    monkeypatch.delenv("BANDIT_DATA_ROOT", raising=False)
+    monkeypatch.setattr(settings.UncheckedSettings, "model_config", {"env_prefix": "BANDIT_"})
+    settings.get_unchecked_settings.cache_clear()
+    try:
+        assert cli.main(["check", "--cohorts", "3"]) == cli.SERVER_ERROR
+    finally:
+        settings.get_unchecked_settings.cache_clear()
+    err = capsys.readouterr().err
+    assert err.startswith("error: the settings are not usable (BANDIT_DATA_ROOT)")
+    assert len(err.strip().splitlines()) == 1

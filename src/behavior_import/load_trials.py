@@ -4,21 +4,24 @@ Parsing every pyControl ``.tsv`` in a cohort is the slowest step of any analysis
 through a cache in ``get_settings().cache_dir`` (see :mod:`~src.behavior_import.cache_store`):
 
 - each file's parse is kept, keyed on its relative path, size, modification time and the
-  parsing code, so :func:`refresh_import_cache` parses only new or changed files and reuses
-  the rest, then assembles the cohort (sessions, problem numbers, trials) from all of them;
+  parsing code, so :func:`~src.behavior_import.cache_refresh.refresh_import_cache` parses only
+  new or changed files and reuses the rest, then assembles the cohort (sessions, problem
+  numbers, trials) from all of them;
 - each refresh stores the assembled :class:`ImportedTrials` as a cohort *snapshot*, with a
-  JSON manifest of the files it was made from, and prunes what is no longer needed
-  (:func:`prune_import_cache`);
+  JSON manifest of the files it was made from, and then prunes that root's older snapshots,
+  the legacy imports they replace and unused parses;
 - :func:`~src.behavior_import.cache_check.check_import_cache` compares the newest snapshot's
   manifest with the server and says which subjects, sessions and files are new, changed or
   removed.
 
-:func:`load_trials_with_log` refreshes by default (always current; quick when little changed).
-With ``from_cache=True`` it is cache-first: the newest snapshot of the folder is loaded without
-reading the folder at all, falling back on a legacy joblib import made by older versions of
-this module (:func:`choose_cache_entry`), and on importing from the server only when the
-folder has no cache at all. A cache-first load raises a :class:`StaleCacheWarning`, also kept
-in the import log, saying when the cache was made, since sessions added since are missing.
+This module is the load edge. :func:`load_trials_with_log` refreshes by default (always
+current; quick when little changed), and so also prunes: a notebook's first call on a cohort
+deletes that root's legacy joblib imports once the snapshot exists. With ``from_cache=True``
+it is cache-first: the newest snapshot of the folder is loaded without reading the folder at
+all, falling back on a legacy joblib import made by older versions of this module
+(:func:`choose_cache_entry`), and on importing from the server only when the folder has no
+cache at all. A cache-first load raises a :class:`StaleCacheWarning`, also kept in the import
+log, saying when the cache was made, since sessions added since are missing.
 
 The cache holds the trials together with the :class:`~src.behavior_import.import_log.ImportLog`
 of the import (what was skipped or flagged, and the warnings it raised), so a cached load has
@@ -29,7 +32,6 @@ import ast
 import dataclasses
 import hashlib
 import os
-import time
 import warnings
 from collections.abc import Callable, Iterable
 from datetime import datetime
@@ -40,36 +42,26 @@ from typing import NamedTuple
 from joblib import Memory
 from joblib.func_inspect import get_func_name
 
-from src.behavior_import.cache_prune import (
-    PruneItem,
-    apply_prune,
-    list_file_entries,
-    prune_plan,
-)
 from src.behavior_import.cache_store import (
     TAIL_PARTS,
-    CachedParser,
-    Manifest,
     ServerFile,
     Snapshot,
-    file_code_version,
-    files_dir,
-    incomplete_snapshots,
-    list_server_files,
     list_snapshots,
     load_snapshot_data,
     path_tail,
-    write_snapshot,
 )
 from src.behavior_import.extract_trials import extract_trials_grouped_by_problem
 from src.behavior_import.import_data import import_data
 from src.behavior_import.import_log import CacheSource, ImportLog
 from src.behavior_import.warning_records import record_warnings
-from src.settings import get_settings, get_unchecked_settings
+from src.settings import get_unchecked_settings
 
 # The source hashed into the cache key. It includes this module, so a change to what is cached
 # invalidates the caches written before it.
 IMPORT_CODE_DIR = Path(__file__).resolve().parent
+# Modules of IMPORT_CODE_DIR that only report on or tidy the cache, so changing them changes no
+# import result and must not invalidate the caches.
+NOT_IMPORT_CODE = frozenset({"cache_check.py", "cache_diff.py", "cache_prune.py"})
 # How to bring the cache up to date, quoted wherever a load used the cache without the server.
 REFRESH_HINT = (
     "run with --refresh-cache (or scripts/full_pipelines/import_cache.py refresh) to include "
@@ -148,15 +140,24 @@ def raw_data_fingerprint(root: Path) -> tuple[tuple[str, int, int], ...]:
     )
 
 
+def import_code_files() -> list[Path]:
+    """The source files hashed by :func:`import_code_version`, sorted.
+
+    Returns:
+        list[Path]: The ``*.py`` files directly in ``src/behavior_import`` except
+        :data:`NOT_IMPORT_CODE`.
+    """
+    return [p for p in sorted(IMPORT_CODE_DIR.glob("*.py")) if p.name not in NOT_IMPORT_CODE]
+
+
 def import_code_version() -> str:
     """Hash of the import code, so editing it invalidates cached results.
 
     Returns:
-        str: Hex SHA-256 of the names and contents of the ``*.py`` files directly in
-        ``src/behavior_import``.
+        str: Hex SHA-256 of the names and contents of :func:`import_code_files`.
     """
     digest = hashlib.sha256()
-    for path in sorted(IMPORT_CODE_DIR.glob("*.py")):
+    for path in import_code_files():
         digest.update(path.name.encode())
         digest.update(path.read_bytes())
     return digest.hexdigest()
@@ -423,8 +424,14 @@ def _load_cache_entry(cache_dir: Path, entry: CacheEntry) -> tuple[ImportedTrial
         raise _unusable(err, what) from err
 
 
-def _load_snapshot(snapshot: Snapshot) -> tuple[ImportedTrials, tuple]:
+def load_snapshot_import(snapshot: Snapshot) -> tuple[ImportedTrials, tuple]:
     """Unpickle a snapshot and fill its log's missing fields; ``(trials, filled)``.
+
+    Args:
+        snapshot (Snapshot): A listed snapshot.
+
+    Returns:
+        tuple[ImportedTrials, tuple]: The import and the log fields set to defaults.
 
     Raises:
         CachedImportError: Naming the snapshot, if it cannot be unpickled or is too old.
@@ -586,7 +593,7 @@ def _load_cache_first(root: Path, cache_dir: Path, classify_task_types: bool) ->
     wanted = absolute_path_string(root)
     snapshot = choose_snapshot(list_snapshots(cache_dir).snapshots, wanted, classify_task_types)
     if snapshot is not None:
-        imported, filled = _load_snapshot(snapshot)
+        imported, filled = load_snapshot_import(snapshot)
         return _with_stale_warning(imported, _snapshot_source(snapshot, wanted, filled), wanted)
     listing = cached_import_entries(cache_dir)
     if has_legacy_import(listing.entries, wanted, classify_task_types):
@@ -597,179 +604,17 @@ def _load_cache_first(root: Path, cache_dir: Path, classify_task_types: bool) ->
     if not Path(wanted).is_dir():
         raise _no_cache_error(wanted, classify_task_types, listing)
     print(f"[INFO] {wanted}: no import cache yet; importing from the server")
+    return _refresh(root, cache_dir, classify_task_types)
+
+
+def _refresh(root: Path, cache_dir: Path | None, classify_task_types: bool) -> ImportedTrials:
+    """The cohort after :func:`~src.behavior_import.cache_refresh.refresh_import_cache`."""
+    # imported here: cache_refresh builds on this module (the import, the legacy listing)
+    from src.behavior_import.cache_refresh import refresh_import_cache
+
     return refresh_import_cache(
         root, cache_dir=cache_dir, classify_task_types=classify_task_types
     ).imported
-
-
-# --- refreshing, pruning and checking -------------------------------------------------------
-
-
-class RefreshResult(NamedTuple):
-    """What :func:`refresh_import_cache` did.
-
-    Attributes:
-        imported (ImportedTrials): The cohort as now cached.
-        snapshot (Snapshot): The snapshot it is stored in (new, or the current one).
-        parsed (tuple[str, ...]): Files parsed in this refresh (new or changed), relative paths.
-        reused (tuple[str, ...]): Files whose earlier parse was reused.
-        up_to_date (bool): Whether the newest snapshot already matched the server and the
-            import code, so nothing was parsed or assembled.
-        pruned (tuple[PruneItem, ...]): What the prune after the refresh removed.
-    """
-
-    imported: ImportedTrials
-    snapshot: Snapshot
-    parsed: tuple[str, ...]
-    reused: tuple[str, ...]
-    up_to_date: bool
-    pruned: tuple[PruneItem, ...]
-
-
-def current_snapshot(snapshots: Iterable[Snapshot], manifest: Manifest) -> Snapshot | None:
-    """The newest snapshot of *manifest*'s root and flag, if it was made from the same files
-    with the same code; ``None`` otherwise.
-
-    Args:
-        snapshots (Iterable[Snapshot]): The listed snapshots.
-        manifest (Manifest): The manifest a refresh would write now.
-
-    Returns:
-        Snapshot | None: A snapshot that a refresh can load instead of assembling.
-    """
-    same = [
-        s
-        for s in snapshots
-        if (s.manifest.root, s.manifest.classify_task_types)
-        == (manifest.root, manifest.classify_task_types)
-    ]
-    newest = max(same, key=lambda s: s.manifest.created, default=None)
-    fields = ("files", "code_version", "file_code_version")
-    if newest and all(getattr(newest.manifest, f) == getattr(manifest, f) for f in fields):
-        return newest
-    return None
-
-
-def _assemble_and_store(
-    root: Path, cache_dir: Path, manifest: Manifest, listing: tuple[ServerFile, ...]
-) -> tuple[ImportedTrials, Snapshot, CachedParser]:
-    """Import *root* reusing the per-file parses, and store the result as a snapshot."""
-    parser = CachedParser(
-        root,
-        files_dir(cache_dir, manifest.root),
-        {f.path: f for f in listing},
-        manifest.file_code_version,
-    )
-    imported = _import_and_extract(
-        root,
-        manifest.classify_task_types,
-        parse=parser,
-        paths=[root / f.path for f in listing],
-    )
-    return imported, write_snapshot(cache_dir, imported, manifest), parser
-
-
-def refresh_import_cache(
-    root: Path,
-    *,
-    cache_dir: Path | None = None,
-    classify_task_types: bool = False,
-    keep_old: bool = False,
-    progress: Callable[[int], None] | None = None,
-) -> RefreshResult:
-    """Bring *root*'s cache snapshot up to date with the server, parsing only what changed.
-
-    Lists the folder; if the newest snapshot was made from exactly these files with the current
-    import code it is loaded and nothing else is done. Otherwise each file's cached parse is
-    reused when its path, size and modification time are unchanged, new and changed files are
-    parsed (and cached), the whole cohort is assembled from them, and a new snapshot is written.
-    Then the cohort's old snapshots, replaced legacy imports and unused parses are pruned. If the
-    share fails part-way, the error says so and the previous snapshot stays the one loaded.
-
-    Args:
-        root (Path): The raw-data folder.
-        cache_dir (Path | None): Cache location. Default ``None``: ``get_settings().cache_dir``.
-            Keyword-only.
-        classify_task_types (bool): As for :func:`load_trials_with_log`. Default ``False``.
-            Keyword-only.
-        keep_old (bool): Skip the prune. Default ``False``. Keyword-only.
-        progress (Callable[[int], None] | None): Called while listing, as for
-            :func:`~src.behavior_import.cache_store.list_server_files`. Keyword-only.
-
-    Returns:
-        RefreshResult: The cohort, its snapshot, which files were parsed or reused, and what was
-        pruned.
-
-    Raises:
-        FileNotFoundError: If *root* is not an existing directory.
-        ShareReadError: If the folder cannot be listed or a file cannot be read.
-    """
-    root = Path(root).resolve()
-    if not root.is_dir():
-        raise FileNotFoundError(f"Raw data folder not found (is the share mounted?): {root}")
-    cache_dir = Path(cache_dir or get_settings().cache_dir)
-    listing = list_server_files(root, progress)
-    manifest = Manifest(
-        str(root),
-        classify_task_types,
-        import_code_version(),
-        file_code_version(),
-        time.time(),
-        listing,
-    )
-    current = current_snapshot(list_snapshots(cache_dir).snapshots, manifest)
-    if current is not None:
-        print(f"[INFO] Loading trials for {root} from cache (up to date with the server)")
-        imported, _ = _load_snapshot(current)
-        snapshot, parsed, reused = current, (), tuple(f.path for f in listing)
-    else:
-        imported, snapshot, parser = _assemble_and_store(root, cache_dir, manifest, listing)
-        parsed, reused = tuple(parser.parsed), tuple(parser.reused)
-        print(
-            f"[INFO] {root}: parsed {len(parsed)} new or changed file(s), reused {len(reused)}; "
-            f"new cache snapshot {snapshot.path.name}"
-        )
-    pruned = ()
-    if not keep_old:
-        pruned = tuple(prune_import_cache(cache_dir, roots=[str(root)], report_empty=False))
-    return RefreshResult(imported, snapshot, parsed, reused, current is not None, pruned)
-
-
-def prune_import_cache(
-    cache_dir: Path | None = None,
-    *,
-    roots: Iterable[str] | None = None,
-    dry_run: bool = False,
-    report_empty: bool = True,
-) -> list[PruneItem]:
-    """Remove the cache entries no load would use (see :mod:`~src.behavior_import.cache_prune`).
-
-    Args:
-        cache_dir (Path | None): Cache location. Default ``None``: the ``BANDIT_CACHE_DIR``
-            setting (the share is not touched).
-        roots (Iterable[str] | None): Raw-data folders to limit the prune to; ``None`` for the
-            whole cache. Keyword-only.
-        dry_run (bool): Print what would go and delete nothing. Default ``False``. Keyword-only.
-        report_empty (bool): Print a line when there is nothing to remove. Default ``True``.
-            Keyword-only.
-
-    Returns:
-        list[PruneItem]: What was (or would be) removed.
-    """
-    cache_dir = Path(cache_dir or get_unchecked_settings().cache_dir)
-    items = prune_plan(
-        list_snapshots(cache_dir).snapshots,
-        cached_import_entries(cache_dir).entries,
-        list_file_entries(cache_dir),
-        incomplete_snapshots(cache_dir),
-        now=time.time(),
-        cohorts=roots,
-    )
-    if items:
-        apply_prune(cache_dir, items, dry_run=dry_run)
-    elif report_empty:
-        print("[PRUNE] nothing to remove")
-    return items
 
 
 def load_trials_with_log(
@@ -787,8 +632,9 @@ def load_trials_with_log(
         cache_dir (Path | None): Cache location. Default ``None``, meaning
             ``get_settings().cache_dir``. Keyword-only.
         use_cache (bool): ``False`` always re-imports and leaves the cache untouched. Default
-            ``True``: :func:`refresh_import_cache` (only new or changed files are parsed).
-            Keyword-only.
+            ``True``: :func:`~src.behavior_import.cache_refresh.refresh_import_cache` (only new
+            or changed files are parsed), which then prunes this root's older snapshots and the
+            legacy imports they replace. Keyword-only.
         classify_task_types (bool): Number problems by task type as well as layout (see
             :func:`~src.behavior_import.import_data.import_data`). Default ``False``.
             Keyword-only.
@@ -824,9 +670,7 @@ def load_trials_with_log(
         raise FileNotFoundError(f"Raw data folder not found (is the share mounted?): {root}")
     if not use_cache:
         return _import_and_extract(root, classify_task_types)
-    return refresh_import_cache(
-        root, cache_dir=cache_dir, classify_task_types=classify_task_types
-    ).imported
+    return _refresh(root, cache_dir, classify_task_types)
 
 
 def load_trials_by_problem(

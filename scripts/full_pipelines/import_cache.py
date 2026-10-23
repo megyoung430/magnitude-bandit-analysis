@@ -10,7 +10,8 @@ snapshot without touching the server. Bring the cache up to date when there is n
 check lists the server (file sizes and dates only) and compares it with each cohort's cache:
 when the cache was made, whether the import code changed since, and which subjects, sessions
 and files are new, changed or removed. It exits 0 when every cohort is up to date, 1 when one
-is not, 2 when the server cannot be read; --json prints the same as JSON.
+is not, 2 when the server cannot be read or the settings are missing; --json prints the same
+as JSON.
 
 refresh parses only the new and changed files (reusing the earlier parse of every other file),
 assembles each cohort, stores it as a new snapshot and prunes what is no longer needed
@@ -28,9 +29,11 @@ import argparse
 import json
 import sys
 
+from pydantic import ValidationError
+
 from src.behavior_import.cache_check import check_import_cache, check_to_dict, describe_check
-from src.behavior_import.cache_store import ShareReadError
-from src.behavior_import.load_trials import prune_import_cache, refresh_import_cache
+from src.behavior_import.cache_refresh import prune_import_cache, refresh_import_cache
+from src.behavior_import.cache_store import CacheLocationError, ShareReadError
 from src.pipelines.cohort_analysis import cohort_name, cohort_raw_dir
 from src.settings import get_settings, get_unchecked_settings
 
@@ -121,19 +124,20 @@ def run_refresh(cohort_ids, keep_old: bool) -> int:
         finally:
             progress.end()
         state = "already up to date" if result.up_to_date else "refreshed"
+        skipped = f", {len(result.skipped)} skipped as unreadable" if result.skipped else ""
         print(
             f"{label}: {state}; {len(result.parsed)} file(s) parsed, {len(result.reused)} "
-            f"reused, snapshot {result.snapshot.path.name}"
+            f"reused{skipped}, snapshot {result.snapshot.path.name}"
         )
     return UP_TO_DATE
 
 
 def run_prune(cohort_ids, dry_run: bool) -> int:
-    roots = None
+    cohorts = None
     if cohort_ids:
         data_root = get_unchecked_settings().data_root
-        roots = [str(cohort_raw_dir(data_root, c)) for c in cohort_ids]
-    prune_import_cache(roots=roots, dry_run=dry_run)
+        cohorts = [str(cohort_raw_dir(data_root, c)) for c in cohort_ids]
+    prune_import_cache(cohorts=cohorts, dry_run=dry_run)
     return UP_TO_DATE
 
 
@@ -145,9 +149,13 @@ def main(argv=None) -> int:
         if args.command == "refresh":
             return run_refresh(args.cohorts, args.keep_old)
         return run_prune(args.cohorts, args.dry_run)
-    except (FileNotFoundError, ShareReadError) as err:
-        # the server or a folder is missing: one clear line, the cache untouched
+    except (FileNotFoundError, ShareReadError, CacheLocationError) as err:
+        # the server or a folder is missing, or the cache is misplaced: one clear line
         print(f"error: {err}", file=sys.stderr)
+        return SERVER_ERROR
+    except ValidationError as err:
+        fields = ", ".join(f"BANDIT_{'_'.join(map(str, e['loc'])).upper()}" for e in err.errors())
+        print(f"error: the settings are not usable ({fields}): see .env.example", file=sys.stderr)
         return SERVER_ERROR
 
 

@@ -12,7 +12,7 @@ from typing import NamedTuple
 from src.behavior_import.cache_store import ServerFile
 from src.behavior_import.import_data import path_labels
 
-NEW, CHANGED, REMOVED = "new", "changed", "removed"
+NEW, CHANGED, REMOVED, UNREADABLE = "new", "changed", "removed", "unreadable"
 NO_SUBJECT = "(no subject folder)"
 NO_SESSION = "(no session folder)"
 
@@ -22,7 +22,8 @@ class FileChange(NamedTuple):
 
     Attributes:
         status (str): ``"new"`` (only on the server), ``"changed"`` (size or modification time
-            differ) or ``"removed"`` (only in the cache).
+            differ), ``"removed"`` (only in the cache) or ``"unreadable"`` (skipped by the last
+            refresh because it could not be read; the next refresh tries it again).
         path (str): Relative path.
         cached (ServerFile | None): The file as the cache recorded it; ``None`` if new.
         server (ServerFile | None): The file on the server now; ``None`` if removed.
@@ -63,8 +64,10 @@ def _labels(path: str) -> tuple[str, str]:
     return subject or NO_SUBJECT, session or NO_SESSION
 
 
-def _change(path: str, cached: dict, server: dict) -> FileChange | None:
+def _change(path: str, cached: dict, server: dict, skipped: dict) -> FileChange | None:
     before, now = cached.get(path), server.get(path)
+    if path in skipped and now is not None:
+        return FileChange(UNREADABLE, path, skipped[path], now)
     if before is None:
         return FileChange(NEW, path, None, now)
     if now is None:
@@ -72,22 +75,29 @@ def _change(path: str, cached: dict, server: dict) -> FileChange | None:
     return FileChange(CHANGED, path, before, now) if before != now else None
 
 
-def cache_diff(cached_files: Iterable[ServerFile], server_files: Iterable[ServerFile]) -> CacheDiff:
+def cache_diff(
+    cached_files: Iterable[ServerFile],
+    server_files: Iterable[ServerFile],
+    skipped_files: Iterable[ServerFile] = (),
+) -> CacheDiff:
     """Compare a snapshot's files with the server's.
 
     Args:
         cached_files (Iterable[ServerFile]): The files of the snapshot's manifest.
         server_files (Iterable[ServerFile]): The files listed on the server now.
+        skipped_files (Iterable[ServerFile]): Files the snapshot's import skipped as unreadable.
+            Default none.
 
     Returns:
-        CacheDiff: The new, changed and removed files and the new subjects and sessions.
+        CacheDiff: The new, changed, removed and unreadable files and the new subjects and
+        sessions.
     """
     cached = {f.path: f for f in cached_files}
     server = {f.path: f for f in server_files}
-    changes = tuple(
-        c for path in sorted(cached.keys() | server.keys()) if (c := _change(path, cached, server))
-    )
-    known = {_labels(p) for p in cached}
+    skipped = {f.path: f for f in skipped_files}
+    paths = sorted(cached.keys() | server.keys())
+    changes = tuple(c for path in paths if (c := _change(path, cached, server, skipped)))
+    known = {_labels(p) for p in (*cached, *skipped)}
     known_subjects = {subject for subject, _ in known}
     on_server = {_labels(p) for p in server}
     return CacheDiff(
@@ -130,6 +140,8 @@ def _within_session(path: str) -> str:
 
 def _file_line(change: FileChange) -> str:
     name = _within_session(change.path)
+    if change.status == UNREADABLE:
+        return f"{'skipped':<8} {name} (could not be read at the last refresh; tried again next)"
     if change.status != CHANGED:
         return f"{change.status:<8} {name}"
     before, now = change.cached, change.server

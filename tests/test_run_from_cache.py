@@ -62,7 +62,9 @@ def share(tmp_path_factory):
     data_root = base / "share"
     with pytest.MonkeyPatch.context() as patch:
 
-        def fake_import(root, classify_task_types=False, **import_options):
+        def fake_import(root, classify_task_types=False, parse=None, paths=()):
+            for path in paths:  # as the import does, so the cache sees every file read
+                parse(path)
             cohort_id = int(Path(root).name.removeprefix("cohort-"))
             return ImportedTrials(COHORTS[cohort_id], ImportLog())
 
@@ -72,7 +74,7 @@ def share(tmp_path_factory):
         for cohort_id in COHORTS:
             raw = cohort_raw_dir(data_root, cohort_id) / "sub-01_id-M1" / "ses-01" / "behav"
             raw.mkdir(parents=True)
-            (raw / "M1.tsv").write_text("type\tsubtype\tcontent\n")
+            (raw / "M1.tsv").write_text("time\ttype\tsubtype\tcontent\n")
         settings.get_settings.cache_clear()
         settings.get_unchecked_settings.cache_clear()
         yield base, data_root

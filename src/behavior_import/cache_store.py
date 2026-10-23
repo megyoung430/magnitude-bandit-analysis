@@ -17,20 +17,29 @@ Layout under the cache directory::
 A snapshot is written into a hidden ``.tmp-`` folder that is renamed into place once both files
 are complete, so an interrupted write never replaces or hides the previous snapshot. The
 manifest is small JSON, so checking a snapshot against the server never unpickles the data.
-Nothing here writes outside the cache directory.
+Nothing here writes outside the cache directory, and :func:`refuse_cache_inside` stops any
+write when the cache directory lies inside the raw data.
+
+Both the raw and the expanded frame of each file are stored. On 50 real recordings (5.2 MB
+of ``.tsv``) reading took 3-49 ms a file (warm and cold disk) and expanding 39 ms a file, while
+unpickling the expanded frame took 5 ms; the expanded frames are about 25 times the size of
+the raw ones (95 MB against 3.7 MB pickled). Expanding on reuse would cost every refresh about
+35 ms a file in exchange for that space.
 """
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import inspect
 import json
 import os
 import pickle
 import shutil
+import sys
 import uuid
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path, PurePath
@@ -40,6 +49,7 @@ import pandas as pd
 
 from src.behavior_import import import_data
 from src.behavior_import.import_data import ImportAborted, ParsedFile, parse_tsv_file
+from src.settings import REPO_ROOT
 
 FILES_DIR = "import-files"
 SNAPSHOTS_DIR = "import-snapshots"
@@ -54,6 +64,60 @@ MANIFEST_FORMAT = 1
 
 class ShareReadError(ImportAborted):
     """The raw-data folder could not be listed or read; the cache was left as it was."""
+
+
+class CacheLocationError(ValueError):
+    """The cache directory lies inside the raw data, where nothing may be written."""
+
+
+# The errors of a share that has stopped answering, as opposed to one file that cannot be read.
+SHARE_GONE_ERRNOS = frozenset(
+    {errno.ETIMEDOUT, errno.EIO, errno.ENOTCONN, errno.EHOSTDOWN, errno.ESTALE}
+)
+
+
+def share_is_gone(err: OSError, root: Path) -> bool:
+    """Whether *err*, raised reading a file under *root*, means the share itself failed.
+
+    Args:
+        err (OSError): The error.
+        root (Path): The raw-data folder.
+
+    Returns:
+        bool: True for a timeout, an errno in :data:`SHARE_GONE_ERRNOS`, or *root* no longer
+        being a reachable directory; False for an error of the one file (e.g. ``EACCES``, or
+        ``ENOENT`` for a file removed since it was listed), which an import skips.
+    """
+    if isinstance(err, TimeoutError) or err.errno in SHARE_GONE_ERRNOS:
+        return True
+    try:
+        return not Path(root).is_dir()
+    except OSError:
+        return True
+
+
+def refuse_cache_inside(cache_dir: Path, protected: Iterable[str | Path]) -> None:
+    """Stop if *cache_dir* is inside one of the *protected* folders (the raw data).
+
+    The cache directory is resolved (it is local); the protected folders are only made absolute,
+    because resolving them would query the share.
+
+    Args:
+        cache_dir (Path): The cache directory.
+        protected (Iterable[str | Path]): Folders nothing may be written in, e.g. the data root
+            and the raw-data folder being refreshed.
+
+    Raises:
+        CacheLocationError: Naming both folders.
+    """
+    forms = {Path(os.path.abspath(cache_dir)), Path(cache_dir).resolve()}
+    for folder in protected:
+        guarded = Path(os.path.abspath(folder))
+        if any(form == guarded or form.is_relative_to(guarded) for form in forms):
+            raise CacheLocationError(
+                f"The import cache {cache_dir} is inside {folder}, which holds raw data and is "
+                "never written to; set BANDIT_CACHE_DIR to a local folder"
+            )
 
 
 class ImportCacheWarning(UserWarning):
@@ -148,7 +212,9 @@ class Manifest:
         code_version (str): The import code hash when the snapshot was made.
         file_code_version (str): :func:`file_code_version` then, which keys its per-file parses.
         created (float): When the snapshot was made, in epoch seconds.
-        files (tuple[ServerFile, ...]): The listed ``.tsv`` files, sorted by path.
+        files (tuple[ServerFile, ...]): The listed ``.tsv`` files the snapshot holds, sorted.
+        skipped (tuple[ServerFile, ...]): Listed files the import skipped because they could not
+            be read, sorted. They are not covered, so the next refresh tries them again.
     """
 
     root: str
@@ -157,9 +223,12 @@ class Manifest:
     file_code_version: str
     created: float
     files: tuple[ServerFile, ...] = field(default=())
+    skipped: tuple[ServerFile, ...] = field(default=())
 
     def __post_init__(self):
-        object.__setattr__(self, "files", tuple(sorted(ServerFile(*f) for f in self.files)))
+        for name in ("files", "skipped"):
+            listed = tuple(sorted(ServerFile(*f) for f in getattr(self, name)))
+            object.__setattr__(self, name, listed)
 
     def to_json(self) -> str:
         """The manifest as JSON text."""
@@ -302,6 +371,22 @@ def incomplete_snapshots(cache_dir: Path) -> tuple[tuple[Path, float], ...]:
     )
 
 
+def stray_parse_temps(cache_dir: Path) -> tuple[tuple[Path, float], ...]:
+    """``(file, mtime)`` of per-file parse temporaries left by writes that were cut off.
+
+    Args:
+        cache_dir (Path): The cache directory.
+
+    Returns:
+        tuple[tuple[Path, float], ...]: Sorted by path; also lists writes still running, which
+        the prune leaves alone by their age.
+    """
+    base = Path(cache_dir) / FILES_DIR
+    if not base.is_dir():
+        return ()
+    return tuple((p, p.stat().st_mtime) for p in sorted(base.glob(f"*/{TMP_PREFIX}*")))
+
+
 def load_snapshot_data(snapshot: Snapshot):
     """Unpickle a snapshot's data.
 
@@ -321,17 +406,28 @@ def load_snapshot_data(snapshot: Snapshot):
 class CaughtWarning(NamedTuple):
     """A warning raised while a file was parsed, kept so it can be raised again.
 
+    A warning raised in one of the parsing functions records its place as that function and the
+    offset from its first line, so a replay names the line where it is now even after code
+    above it has moved; *filename* and *lineno* are used for warnings raised elsewhere (pandas).
+
     Attributes:
         category (type[Warning]): The warning class.
         message (str): Its text, naming the file by the path it was parsed from.
-        filename (str): The source file that raised it.
-        lineno (int): The line in *filename*.
+        filename (str): The source file that raised it, when parsed.
+        lineno (int): The line in *filename*, when parsed.
+        module (str | None): The raising module's name, which warning filters match on.
+        site (str): The parsing function it was raised in (see :func:`parse_functions`), or
+            ``""``.
+        offset (int): Its line relative to that function's first line.
     """
 
     category: type
     message: str
     filename: str
     lineno: int
+    module: str | None = None
+    site: str = ""
+    offset: int = 0
 
 
 class CachedParse(NamedTuple):
@@ -348,28 +444,42 @@ class CachedParse(NamedTuple):
     warnings: tuple[CaughtWarning, ...]
 
 
-# The functions whose output a CachedParse holds: a change to any of them, or to pandas (whose
-# pickles are not portable across versions), gives every file a new key.
-_PARSE_CODE = (
-    import_data.parse_tsv_file,
-    import_data.read_tsv_file,
-    import_data.drop_non_numeric_times,
-    import_data.expand_content_columns,
-    import_data.parse_content_json,
-    ParsedFile,
-    CachedParse,
-    CaughtWarning,
-)
+def parse_functions() -> dict[str, Callable]:
+    """The functions whose output a :class:`CachedParse` holds, by name, as bound now.
+
+    Returns:
+        dict[str, Callable]: The parse this module calls and the import_data functions it uses.
+    """
+    return {
+        "parse_tsv_file": parse_tsv_file,
+        "read_tsv_file": import_data.read_tsv_file,
+        "drop_non_numeric_times": import_data.drop_non_numeric_times,
+        "expand_content_columns": import_data.expand_content_columns,
+        "parse_content_json": import_data.parse_content_json,
+    }
+
+
+def _source_file(obj) -> str:
+    """*obj*'s source file relative to the repository (absolute if outside it)."""
+    path = Path(inspect.getsourcefile(obj)).resolve()
+    return path.relative_to(REPO_ROOT).as_posix() if path.is_relative_to(REPO_ROOT) else str(path)
 
 
 def file_code_version() -> str:
     """Hash of the code a per-file parse depends on, and of the pandas version.
 
+    A change to any parsing function (or the file it lives in), to the stored classes, or to
+    pandas (whose pickles are not portable across versions) gives every file a new key. Line
+    numbers are not part of it: warnings are replayed at their current line (see
+    :class:`CaughtWarning`).
+
     Returns:
         str: Hex SHA-256; part of every :func:`file_key`.
     """
     digest = hashlib.sha256(pd.__version__.encode())
-    for obj in (*_PARSE_CODE, parse_and_record):
+    stored = (ParsedFile, CachedParse, CaughtWarning, parse_and_record, replay, warning_site)
+    for obj in (*parse_functions().values(), *stored):
+        digest.update(_source_file(obj).encode())
         digest.update(inspect.getsource(obj).encode())
     return digest.hexdigest()
 
@@ -423,17 +533,65 @@ def parse_and_record(path: Path) -> CachedParse:
             parsed = parse_tsv_file(path)
         except Exception as err:  # re-raised below, once the warnings before it are shown
             error = err
-    kept = tuple(CaughtWarning(w.category, str(w.message), w.filename, w.lineno) for w in caught)
+    functions = parse_functions()
+    kept = tuple(
+        CaughtWarning(w.category, str(w.message), w.filename, w.lineno, *warning_site(w, functions))
+        for w in caught
+    )
     if error is not None:
         _show(kept, {})
         raise error
     return CachedParse(parsed, str(path), kept)
 
 
+def _line_range(function: Callable) -> tuple[str, int, int]:
+    code = function.__code__
+    lines = [line for _, _, line in code.co_lines() if line is not None]
+    return code.co_filename, code.co_firstlineno, max(lines, default=code.co_firstlineno)
+
+
+def _module_of(filename: str) -> str | None:
+    """The name of the loaded module whose file is *filename*, as warning filters see it."""
+    for name, module in list(sys.modules.items()):
+        if getattr(module, "__file__", None) == filename:
+            return name
+    return None
+
+
+def warning_site(w: warnings.WarningMessage, functions: dict[str, Callable]) -> tuple:
+    """``(module, site, offset)`` of a caught warning, for :class:`CaughtWarning`.
+
+    Args:
+        w (warnings.WarningMessage): The caught warning.
+        functions (dict[str, Callable]): :func:`parse_functions`.
+
+    Returns:
+        tuple: The raising module's name, the parsing function the line is in (``""`` if
+        none) and the line's offset from that function's first line.
+    """
+    for name, function in functions.items():
+        filename, first, last = _line_range(function)
+        if filename == w.filename and first <= w.lineno <= last:
+            return function.__module__, name, w.lineno - first
+    return _module_of(w.filename), "", 0
+
+
+def _where(w: CaughtWarning, functions: dict[str, Callable]) -> tuple[str, int]:
+    """``(filename, lineno)`` to raise *w* at now."""
+    if w.site and w.site in functions:
+        filename, first, _ = _line_range(functions[w.site])
+        return filename, first + w.offset
+    return w.filename, w.lineno
+
+
 def _show(caught, registry: dict, old: str = "", new: str = "") -> None:
+    functions = parse_functions()
     for w in caught:
         message = w.message.replace(old, new) if old else w.message
-        warnings.warn_explicit(message, w.category, w.filename, w.lineno, registry=registry)
+        filename, lineno = _where(w, functions)
+        warnings.warn_explicit(
+            message, w.category, filename, lineno, module=w.module, registry=registry
+        )
 
 
 def replay(cached: CachedParse, path: Path, registry: dict) -> ParsedFile:
@@ -536,9 +694,9 @@ class CachedParser:
         """The parse of one listed file.
 
         Raises:
-            ShareReadError: If the file cannot be read from the server (unreachable, or gone
-                since it was listed); a file that is read but cannot be parsed raises its own
-                error, which the import turns into a skip.
+            ShareReadError: If the share has stopped answering (see :func:`share_is_gone`).
+            OSError: If only this file cannot be read (no permission, removed since it was
+                listed); like a file that cannot be parsed, the import skips it.
             ImportAborted: If the parse cannot be stored in the cache.
         """
         relative = Path(path).relative_to(self.root).as_posix()
@@ -555,11 +713,17 @@ class CachedParser:
             self.reused.append(relative)
         return replay(cached, Path(path), self._registry)
 
-    @staticmethod
-    def _parse(path: Path) -> CachedParse:
+    def skipped(self) -> tuple[ServerFile, ...]:
+        """The listed files that were neither parsed nor reused: the import skipped them."""
+        covered = {*self.parsed, *self.reused}
+        return tuple(f for path, f in self.listing.items() if path not in covered)
+
+    def _parse(self, path: Path) -> CachedParse:
         try:
             return parse_and_record(path)
         except OSError as err:
+            if not share_is_gone(err, self.root):
+                raise  # one unreadable file: the import skips it, as a fresh import does
             raise ShareReadError(
                 f"Could not read {path}: {type(err).__name__}: {err}. The import cache is "
                 "unchanged."

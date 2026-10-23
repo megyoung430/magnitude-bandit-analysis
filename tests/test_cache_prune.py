@@ -37,8 +37,8 @@ def snap(name, *, root=C3, classify=True, created=0.0, files=(), version="fv"):
     return Snapshot(Path(name), Manifest(root, classify, "c", version, created, tuple(files)))
 
 
-def plan(snapshots=(), legacy=(), files=(), incomplete=(), now=10 * DAY, cohorts=None):
-    return prune_plan(snapshots, legacy, files, incomplete, now=now, cohorts=cohorts)
+def plan(snapshots=(), legacy=(), files=(), incomplete=(), now=10 * DAY, cohorts=None, roots=None):
+    return prune_plan(snapshots, legacy, files, incomplete, now=now, cohorts=cohorts, roots=roots)
 
 
 def removed(items):
@@ -57,9 +57,31 @@ def test_older_snapshots_of_a_cohort_and_flag_are_removed_and_the_newest_kept():
     assert items[0].kind == "snapshot"
 
 
-def test_the_same_cohort_through_another_mount_point_is_the_same_cohort():
-    snaps = [snap("old", created=1.0), snap("new", root="/mnt/ceph" + C3[16:], created=2.0)]
-    assert removed(plan(snaps)) == ["old"]
+def test_a_snapshot_of_the_same_cohort_at_another_root_keeps_its_own_newest():
+    copy = "/tmp/partial-copy" + C3[16:]
+    snaps = [snap("share-old", created=1.0), snap("share", created=2.0)]
+    snaps.append(snap("copy", root=copy, created=3.0))
+    assert removed(plan(snaps)) == ["share-old"]
+
+
+def test_roots_limit_the_plan_to_those_exact_roots():
+    copy = "/tmp/partial-copy" + C3[16:]
+    snaps = [snap("share-old", created=1.0), snap("share", created=2.0)]
+    snaps += [snap("copy-old", root=copy, created=3.0), snap("copy", root=copy, created=4.0)]
+    assert removed(plan(snaps, roots=[copy])) == ["copy-old"]
+
+
+def test_a_legacy_import_goes_only_for_a_newer_snapshot_of_its_exact_root():
+    legacy = [Legacy(Path("legacy"), C3, True, 1.0)]
+    assert plan([snap("copy", root="/tmp/partial-copy" + C3[16:], created=3.0)], legacy) == []
+
+
+def test_parse_temporaries_older_than_a_day_are_removed():
+    temps = [
+        (Path("import-files/c/.tmp-k.pkl.1"), 0.0),
+        (Path("import-files/c/.tmp-j.pkl.2"), 10 * DAY),
+    ]
+    assert removed(plan(incomplete=temps)) == ["import-files/c/.tmp-k.pkl.1"]
 
 
 def test_legacy_entries_go_only_when_a_newer_snapshot_of_the_cohort_exists():

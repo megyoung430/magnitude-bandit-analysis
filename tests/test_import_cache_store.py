@@ -1,14 +1,17 @@
 """The import cache on disk: server listing, per-file parses, cohort snapshots and manifests."""
 
+import errno
+import inspect
 import os
 import pickle
+import textwrap
 import warnings
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from src.behavior_import import cache_store
+from src.behavior_import import cache_store, import_data
 from src.behavior_import.cache_store import (
     Manifest,
     ServerFile,
@@ -210,3 +213,96 @@ def test_per_file_entries_live_in_a_folder_per_cohort(tmp_path):
     assert folder.parent == tmp_path / cache_store.FILES_DIR
     assert folder.name == "3x3_field_magnitude_bandit_rawdata_cohort-03"
     assert os.path.commonpath([folder, tmp_path]) == str(tmp_path)
+
+
+# --- warning sites survive code moving ------------------------------------------------------
+
+
+def shifted(function, lines: int):
+    """*function* recompiled *lines* further down its own file, as after an edit above it."""
+    source = textwrap.dedent(inspect.getsource(function))
+    first = function.__code__.co_firstlineno
+    namespace = dict(function.__globals__)
+    code = compile("\n" * (first - 1 + lines) + source, function.__code__.co_filename, "exec")
+    exec(code, namespace)
+    return namespace[function.__name__]
+
+
+def test_a_replayed_warning_names_the_line_where_its_code_is_now(tmp_path, monkeypatch):
+    path = write_traceback_recording(tmp_path / "a")
+    cached = parse_and_record(path)  # parsed with the code where it is
+    (caught,) = cached.warnings
+    assert caught.site == "parse_tsv_file" and caught.module == "src.behavior_import.import_data"
+    moved = shifted(import_data.parse_tsv_file, 7)
+    monkeypatch.setattr(cache_store, "parse_tsv_file", moved)
+    with warnings.catch_warnings(record=True) as fresh:
+        warnings.simplefilter("always")
+        moved(path)  # what a fresh import with the moved code raises
+    with warnings.catch_warnings(record=True) as replayed:
+        warnings.simplefilter("always")
+        replay(cached, path, {})
+    (f,), (r,) = fresh, replayed
+    assert (r.filename, r.lineno, str(r.message)) == (f.filename, f.lineno, str(f.message))
+    assert r.lineno == caught.lineno + 7
+
+
+def test_a_module_filter_applies_to_a_replayed_warning(tmp_path):
+    path = write_traceback_recording(tmp_path / "a")
+    cached = parse_and_record(path)
+    with warnings.catch_warnings(record=True) as replayed:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("ignore", module=r"src\.behavior_import\.import_data")
+        replay(cached, path, {})
+    assert replayed == []
+
+
+def test_the_file_code_version_changes_when_a_parsing_function_moves_file(monkeypatch):
+    before = cache_store.file_code_version()
+    assert cache_store._source_file(import_data.parse_tsv_file) == (
+        "src/behavior_import/import_data.py"
+    )
+    monkeypatch.setattr(cache_store, "_source_file", lambda obj: "moved.py")
+    assert cache_store.file_code_version() != before
+
+
+# --- the share -------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("error", "gone"),
+    [
+        (TimeoutError("timed out"), True),
+        (OSError(errno.EIO, "I/O"), True),
+        (OSError(errno.EHOSTDOWN, "host down"), True),
+        (PermissionError(errno.EACCES, "Permission denied"), False),
+        (FileNotFoundError(errno.ENOENT, "gone"), False),
+    ],
+)
+def test_share_errors_are_told_from_errors_of_one_file(tmp_path, error, gone):
+    assert cache_store.share_is_gone(error, tmp_path) is gone
+    assert cache_store.share_is_gone(error, tmp_path / "unmounted") is True
+
+
+def test_a_cache_inside_the_raw_data_is_refused(tmp_path):
+    share = tmp_path / "share"
+    for inside in (share, share / "cache", share / "x" / ".." / "cache"):
+        with pytest.raises(cache_store.CacheLocationError, match="never written to"):
+            cache_store.refuse_cache_inside(inside, [share])
+    cache_store.refuse_cache_inside(tmp_path / "cache", [share, tmp_path / "share2"])
+
+
+def test_a_cache_reaching_the_raw_data_through_a_link_is_refused(tmp_path):
+    share = tmp_path / "share"
+    (share / "cache").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(share / "cache")
+    with pytest.raises(cache_store.CacheLocationError):
+        cache_store.refuse_cache_inside(tmp_path / "link", [share])
+
+
+def test_stray_parse_temporaries_are_listed(tmp_path):
+    folder = cache_store.files_dir(tmp_path, ROOT)
+    folder.mkdir(parents=True)
+    (folder / "k.pkl").write_bytes(b"")
+    (folder / ".tmp-k.pkl.1234").write_bytes(b"")
+    ((path, _),) = cache_store.stray_parse_temps(tmp_path)
+    assert path.name == ".tmp-k.pkl.1234"
