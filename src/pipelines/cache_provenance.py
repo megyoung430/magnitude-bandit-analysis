@@ -1,10 +1,10 @@
 """Notes that mark outputs made from the import cache without reading the server.
 
-A ``--from-cache`` run (see :func:`~src.behavior_import.load_trials.load_trials_with_log`) may
-miss the newest sessions, and nothing in its figures would show it. Each run therefore writes
-``from-cache.txt`` into the folders it fills, listing per cohort when its cached import was
-made. A run that read the server removes the file again, so a folder only carries it while its
-contents come from the cache.
+The cohort runs are cache-first (see :func:`~src.behavior_import.load_trials.load_trials_with_log`
+with ``from_cache``): they may miss the newest sessions, and nothing in their figures would show
+it. Each run therefore writes ``from-cache.txt`` into the folders it fills, listing per cohort
+when its cached import was made. A run that read the server (``--refresh-cache``) removes the
+file again, so a folder only carries it while its contents come from the cache.
 """
 
 from collections.abc import Iterable, Mapping
@@ -15,6 +15,16 @@ from src.behavior_import.import_log import CacheSource, ImportLog
 from src.behavior_import.load_trials import TAIL_PARTS
 
 FROM_CACHE_FILE = "from-cache.txt"
+# The run scripts' help for their cache options.
+REFRESH_HELP = (
+    "first bring each cohort's import cache up to date with the server (only new or changed "
+    "files are parsed), then run"
+)
+CACHE_FIRST_NOTE = (
+    "runs read each cohort's newest import cache without the server by default; sessions added "
+    "since then are missing until --refresh-cache"
+)
+FROM_CACHE_HELP = f"deprecated, changes nothing: {CACHE_FIRST_NOTE}"
 
 
 def _date(epoch_seconds: float, fmt: str = "%Y-%m-%d") -> str:
@@ -29,8 +39,8 @@ def cache_sources(logs: Mapping[str, ImportLog | None]) -> dict[str, CacheSource
             trials passed in without a log.
 
     Returns:
-        dict[str, CacheSource]: Only the cohorts loaded with ``from_cache``; empty for a run
-        that read the server.
+        dict[str, CacheSource]: Only the cohorts loaded cache-first; empty for a run that read
+        the server.
     """
     return {
         cohort: log.cache_source
@@ -64,7 +74,8 @@ def from_cache_description(sources: Mapping[str, CacheSource]) -> str:
         covered.
     """
     lines = [
-        "Made with --from-cache, without reading the server: sessions added since are missing.",
+        "Made from the import cache, without reading the server: sessions added since are "
+        "missing (run with --refresh-cache to include them).",
         *(_source_line(cohort, source) for cohort, source in sorted(sources.items())),
     ]
     return "\n".join(lines) + "\n"

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from joblib import Memory
+from joblib.func_inspect import get_func_name
 
 from src.behavior_import.cache_prune import (
     PruneItem,
@@ -181,6 +182,12 @@ def _load(root: str, fingerprint, code_version: str, classify_task_types: bool) 
     return _import_and_extract(Path(root), classify_task_types)
 
 
+def _legacy_function_dir(cache_dir: Path) -> Path:
+    """The folder joblib keeps :func:`_load`'s entries in, worked out without creating it."""
+    modules, name = get_func_name(_load)
+    return Path(cache_dir, *modules, name)
+
+
 @lru_cache
 def _cached_load(cache_dir: Path):
     return Memory(location=cache_dir, verbose=0).cache(_load)
@@ -319,7 +326,9 @@ def cached_import_entries(cache_dir: Path) -> CacheListing:
     Returns:
         CacheListing: Sorted by folder name; empty if nothing is cached.
     """
-    if not Path(cache_dir).is_dir():
+    # joblib's Memory creates its folder (and a .gitignore) when made, so it is only made for a
+    # cache that already holds legacy entries: listing must not write.
+    if not _legacy_function_dir(Path(cache_dir)).is_dir():
         return CacheListing((), ())
     load = _cached_load(Path(cache_dir))
     function_dir = Path(load.store_backend.location) / load.func_id
@@ -720,7 +729,9 @@ def refresh_import_cache(
             f"[INFO] {root}: parsed {len(parsed)} new or changed file(s), reused {len(reused)}; "
             f"new cache snapshot {snapshot.path.name}"
         )
-    pruned = () if keep_old else tuple(prune_import_cache(cache_dir, roots=[str(root)]))
+    pruned = ()
+    if not keep_old:
+        pruned = tuple(prune_import_cache(cache_dir, roots=[str(root)], report_empty=False))
     return RefreshResult(imported, snapshot, parsed, reused, current is not None, pruned)
 
 
@@ -729,6 +740,7 @@ def prune_import_cache(
     *,
     roots: Iterable[str] | None = None,
     dry_run: bool = False,
+    report_empty: bool = True,
 ) -> list[PruneItem]:
     """Remove the cache entries no load would use (see :mod:`~src.behavior_import.cache_prune`).
 
@@ -738,6 +750,8 @@ def prune_import_cache(
         roots (Iterable[str] | None): Raw-data folders to limit the prune to; ``None`` for the
             whole cache. Keyword-only.
         dry_run (bool): Print what would go and delete nothing. Default ``False``. Keyword-only.
+        report_empty (bool): Print a line when there is nothing to remove. Default ``True``.
+            Keyword-only.
 
     Returns:
         list[PruneItem]: What was (or would be) removed.
@@ -753,7 +767,7 @@ def prune_import_cache(
     )
     if items:
         apply_prune(cache_dir, items, dry_run=dry_run)
-    else:
+    elif report_empty:
         print("[PRUNE] nothing to remove")
     return items
 

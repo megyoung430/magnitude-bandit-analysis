@@ -6,6 +6,7 @@ turns the result into the report of ``scripts/full_pipelines/import_cache.py che
 """
 
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -140,3 +141,41 @@ def describe_check(check: CacheCheck, label: str) -> list[str]:
         f"{d.count('removed')} removed"
     )
     return [*lines, *(f"  {line}" for line in describe_diff(d))]
+
+
+def check_to_dict(check: CacheCheck, label: str) -> dict:
+    """The check as plain JSON-ready data, for ``import_cache.py check --json``.
+
+    Args:
+        check (CacheCheck): The check.
+        label (str): What to call the folder, e.g. ``"cohort-03"``.
+
+    Returns:
+        dict: ``cohort``, ``root``, ``up_to_date``, ``cache`` (``None`` or its kind, creation
+        time, whether the import code matches and its file count), ``server_files`` (a count),
+        the ``new``, ``changed`` and ``removed`` relative paths, ``new_subjects`` and
+        ``new_sessions``.
+    """
+    c = check.cached
+    cache = None
+    if c is not None:
+        cache = {
+            "kind": c.kind,
+            "created": datetime.fromtimestamp(c.time).isoformat(timespec="seconds"),
+            "code_matches": c.code_matches,
+            "files": len(c.files),
+        }
+    by_status = {
+        status: [x.path for x in check.diff.changes if x.status == status]
+        for status in ("new", "changed", "removed")
+    }
+    return {
+        "cohort": label,
+        "root": check.root,
+        "up_to_date": check.up_to_date,
+        "cache": cache,
+        "server_files": len(check.server_files),
+        **by_status,
+        "new_subjects": list(check.diff.new_subjects),
+        "new_sessions": [list(s) for s in check.diff.new_sessions],
+    }
