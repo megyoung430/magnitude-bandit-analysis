@@ -180,7 +180,7 @@ def test_distribution_figure_layout_for_session_counts(capture, tables, tmp_path
     assert fig._suptitle.get_fontsize() == 13
     boxes, low, high = fig.axes
     assert boxes.get_title() == "Distribution by mouse"
-    assert boxes.get_ylabel() == "Trials per session"
+    assert boxes.get_ylabel() == "Trials per Session"
     labels = boxes.get_xticklabels()
     assert [t.get_text() for t in labels] == [
         "sub-01\nm1\nn=3",
@@ -191,8 +191,8 @@ def test_distribution_figure_layout_for_session_counts(capture, tables, tmp_path
     assert boxes.get_position().width > 1.5 * low.get_position().width  # width ratio 2 : 1 : 1
     assert (low.get_title(), high.get_title()) == ("sub-01–04 (n=8)", "sub-05–08 (n=1)")
     for ax in (low, high):
-        assert ax.get_xlabel() == "Trials per session"
-        assert ax.get_ylabel() == "Cumulative fraction" and ax.get_ylim() == (0, 1.03)
+        assert ax.get_xlabel() == "Trials per Session"
+        assert ax.get_ylabel() == "Cumulative Fraction" and ax.get_ylim() == (0, 1.03)
 
 
 def test_scatter_points_use_each_mouses_colour(capture, tables, tmp_path):
@@ -255,8 +255,8 @@ def test_over_time_plots_daily_means_per_mouse(capture, tables, tmp_path):
     fig = figures["Trials per session - over time"]
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (12, 5)
-    assert ax.get_xlabel() == "Calendar date"
-    assert ax.get_ylabel() == "Mean trials per session on that date"
+    assert ax.get_xlabel() == "Calendar Date"
+    assert ax.get_ylabel() == "Mean Trials per Session on That Date"
     assert ax.get_title() == "Trials per session over time"
     lines = {ln.get_label(): ln for ln in ax.lines}
     assert list(lines) == ["m1", "m2", "m3"]
@@ -276,8 +276,8 @@ def test_over_time_plots_daily_means_per_mouse(capture, tables, tmp_path):
 def test_block_over_time_uses_the_block_end_date_label(capture, tables, tmp_path):
     _, figures = run(capture, tables, tmp_path)
     ax = figures["Trials per block - over time"].axes[0]
-    assert ax.get_xlabel() == "Block end date (last observed trial)"
-    assert ax.get_ylabel() == "Mean trials per block on that date"
+    assert ax.get_xlabel() == "Block End Date (last observed trial)"
+    assert ax.get_ylabel() == "Mean Trials per Block on That Date"
 
 
 # ---------------------------------------------------------------- across problems
@@ -289,7 +289,7 @@ def test_problem_figure_shows_mouse_means_and_mean_sem_with_mouse_counts(capture
     (ax,) = fig.axes
     assert tuple(fig.get_size_inches()) == (9, 5)
     assert ax.get_xlabel() == "Problem (number of mice)"
-    assert ax.get_ylabel() == "Mean trials per session"
+    assert ax.get_ylabel() == "Mean Trials per Session"
     assert ax.get_title() == "Trials per session across problems\nmean ± se across mice, n=3 mice"
     assert figure_caption(fig).startswith("Each mouse is weighted equally")
     assert [t.get_text() for t in ax.get_xticklabels()] == ["1\n(n=3)", "2\n(n=2)"]

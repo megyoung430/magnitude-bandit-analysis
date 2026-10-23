@@ -9,6 +9,8 @@
   place next to its own panel is free of the other panels;
 - every legend is drawn without a frame, with short handles and title-case labels.
 
+:func:`title_case_axis_labels` gives the axis and colour-bar labels the same title case.
+
 The ideas follow the legend rules of the removed paper style; sizes, spines, line widths and
 colours are left as each plot drew them.
 """
@@ -43,7 +45,27 @@ def _title_case_word(word: str, first: bool) -> str:
     return word[0].upper() + word[1:]
 
 
-def title_case(label: str) -> str:
+def _case_words(text: str, first: bool) -> tuple[str, bool]:
+    """Title-case the words of *text*; return it and whether its first word is still to come."""
+    out = []
+    for token in re.split(r"(\s+)", text):
+        if not token or token.isspace() or not re.search(r"[A-Za-z]", token):
+            out.append(token)
+            continue
+        if not re.search(r"[0-9_=]", token):
+            # each hyphenated part on its own; a part with a capital already is kept
+            token = "-".join(
+                part
+                if re.search(r"[A-Z]", part)
+                else _WORD.sub(lambda m, f=first: _title_case_word(m.group(), f), part)
+                for part in token.split("-")
+            )
+        out.append(token)
+        first = False
+    return "".join(out), first
+
+
+def title_case(label: str, *, keep_parenthesised: bool = False) -> str:
     """*label* in title case: each lower-case word capitalised except small words.
 
     Words with a capital or a digit already (``P(best)``, ``MY_175_L``, ``t=0``) are kept as they
@@ -51,20 +73,38 @@ def title_case(label: str) -> str:
     first word. Hyphenated parts are capitalised one by one.
 
     Args:
-        label (str): A legend label.
+        label (str): A legend or axis label; may span several lines.
+        keep_parenthesised (bool): Leave text in parentheses as it is (units and notes of an
+            axis label). Default False.
 
     Returns:
         str: The label in title case.
     """
+    parts = re.split(r"(\([^)]*\))", label) if keep_parenthesised else [label]
     out, first = [], True
-    for token in label.split(" "):
-        if not token or re.search(r"[A-Z0-9_=]", token):
-            out.append(token)
-            first = first and not token
+    for part in parts:
+        if keep_parenthesised and part.startswith("("):
+            out.append(part)
+            first = False
             continue
-        out.append(_WORD.sub(lambda m, f=first: _title_case_word(m.group(), f), token))
-        first = False
-    return " ".join(out)
+        cased, first = _case_words(part, first)
+        out.append(cased)
+    return "".join(out)
+
+
+def title_case_axis_labels(fig: plt.Figure) -> None:
+    """Title-case the axis, colour-bar and figure-level axis labels of *fig*, units left alone.
+
+    Args:
+        fig (plt.Figure): The figure; changed in place.
+    """
+    for ax in fig.axes:
+        for axis in (ax.xaxis, ax.yaxis):
+            label = axis.label
+            label.set_text(title_case(label.get_text(), keep_parenthesised=True))
+    for label in (fig._supxlabel, fig._supylabel):  # private: no public getter for the artists
+        if label is not None:
+            label.set_text(title_case(label.get_text(), keep_parenthesised=True))
 
 
 # --- reading and rebuilding legends ------------------------------------------------------------

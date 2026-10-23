@@ -17,6 +17,7 @@ import pytest
 
 import src.pipelines.cohort_analysis as cohort_analysis
 from src.behavior_visualization import plot_helpers
+from src.behavior_visualization.plot_legends import title_case
 from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
 from src.pipelines.cohort_analysis import run_cohort
 from tests.all_cohorts_fixtures import synthetic_cohort
@@ -30,6 +31,8 @@ STATS_LINE = re.compile(
 
 # {figure base path: legends drawn over a panel}, filled by the saved fixture
 covered: dict = {}
+# {figure base path: its axis and colour-bar labels after saving}
+labels: dict = {}
 
 
 def legends_over_panels(fig) -> list[str]:
@@ -57,6 +60,9 @@ def saved(tmp_path_factory):
         records.append((Path(str(base)), fig.get_suptitle(), titles))
         paths = real(fig, base, formats, dpi)
         covered[Path(str(base))] = legends_over_panels(fig)
+        labels[Path(str(base))] = [
+            text for ax in fig.axes for text in (ax.get_xlabel(), ax.get_ylabel()) if text
+        ]
         return paths
 
     with pytest.MonkeyPatch.context() as patch, warnings.catch_warnings():
@@ -124,3 +130,15 @@ def test_the_extra_set_names_its_mice_in_every_caption_and_the_file_names_are_un
 def test_no_legend_covers_the_data_of_a_panel(saved):
     assert covered
     assert {base.name: labels for base, labels in covered.items() if labels} == {}
+
+
+def test_every_axis_and_colour_bar_label_is_title_case(saved):
+    assert labels
+    wrong = {
+        base.name: text
+        for base, texts in labels.items()
+        for text in texts
+        if text != title_case(text, keep_parenthesised=True)
+    }
+    assert wrong == {}
+    assert any("Number of Sessions" in texts for texts in labels.values())

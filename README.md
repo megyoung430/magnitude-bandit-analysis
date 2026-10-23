@@ -507,6 +507,12 @@ with `<name>.caption.txt` next to it; the file names are the same as before.
   window mode, weighting, tie handling, left-out events and caveats. The file is written for
   every figure, empty when there is nothing to add. The code is `Title`, `set_title` and
   `add_caption` in `src/behavior_visualization/plot_helpers.py`.
+- **Legends and labels** are tidied when a figure is saved
+  (`src/behavior_visualization/plot_legends.py`): no frame, short handles, moved out of the data
+  (below the axes when short, beside them for long mouse lists), drawn once when repeated on
+  several panels, and a legend entry for a single mouse goes to the caption as
+  "line: MY_175_L". Legend, axis and colour-bar labels are in title case (articles,
+  prepositions and the statistics "se"/"std" lower case; units in parentheses as written).
 - **Font**: Arial (then Helvetica, Liberation Sans, DejaVu Sans where Arial is missing), with
   editable text in the PDF and SVG files. It is set in `plot_style.FONT_RC`, applied when the
   plotting package is imported; font sizes are those of each plot.

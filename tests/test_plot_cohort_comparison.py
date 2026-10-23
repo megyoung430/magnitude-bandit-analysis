@@ -239,7 +239,7 @@ def test_distribution_panels_pool_observations_and_draw_faint_mouse_ecdfs(run):
     assert pooled.get_color() == "black" and pooled.get_linewidth() == 2
     assert pooled.get_label() == "2 mice; 3 sessions"
     assert pooled.get_xdata().tolist() == [24, 24, 24]
-    assert a1.get_xlabel() == "Trials per session" and a1.get_ylabel() == "Cumulative fraction"
+    assert a1.get_xlabel() == "Trials per Session" and a1.get_ylabel() == "Cumulative Fraction"
     assert a1.get_ylim() == (0, 1.03)
     # the save step moves the panels' legends out of the data, keeping their font size
     assert all(leg.get_texts()[0].get_fontsize() == 9 for leg in a1.figure.legends)
@@ -247,7 +247,7 @@ def test_distribution_panels_pool_observations_and_draw_faint_mouse_ecdfs(run):
 
 def test_block_distribution_axis_names_blocks(run):
     a1 = run[1]["Trials per block - distributions"].axes[0]
-    assert a1.get_xlabel() == "Trials per block"
+    assert a1.get_xlabel() == "Trials per Block"
     assert a1.lines[2].get_label().endswith(" blocks")
 
 
@@ -260,8 +260,8 @@ def test_over_time_x_is_days_since_the_mouses_first_session_in_the_problem(run):
     assert (first.get_label(), first.get_color(), first.get_alpha()) == ("a1", MOUSE_COLORS[0], 0.8)
     assert first.get_xdata().tolist() == [0, 2] and first.get_ydata().tolist() == [24, 24]
     assert second.get_xdata().tolist() == [0]
-    assert a1.get_xlabel() == "Days since first observed session in this problem"
-    assert a1.get_ylabel() == "Daily mean trials per session"
+    assert a1.get_xlabel() == "Days Since First Observed Session in This Problem"
+    assert a1.get_ylabel() == "Daily Mean Trials per Session"
     assert all(leg.get_texts()[0].get_fontsize() == 8 for leg in a1.figure.legends)
 
 
@@ -303,7 +303,7 @@ def test_across_problems_figure_has_one_panel_per_cohort_with_mouse_counts(run):
     )
     assert [t.get_text() for t in left.get_xticklabels()] == ["1\n(n=2)", "2\n(n=2)"]
     assert left.get_xlabel() == "Problem (number of mice)"
-    assert left.get_ylabel() == "Mean trials per session"
+    assert left.get_ylabel() == "Mean Trials per Session"
     (errorbar,) = [c for c in left.containers if isinstance(c, ErrorbarContainer)]
     assert errorbar.get_label() == "Mean ± se across Mice"
     assert errorbar.lines[0].get_color() == "black" and errorbar.lines[0].get_linewidth() == 2
@@ -317,7 +317,7 @@ def test_rank_panel_shows_pooled_proportions_with_mean_sem_and_labels(run):
     ax = fig.axes[0]  # cohort-A, problem 1: a1 always best, a2 always second
     assert ax.get_title() == "cohort-A — problem 1\nmean ± se across mice, n=2 mice"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Best", "Second", "Third"]
-    assert ax.get_ylabel() == "Proportion of choices" and ax.get_ylim() == (0, 1)
+    assert ax.get_ylabel() == "Proportion of Choices" and ax.get_ylim() == (0, 1)
     a1, a2 = [ln for ln in ax.lines if ln.get_label() in ("a1", "a2")]
     assert a1.get_ydata().tolist() == [1, 0, 0] and a2.get_ydata().tolist() == [0, 1, 0]
     assert (a1.get_color(), a1.get_alpha(), a1.get_linestyle(), a1.get_marker()) == (
@@ -344,7 +344,7 @@ def test_reversal_panel_shows_good_bad_and_all_counts_per_mouse(run):
     ax = fig.axes[0]  # a1 has two sessions of two good reversals, a2 one
     assert ax.get_title() == "cohort-A — problem 1\nmean ± se across mice, n=2 mice"
     assert [t.get_text() for t in ax.get_xticklabels()] == ["Good", "Bad", "All"]
-    assert ax.get_ylabel() == "Number of reversals"
+    assert ax.get_ylabel() == "Number of Reversals"
     a1, a2 = [ln for ln in ax.lines if ln.get_label() in ("a1", "a2")]
     assert a1.get_ydata().tolist() == [4, 0, 4] and a2.get_ydata().tolist() == [2, 0, 2]
     assert [p.get_height() for p in ax.patches] == [3, 0, 3]

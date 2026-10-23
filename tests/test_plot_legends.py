@@ -9,7 +9,12 @@ import numpy as np
 import pytest
 
 from src.behavior_visualization.plot_helpers import save_or_show
-from src.behavior_visualization.plot_legends import HANDLE_LENGTH, tidy_legends, title_case
+from src.behavior_visualization.plot_legends import (
+    HANDLE_LENGTH,
+    tidy_legends,
+    title_case,
+    title_case_axis_labels,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -149,3 +154,45 @@ def test_saving_tidies_the_legends_and_writes_the_single_mouse_note(tmp_path):
     save_or_show(fig, tmp_path / "f")
     assert (tmp_path / "f.caption.txt").read_text() == "line: MY_175_L\n"
     assert not all_legends(fig)[0].get_frame_on()
+
+
+# --- axis labels --------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Number of sessions", "Number of Sessions"),
+        ("Drifting problem", "Drifting Problem"),
+        ("Trials from Block Change", "Trials from Block Change"),
+        ("Block Length (Trials)", "Block Length (Trials)"),
+        ("Problem (number of mice)", "Problem (number of mice)"),
+        ("Weight (logit)", "Weight (logit)"),
+        ("NLL binary − magnitude\n(×10⁻³ per trial)", "NLL Binary − Magnitude\n(×10⁻³ per trial)"),
+        ("Inter-pulse interval\ndiscrepancy (ms)", "Inter-Pulse Interval\nDiscrepancy (ms)"),
+        (
+            "P(chosen) / P(best) (log2 scale; 1 = chosen as often as best)",
+            "P(chosen) / P(best) (log2 scale; 1 = chosen as often as best)",
+        ),
+        (
+            "Trial (session index, t=0 = first trial with the new value)",
+            "Trial (session index, t=0 = first trial with the new value)",
+        ),
+    ],
+)
+def test_axis_labels_are_title_case_and_units_in_parentheses_stay(label, expected):
+    assert title_case(label, keep_parenthesised=True) == expected
+
+
+def test_axis_and_colour_bar_labels_of_a_saved_figure_are_title_case(tmp_path):
+    fig, ax = plt.subplots()
+    image = ax.imshow(np.eye(3))
+    bar = fig.colorbar(image, ax=ax)
+    bar.set_label("count per port")
+    ax.set(xlabel="Number of sessions", ylabel="Drifting problem (n)")
+    fig.supxlabel("trials from block change")
+    title_case_axis_labels(fig)
+    assert ax.get_xlabel() == "Number of Sessions"
+    assert ax.get_ylabel() == "Drifting Problem (n)"
+    assert bar.ax.get_ylabel() == "Count per Port"
+    assert fig.get_supxlabel() == "Trials from Block Change"
