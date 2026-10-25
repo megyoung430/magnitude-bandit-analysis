@@ -19,6 +19,7 @@ import pytest
 import src.pipelines.all_cohorts_drifting as all_cohorts
 import src.pipelines.cohort_analysis as cohort_analysis
 import src.pipelines.open_field as open_field
+from src.behavior_import.extract_trials import extract_session_trials
 from src.behavior_import.import_log import ImportLog
 from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
 from src.pipelines.cohort_analysis import run_cohort
@@ -54,10 +55,17 @@ def test_run_problem_gives_the_poke_analysis_its_summary_scope(monkeypatch):
     assert seen["summary_scope"] == "cohort-09 blocked problem-03"
 
 
+def imported_session(key="ses-1_date-20260101"):
+    """A fixture session as the importer leaves it (the poke analysis needs its trial variables)."""
+    record = session(1)
+    extract_session_trials(record, "m1", key)
+    return {key: record}
+
+
 def test_the_poke_analysis_writes_the_summary_with_its_port_finding_sessions(tmp_path):
     found = {"m1": {"ses-0_date-20251231": port_finding_only(2)}}
     result = run_poke_analysis(
-        {"m1": {"ses-1_date-20260101": session(1, blocks=[1, 1])}},
+        {"m1": imported_session()},
         tmp_path,
         previous_choice_towers={"m1": frozenset({"A1", "C3"})},
         port_finding_sessions=found,
@@ -73,7 +81,7 @@ def test_the_poke_analysis_writes_the_summary_with_its_port_finding_sessions(tmp
 
 
 def test_without_a_scope_the_poke_analysis_writes_no_summary(tmp_path):
-    result = run_poke_analysis({"m1": {"ses-1_date-20260101": session(1, blocks=[1, 1])}}, tmp_path)
+    result = run_poke_analysis({"m1": imported_session()}, tmp_path)
     assert result["port_finding_summary"] == {}
     assert not (tmp_path / "Port Finding Summary - Left Out.txt").exists()
 
