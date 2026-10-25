@@ -200,12 +200,52 @@ def draw_category_fractions(
     return n_mice
 
 
-def category_legend_handles() -> list[Line2D]:
-    """One line handle per port category, in :data:`CATEGORIES` order."""
+def draw_category_fraction_bars(
+    mouse_means: pd.DataFrame,
+    *,
+    ax: plt.Axes,
+    window_headings: Mapping[str, str],
+    mouse_columns: Sequence[str] = ("mouse",),
+) -> int:
+    """As :func:`draw_category_fractions`, as grouped bars: one group per window, one bar per
+    port category (mean ± se across mice), each mouse a dot. Returns the number of mice.
+
+    Raises:
+        ValueError: If *mouse_means* is empty.
+    """
+    if mouse_means.empty:
+        raise ValueError("no mice to draw")
+    wide = mouse_means.pivot_table(
+        index=[*mouse_columns, "category"], columns="window", values="fraction"
+    ).reindex(columns=list(WINDOWS))
+    n_mice = mouse_means[list(mouse_columns)].drop_duplicates().shape[0]
+    width = 0.8 / len(CATEGORIES)
+    rng = np.random.default_rng(0)  # fixed jitter, so a redraw is identical
+    for i, category in enumerate(CATEGORIES):
+        values = wide.xs(category, level="category").to_numpy(dtype=float)
+        x = np.arange(len(WINDOWS)) + (i - (len(CATEGORIES) - 1) / 2) * width
+        stats = [_mean_se(values[:, j]) for j in range(len(WINDOWS))]
+        means, ses = (np.array(v) for v in zip(*stats, strict=True))
+        color = CATEGORY_COLORS[category]
+        ax.bar(x, means, width=width * 0.9, color=color, alpha=0.75)
+        ax.errorbar(x, means, yerr=ses, fmt="none", ecolor="black", capsize=2, linewidth=1)
+        for j in range(len(WINDOWS)):
+            jitter = rng.uniform(-width * 0.25, width * 0.25, len(values))
+            ax.scatter(x[j] + jitter, values[:, j], s=8, color="black", alpha=0.5, zorder=3,
+                       linewidths=0)  # fmt: skip
+    labels = [window_headings[w].replace(" After", "\nAfter") for w in WINDOWS]
+    ax.set_xticks(np.arange(len(WINDOWS)), labels)
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Fraction of Pokes")
+    despine(ax)
+    return n_mice
+
+
+def category_legend_handles(bars: bool = False) -> list[Line2D]:
+    """One handle per port category, in :data:`CATEGORIES` order: a line, or a square for bars."""
+    style = {"marker": "s", "linestyle": "", "markersize": 10} if bars else {"marker": "o"}
     return [
-        Line2D(
-            [0], [0], color=CATEGORY_COLORS[c], marker="o", linewidth=2, label=CATEGORY_LABELS[c]
-        )  # fmt: skip
+        Line2D([0], [0], color=CATEGORY_COLORS[c], linewidth=2, label=CATEGORY_LABELS[c], **style)
         for c in CATEGORIES
     ]
 
@@ -216,6 +256,7 @@ def plot_category_fractions(
     title: Title,
     window_headings: Mapping[str, str],
     mouse_columns: Sequence[str] = ("mouse",),
+    bars: bool = False,
     save_path: str | Path | None = None,
 ) -> None:
     """Two panels (long pokes after initiation, pokes after choice) of the port-category fractions.
@@ -225,6 +266,7 @@ def plot_category_fractions(
         title (Title): Figure title. Keyword-only.
         window_headings (Mapping[str, str]): ``{window: tick label}``. Keyword-only.
         mouse_columns (Sequence[str]): Columns naming a mouse. Default ``("mouse",)``.
+        bars (bool): Grouped bars with a dot per mouse instead of lines. Default False.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
             Default None.
 
@@ -236,12 +278,11 @@ def plot_category_fractions(
     try:
         for kind, ax in zip(kinds, axes, strict=True):
             rows = mouse_means[mouse_means["kind"] == kind]
-            n = draw_category_fractions(
-                rows, ax=ax, window_headings=window_headings, mouse_columns=mouse_columns
-            )
+            draw = draw_category_fraction_bars if bars else draw_category_fractions
+            n = draw(rows, ax=ax, window_headings=window_headings, mouse_columns=mouse_columns)
             stats = stats_line("mean ± se", "mice", [(n, "mouse", "mice")])
             set_title(ax, Title(KIND_LABELS[kind], stats), fontsize=12)
-        fig.legend(handles=category_legend_handles(), loc="lower center", ncol=len(CATEGORIES),
+        fig.legend(handles=category_legend_handles(bars), loc="lower center", ncol=len(CATEGORIES),
                    frameon=False, fontsize=11)  # fmt: skip
         fig.tight_layout(rect=(0, 0.08, 1, 0.92))
         set_suptitle(fig, title, fontsize=14)
