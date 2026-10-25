@@ -32,7 +32,7 @@ Nothing here reads files or draws.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterable, Mapping
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from typing import NamedTuple
 
 import numpy as np
@@ -55,7 +55,7 @@ from src.behavior_analysis.poke_events import (
     pokes_after_initiation,
 )
 from src.behavior_analysis.port_finding_sessions import (
-    assign_port_finding_sessions,
+    PortFindingAssignment,
     port_finding_sessions_for_problem,
 )
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
@@ -146,15 +146,24 @@ def _parse(label: str, session: Mapping) -> list[TrialPokes] | None:
         return None
 
 
-def _session_task_trials(key: str, session: Mapping, trials: list[TrialPokes]) -> list[TaskTrial]:
+def _session_task_trials(
+    mouse: str, key: str, session: Mapping, trials: list[TrialPokes]
+) -> list[TaskTrial]:
     """The printed task trials of one parsed session, each with its block number.
 
-    The block numbers come from the session's ``"blocks"``, one per printed trial; if it is
-    missing or has another length they are ``None``.
+    The block numbers come from the session's ``"blocks"``, one per printed trial. If it is
+    missing or has another length (the importer drops prints without a block number) the block
+    numbers of the session are ``None``, with a warning.
     """
     task = [t for t in trials if t.has_print and not is_port_finding(t)]
     blocks = list(session.get("blocks") or [])
     if len(blocks) != len(task):
+        warnings.warn(
+            f"{mouse} {key}: {len(blocks)} block numbers for {len(task)} task trials; the "
+            "port-finding summary does not know its blocks",
+            UserWarning,
+            stacklevel=3,
+        )
         blocks = [None] * len(task)
     initiation = _initiation(session)
     return [TaskTrial(key, block, t, initiation) for block, t in zip(blocks, task, strict=True)]
@@ -191,42 +200,108 @@ def first_trials(task: list[TaskTrial], n: int = N_FIRST_TRIALS) -> list[TaskTri
     return task[:n] if len(task) >= n else None
 
 
-def block_starts(task: list[TaskTrial]) -> list[int] | None:
-    """Indices of the trials that start a block; ``None`` if a block number is unknown.
+def _starts_block(task: list[TaskTrial], i: int) -> bool | None:
+    """Whether trial *i* starts a block; ``None`` if that is unknown.
 
-    A block starts at the first trial, where the block number changes, and at every new session
-    (the importer restarts the numbering in each session).
+    A block starts at the first trial, at every new session (the importer restarts the block
+    numbering in each session) and where the block number changes within a session; inside a
+    session an unknown block number leaves it unknown.
     """
-    if any(t.block is None for t in task):
+    if i == 0 or task[i].session != task[i - 1].session:
+        return True
+    if task[i].block is None or task[i - 1].block is None:
         return None
-    return [
-        i
-        for i, t in enumerate(task)
-        if i == 0 or (t.session, t.block) != (task[i - 1].session, task[i - 1].block)
-    ]
+    return task[i].block != task[i - 1].block
 
 
-def first_blocks(task: list[TaskTrial], n: int = N_FIRST_BLOCKS) -> list[TaskTrial] | None:
+def first_blocks(
+    task: list[TaskTrial], n: int = N_FIRST_BLOCKS, *, more_after: bool = False
+) -> list[TaskTrial] | None:
     """The task trials of the first *n* blocks; ``None`` if block *n* is not known to be over.
 
-    Block *n* is over once block *n + 1* has started, so a mouse still in its *n*-th block (or
-    one with unknown block numbers) gets ``None``.
+    Block *n* is over once block *n + 1* has started. Block numbers are needed only up to there:
+    an unknown one inside a session before that point gives ``None``, later ones do not matter.
+
+    Args:
+        task (list[TaskTrial]): The problem's task trials in order.
+        n (int): Number of blocks. Default :data:`N_FIRST_BLOCKS`.
+        more_after (bool): A later session of the problem exists that is not in *task* (it could
+            not be read); it starts a new block, so block *n* is over if *task* ends in it.
+            Default False. Keyword-only.
+
+    Returns:
+        list[TaskTrial] | None: The trials of blocks 1 to *n*, or ``None``.
     """
-    starts = block_starts(task)
-    if starts is None or len(starts) <= n:
-        return None
-    return task[: starts[n]]
+    n_started = 0
+    for i in range(len(task)):
+        starts = _starts_block(task, i)
+        if starts is None:
+            return None
+        if starts:
+            n_started += 1
+            if n_started == n + 1:
+                return task[:i]
+    return task if more_after and n_started == n else None
 
 
 # ---------------------------------------------------------------------------- one mouse
 
+WINDOW_TEXT = {
+    PORT_FINDING: "port-finding",
+    FIRST_TRIALS: "first-trials",
+    FIRST_BLOCKS: "first-blocks",
+}
+
+
+class _ProblemTrials(NamedTuple):
+    """The parsed trials of one mouse and problem, as :func:`mouse_port_finding_summary` uses them.
+
+    ``task`` stops before the first session that could not be read (``truncated``);
+    ``port_finding_lost`` says why port-finding trials may be missing, or is ``None``.
+    """
+
+    port_finding: list[tuple[TrialPokes, str]]
+    task: list[TaskTrial]
+    truncated: str | None
+    port_finding_lost: str | None
+
+
+def _problem_trials(
+    mouse: str, sessions: Mapping[str, Mapping], found: Mapping[str, Mapping]
+) -> _ProblemTrials:
+    """Parse the port-finding-only sessions and the problem's sessions, oldest first."""
+    port_finding: list[tuple[TrialPokes, str]] = []
+    lost = None
+    for key in ordered_session_keys(mouse, found):
+        parsed = _parse(f"{mouse} {key}", found[key])
+        if parsed is None:
+            lost = lost or f"port-finding-only session {key} could not be read"
+            continue
+        port_finding += [(t, _initiation(found[key])) for t in parsed if is_port_finding(t)]
+    task: list[TaskTrial] = []
+    truncated = None
+    for key in ordered_session_keys(mouse, sessions):
+        parsed = _parse(f"{mouse} {key}", sessions[key])
+        if parsed is None:
+            if not task:  # port finding happens before the first task trial
+                lost = lost or f"session {key} could not be read before port finding ended"
+            truncated = truncated or key
+            continue
+        port_finding += [(t, _initiation(sessions[key])) for t in parsed if is_port_finding(t)]
+        if truncated is None:
+            task += _session_task_trials(mouse, key, sessions[key], parsed)
+    return _ProblemTrials(port_finding, task, truncated, lost)
+
 
 def _window_reason(window: str, n_trials: int, n_blocks: int, truncated: str | None) -> str:
     if truncated:
-        return f"{truncated} could not be read before the {window} window was complete"
+        return (
+            f"session {truncated} could not be read before the {WINDOW_TEXT[window]} window "
+            "was complete"
+        )
     if window == FIRST_TRIALS:
         return f"fewer than {n_trials} task trials"
-    return f"block {n_blocks} not complete, or block numbers missing"
+    return f"block {n_blocks} not complete, or its block numbers unknown"
 
 
 def mouse_port_finding_summary(
@@ -253,52 +328,39 @@ def mouse_port_finding_summary(
 
     Returns:
         MousePortFinding: The counts. A session whose raw events cannot be read is skipped with
-        a warning; a window that would reach past it is ``None``.
+        a warning: a task window that would reach past it is ``None``, and so is the port-finding
+        window if the session may hold port-finding trials (a port-finding-only session, or a
+        problem session before the first task trial).
 
     Raises:
         ValueError: If the session keys cannot be ordered, or a session has no choice towers.
         PokeAlignmentError: If a session's parsed trials do not match its imported trials.
     """
-    found = dict(port_finding_sessions or {})
-    port_finding: list[tuple[TrialPokes, str]] = []
-    for key in ordered_session_keys(mouse, found):
-        parsed = _parse(f"{mouse} {key}", found[key])
-        if parsed is not None:
-            init = _initiation(found[key])
-            port_finding += [(t, init) for t in parsed if is_port_finding(t)]
-
-    task: list[TaskTrial] = []
-    truncated = None  # the first session that could not be read
-    for key in ordered_session_keys(mouse, sessions):
-        parsed = _parse(f"{mouse} {key}", sessions[key])
-        if parsed is None:
-            truncated = truncated or f"session {key}"
-            continue
-        init = _initiation(sessions[key])
-        port_finding += [(t, init) for t in parsed if is_port_finding(t)]
-        if truncated is None:
-            task += _session_task_trials(key, sessions[key], parsed)
-
+    trials = _problem_trials(mouse, sessions, port_finding_sessions or {})
     chosen = {
-        FIRST_TRIALS: first_trials(task, n_trials),
-        FIRST_BLOCKS: first_blocks(task, n_blocks),
+        FIRST_TRIALS: first_trials(trials.task, n_trials),
+        FIRST_BLOCKS: first_blocks(trials.task, n_blocks, more_after=trials.truncated is not None),
     }
-    windows = {PORT_FINDING: window_pokes(port_finding) if port_finding else None}
+    port_finding_ok = trials.port_finding and trials.port_finding_lost is None
+    windows = {PORT_FINDING: window_pokes(trials.port_finding) if port_finding_ok else None}
     windows |= {
-        name: None if trials is None else window_pokes((t.pokes, t.initiation) for t in trials)
-        for name, trials in chosen.items()
+        name: None if found is None else window_pokes((t.pokes, t.initiation) for t in found)
+        for name, found in chosen.items()
     }
-    reasons = ([NO_PORT_FINDING] if not port_finding else []) + [
-        _window_reason(name, n_trials, n_blocks, truncated)
-        for name, trials in chosen.items()
-        if trials is None
+    reasons = [trials.port_finding_lost] if trials.port_finding_lost else []
+    if not trials.port_finding and not reasons:
+        reasons.append(NO_PORT_FINDING)
+    reasons += [
+        _window_reason(name, n_trials, n_blocks, trials.truncated)
+        for name, found in chosen.items()
+        if found is None
     ]
     return MousePortFinding(
         mouse=mouse,
         current_ports=problem_choice_ports(sessions),
         previous_ports=None if previous_ports is None else frozenset(previous_ports),
         initiation_port=_problem_initiation(mouse, sessions),
-        n_port_finding_trials=len(port_finding),
+        n_port_finding_trials=len(trials.port_finding),
         windows=windows,
         reasons=tuple(reasons),
     )
@@ -356,7 +418,7 @@ def problem_port_finding_summaries(
 
 def cohort_port_finding_summaries(
     trials_by_problem: Mapping,
-    port_finding_log: Mapping[str, Mapping[str, Mapping]],
+    assignment: PortFindingAssignment,
     *,
     task_types: Iterable[str] | None = None,
 ) -> dict[tuple[str, int], dict[str, MousePortFinding]]:
@@ -365,7 +427,8 @@ def cohort_port_finding_summaries(
     Args:
         trials_by_problem (Mapping): ``{overall problem: {mouse: sessions}}`` of the whole
             cohort (the previous problem of a mouse is looked up in it).
-        port_finding_log (Mapping): ``ImportLog.port_finding_sessions`` of the cohort.
+        assignment (PortFindingAssignment): The cohort's port-finding-only sessions, from
+            ``assign_port_finding_sessions``.
         task_types (Iterable[str] | None): Only the problems of these task types, e.g.
             ``["drifting"]``. Default ``None``: all. Keyword-only.
 
@@ -374,7 +437,6 @@ def cohort_port_finding_summaries(
     """
     wanted = None if task_types is None else set(task_types)
     previous = previous_problem_choice_towers(trials_by_problem)
-    assignment = assign_port_finding_sessions(trials_by_problem, port_finding_log)
     grouped = regroup_by_task_type(trials_by_problem, number_within_task_type(trials_by_problem))
     return {
         key: problem_port_finding_summaries(
@@ -405,7 +467,7 @@ def exclusion_reasons(summary: MousePortFinding, kind: str) -> tuple[str, ...]:
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}, got {kind!r}")
     empty = [
-        f"no {kind.replace('_', '-')} pokes in the {name.replace('_', '-')} window"
+        f"no {kind.replace('_', '-')} pokes in the {WINDOW_TEXT[name]} window"
         for name, window in summary.windows.items()
         if window is not None and percent_of_pokes(getattr(window, kind)) is None
     ]
@@ -413,7 +475,10 @@ def exclusion_reasons(summary: MousePortFinding, kind: str) -> tuple[str, ...]:
 
 
 def mean_percent_map(
-    summaries: Iterable[MousePortFinding], window: str, kind: str
+    summaries: Iterable[MousePortFinding],
+    window: str,
+    kind: str,
+    mice: Sequence[Hashable] | None = None,
 ) -> dict[str, float]:
     """The mean across mice of each port's percentage of pokes in one window.
 
@@ -421,21 +486,31 @@ def mean_percent_map(
         summaries (Iterable[MousePortFinding]): Mice without exclusion reasons for *kind*.
         window (str): One of :data:`WINDOWS`.
         kind (str): ``"after_initiation"`` or ``"after_choice"``.
+        mice (Sequence[Hashable] | None): The mouse of each summary, when a mouse may have several
+            (e.g. ``(cohort, mouse)`` over problems with the same layout): its maps are averaged
+            first, so every mouse weighs once. Default ``None``: one summary per mouse.
 
     Returns:
         dict[str, float]: ``{port: mean percent}`` over the nine ports.
 
     Raises:
-        ValueError: If there are no summaries, or one of them has exclusion reasons for *kind*.
+        ValueError: If there are no summaries, *mice* has another length, or a summary has
+            exclusion reasons for *kind*.
     """
     summaries = list(summaries)
     if not summaries:
         raise ValueError("no mice to average")
+    mice = list(range(len(summaries))) if mice is None else list(mice)
+    if len(mice) != len(summaries):
+        raise ValueError(f"{len(mice)} mice for {len(summaries)} summaries")
     excluded = [s.mouse for s in summaries if exclusion_reasons(s, kind)]
     if excluded:
         raise ValueError(f"mice {excluded} cannot be averaged for {kind}")
-    maps = [percent_of_pokes(getattr(s.windows[window], kind)) for s in summaries]
-    return {port: float(np.mean([m[port] for m in maps])) for port in ARMS9}
+    by_mouse: dict = {}
+    for mouse, s in zip(mice, summaries, strict=True):
+        by_mouse.setdefault(mouse, []).append(percent_of_pokes(getattr(s.windows[window], kind)))
+    per_mouse = [{p: np.mean([m[p] for m in maps]) for p in ARMS9} for maps in by_mouse.values()]
+    return {port: float(np.mean([m[port] for m in per_mouse])) for port in ARMS9}
 
 
 def group_by_layout(keys_and_summaries: Iterable[tuple[object, MousePortFinding]]) -> dict:
@@ -483,6 +558,9 @@ def port_category(
 def category_fractions(summary: MousePortFinding, window: str, kind: str) -> dict[str, float]:
     """The fraction of the mouse's pokes of *kind* in *window* at each category of port.
 
+    A mouse in its first problem has no previous ports: its previous fraction is ``nan``, so it
+    is left out of that category's mean rather than counted as 0.
+
     Raises:
         ValueError: If the window is incomplete or has no pokes of *kind*.
     """
@@ -499,10 +577,12 @@ def category_fractions(summary: MousePortFinding, window: str, kind: str) -> dic
             port, summary.current_ports, summary.previous_ports, summary.initiation_port
         )
         fractions[category] += counts[port] / total
+    if summary.previous_ports is None:
+        fractions[PREVIOUS] = float("nan")
     return fractions
 
 
-def category_fraction_table(entries: Iterable[tuple[Mapping, MousePortFinding]]):
+def category_fraction_table(entries: Iterable[tuple[Mapping, MousePortFinding]]) -> pd.DataFrame:
     """One row per mouse, problem, poke kind, window and port category, with the fraction.
 
     Args:
@@ -511,9 +591,9 @@ def category_fraction_table(entries: Iterable[tuple[Mapping, MousePortFinding]])
             row. Summaries with exclusion reasons for a kind add no rows of that kind.
 
     Returns:
-        pd.DataFrame: The label columns, then ``mouse, kind, window, category, fraction``.
+        pd.DataFrame: The label columns, then ``mouse, kind, window, category, fraction``
+        (``nan`` for the previous category of a mouse's first problem).
     """
-
     rows = [
         {**labels, "mouse": s.mouse, "kind": kind, "window": window, "category": c, "fraction": f}
         for labels, s in entries
@@ -526,8 +606,10 @@ def category_fraction_table(entries: Iterable[tuple[Mapping, MousePortFinding]])
     return pd.DataFrame(rows) if rows else pd.DataFrame(columns=columns)
 
 
-def mouse_mean_fractions(table, mouse_columns=("mouse",)):
-    """Each mouse's fractions averaged over its problems, with the number of problems.
+def mouse_mean_fractions(
+    table: pd.DataFrame, mouse_columns: Sequence[str] = ("mouse",)
+) -> pd.DataFrame:
+    """Each mouse's fractions averaged over its problems, with the number of problems used.
 
     Args:
         table (pd.DataFrame): Output of :func:`category_fraction_table`.
@@ -535,8 +617,10 @@ def mouse_mean_fractions(table, mouse_columns=("mouse",)):
             several cohorts are pooled). Default ``("mouse",)``.
 
     Returns:
-        pd.DataFrame: ``*mouse_columns, kind, window, category, fraction, n_problems``.
+        pd.DataFrame: ``*mouse_columns, kind, window, category, fraction, n_problems``;
+        ``n_problems`` counts the problems with a value (a ``nan`` previous fraction is
+        skipped), and a mouse with none has ``fraction`` ``nan``.
     """
     keys = [*mouse_columns, "kind", "window", "category"]
     grouped = table.groupby(keys, sort=False)["fraction"]
-    return grouped.agg(fraction="mean", n_problems="size").reset_index()
+    return grouped.agg(fraction="mean", n_problems="count").reset_index()

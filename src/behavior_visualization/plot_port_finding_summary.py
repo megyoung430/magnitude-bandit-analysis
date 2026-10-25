@@ -154,7 +154,13 @@ def plot_port_finding_heatmaps(
 
 
 def _mean_se(values: np.ndarray) -> tuple[float, float]:
-    """Mean and standard error (``nan`` with one value)."""
+    """Mean and standard error of the finite values (``nan`` se with one, both ``nan`` with none).
+
+    A mouse has a ``nan`` previous fraction when all its problems are first problems.
+    """
+    values = values[np.isfinite(values)]
+    if len(values) == 0:
+        return np.nan, np.nan
     se = values.std(ddof=1) / np.sqrt(len(values)) if len(values) > 1 else np.nan
     return float(values.mean()), float(se)
 

@@ -83,17 +83,26 @@ def test_the_cohort_fractions_cover_its_drifting_problems(
     monkeypatch, tmp_path, calls, cohort_extras, single_sessions
 ):
     seen = []
-    monkeypatch.setattr(cohort_analysis, "write_cohort_category_fractions",
-                        lambda trials, grouped, assignment, out_dir, *, cohort: seen.append(
-                            (grouped, out_dir, cohort)))  # fmt: skip
-    run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting())
-    ((grouped, out_dir, cohort),) = seen
-    assert cohort == "cohort-01"
-    assert out_dir == (
-        tmp_path / "figures/open-field/cohort-01/drifting/all-drifting-problems"
-        / "port-finding-summary"
-    )  # fmt: skip
-    assert {kind for kind, _ in grouped} == {"blocked", "drifting"}
+    monkeypatch.setattr(cohort_analysis, "write_port_finding_fractions",
+                        lambda entries, pooled_dir, scope: seen.append((entries, pooled_dir,
+                                                                        scope)))  # fmt: skip
+    run_cohort(1, results_root=tmp_path, trials_by_problem=blocked_then_two_drifting(),
+               exclude_mice=["m2"])  # fmt: skip
+    (entries, pooled_dir, scope), (without, without_dir, without_scope) = seen
+    assert pooled_dir == tmp_path / "figures/open-field/cohort-01/drifting/all-drifting-problems"
+    assert scope == "cohort-01 drifting problems"
+    assert {labels["task_type"] for labels, _ in entries} == {"drifting"}
+    assert {s.mouse for _, s in entries} == {"m1", "m2"}
+    assert without_dir.name == "all-drifting-problems-without-m2"
+    assert {s.mouse for _, s in without} == {"m1"}
+
+
+def test_the_cohort_fractions_folder_is_emptied_before_it_is_written(tmp_path):
+    out = tmp_path / cohort_analysis.PORT_FINDING_SUMMARY_FOLDER
+    out.mkdir()
+    (out / "stale.png").write_text("old")
+    cohort_analysis.write_port_finding_fractions([], tmp_path, "s")
+    assert [p.name for p in out.iterdir()] == ["Port Finding Summary - Left Out.txt"]
 
 
 @pytest.fixture(scope="module")

@@ -118,6 +118,7 @@ from src.behavior_analysis.port_finding_sessions import (
     assign_port_finding_sessions,
     port_finding_sessions_for_problem,
 )
+from src.behavior_analysis.port_finding_summary import cohort_port_finding_summaries
 from src.behavior_analysis.review_context import ProblemIndex
 from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table
 from src.behavior_analysis.starting_magnitudes import starting_magnitudes_table
@@ -173,7 +174,8 @@ from src.pipelines.open_field import (
 )
 from src.pipelines.port_finding_summary import (
     PORT_FINDING_SUMMARY_FOLDER,
-    write_cohort_category_fractions,
+    problem_entries,
+    write_category_fractions,
 )
 from src.pipelines.sessions_per_problem import (
     SESSIONS_PER_PROBLEM_FOLDER,
@@ -775,6 +777,7 @@ def run_excluded_pooled_set(
     *,
     results_root: Path,
     selection: AnalysisSelection,
+    port_finding_entries: list | None = None,
 ) -> dict:
     """The pooled drifting analyses without the *excluded* mice, in their own folders.
 
@@ -793,6 +796,9 @@ def run_excluded_pooled_set(
         excluded (tuple[str, ...]): The excluded mouse ids, sorted.
         results_root (Path): Folder that receives ``figures/`` and ``tables/``. Keyword-only.
         selection (AnalysisSelection): The drifting selection. Keyword-only.
+        port_finding_entries (list | None): ``(labels, MousePortFinding)`` pairs of the drifting
+            problems without the excluded mice, for ``port-finding-summary/``; ``None`` draws
+            none. Default None. Keyword-only.
 
     Returns:
         dict: The rank results of the reduced pool, as :func:`pooled_drifting_rank_results`.
@@ -806,8 +812,22 @@ def run_excluded_pooled_set(
         shutil.rmtree(folder, ignore_errors=True)
     with figure_banner(scope):
         ranks, tables = run_pooled_drifting(drifting, pooled_dir, selection, scope)
+        if port_finding_entries is not None:
+            write_port_finding_fractions(
+                port_finding_entries, pooled_dir, f"{cohort} drifting problems {scope}"
+            )
     _write_tables(tables, tables_dir)
     return ranks
+
+
+def write_port_finding_fractions(entries: list, pooled_dir: Path, scope: str) -> None:
+    """The port-category fractions into ``<pooled_dir>/port-finding-summary/``, emptied first.
+
+    The folder belongs to this figure alone, so a rerun leaves nothing stale in it.
+    """
+    out_dir = pooled_dir / PORT_FINDING_SUMMARY_FOLDER
+    shutil.rmtree(out_dir, ignore_errors=True)
+    write_category_fractions(entries, out_dir, scope=scope)
 
 
 def write_excluded_sessions_per_problem(
@@ -1028,13 +1048,18 @@ def run_cohort(
                 pooled, _ = run_pooled_drifting(
                     drifting, figures / DRIFTING / POOLED_DRIFTING_FOLDER, drifting_selection
                 )
-                if drifting_selection.run_poke_analysis:
-                    write_cohort_category_fractions(
-                        trials_by_problem,
-                        grouped,
-                        port_finding,
-                        figures / DRIFTING / POOLED_DRIFTING_FOLDER / PORT_FINDING_SUMMARY_FOLDER,
-                        cohort=cohort,
+                summaries = (
+                    cohort_port_finding_summaries(
+                        trials_by_problem, port_finding, task_types=[DRIFTING]
+                    )
+                    if drifting_selection.run_poke_analysis
+                    else None
+                )
+                if summaries is not None:
+                    write_port_finding_fractions(
+                        problem_entries(summaries),
+                        figures / DRIFTING / POOLED_DRIFTING_FOLDER,
+                        f"{cohort} drifting problems",
                     )
                 if excluded:
                     excluded_pooled = run_excluded_pooled_set(
@@ -1043,6 +1068,9 @@ def run_cohort(
                         excluded,
                         results_root=results_root,
                         selection=drifting_selection,
+                        port_finding_entries=None
+                        if summaries is None
+                        else problem_entries(summaries, exclude_mice=excluded),
                     )
                 pooled_ran = True
             else:

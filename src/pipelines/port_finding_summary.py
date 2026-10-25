@@ -5,14 +5,18 @@
   problem's ``long-pokes/`` folder.
 - :func:`write_layout_port_finding_heatmaps`: drifting problems of several cohorts pooled by
   port layout, one figure per layout and poke kind (cohorts number their problems differently, so
-  the same layout is often a different problem number). The all-cohorts runner writes them into
+  the same layout is often a different problem number). A mouse that ran one layout in several
+  problems is averaged over them first. The all-cohorts runner writes them into
   ``all-cohorts/port-finding-summary/``.
 - :func:`write_category_fractions`: the fraction of pokes at current, previous, initiation and
   other ports in the three windows, averaged over each mouse's problems and then across mice.
   Written per cohort into ``drifting/all-drifting-problems/port-finding-summary/`` and for the
   cohorts together into ``all-cohorts/port-finding-summary/``.
 
-Every figure has a ``.caption.txt`` that defines the windows and lists the mice left out.
+Every figure has a ``.caption.txt`` that defines the windows and lists the mice left out of it,
+and every folder gets :data:`LEFT_OUT_FILE`, listing all mice left out of any figure written
+there (also those of a layout or kind with no figure at all). A figure that a rerun no longer
+draws is removed, so no stale figure stays behind.
 """
 
 from __future__ import annotations
@@ -22,15 +26,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.behavior_analysis.poke_counts import (
-    KINDS,
-    previous_choice_towers_for_problem,
-    previous_problem_choice_towers,
-)
-from src.behavior_analysis.port_finding_sessions import (
-    PortFindingAssignment,
-    port_finding_sessions_for_problem,
-)
+from src.behavior_analysis.poke_counts import KINDS
 from src.behavior_analysis.port_finding_summary import (
     N_FIRST_BLOCKS,
     N_FIRST_TRIALS,
@@ -41,9 +37,9 @@ from src.behavior_analysis.port_finding_summary import (
     group_by_layout,
     mean_percent_map,
     mouse_mean_fractions,
-    problem_port_finding_summaries,
 )
-from src.behavior_visualization.plot_helpers import Title, stats_line
+from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
+from src.behavior_visualization.plot_helpers import FIGURE_FORMATS, Title, caption_path, stats_line
 from src.behavior_visualization.plot_port_finding_summary import (
     KIND_LABELS,
     HeatmapRow,
@@ -55,7 +51,7 @@ from src.behavior_visualization.plot_port_finding_summary import (
 PORT_FINDING_SUMMARY_FOLDER = "port-finding-summary"
 HEATMAP_STEM = "Port Finding Summary"
 FRACTIONS_STEM = "Port Finding Summary - Port Categories"
-FRACTIONS_TABLE = "port_finding_category_fractions"
+LEFT_OUT_FILE = "Port Finding Summary - Left Out.txt"
 
 WINDOW_TEXT = (
     f"Windows: port finding (every port-finding trial of the problem, port-finding-only "
@@ -76,24 +72,19 @@ HEATMAP_TEXT = (
 )
 EXCLUSION_TEXT = (
     f"A mouse is left out of a problem unless it has port-finding trials, at least "
-    f"{N_FIRST_TRIALS} task trials and a complete block {N_FIRST_BLOCKS}."
+    f"{N_FIRST_TRIALS} task trials and a complete block {N_FIRST_BLOCKS} (block "
+    f"{N_FIRST_BLOCKS + 1} has started)."
 )
 CATEGORY_TEXT = (
     "Port categories: a port that is a choice port of both the current and the previous problem "
     "counts as current. Each mouse's fractions are averaged over its problems first; bars are the "
-    "mean ± se across mice, dots the mice. Fractions are raw shares of pokes, not corrected for "
-    "how many ports each category has."
+    "mean ± se across mice, dots the mice. A mouse's first problem has no previous ports, so it "
+    "adds nothing to the previous-port bars (a mouse with only first problems is not in them). "
+    "Fractions are raw shares of pokes, not corrected for how many ports each category has."
 )
 
 
-def _excluded_lines(excluded: Mapping[Hashable, Sequence[str]]) -> list[str]:
-    if not excluded:
-        return ["No mouse left out."]
-    return ["Left out:"] + [f"{_label(who)}: {'; '.join(why)}" for who, why in excluded.items()]
-
-
-def _ports(ports: Iterable[str]) -> str:
-    return " ".join(ports) or "None"
+# ---------------------------------------------------------------------------- helpers
 
 
 def _label(key: Hashable) -> str:
@@ -108,16 +99,53 @@ def _split(entries: Mapping[Hashable, MousePortFinding], kind: str) -> tuple[dic
     return usable, {key: why for key, why in reasons.items() if why}
 
 
-def _heatmap_row(label: str, layout, summaries: list[MousePortFinding], kind: str) -> HeatmapRow:
+def _excluded_lines(excluded: Mapping[Hashable, Sequence[str]]) -> list[str]:
+    if not excluded:
+        return ["No mouse left out."]
+    return ["Left out:"] + [f"{_label(who)}: {'; '.join(why)}" for who, why in excluded.items()]
+
+
+def _left_out_text(scope: str, by_kind: Mapping[str, Mapping[Hashable, Sequence[str]]]) -> str:
+    lines = [scope, EXCLUSION_TEXT]
+    for kind, excluded in by_kind.items():
+        lines += ["", f"{KIND_LABELS[kind]}:", *_excluded_lines(excluded)]
+    return "\n".join(lines) + "\n"
+
+
+def _write_left_out(out_dir: Path, scope: str, by_kind: Mapping) -> None:
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    (Path(out_dir) / LEFT_OUT_FILE).write_text(_left_out_text(scope, by_kind))
+
+
+def remove_figure(base: Path) -> None:
+    """Delete the files of the figure saved as ``<base>.<format>`` and its caption, if any."""
+    for path in [Path(f"{base}.{fmt}") for fmt in FIGURE_FORMATS] + [caption_path(base)]:
+        path.unlink(missing_ok=True)
+
+
+def _ports(ports: Iterable[str]) -> str:
+    return " ".join(ports) or "None"
+
+
+def _layout_name(layout) -> str:
+    current, previous, initiation = layout
+    name = f"{_ports(current)} After {_ports(previous)}"
+    return name if initiation == DEFAULT_INITIATION_TOWER else f"{name} (Initiation {initiation})"
+
+
+def _heatmap_row(label: str, layout, summaries, kind: str, mice=None) -> HeatmapRow:
     current, previous, initiation = layout
     return HeatmapRow(
         label=label,
         current_ports=current,
         previous_ports=previous,
         initiation_port=initiation,
-        maps={w: mean_percent_map(summaries, w, kind) for w in WINDOWS},
-        n_mice=len(summaries),
+        maps={w: mean_percent_map(summaries, w, kind, mice) for w in WINDOWS},
+        n_mice=len(set(mice)) if mice is not None else len(summaries),
     )
+
+
+# ---------------------------------------------------------------------------- one problem
 
 
 def write_problem_port_finding_heatmaps(
@@ -125,24 +153,30 @@ def write_problem_port_finding_heatmaps(
 ) -> list[Path]:
     """The per-layout mean heatmaps of one problem, one figure per poke kind.
 
+    A kind without a usable mouse gets no figure (an earlier one is removed); the mice left out
+    are listed in :data:`LEFT_OUT_FILE` either way.
+
     Args:
         summaries (Mapping[str, MousePortFinding]): ``{mouse: summary}`` of the problem.
-        out_dir (Path): Folder for the figures. Keyword-only *scope* starts the caption.
-        scope (str): E.g. ``"cohort-03 drifting problem-02"``.
+        out_dir (Path): Folder for the figures.
+        scope (str): Starts every caption, e.g. ``"cohort-03 drifting problem-02"``.
+            Keyword-only.
 
     Returns:
-        list[Path]: The base paths written (no extension); a kind without a usable mouse is
-        skipped.
+        list[Path]: The base paths written (no extension).
     """
-    written = []
+    written, left_out = [], {}
     for kind in KINDS:
-        usable, excluded = _split(summaries, kind)
+        usable, left_out[kind] = _split(summaries, kind)
+        base = Path(out_dir) / f"{HEATMAP_STEM} - {KIND_LABELS[kind]}"
         if not usable:
             print(f"[INFO] {scope}: no mouse for the port-finding summary of {kind}")
+            remove_figure(base)
             continue
         rows = [
             _heatmap_row(
-                f"Current {_ports(layout[0])}\nPrev {_ports(layout[1])}",
+                f"Current {_ports(layout[0])}\nPrev {_ports(layout[1])}"
+                + ("" if layout[2] == DEFAULT_INITIATION_TOWER else f"\nInitiation {layout[2]}"),
                 layout,
                 [usable[m] for m in mice],
                 kind,
@@ -153,9 +187,8 @@ def write_problem_port_finding_heatmaps(
             f"{HEATMAP_STEM} - {KIND_LABELS[kind]}",
             stats_line("mean", "mice", [(len(usable), "mouse", "mice")]),
             (scope, KIND_TEXT[kind], WINDOW_TEXT, HEATMAP_TEXT, EXCLUSION_TEXT,
-             *_excluded_lines(excluded)),
+             *_excluded_lines(left_out[kind])),
         )  # fmt: skip
-        base = Path(out_dir) / f"{HEATMAP_STEM} - {KIND_LABELS[kind]}"
         plot_port_finding_heatmaps(
             rows,
             kind,
@@ -164,19 +197,30 @@ def write_problem_port_finding_heatmaps(
             save_path=base,
         )
         written.append(base)
+    _write_left_out(out_dir, scope, left_out)
     return written
 
 
-def _layout_name(layout) -> str:
-    current, previous, initiation = layout
-    name = f"{_ports(current)} After {_ports(previous)}"
-    return name if initiation == "B2" else f"{name} (Initiation {initiation})"
+# ---------------------------------------------------------------------------- pooled by layout
+
+
+def _layout_label(keys: list[tuple[str, int, str]]) -> str:
+    """``"cohort-01: Problem 1 (n=1)\\ncohort-03: Problem 2, 4 (n=2)"`` (n counts mice)."""
+    lines = []
+    for cohort in sorted({c for c, _, _ in keys}):
+        mine = [(k, m) for c, k, m in keys if c == cohort]
+        problems = ", ".join(str(k) for k in sorted({k for k, _ in mine}))
+        lines.append(f"{cohort}: Problem {problems} (n={len({m for _, m in mine})})")
+    return "\n".join(lines)
 
 
 def write_layout_port_finding_heatmaps(
     entries: Mapping[tuple[str, int, str], MousePortFinding], out_dir: Path, *, scope: str
 ) -> list[Path]:
     """Mice of several cohorts and problems pooled by port layout: one figure per layout and kind.
+
+    A mouse that ran one layout in several problems is averaged over those problems first, so
+    every mouse weighs once and ``n`` counts mice.
 
     Args:
         entries (Mapping): ``{(cohort name, k, mouse): summary}``.
@@ -187,28 +231,23 @@ def write_layout_port_finding_heatmaps(
     Returns:
         list[Path]: The base paths written (no extension).
     """
-    written = []
+    written, left_out = [], {}
     for kind in KINDS:
-        usable, excluded = _split(entries, kind)
+        usable, left_out[kind] = _split(entries, kind)
         for layout, keys in group_by_layout(usable.items()).items():
-            cohorts = sorted({cohort for cohort, _, _ in keys})
-            label = "\n".join(
-                f"{cohort}: Problem "
-                f"{', '.join(str(k) for k in sorted({k for c, k, _ in keys if c == cohort}))} "
-                f"(n={sum(c == cohort for c, _, _ in keys)})"
-                for cohort in cohorts
-            )
-            layout_excluded = {
-                key: why for key, why in excluded.items() if entries[key].layout == layout
-            }
+            label = _layout_label(keys)
             name = _layout_name(layout)
+            mice = [(c, m) for c, _, m in keys]
+            in_layout = {k: why for k, why in left_out[kind].items() if entries[k].layout == layout}
             title = Title(
                 f"{HEATMAP_STEM} - {name} - {KIND_LABELS[kind]}",
-                stats_line("mean", "mice", [(len(keys), "mouse", "mice")]),
+                stats_line("mean", "mice", [(len(set(mice)), "mouse", "mice")]),
                 (scope, f"Layout {name}; {label.replace(chr(10), '; ')}", KIND_TEXT[kind],
-                 WINDOW_TEXT, HEATMAP_TEXT, EXCLUSION_TEXT, *_excluded_lines(layout_excluded)),
+                 WINDOW_TEXT, HEATMAP_TEXT,
+                 "A mouse with this layout in several problems is averaged over them first.",
+                 EXCLUSION_TEXT, *_excluded_lines(in_layout)),
             )  # fmt: skip
-            row = _heatmap_row(label, layout, [usable[k] for k in keys], kind)
+            row = _heatmap_row(label, layout, [usable[k] for k in keys], kind, mice)
             base = Path(out_dir) / f"{HEATMAP_STEM} - {name} - {KIND_LABELS[kind]}"
             plot_port_finding_heatmaps(
                 [row],
@@ -218,7 +257,11 @@ def write_layout_port_finding_heatmaps(
                 save_path=base,
             )
             written.append(base)
+    _write_left_out(out_dir, scope, left_out)
     return written
+
+
+# ---------------------------------------------------------------------------- port categories
 
 
 def write_category_fractions(
@@ -240,71 +283,63 @@ def write_category_fractions(
 
     Returns:
         pd.DataFrame: One row per mouse, problem, kind, window and category (see
-        ``category_fraction_table``); empty, with no figure written, if no mouse is usable.
+        ``category_fraction_table``); empty, with no figure (an earlier one is removed), if no
+        mouse is usable. The mice left out are listed in :data:`LEFT_OUT_FILE` either way.
     """
     entries = list(entries)
+    keyed = {(*labels.values(), s.mouse): s for labels, s in entries}
+    left_out = {kind: _split(keyed, kind)[1] for kind in KINDS}
+    _write_left_out(out_dir, scope, left_out)
     table = category_fraction_table(entries)
+    base = Path(out_dir) / FRACTIONS_STEM
     if table.empty:
         print(f"[INFO] {scope}: no mouse for the port-category fractions")
+        remove_figure(base)
         return table
     means = mouse_mean_fractions(table, mouse_columns)
-    problems = table[[*mouse_columns, *[c for c in ("task_type", "k") if c in table]]]
-    n_pairs = problems.drop_duplicates().shape[0]
-    excluded = {
-        (*labels.values(), s.mouse): exclusion_reasons(s, kind)
-        for labels, s in entries
-        for kind in KINDS
-        if exclusion_reasons(s, kind)
-    }
+    columns = [*mouse_columns, *[c for c in ("task_type", "k") if c in table]]
+    n_pairs = table[columns].drop_duplicates().shape[0]
+    excluded_lines = [
+        f"{KIND_LABELS[kind]}: {line}" for kind in KINDS for line in _excluded_lines(left_out[kind])
+    ]
     title = Title(
         FRACTIONS_STEM,
         None,
         (scope, f"{n_pairs} mouse-problem pairs.", KIND_TEXT["after_initiation"],
          KIND_TEXT["after_choice"], WINDOW_TEXT, CATEGORY_TEXT, EXCLUSION_TEXT,
-         *_excluded_lines(excluded)),
+         *excluded_lines),
     )  # fmt: skip
     plot_category_fractions(
         means,
         title=title,
         window_headings=window_labels(N_FIRST_TRIALS, N_FIRST_BLOCKS),
         mouse_columns=mouse_columns,
-        save_path=Path(out_dir) / FRACTIONS_STEM,
+        save_path=base,
     )
     return table
 
 
-def write_cohort_category_fractions(
-    trials_by_problem: Mapping,
-    grouped: Mapping[tuple[str, int], Mapping],
-    assignment: PortFindingAssignment,
-    out_dir: Path,
+def problem_entries(
+    summaries: Mapping[tuple[str, int], Mapping[str, MousePortFinding]],
     *,
-    cohort: str,
-    task_type: str = "drifting",
-) -> pd.DataFrame:
-    """The port-category fractions over the problems of one task type of one cohort.
+    exclude_mice: Iterable[str] = (),
+    **labels,
+) -> list[tuple[dict, MousePortFinding]]:
+    """``(labels, summary)`` pairs of ``{(task type, k): {mouse: summary}}``, for
+    :func:`write_category_fractions`; the labels are *labels* plus ``task_type`` and ``k``.
 
     Args:
-        trials_by_problem (Mapping): ``{overall problem: {mouse: sessions}}`` of the cohort, for
-            each mouse's previous problem.
-        grouped (Mapping): ``{(task type, k): {mouse: sessions}}`` of the cohort.
-        assignment (PortFindingAssignment): The cohort's port-finding-only sessions.
-        out_dir (Path): Folder for the figure.
-        cohort (str): Cohort name, e.g. ``"cohort-03"``. Keyword-only.
-        task_type (str): The problems to pool. Default ``"drifting"``. Keyword-only.
+        summaries (Mapping): As ``cohort_port_finding_summaries`` returns.
+        exclude_mice (Iterable[str]): Mice to leave out. Default none. Keyword-only.
+        **labels: Extra labels in front, e.g. ``cohort="cohort-03"``.
 
     Returns:
-        pd.DataFrame: As :func:`write_category_fractions`.
+        list[tuple[dict, MousePortFinding]]: The pairs, problems in order.
     """
-    previous = previous_problem_choice_towers(trials_by_problem)
-    entries = [
-        ({"task_type": kind, "k": k}, summary)
-        for (kind, k), subjects in grouped.items()
-        if kind == task_type
-        for summary in problem_port_finding_summaries(
-            subjects,
-            previous_choice_towers=previous_choice_towers_for_problem(subjects, previous),
-            port_finding_sessions=port_finding_sessions_for_problem(assignment, subjects),
-        ).values()
+    excluded = set(exclude_mice)
+    return [
+        ({**labels, "task_type": task_type, "k": k}, summary)
+        for (task_type, k), mice in summaries.items()
+        for mouse, summary in mice.items()
+        if mouse not in excluded
     ]
-    return write_category_fractions(entries, out_dir, scope=f"{cohort} {task_type} problems")

@@ -308,18 +308,24 @@ def _inputs_for_cohorts(
     return {c: trials_by_cohort[c] for c in cohort_ids}, {c: logs.get(c) for c in cohort_ids}
 
 
-def _sessions_per_problem(trials_by_cohort: dict, logs: dict) -> pd.DataFrame:
-    """The stacked sessions-per-problem tables of the cohorts, the cohort name in front.
-
-    A cohort without an import log has no port-finding-only sessions.
-    """
-    tables = []
-    for cohort_id, trials in trials_by_cohort.items():
-        log = logs[cohort_id]
-        assignment = assign_port_finding_sessions(trials, log.port_finding_sessions if log else {})
-        tables.append(
-            with_cohort(sessions_per_problem_table(trials, assignment), cohort_name(cohort_id))
+def _assignments(trials_by_cohort: dict, logs: dict) -> dict:
+    """``{cohort id: PortFindingAssignment}``; a cohort without an import log has none."""
+    return {
+        cohort_id: assign_port_finding_sessions(
+            trials, logs[cohort_id].port_finding_sessions if logs[cohort_id] else {}
         )
+        for cohort_id, trials in trials_by_cohort.items()
+    }
+
+
+def _sessions_per_problem(trials_by_cohort: dict, assignments: dict) -> pd.DataFrame:
+    """The stacked sessions-per-problem tables of the cohorts, the cohort name in front."""
+    tables = [
+        with_cohort(
+            sessions_per_problem_table(trials, assignments[cohort_id]), cohort_name(cohort_id)
+        )
+        for cohort_id, trials in trials_by_cohort.items()
+    ]
     return pd.concat(tables, ignore_index=True)
 
 
@@ -379,16 +385,13 @@ def _draw_port_finding_summary(entries: dict, out_dir: Path, label: str) -> None
     )
 
 
-def _port_finding_entries(trials_by_cohort: dict, logs: dict) -> dict:
-    """``{(cohort name, k, mouse): MousePortFinding}`` over the cohorts' drifting problems.
-
-    A cohort without an import log has no port-finding-only sessions.
-    """
+def _port_finding_entries(trials_by_cohort: dict, assignments: dict) -> dict:
+    """``{(cohort name, k, mouse): MousePortFinding}`` over the cohorts' drifting problems."""
     entries = {}
     for cohort_id, trials in trials_by_cohort.items():
-        log = logs[cohort_id]
-        found = log.port_finding_sessions if log else {}
-        by_problem = cohort_port_finding_summaries(trials, found, task_types=[DRIFTING])
+        by_problem = cohort_port_finding_summaries(
+            trials, assignments[cohort_id], task_types=[DRIFTING]
+        )
         entries |= {
             (cohort_name(cohort_id), k, mouse): summary
             for (_, k), mice in by_problem.items()
@@ -476,7 +479,7 @@ def run_all_cohorts_drifting(
 ) -> AllCohortsResult:
     """Run the all-drifting-problems analyses over the drifting problems of several cohorts.
 
-    See the module docstring for the outputs. Anything an earlier run left in the six figure
+    See the module docstring for the outputs. Anything an earlier run left in the seven figure
     folders and five tables of the output is removed first, so the files always belong to the
     cohorts named in ``cohorts.txt``.
 
@@ -525,9 +528,10 @@ def run_all_cohorts_drifting(
     problems_without = exclude_mice_from_problems(pooled.problems, excluded) if excluded else {}
     run_at = run_at or datetime.now()
     sources = cache_sources({cohort_name(c): log for c, log in logs.items()})
-    sessions = _sessions_per_problem(imported, logs)
+    assignments = _assignments(imported, logs)
+    sessions = _sessions_per_problem(imported, assignments)
     port_finding = (
-        _port_finding_entries(imported, logs) if drifting_selection.run_poke_analysis else {}
+        _port_finding_entries(imported, assignments) if drifting_selection.run_poke_analysis else {}
     )
     root = Path(results_root)
     folders = {kind: root / kind / TASK / ALL_COHORTS_FOLDER for kind in ("figures", "tables")}
