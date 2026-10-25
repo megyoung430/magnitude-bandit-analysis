@@ -52,6 +52,7 @@ from src.behavior_analysis.poke_counts import (  # noqa: F401  (re-exported)
 )
 from src.behavior_analysis.poke_tables import cross_check_table
 from src.behavior_analysis.port_finding_check import port_finding_check_table
+from src.behavior_analysis.port_finding_summary import problem_port_finding_summaries
 from src.behavior_analysis.stats import mean_se_n
 from src.behavior_import.problem_numbering import DEFAULT_INITIATION_TOWER
 from src.behavior_import.session_order import ordered_session_keys
@@ -61,6 +62,7 @@ from src.behavior_visualization.plot_num_long_pokes import (
     plot_num_pokes_across_mice,
     relative_session_label,
 )
+from src.pipelines.port_finding_summary import write_problem_port_finding_heatmaps
 
 LONG_POKES_STEM = "Long Pokes by Relative Session"
 AFTER_CHOICE_STEM = "Maze Heatmaps - Pokes After Choice"
@@ -273,6 +275,7 @@ def run_poke_analysis(
     previous_choice_towers: dict | None = None,
     poke_counts: dict | None = None,
     port_finding_sessions: dict | None = None,
+    summary_scope: str | None = None,
 ) -> dict:
     """Long pokes per relative session and the maze heatmaps for one problem.
 
@@ -297,6 +300,10 @@ def run_poke_analysis(
             each record needs ``"df"``, and ``"initiation_tower"`` if it is not ``"B2"``. Their
             trials are added to the port-finding maps, titles and ``"summary"`` only. ``None``
             (default) adds none. Keyword-only.
+        summary_scope (str | None): If given (e.g. ``"cohort-03 drifting problem-02"``), the
+            port-finding summary heatmaps are written too, with this caption scope (see
+            :mod:`src.pipelines.port_finding_summary`; they parse the raw events again).
+            Default ``None``: not written. Keyword-only.
 
     Returns:
         dict: A dict with ``"long_pokes"`` (``"by_session"`` = ``{mouse: {session: mean}}``,
@@ -316,7 +323,8 @@ def run_poke_analysis(
         row per mouse with port-finding trials against the minimum ``n_ports x found_t_thresh``,
         see :func:`~src.behavior_analysis.port_finding_check.port_finding_check_table`) and
         ``"files"`` (the figure paths written, PNG, PDF then SVG per figure; the port-finding
-        figures only if drawn). No table is written to disk.
+        figures only if drawn) and ``"port_finding_summary"`` (``{mouse: MousePortFinding}``
+        with *summary_scope*, else ``{}``). No table is written to disk.
 
     Raises:
         ValueError: If the input is not one problem's ``{mouse: {session: session}}`` with raw
@@ -399,6 +407,15 @@ def run_poke_analysis(
         per_session, out_dir, current, previous, initiation_ports
     )
     stems = (LONG_POKES_STEM, AFTER_CHOICE_STEM, AFTER_INITIATION_STEM, *port_finding_stems)
+    summaries = {}
+    if summary_scope is not None:
+        summaries = problem_port_finding_summaries(
+            subjects_trials_by_problem,
+            previous_choice_towers=previous_choice_towers,
+            port_finding_sessions=found,
+        )
+        summary_stems = write_problem_port_finding_heatmaps(summaries, out_dir, scope=summary_scope)
+        stems = (*stems, *(base.name for base in summary_stems))
     return {
         "long_pokes": {
             "by_session": means,
@@ -418,4 +435,5 @@ def run_poke_analysis(
         ),
         "port_finding_check": check,
         "files": [out_dir / f"{s}.{e}" for s in stems for e in OUTPUT_FORMATS],
+        "port_finding_summary": summaries,
     }

@@ -37,7 +37,6 @@ from src.behavior_analysis.port_finding_sessions import (
     PortFindingAssignment,
     port_finding_sessions_for_problem,
 )
-from src.behavior_analysis.port_finding_summary import problem_port_finding_summaries
 from src.behavior_analysis.reversal_aligned_arms import build_windows_with_magnitudes
 from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
 from src.behavior_analysis.split_good_reversals_by_best_change import (
@@ -58,7 +57,6 @@ from src.behavior_visualization.plot_num_reversals import (
 from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
 from src.behavior_visualization.plot_single_session import plot_single_session
 from src.pipelines.poke_analysis import run_poke_analysis
-from src.pipelines.port_finding_summary import write_problem_port_finding_heatmaps
 from src.pipelines.port_preference import run_port_preference_analysis
 from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from src.pipelines.value_change_analysis import run_value_change_analysis
@@ -793,7 +791,7 @@ def run_problem(
     (see ``previous_choice_towers_for_problem``) for the red outlines of the maze heatmaps; the
     poke analysis (``long-pokes`` folder) and the single-session figures share one parse of the
     raw events. The poke analysis also writes the port-finding summary heatmaps into
-    ``long-pokes`` (see :mod:`src.pipelines.port_finding_summary`), which parse the events again.
+    ``long-pokes`` (``summary_scope``; see :mod:`src.pipelines.port_finding_summary`).
     The blocked-task guard below needs *task_type*: without it every selection
     is accepted.
 
@@ -887,18 +885,13 @@ def run_problem(
             previous_choice_towers=previous_choice_towers,
             poke_counts=parsed,
             port_finding_sessions=port_finding_sessions,
+            summary_scope=" ".join(
+                filter(None, (cohort, task_type, f"problem-{problem_number:02d}"))
+            ),
         )
         if diagnostics is not None:
             diagnostics["poke_trial_summary"] = poke["summary"]
             diagnostics["port_finding_check"] = poke["port_finding_check"]
-        print(f"Problem {problem_number}: port-finding summary")
-        summaries = problem_port_finding_summaries(
-            subjects_trials,
-            previous_choice_towers=previous_choice_towers,
-            port_finding_sessions=port_finding_sessions,
-        )
-        scope = " ".join(filter(None, (cohort, task_type, f"problem-{problem_number:02d}")))
-        write_problem_port_finding_heatmaps(summaries, out / LONG_POKES_FOLDER, scope=scope)
     if selection.run_single_session_analysis:
         print(f"Problem {problem_number}: single sessions")
         run_single_session_analysis(

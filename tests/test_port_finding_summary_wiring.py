@@ -23,6 +23,7 @@ from src.behavior_import.import_log import ImportLog
 from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
 from src.pipelines.cohort_analysis import run_cohort
 from src.pipelines.open_field import AnalysisSelection, run_problem
+from src.pipelines.poke_analysis import run_poke_analysis
 from tests.all_cohorts_fixtures import synthetic_cohort
 from tests.cohort_fixtures import blocked_then_two_drifting
 from tests.test_cohort_runner_integration import (
@@ -43,40 +44,38 @@ POKES_ONLY = AnalysisSelection(
 )
 
 
-def test_the_problem_heatmaps_go_to_its_long_pokes_folder_with_its_scope(monkeypatch):
+def test_run_problem_gives_the_poke_analysis_its_summary_scope(monkeypatch):
+    seen = {}
     monkeypatch.setattr(open_field, "run_poke_analysis",
-                        lambda *a, **k: {"summary": None, "port_finding_check": None})  # fmt: skip
-    seen = []
-    monkeypatch.setattr(open_field, "write_problem_port_finding_heatmaps",
-                        lambda summaries, out_dir, *, scope: seen.append((summaries, out_dir,
-                                                                          scope)))  # fmt: skip
+                        lambda *a, **k: seen.update(k) or {"summary": None,
+                                                           "port_finding_check": None})  # fmt: skip
+    run_problem(3, {"m1": {}}, task="t", cohort="cohort-09", output_root=Path("out"),
+                selection=POKES_ONLY, task_type="blocked")  # fmt: skip
+    assert seen["summary_scope"] == "cohort-09 blocked problem-03"
+
+
+def test_the_poke_analysis_writes_the_summary_with_its_port_finding_sessions(tmp_path):
     found = {"m1": {"ses-0_date-20251231": port_finding_only(2)}}
-    run_problem(
-        3,
+    result = run_poke_analysis(
         {"m1": {"ses-1_date-20260101": session(1, blocks=[1, 1])}},
-        task="open-field",
-        cohort="cohort-09",
-        output_root=Path("out"),
-        selection=POKES_ONLY,
-        task_type="blocked",
+        tmp_path,
         previous_choice_towers={"m1": frozenset({"A1", "C3"})},
         port_finding_sessions=found,
+        summary_scope="cohort-09 blocked problem-03",
     )
-    ((summaries, out_dir, scope),) = seen
-    assert out_dir == Path("out/open-field/cohort-09/blocked/problem-03/long-pokes")
-    assert scope == "cohort-09 blocked problem-03"
-    # the port-finding-only session is counted and the previous ports outlined
-    assert summaries["m1"].n_port_finding_trials == 3
-    assert summaries["m1"].previous_ports == frozenset({"A1", "C3"})
+    summary = result["port_finding_summary"]["m1"]
+    assert summary.n_port_finding_trials == 3
+    assert summary.previous_ports == frozenset({"A1", "C3"})
+    # two task trials are too few for a summary figure, but the mouse is listed as left out
+    left_out = (tmp_path / "Port Finding Summary - Left Out.txt").read_text()
+    assert left_out.startswith("cohort-09 blocked problem-03")
+    assert "m1: fewer than 50 task trials" in left_out
 
 
-def test_no_poke_analysis_means_no_problem_heatmaps(monkeypatch):
-    seen = []
-    monkeypatch.setattr(open_field, "write_problem_port_finding_heatmaps",
-                        lambda *a, **k: seen.append(a))  # fmt: skip
-    run_problem(1, {"m1": {}}, task="t", cohort="c", output_root=Path("out"),
-                selection=POKES_ONLY.model_copy(update={"run_poke_analysis": False}))  # fmt: skip
-    assert seen == []
+def test_without_a_scope_the_poke_analysis_writes_no_summary(tmp_path):
+    result = run_poke_analysis({"m1": {"ses-1_date-20260101": session(1, blocks=[1, 1])}}, tmp_path)
+    assert result["port_finding_summary"] == {}
+    assert not (tmp_path / "Port Finding Summary - Left Out.txt").exists()
 
 
 def test_the_cohort_fractions_cover_its_drifting_problems(

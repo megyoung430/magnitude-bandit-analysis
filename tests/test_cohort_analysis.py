@@ -72,8 +72,9 @@ def two_mice():
 def sections(monkeypatch):
     """Replace every analysis section by a recorder of ``(name, out_dir, selection)``.
 
-    The poke analysis and the drifting-only value analyses are replaced by no-ops: the sessions
-    here have no raw events (``tests/test_cohort_runner_integration.py`` runs them).
+    The poke analysis (with the port-finding summary) and the drifting-only value analyses are
+    replaced by no-ops: the sessions here have no raw events
+    (``tests/test_cohort_runner_integration.py`` runs them).
     """
     seen = []
     monkeypatch.setattr(
@@ -82,6 +83,7 @@ def sections(monkeypatch):
         lambda *a, **k: {"summary": pd.DataFrame(), "port_finding_check": pd.DataFrame()},
     )
     monkeypatch.setattr(pipeline, "mouse_poke_counts", lambda *a, **k: {})
+    monkeypatch.setattr(cohort_analysis, "cohort_port_finding_summaries", lambda *a, **k: {})
     for name in ("run_drifting_value_analyses",):
         monkeypatch.setattr(pipeline, name, lambda *a, **k: {})
         monkeypatch.setattr(cohort_analysis, name, lambda *a, **k: {})
