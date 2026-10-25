@@ -442,14 +442,14 @@ uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 
 ```
 
 makes the figures of `drifting/all-drifting-problems/` (`choice-stats`, `value-psychometrics`,
-`reversal-aligned-arms`, `value-change`, `port-preference`, `sessions-per-problem`) from the drifting problems of the
+`reversal-aligned-arms`, `value-change`, `port-preference`, `sessions-per-problem`, `port-finding-summary`) from the drifting problems of the
 listed cohorts together (`--no-cache` re-imports the raw files). They go to
 `results/figures/open-field/all-cohorts/<same subfolders>/`, with `cohorts.txt` there naming the
 cohorts pooled, the mice per cohort and the time of the run; the diagnostic tables
 (`reversal_aligned_arms_counts.csv`, `value_change_events.csv`, `value_change_bin_counts.csv`, `value_change_symmetric_exclusions.csv`) go
 to `results/tables/open-field/all-cohorts/`, with `sessions_per_problem.csv` (a `cohort` column in front)
 as a fifth table. `sessions-per-problem/` also has a figure with one mean line per cohort (n mice at each point)
-when several cohorts are pooled. A rerun replaces those six folders and five tables, so
+when several cohorts are pooled. A rerun replaces those seven folders and five tables, so
 the files always match `cohorts.txt`; the captions say "all drifting problems, cohorts 1, 3, 4".
 
 - Problems stay separate: each is keyed `(cohort, drifting problem number)`, beliefs reset at each
@@ -460,6 +460,41 @@ the files always match `cohorts.txt`; the captions say "all drifting problems, c
   the cohort folders) and no legends naming mice; the per-mouse lines are still drawn, and the
   legends for curve types (P(best), P(second), ...) stay. The code is
   `src/pipelines/all_cohorts_drifting.py`.
+
+### Port-finding summary
+
+Where mice poke while they find a new problem's ports, and just after. For each mouse and problem
+the pokes are counted per port in three windows:
+
+- **Port finding**: every port-finding trial of the problem, port-finding-only sessions included
+  (as in the per-mouse port-finding maps);
+- **First 50 Trials After Finding**: the problem's first 50 task trials, over as many sessions as
+  it takes;
+- **First 3 Blocks After Finding**: the task trials of the first three blocks. Block numbers restart
+  in every session, so each session starts a new block.
+
+Both poke kinds of the long-pokes figures are counted with the same rules (long pokes after
+initiation; port visits after the choice). A mouse is left out of a problem unless it has
+port-finding trials, at least 50 task trials and a complete third block (one still in its first
+problem sessions, for example); every caption lists who was left out and why.
+
+- **Heatmaps**: each mouse's pokes become percentages of its own pokes in the window and are
+  averaged across mice, so mice weigh equally. One row of three maps per port layout (mice of one
+  problem can have different current or previous ports), with the usual green/red/blue outlines.
+  Per problem, in `<blocked|drifting>/problem-KK/long-pokes/Port Finding Summary - <kind>`; across
+  cohorts, pooled by layout (the same layout is often a different problem number in each cohort),
+  in `all-cohorts/port-finding-summary/Port Finding Summary - <ports> After <previous ports> - <kind>`.
+- **Port categories** (`Port Finding Summary - Port Categories`): the fraction of pokes at the
+  current problem's ports, the previous problem's ports, the initiation port and the other ports,
+  as grouped bars per window (mean ± se across mice, a dot per mouse). A port of both problems
+  counts as current; each mouse is averaged over its drifting problems first. Per cohort in
+  `drifting/all-drifting-problems/port-finding-summary/`, across cohorts in
+  `all-cohorts/port-finding-summary/`.
+
+They run with the poke analysis (`run_poke_analysis`). The code is
+`src/behavior_analysis/port_finding_summary.py` (counts),
+`src/behavior_visualization/plot_port_finding_summary.py` (figures) and
+`src/pipelines/port_finding_summary.py` (files).
 
 ### Agent baselines and the choice regression
 

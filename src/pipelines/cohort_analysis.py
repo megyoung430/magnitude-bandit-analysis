@@ -21,7 +21,8 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
     figures/open-field/<cohort>/drifting/problem-KK/{value-psychometrics,reversal-aligned-arms,
         value-change,port-preference}/
     figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
-        reversal-aligned-arms,value-change,port-preference,sessions-per-problem}/
+        reversal-aligned-arms,value-change,port-preference,sessions-per-problem,
+        port-finding-summary}/
     figures/open-field/<cohort>/drifting/all-drifting-problems-without-<mice>/  (only with
         ``exclude_mice``: the same subfolders, from the drifting problems without those mice, its
         figures' captions start "without <mice>"; its tables are in ``tables/.../<same name>/``)
@@ -169,6 +170,10 @@ from src.pipelines.open_field import (
     check_selection_for_task_type,
     run_drifting_value_analyses,
     run_problem,
+)
+from src.pipelines.port_finding_summary import (
+    PORT_FINDING_SUMMARY_FOLDER,
+    write_cohort_category_fractions,
 )
 from src.pipelines.sessions_per_problem import (
     SESSIONS_PER_PROBLEM_FOLDER,
@@ -1023,6 +1028,14 @@ def run_cohort(
                 pooled, _ = run_pooled_drifting(
                     drifting, figures / DRIFTING / POOLED_DRIFTING_FOLDER, drifting_selection
                 )
+                if drifting_selection.run_poke_analysis:
+                    write_cohort_category_fractions(
+                        trials_by_problem,
+                        grouped,
+                        port_finding,
+                        figures / DRIFTING / POOLED_DRIFTING_FOLDER / PORT_FINDING_SUMMARY_FOLDER,
+                        cohort=cohort,
+                    )
                 if excluded:
                     excluded_pooled = run_excluded_pooled_set(
                         cohort_id,

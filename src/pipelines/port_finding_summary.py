@@ -22,7 +22,15 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.behavior_analysis.poke_counts import KINDS
+from src.behavior_analysis.poke_counts import (
+    KINDS,
+    previous_choice_towers_for_problem,
+    previous_problem_choice_towers,
+)
+from src.behavior_analysis.port_finding_sessions import (
+    PortFindingAssignment,
+    port_finding_sessions_for_problem,
+)
 from src.behavior_analysis.port_finding_summary import (
     N_FIRST_BLOCKS,
     N_FIRST_TRIALS,
@@ -33,6 +41,7 @@ from src.behavior_analysis.port_finding_summary import (
     group_by_layout,
     mean_percent_map,
     mouse_mean_fractions,
+    problem_port_finding_summaries,
 )
 from src.behavior_visualization.plot_helpers import Title, stats_line
 from src.behavior_visualization.plot_port_finding_summary import (
@@ -71,8 +80,9 @@ EXCLUSION_TEXT = (
 )
 CATEGORY_TEXT = (
     "Port categories: a port that is a choice port of both the current and the previous problem "
-    "counts as current. Each mouse's fractions are averaged over its problems first, then mean "
-    "± se across mice; thin lines are the mice."
+    "counts as current. Each mouse's fractions are averaged over its problems first; bars are the "
+    "mean ± se across mice, dots the mice. Fractions are raw shares of pokes, not corrected for "
+    "how many ports each category has."
 )
 
 
@@ -261,3 +271,40 @@ def write_category_fractions(
         save_path=Path(out_dir) / FRACTIONS_STEM,
     )
     return table
+
+
+def write_cohort_category_fractions(
+    trials_by_problem: Mapping,
+    grouped: Mapping[tuple[str, int], Mapping],
+    assignment: PortFindingAssignment,
+    out_dir: Path,
+    *,
+    cohort: str,
+    task_type: str = "drifting",
+) -> pd.DataFrame:
+    """The port-category fractions over the problems of one task type of one cohort.
+
+    Args:
+        trials_by_problem (Mapping): ``{overall problem: {mouse: sessions}}`` of the cohort, for
+            each mouse's previous problem.
+        grouped (Mapping): ``{(task type, k): {mouse: sessions}}`` of the cohort.
+        assignment (PortFindingAssignment): The cohort's port-finding-only sessions.
+        out_dir (Path): Folder for the figure.
+        cohort (str): Cohort name, e.g. ``"cohort-03"``. Keyword-only.
+        task_type (str): The problems to pool. Default ``"drifting"``. Keyword-only.
+
+    Returns:
+        pd.DataFrame: As :func:`write_category_fractions`.
+    """
+    previous = previous_problem_choice_towers(trials_by_problem)
+    entries = [
+        ({"task_type": kind, "k": k}, summary)
+        for (kind, k), subjects in grouped.items()
+        if kind == task_type
+        for summary in problem_port_finding_summaries(
+            subjects,
+            previous_choice_towers=previous_choice_towers_for_problem(subjects, previous),
+            port_finding_sessions=port_finding_sessions_for_problem(assignment, subjects),
+        ).values()
+    ]
+    return write_category_fractions(entries, out_dir, scope=f"{cohort} {task_type} problems")

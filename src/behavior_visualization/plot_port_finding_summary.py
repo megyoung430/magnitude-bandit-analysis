@@ -3,8 +3,9 @@
 :func:`plot_port_finding_heatmaps` draws one row of three maze heatmaps per port layout (port
 finding, first trials, first blocks), each the mean across mice of the percentage of pokes per
 port. :func:`plot_category_fractions` draws, per poke kind, the fraction of pokes at the current
-problem's ports, the previous problem's ports, the initiation port and the other ports across
-the three windows, as mean ± se across mice. Both take results; nothing here computes them.
+problem's ports, the previous problem's ports, the initiation port and the other ports in the
+three windows, as grouped bars (mean ± se across mice, a dot per mouse). Both take results;
+nothing here computes them.
 """
 
 from __future__ import annotations
@@ -165,9 +166,9 @@ def draw_category_fractions(
     window_headings: Mapping[str, str],
     mouse_columns: Sequence[str] = ("mouse",),
 ) -> int:
-    """Draw one poke kind: mean ± se across mice of each port category, across the windows.
+    """Draw one poke kind as grouped bars: a group per window, a bar per port category.
 
-    Thin lines show the mice. Returns the number of mice.
+    Bars are the mean across mice with ± se, dots the mice.
 
     Args:
         mouse_means (pd.DataFrame): One kind's rows of ``mouse_mean_fractions``.
@@ -175,40 +176,8 @@ def draw_category_fractions(
         window_headings (Mapping[str, str]): ``{window: tick label}``. Keyword-only.
         mouse_columns (Sequence[str]): Columns naming a mouse. Default ``("mouse",)``.
 
-    Raises:
-        ValueError: If *mouse_means* is empty.
-    """
-    if mouse_means.empty:
-        raise ValueError("no mice to draw")
-    x = np.arange(len(WINDOWS))
-    wide = mouse_means.pivot_table(
-        index=[*mouse_columns, "category"], columns="window", values="fraction"
-    ).reindex(columns=list(WINDOWS))
-    n_mice = mouse_means[list(mouse_columns)].drop_duplicates().shape[0]
-    for category in CATEGORIES:
-        color = CATEGORY_COLORS[category]
-        values = wide.xs(category, level="category").to_numpy(dtype=float)
-        for mouse_values in values:
-            ax.plot(x, mouse_values, color=color, alpha=0.25, linewidth=0.8)
-        stats = [_mean_se(values[:, j]) for j in range(len(WINDOWS))]
-        means, ses = (np.array(v) for v in zip(*stats, strict=True))
-        ax.errorbar(x, means, yerr=ses, color=color, marker="o", linewidth=2, capsize=3)
-    ax.set_xticks(x, [window_headings[w].replace(" After", "\nAfter") for w in WINDOWS])
-    ax.set_ylim(0, 1)
-    ax.set_ylabel("Fraction of Pokes")
-    despine(ax)
-    return n_mice
-
-
-def draw_category_fraction_bars(
-    mouse_means: pd.DataFrame,
-    *,
-    ax: plt.Axes,
-    window_headings: Mapping[str, str],
-    mouse_columns: Sequence[str] = ("mouse",),
-) -> int:
-    """As :func:`draw_category_fractions`, as grouped bars: one group per window, one bar per
-    port category (mean ± se across mice), each mouse a dot. Returns the number of mice.
+    Returns:
+        int: The number of mice.
 
     Raises:
         ValueError: If *mouse_means* is empty.
@@ -241,11 +210,18 @@ def draw_category_fraction_bars(
     return n_mice
 
 
-def category_legend_handles(bars: bool = False) -> list[Line2D]:
-    """One handle per port category, in :data:`CATEGORIES` order: a line, or a square for bars."""
-    style = {"marker": "s", "linestyle": "", "markersize": 10} if bars else {"marker": "o"}
+def category_legend_handles() -> list[Line2D]:
+    """One square handle per port category, in :data:`CATEGORIES` order."""
     return [
-        Line2D([0], [0], color=CATEGORY_COLORS[c], linewidth=2, label=CATEGORY_LABELS[c], **style)
+        Line2D(
+            [0],
+            [0],
+            color=CATEGORY_COLORS[c],
+            marker="s",
+            linestyle="",
+            markersize=10,
+            label=CATEGORY_LABELS[c],
+        )  # fmt: skip
         for c in CATEGORIES
     ]
 
@@ -256,7 +232,6 @@ def plot_category_fractions(
     title: Title,
     window_headings: Mapping[str, str],
     mouse_columns: Sequence[str] = ("mouse",),
-    bars: bool = False,
     save_path: str | Path | None = None,
 ) -> None:
     """Two panels (long pokes after initiation, pokes after choice) of the port-category fractions.
@@ -266,7 +241,6 @@ def plot_category_fractions(
         title (Title): Figure title. Keyword-only.
         window_headings (Mapping[str, str]): ``{window: tick label}``. Keyword-only.
         mouse_columns (Sequence[str]): Columns naming a mouse. Default ``("mouse",)``.
-        bars (bool): Grouped bars with a dot per mouse instead of lines. Default False.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
             Default None.
 
@@ -278,11 +252,13 @@ def plot_category_fractions(
     try:
         for kind, ax in zip(kinds, axes, strict=True):
             rows = mouse_means[mouse_means["kind"] == kind]
-            draw = draw_category_fraction_bars if bars else draw_category_fractions
-            n = draw(rows, ax=ax, window_headings=window_headings, mouse_columns=mouse_columns)
-            stats = stats_line("mean ± se", "mice", [(n, "mouse", "mice")])
+            n = draw_category_fractions(
+                rows, ax=ax, window_headings=window_headings, mouse_columns=mouse_columns
+            )
+            average = "mean ± se" if n > 1 else "mean"  # one mouse has no se
+            stats = stats_line(average, "mice", [(n, "mouse", "mice")])
             set_title(ax, Title(KIND_LABELS[kind], stats), fontsize=12)
-        fig.legend(handles=category_legend_handles(bars), loc="lower center", ncol=len(CATEGORIES),
+        fig.legend(handles=category_legend_handles(), loc="lower center", ncol=len(CATEGORIES),
                    frameon=False, fontsize=11)  # fmt: skip
         fig.tight_layout(rect=(0, 0.08, 1, 0.92))
         set_suptitle(fig, title, fontsize=14)

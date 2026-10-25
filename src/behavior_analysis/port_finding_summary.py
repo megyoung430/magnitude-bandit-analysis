@@ -305,7 +305,8 @@ def mouse_port_finding_summary(
 
 
 def _problem_initiation(mouse: str, sessions: Mapping[str, Mapping]) -> str:
-    towers = {_initiation(s) for s in sessions.values()}
+    """The problem's one initiation port (the protocol default for a mouse with no sessions)."""
+    towers = {_initiation(s) for s in sessions.values()} or {DEFAULT_INITIATION_TOWER}
     if len(towers) != 1:
         raise ValueError(f"{mouse}: sessions of one problem use initiation towers {sorted(towers)}")
     return towers.pop()
@@ -354,18 +355,24 @@ def problem_port_finding_summaries(
 
 
 def cohort_port_finding_summaries(
-    trials_by_problem: Mapping, port_finding_log: Mapping[str, Mapping[str, Mapping]]
+    trials_by_problem: Mapping,
+    port_finding_log: Mapping[str, Mapping[str, Mapping]],
+    *,
+    task_types: Iterable[str] | None = None,
 ) -> dict[tuple[str, int], dict[str, MousePortFinding]]:
-    """The summaries of every problem of a cohort, keyed like ``regroup_by_task_type``.
+    """The summaries of the problems of a cohort, keyed like ``regroup_by_task_type``.
 
     Args:
         trials_by_problem (Mapping): ``{overall problem: {mouse: sessions}}`` of the whole
             cohort (the previous problem of a mouse is looked up in it).
         port_finding_log (Mapping): ``ImportLog.port_finding_sessions`` of the cohort.
+        task_types (Iterable[str] | None): Only the problems of these task types, e.g.
+            ``["drifting"]``. Default ``None``: all. Keyword-only.
 
     Returns:
         dict: ``{(task type, k): {mouse: MousePortFinding}}``.
     """
+    wanted = None if task_types is None else set(task_types)
     previous = previous_problem_choice_towers(trials_by_problem)
     assignment = assign_port_finding_sessions(trials_by_problem, port_finding_log)
     grouped = regroup_by_task_type(trials_by_problem, number_within_task_type(trials_by_problem))
@@ -376,6 +383,7 @@ def cohort_port_finding_summaries(
             port_finding_sessions=port_finding_sessions_for_problem(assignment, subjects),
         )
         for key, subjects in grouped.items()
+        if wanted is None or key[0] in wanted
     }
 
 
