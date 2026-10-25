@@ -103,8 +103,11 @@ def imported():
 
 def test_all_cohorts_pool_the_drifting_problems_of_every_cohort(monkeypatch, imported, tmp_path):
     seen = []
-    monkeypatch.setattr(all_cohorts, "_draw_port_finding_summary",
-                        lambda entries, out_dir, label: seen.append((entries, out_dir)))  # fmt: skip
+
+    def record(entries, out_dir, label):
+        seen.append((entries, out_dir))
+
+    monkeypatch.setattr(all_cohorts, "_draw_port_finding_summary", record)
     run_all_cohorts_drifting(
         [1, 3],
         results_root=tmp_path,
