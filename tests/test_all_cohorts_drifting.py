@@ -43,6 +43,7 @@ from src.pipelines.value_change_analysis import run_value_change_analysis
 from src.pipelines.value_psychometrics import run_value_psychometric_analysis
 from tests.all_cohorts_fixtures import DRIFTING_NAME, synthetic_cohort
 from tests.plot_capture import capture_figures
+from tests.poke_fixtures import Recording
 
 SUBFOLDERS = {
     "choice-stats",
@@ -51,7 +52,10 @@ SUBFOLDERS = {
     "value-change",
     "port-preference",
     "sessions-per-problem",
+    "port-finding-summary",
 }
+# the synthetic mice have no port-finding trials, so this folder only lists them as left out
+PORT_FINDING_LEFT_OUT = "port-finding-summary/Port Finding Summary - Left Out.txt"
 FIGURE_FILES = ("caption.txt", "pdf", "png", "svg")
 SESSIONS_FIGURES = {
     f"{stem}.{ext}"
@@ -233,8 +237,9 @@ def test_figures_go_to_all_cohorts_with_the_subfolders_of_all_drifting_problems(
     folders = {p.name for p in figures.iterdir() if p.is_dir()}
     assert folders == SUBFOLDERS
     assert {p.name for p in figures.iterdir() if p.is_file()} == {"cohorts.txt"}
-    for folder in SUBFOLDERS:
+    for folder in SUBFOLDERS - {"port-finding-summary"}:
         assert any((figures / folder).rglob("*.png")), folder
+    assert (figures / PORT_FINDING_LEFT_OUT).exists()
     for folder in ("reversal-aligned-arms", "value-change"):
         assert not list((figures / folder).glob("*.png")), folder
         for weighting in ("mouse-weighted", "event-weighted"):
@@ -258,8 +263,12 @@ def test_it_writes_what_the_cohort_runner_pools_minus_the_per_mouse_figures(
     reference = figure_files(cohort_runner_pool)
     dropped = reference - ours
     assert dropped and all("Per Mouse" in name for name in dropped)
-    # the sessions-per-problem folder is the only addition: the reference holds the analyses only
-    assert ours - reference == {f"sessions-per-problem/{name}" for name in SESSIONS_FIGURES}
+    # the sessions-per-problem and port-finding-summary folders are the only additions: the
+    # reference holds the analyses only
+    assert ours - reference == {
+        *(f"sessions-per-problem/{name}" for name in SESSIONS_FIGURES),
+        PORT_FINDING_LEFT_OUT,
+    }
 
 
 def test_the_sessions_per_problem_folder_holds_the_figure_and_the_one_by_cohort(written):
@@ -299,7 +308,8 @@ def test_port_finding_only_sessions_of_the_logs_are_counted_per_cohort(imported,
         zip(["ses-8_date-20260108", "ses-9_date-20260109"], old.values(), strict=True)
     )
     towers = session_choice_ports(next(iter(old.values())))
-    found = {"b1": {"ses-7_date-20260107": {"df": "x", "choice_towers": towers}}}
+    # an empty recording: the port-finding summary parses it and finds no trials
+    found = {"b1": {"ses-7_date-20260107": {"df": Recording().to_frame(), "choice_towers": towers}}}
     result = run_all_cohorts_drifting(
         [1, 3],
         results_root=tmp_path,

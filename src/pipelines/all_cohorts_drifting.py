@@ -5,7 +5,7 @@
 cohorts together, in one folder that belongs to no cohort::
 
     figures/open-field/all-cohorts/{choice-stats,value-psychometrics,reversal-aligned-arms,
-        value-change,port-preference,sessions-per-problem}/
+        value-change,port-preference,sessions-per-problem,port-finding-summary}/
     figures/open-field/all-cohorts/{reversal-aligned-arms,value-change}/{mouse-weighted,
         event-weighted}/   (their figures; nothing at the top level of those two folders)
     figures/open-field/all-cohorts/cohorts.txt
@@ -30,6 +30,11 @@ A mouse's latest problem may still be running (see
 :mod:`src.behavior_analysis.sessions_per_problem`), and the port-finding-only sessions of the
 cohorts' import logs are counted in their own column.
 
+``port-finding-summary/`` (when the selection runs the poke analysis) holds the port-finding
+heatmaps pooled by port layout, one figure per layout and poke kind (the same layout is often a
+different problem number in each cohort), and the port-category fractions of all the drifting
+problems (see :mod:`src.pipelines.port_finding_summary`).
+
 With many mice, the figures leave out what the cohort folders already hold per mouse: the
 per-mouse heatmaps, and the legends that name each mouse (their thin lines are still drawn).
 """
@@ -53,6 +58,10 @@ from src.behavior_analysis.exclude_mice import (
     optional_mouse_ids,
 )
 from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
+from src.behavior_analysis.port_finding_summary import (
+    MousePortFinding,
+    cohort_port_finding_summaries,
+)
 from src.behavior_analysis.sessions_per_problem import sessions_per_problem_table, with_cohort
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
@@ -79,6 +88,11 @@ from src.pipelines.open_field import (
     AnalysisSelection,
     run_drifting_value_analyses,
 )
+from src.pipelines.port_finding_summary import (
+    PORT_FINDING_SUMMARY_FOLDER,
+    write_category_fractions,
+    write_layout_port_finding_heatmaps,
+)
 from src.pipelines.sessions_per_problem import (
     SESSIONS_PER_PROBLEM_FOLDER,
     TABLE_NAME,
@@ -97,6 +111,7 @@ FIGURE_FOLDERS = (
     VALUE_CHANGE_FOLDER,
     PORT_PREFERENCE_FOLDER,
     SESSIONS_PER_PROBLEM_FOLDER,
+    PORT_FINDING_SUMMARY_FOLDER,
 )
 TABLE_NAMES = (
     "reversal_aligned_arms_counts",
@@ -293,18 +308,24 @@ def _inputs_for_cohorts(
     return {c: trials_by_cohort[c] for c in cohort_ids}, {c: logs.get(c) for c in cohort_ids}
 
 
-def _sessions_per_problem(trials_by_cohort: dict, logs: dict) -> pd.DataFrame:
-    """The stacked sessions-per-problem tables of the cohorts, the cohort name in front.
-
-    A cohort without an import log has no port-finding-only sessions.
-    """
-    tables = []
-    for cohort_id, trials in trials_by_cohort.items():
-        log = logs[cohort_id]
-        assignment = assign_port_finding_sessions(trials, log.port_finding_sessions if log else {})
-        tables.append(
-            with_cohort(sessions_per_problem_table(trials, assignment), cohort_name(cohort_id))
+def _assignments(trials_by_cohort: dict, logs: dict) -> dict:
+    """``{cohort id: PortFindingAssignment}``; a cohort without an import log has none."""
+    return {
+        cohort_id: assign_port_finding_sessions(
+            trials, logs[cohort_id].port_finding_sessions if logs[cohort_id] else {}
         )
+        for cohort_id, trials in trials_by_cohort.items()
+    }
+
+
+def _sessions_per_problem(trials_by_cohort: dict, assignments: dict) -> pd.DataFrame:
+    """The stacked sessions-per-problem tables of the cohorts, the cohort name in front."""
+    tables = [
+        with_cohort(
+            sessions_per_problem_table(trials, assignments[cohort_id]), cohort_name(cohort_id)
+        )
+        for cohort_id, trials in trials_by_cohort.items()
+    ]
     return pd.concat(tables, ignore_index=True)
 
 
@@ -324,6 +345,7 @@ def _draw_pool(
     shown_ids: list[int],
     label: str,
     scope: str | None,
+    port_finding: dict[tuple[str, int, str], MousePortFinding],
 ) -> tuple[dict, dict]:
     """Draw every figure of the pool into *figures_dir*; return the rank results and tables."""
     rank_results = pooled_drifting_rank_results(
@@ -347,7 +369,35 @@ def _draw_pool(
         mouse_legend=False,
         by_cohort=len(shown_ids) > 1,
     )
+    if port_finding:
+        _draw_port_finding_summary(port_finding, figures_dir / PORT_FINDING_SUMMARY_FOLDER, label)
     return rank_results, tables
+
+
+def _draw_port_finding_summary(entries: dict, out_dir: Path, label: str) -> None:
+    """The per-layout heatmaps and the port-category fractions of the pooled drifting problems."""
+    write_layout_port_finding_heatmaps(entries, out_dir, scope=label)
+    write_category_fractions(
+        [({"cohort": c, "task_type": DRIFTING, "k": k}, s) for (c, k, _), s in entries.items()],
+        out_dir,
+        scope=label,
+        mouse_columns=("cohort", "mouse"),
+    )
+
+
+def _port_finding_entries(trials_by_cohort: dict, assignments: dict) -> dict:
+    """``{(cohort name, k, mouse): MousePortFinding}`` over the cohorts' drifting problems."""
+    entries = {}
+    for cohort_id, trials in trials_by_cohort.items():
+        by_problem = cohort_port_finding_summaries(
+            trials, assignments[cohort_id], task_types=[DRIFTING]
+        )
+        entries |= {
+            (cohort_name(cohort_id), k, mouse): summary
+            for (_, k), mice in by_problem.items()
+            for mouse, summary in mice.items()
+        }
+    return entries
 
 
 def _write_pool(
@@ -361,6 +411,7 @@ def _write_pool(
     run_at: datetime,
     excluded: tuple[str, ...] = (),
     sources: dict | None = None,
+    port_finding: dict | None = None,
 ) -> AllCohortsResult:
     """Run and write the all-drifting-problems analyses of *problems* into the two folders.
 
@@ -380,6 +431,9 @@ def _write_pool(
         sources (dict | None): ``{cohort: CacheSource}`` of cohorts loaded from the cache
             without the server; each folder then gets ``from-cache.txt`` saying so. Empty or
             ``None``: the folders' notes are removed. Default None.
+        port_finding (dict | None): ``{(cohort name, k, mouse): MousePortFinding}`` of the
+            problems' mice, for ``port-finding-summary/``; empty or ``None`` draws none (the
+            mice of *excluded* are dropped from it). Default None.
 
     Returns:
         AllCohortsResult: The folders, the mice per cohort of *problems*, rank results and tables.
@@ -394,8 +448,9 @@ def _write_pool(
     sources = sources or {}
     write_from_cache_notes([figures_dir, tables_dir], sources)
     with each_reversal_warning_once(), figure_banner(scope) if scope else nullcontext():
+        kept = {key: v for key, v in (port_finding or {}).items() if key[2] not in excluded}
         rank_results, tables = _draw_pool(
-            problems, sessions, figures_dir, selection, shown_ids, label, scope
+            problems, sessions, figures_dir, selection, shown_ids, label, scope, kept
         )
     tables_dir.mkdir(parents=True, exist_ok=True)
     for name, table in tables.items():
@@ -424,7 +479,7 @@ def run_all_cohorts_drifting(
 ) -> AllCohortsResult:
     """Run the all-drifting-problems analyses over the drifting problems of several cohorts.
 
-    See the module docstring for the outputs. Anything an earlier run left in the six figure
+    See the module docstring for the outputs. Anything an earlier run left in the seven figure
     folders and five tables of the output is removed first, so the files always belong to the
     cohorts named in ``cohorts.txt``.
 
@@ -473,7 +528,11 @@ def run_all_cohorts_drifting(
     problems_without = exclude_mice_from_problems(pooled.problems, excluded) if excluded else {}
     run_at = run_at or datetime.now()
     sources = cache_sources({cohort_name(c): log for c, log in logs.items()})
-    sessions = _sessions_per_problem(imported, logs)
+    assignments = _assignments(imported, logs)
+    sessions = _sessions_per_problem(imported, assignments)
+    port_finding = (
+        _port_finding_entries(imported, assignments) if drifting_selection.run_poke_analysis else {}
+    )
     root = Path(results_root)
     folders = {kind: root / kind / TASK / ALL_COHORTS_FOLDER for kind in ("figures", "tables")}
 
@@ -486,6 +545,7 @@ def run_all_cohorts_drifting(
         selection=drifting_selection,
         run_at=run_at,
         sources=sources,
+        port_finding=port_finding,
     )
     if not excluded:
         return plain
@@ -500,5 +560,6 @@ def run_all_cohorts_drifting(
         run_at=run_at,
         excluded=excluded,
         sources=sources,
+        port_finding=port_finding,
     )
     return plain._replace(without=without)

@@ -8,7 +8,8 @@ running bottom to top (1 at the bottom, 3 at the top), so A1 is the bottom-left 
 top-right one (see :data:`MAZE_POSITIONS`).
 
 Scale. Each map is coloured from 0 to its own maximum count, and its colorbar says so with real
-numbers at both ends.
+numbers at both ends. Numbers are rounded to whole units, so an averaged map (e.g. percentages)
+reads the same way as a count map.
 
 Outlines. Rings are drawn outside a port's octagon: green for the current problem's choice
 ports, red for the previous problem's, blue for the initiation port. A port that needs several
@@ -214,7 +215,7 @@ def _draw_port(ax: Axes, port: str, count: float, norm: Normalize, cmap, rings: 
     color = text_color(face)
     ax.text(center[0], center[1] + 0.03, port, ha="center", va="center", fontsize=12,
             fontweight="bold", color=color, zorder=5)  # fmt: skip
-    ax.text(center[0], center[1] - 0.075, f"{int(count)}", ha="center", va="center", fontsize=10,
+    ax.text(center[0], center[1] - 0.075, f"{count:.0f}", ha="center", va="center", fontsize=10,
             color=color, zorder=5)  # fmt: skip
 
 
@@ -318,7 +319,7 @@ def _add_colorbar(
         colorbar = ax.figure.colorbar(mappable, cax=colorbar_ax)
     colorbar.set_label(label, rotation=90, fontsize=9)
     colorbar.set_ticks([norm.vmin, norm.vmax])
-    colorbar.set_ticklabels([f"{norm.vmin:g}", f"{norm.vmax:g}"])
+    colorbar.set_ticklabels([f"{norm.vmin:.0f}", f"{norm.vmax:.0f}"])  # whole units
 
 
 def _per_mouse(value: Mapping | None, mice: list[str], name: str) -> Mapping:

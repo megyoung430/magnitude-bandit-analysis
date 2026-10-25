@@ -790,7 +790,9 @@ def run_problem(
     *previous_choice_towers* is ``{mouse: ports of the mouse's previous problem, or None}``
     (see ``previous_choice_towers_for_problem``) for the red outlines of the maze heatmaps; the
     poke analysis (``long-pokes`` folder) and the single-session figures share one parse of the
-    raw events. The blocked-task guard below needs *task_type*: without it every selection
+    raw events. The poke analysis also writes the port-finding summary heatmaps into
+    ``long-pokes`` (``summary_scope``; see :mod:`src.pipelines.port_finding_summary`).
+    The blocked-task guard below needs *task_type*: without it every selection
     is accepted.
 
     Args:
@@ -883,6 +885,9 @@ def run_problem(
             previous_choice_towers=previous_choice_towers,
             poke_counts=parsed,
             port_finding_sessions=port_finding_sessions,
+            summary_scope=" ".join(
+                filter(None, (cohort, task_type, f"problem-{problem_number:02d}"))
+            ),
         )
         if diagnostics is not None:
             diagnostics["poke_trial_summary"] = poke["summary"]
