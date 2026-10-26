@@ -12,7 +12,13 @@ from src.funcimg_analysis.frame_times import (
     load_video_frame_times,
     write_video_frame_times,
 )
-from src.funcimg_import.runs import run_video_files, session_run_files, video_beside
+from src.funcimg_import.runs import (
+    match_videos,
+    session_run_files,
+    session_video_files,
+    video_beside,
+    video_match_accepted,
+)
 from tests.funcimg_fixtures import daq_session
 from tests.test_funcimg_runs import write_daq, write_manifest, write_tsv
 
@@ -64,8 +70,7 @@ def raw_session_with_video(tmp_path):
 
 def test_each_run_gets_the_camera_files_whose_pulses_match_its_behaviour(raw_session_with_video):
     session_dir, _ = raw_session_with_video
-    runs = session_run_files(session_dir, "71rtask")
-    videos = [run_video_files(session_dir, run.tsv) for run in runs]
+    videos = session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
     assert [v.gpio.name for v in videos] == [
         "camera_2026-01-01T12_00_00_GPIO_data.csv",
         "camera_2026-01-01T11_00_00_GPIO_data.csv",
@@ -76,14 +81,81 @@ def test_each_run_gets_the_camera_files_whose_pulses_match_its_behaviour(raw_ses
     ]
 
 
-def test_a_run_without_matching_camera_files_is_refused(raw_session_with_video):
+def test_a_run_without_its_camera_table_is_refused(raw_session_with_video):
     session_dir, _ = raw_session_with_video
-    run = session_run_files(session_dir, "71rtask")[0]
-    for gpio in (session_dir / "behav").glob("*_GPIO_data.csv"):
-        if "T12" in gpio.name:
-            gpio.unlink()
-    with pytest.raises(ValueError, match="No camera"):
-        run_video_files(session_dir, run.tsv)
+    (session_dir / "behav" / "camera_2026-01-01T12_00_00_GPIO_data.csv").unlink()
+    with pytest.raises(ValueError, match="Run 1 matches no camera table"):
+        session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
+
+
+def test_a_camera_that_ran_through_two_runs_belongs_to_neither(raw_session_with_video):
+    session_dir, _ = raw_session_with_video
+    behav = session_dir / "behav"
+    first, second = (pd.read_csv(behav / f"camera_2026-01-01T1{h}_00_00_GPIO_data.csv")
+                     for h in (2, 1))  # fmt: skip
+    second["Timestamp"] += first["Timestamp"].iloc[-1] + 10**9
+    for table in behav.glob("*_GPIO_data.csv"):
+        table.unlink()
+    pd.concat([first, second]).to_csv(behav / "camera_all_GPIO_data.csv", index=False)
+    (behav / "camera_all.avi").write_bytes(b"")
+    with pytest.raises(ValueError, match="no camera table"):
+        session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
+
+
+def test_two_camera_tables_for_one_run_are_refused(raw_session_with_video):
+    session_dir, _ = raw_session_with_video
+    behav = session_dir / "behav"
+    copy = behav / "camera_copy_GPIO_data.csv"
+    copy.write_text((behav / "camera_2026-01-01T12_00_00_GPIO_data.csv").read_text())
+    (behav / "camera_copy.avi").write_bytes(b"")
+    with pytest.raises(ValueError, match="Run 1 matches camera tables"):
+        session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
+
+
+def test_one_camera_table_for_two_runs_is_refused(raw_session_with_video):
+    session_dir, _ = raw_session_with_video
+    session = daq_session(np.random.default_rng(5), n_frames=1500)
+    table, _ = camera_table(session["pycontrol_rsync_s"], session["frame_s"][-1] + 2.0)
+    pulses = session["pycontrol_rsync_s"]
+    with pytest.raises(ValueError, match="matches several runs"):
+        match_videos({"camera_GPIO_data.csv": table}, [pulses, pulses])
+
+
+def test_a_malformed_camera_table_is_named_not_skipped(raw_session_with_video):
+    session_dir, _ = raw_session_with_video
+    path = session_dir / "behav" / "camera_2026-01-01T12_00_00_GPIO_data.csv"
+    pd.read_csv(path).rename(columns={"GPIO1": "GPIO 1"}).to_csv(path, index=False)
+    with pytest.raises(ValueError, match="camera_2026-01-01T12_00_00_GPIO_data.csv cannot be read"):
+        session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
+
+
+def test_a_matched_table_without_its_video_is_refused(raw_session_with_video):
+    session_dir, _ = raw_session_with_video
+    (session_dir / "behav" / "camera_2026-01-01T11_00_00.avi").unlink()
+    with pytest.raises(FileNotFoundError, match="camera_2026-01-01T11_00_00"):
+        session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
+
+
+@pytest.mark.parametrize(
+    ("change", "accepted"),
+    [
+        ({}, True),
+        ({"n_matched": 89}, False),  # under 90 % of the longer train
+        ({"n_pulses_other": 200}, False),  # a camera with twice the run's pulses
+        ({"median_abs_interval_discrepancy_ms": 50.1}, False),
+        ({"max_abs_interval_discrepancy_ms": 3 * 1000 / 30 + 0.1}, False),
+        ({"max_abs_interval_discrepancy_ms": 3 * 1000 / 30 - 0.1}, True),
+    ],
+)
+def test_video_match_rule(change, accepted):
+    quality = {
+        "n_pulses_other": 100,
+        "n_pulses_pycontrol": 100,
+        "n_matched": 95,
+        "median_abs_interval_discrepancy_ms": 10.0,
+        "max_abs_interval_discrepancy_ms": 30.0,
+    }
+    assert video_match_accepted({**quality, **change}, 1000 / 30) is accepted
 
 
 def test_video_beside_its_camera_table(tmp_path):
@@ -111,14 +183,16 @@ def test_video_frame_times_are_written_beside_the_run_and_read_back(
     run = session_run_files(session_dir, "71rtask")[1]
     run_dir = tmp_path / "der" / "run-02"
     write_manifest(run_dir / "without_destriping", run.tiff)
-    video = run_video_files(session_dir, run.tsv)
+    video = session_video_files(session_dir, session_run_files(session_dir, "71rtask"))[1]
     path = write_video_frame_times(run, video, run_dir)
     assert path == run_dir / VIDEO_FRAME_TIMES_FILE
     loaded = load_video_frame_times(run_dir)
     known = np.isfinite(loaded.time_s)
     assert len(loaded.time_s) == len(truths[1]) and known.mean() > 0.9
-    # an edge is seen at the first frame after the pulse, up to one frame late
-    assert np.median(np.abs(loaded.time_s[known] - truths[1][known])) < 1 / VIDEO_RATE_HZ
+    # an edge is seen at the first frame after the pulse, so frame times are early by up to
+    # one frame period, half a period on average
+    error = loaded.time_s[known] - truths[1][known]
+    assert -1 / VIDEO_RATE_HZ <= np.median(error) <= 0 and np.abs(error).max() < 2 / VIDEO_RATE_HZ
     assert loaded.video == video.video and loaded.gpio == video.gpio and loaded.tsv == run.tsv
     assert loaded.quality["fraction_matched"] > 0.9
     with pytest.raises(FileExistsError):
@@ -132,6 +206,18 @@ def test_video_frame_times_refuse_a_run_the_batch_made_from_another_tiff(
     first, second = session_run_files(session_dir, "71rtask")
     run_dir = tmp_path / "der" / "run-01"
     write_manifest(run_dir / "without_destriping", second.tiff)
+    video = session_video_files(session_dir, [first, second])[0]
     with pytest.raises(RunMismatchError):
-        write_video_frame_times(first, run_video_files(session_dir, first.tsv), run_dir)
+        write_video_frame_times(first, video, run_dir)
+    assert not (run_dir / VIDEO_FRAME_TIMES_FILE).exists()
+
+
+def test_video_frame_times_refuse_a_camera_that_is_not_the_runs(raw_session_with_video, tmp_path):
+    session_dir, _ = raw_session_with_video
+    first, second = session_run_files(session_dir, "71rtask")
+    run_dir = tmp_path / "der" / "run-01"
+    write_manifest(run_dir / "without_destriping", first.tiff)
+    others = session_video_files(session_dir, [first, second])[1]
+    with pytest.raises(RunMismatchError):
+        write_video_frame_times(first, others, run_dir)
     assert not (run_dir / VIDEO_FRAME_TIMES_FILE).exists()
