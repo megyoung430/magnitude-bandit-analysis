@@ -32,4 +32,9 @@ alongside the time of every imaging frame (`frame_times.npz`).
 
 ## Not done
 
-- No check that the video holds as many frames as the table has rows; the mini2p movie code stops if the video runs out.
+- No check here that the video holds as many frames as the table has rows; the mini2p movie code refuses a video whose
+  frame count differs from its frame times.
+- A camera table with too few rsync edges (a short test clip, or sync not wired) stops the whole session as unreadable;
+  it could instead count as no match.
+- Runs under about 50 rsync pulses (~2 min) cannot reach 90 % matched (the aligner leaves up to 5 pulses unmatched);
+  the DAQ rule has the same limit, so such runs already fail in `session_run_files`.
