@@ -12,12 +12,15 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
+import pandas as pd
+
 from src.behavior_import.import_data import read_tsv_file
 from src.sync.pycontrol_time import (
     NoSyncPulsesError,
     align_to_pycontrol,
     pycontrol_sync_times,
     sync_quality,
+    video_frame_times,
 )
 from src.sync.rsync import RsyncError
 
@@ -26,6 +29,11 @@ COUNTER = re.compile(r"_(\d+)$")
 # unrelated train can still pass the aligner's own check by chance.
 MIN_FRACTION_MATCHED = 0.9
 MAX_INTERVAL_DISCREPANCY_MS = 10.0
+# A camera sees a pulse at its next frame, so its intervals are off by up to a frame period
+# (33 ms at 30 Hz); its pulses are judged by the median error instead.
+MAX_VIDEO_MEDIAN_DISCREPANCY_MS = 50.0
+GPIO_SUFFIX = "_GPIO_data.csv"
+VIDEO_SUFFIXES = (".avi", ".mp4", ".mov", ".mkv")
 
 
 def acquisition_counter(path: Path) -> int:
@@ -146,3 +154,71 @@ def session_run_files(session_dir, source_substring: str) -> list[RunFiles]:
         RunFiles(f"run-{number:02d}", tiff, daq, pulses[match][0])
         for number, (tiff, daq, match) in enumerate(zip(tiffs, daq_files, matches, strict=True), 1)
     ]
+
+
+@dataclass(frozen=True)
+class VideoFiles:
+    """The behaviour camera's files for one run."""
+
+    video: Path
+    gpio: Path  # ``*_GPIO_data.csv``: one row per frame, rsync pulses on GPIO1
+
+
+def video_beside(gpio: Path) -> Path:
+    """The video the camera wrote with *gpio*: same name without ``_GPIO_data.csv``.
+
+    Raises:
+        ValueError: If *gpio* is not a ``*_GPIO_data.csv``, or several videos share its name.
+        FileNotFoundError: If there is no such video.
+    """
+    gpio = Path(gpio)
+    if not gpio.name.endswith(GPIO_SUFFIX):
+        raise ValueError(f"{gpio.name} is not a camera table (*{GPIO_SUFFIX}).")
+    stem = gpio.name[: -len(GPIO_SUFFIX)]
+    found = [gpio.with_name(stem + suffix) for suffix in VIDEO_SUFFIXES]
+    found = [path for path in found if path.is_file()]
+    if len(found) > 1:
+        raise ValueError(f"{len(found)} videos for {gpio.name}: {[p.name for p in found]}.")
+    if not found:
+        present = sorted(
+            p.name for p in gpio.parent.iterdir() if p.suffix.lower() in VIDEO_SUFFIXES
+        )
+        raise FileNotFoundError(
+            f"No video {stem}{{{','.join(VIDEO_SUFFIXES)}}} beside {gpio.name}; videos there: "
+            f"{present}."
+        )
+    return found[0]
+
+
+def _video_aligns(gpio_df: pd.DataFrame, pycontrol_rsync_s) -> bool:
+    """Whether a camera's pulses are the train of this behaviour file."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _, aligner = video_frame_times(gpio_df, pycontrol_rsync_s)
+    except (RsyncError, ValueError):
+        return False
+    quality = sync_quality(aligner)
+    return (
+        quality["fraction_matched"] >= MIN_FRACTION_MATCHED
+        and quality["median_abs_interval_discrepancy_ms"] <= MAX_VIDEO_MEDIAN_DISCREPANCY_MS
+    )
+
+
+def run_video_files(session_dir, tsv: Path) -> VideoFiles:
+    """The camera files in *session_dir*/behav whose rsync pulses match those of *tsv*.
+
+    Raises:
+        ValueError: If no camera table matches, or more than one does.
+    """
+    behav = Path(session_dir) / "behav"
+    tables = sorted(p for p in behav.glob(f"*{GPIO_SUFFIX}") if not p.name.startswith("._"))
+    pulses = pycontrol_sync_times(read_tsv_file(tsv))
+    hits = [gpio for gpio in tables if _video_aligns(pd.read_csv(gpio), pulses)]
+    if len(hits) != 1:
+        found = "No camera table" if not hits else f"Camera tables {[p.name for p in hits]}"
+        raise ValueError(
+            f"{found} in {behav} align(s) with {Path(tsv).name}; tables there: "
+            f"{[p.name for p in tables]}."
+        )
+    return VideoFiles(video_beside(hits[0]), hits[0])

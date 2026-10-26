@@ -4,6 +4,9 @@ The file is written once per run (``derivatives/.../funcimg/run-XX/frame_times.n
 both destriping variants, which share their frames. Frame ``i`` of the registered movie (and of
 ``F.npy``) has pyControl time ``time_s[i]`` (s; NaN outside the sync pulses), so analyses can
 work in frames or in seconds.
+
+The run's behaviour video gets the same treatment in ``video_frame_times.npz``: the pyControl
+time of each of its frames, so imaging and video frames can be paired by time.
 """
 
 import json
@@ -13,19 +16,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from src.behavior_import.import_data import read_tsv_file
 from src.funcimg_analysis.event_frames import frame_period_s, limited_frame_times
 from src.funcimg_import.daq_sync import load_daq_sync
-from src.funcimg_import.runs import RunFiles
+from src.funcimg_import.runs import RunFiles, VideoFiles
 from src.sync.pycontrol_time import (
     align_to_pycontrol,
     pycontrol_sync_times,
     sync_quality,
     to_pycontrol_time,
+    video_frame_times,
 )
 
 FRAME_TIMES_FILE = "frame_times.npz"
+VIDEO_FRAME_TIMES_FILE = "video_frame_times.npz"
 # The batch preprocessing's record of which raw TIFF each variant of a run was made from.
 BATCH_MANIFEST = "source_tiff.json"
 VARIANTS = ("without_destriping", "with_destriping")
@@ -198,6 +204,63 @@ def load_frame_times(run_dir) -> FrameTimes:
             period_s=frame_period_s(time_s),
             tiff=Path(str(saved["tiff"])),
             h5=Path(str(saved["h5"])),
+            tsv=Path(str(saved["tsv"])),
+            quality=json.loads(str(saved["quality"])),
+        )
+
+
+@dataclass(frozen=True)
+class VideoFrameTimes:
+    time_s: np.ndarray  # pyControl time of each video frame; NaN outside the sync pulses
+    video: Path
+    gpio: Path
+    tsv: Path
+    quality: dict
+
+
+def video_frame_times_from_files(video: VideoFiles, tsv: Path) -> dict:
+    """Arrays and provenance for :func:`write_video_frame_times`, from the camera table."""
+    time_s, aligner = video_frame_times(
+        pd.read_csv(video.gpio), pycontrol_sync_times(read_tsv_file(tsv))
+    )
+    return {
+        "time_s": time_s,
+        "video": str(video.video),
+        "gpio": str(video.gpio),
+        "tsv": str(tsv),
+        "quality": json.dumps(sync_quality(aligner)),
+    }
+
+
+def write_video_frame_times(
+    run: RunFiles, video: VideoFiles, run_dir, overwrite: bool = False
+) -> Path:
+    """Write ``run_dir/video_frame_times.npz``: the pyControl time of every frame of the
+    run's behaviour video, on the same clock as ``frame_times.npz``.
+
+    Raises:
+        FileNotFoundError: If *run_dir* (the derivatives run folder) does not exist.
+        RunMismatchError: If the batch did not make this run folder from ``run.tiff``.
+        FileExistsError: If the file exists and *overwrite* is False.
+    """
+    run_dir = Path(run_dir)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"No derivatives run folder {run_dir}.")
+    check_run_source(run.tiff.name, run_dir)
+    path = run_dir / VIDEO_FRAME_TIMES_FILE
+    if path.exists() and not overwrite:
+        raise FileExistsError(f"{path} exists; pass overwrite=True to replace it.")
+    np.savez(path, **video_frame_times_from_files(video, run.tsv))
+    return path
+
+
+def load_video_frame_times(run_dir) -> VideoFrameTimes:
+    """Read ``run_dir/video_frame_times.npz``."""
+    with np.load(Path(run_dir) / VIDEO_FRAME_TIMES_FILE) as saved:
+        return VideoFrameTimes(
+            time_s=saved["time_s"],
+            video=Path(str(saved["video"])),
+            gpio=Path(str(saved["gpio"])),
             tsv=Path(str(saved["tsv"])),
             quality=json.loads(str(saved["quality"])),
         )
