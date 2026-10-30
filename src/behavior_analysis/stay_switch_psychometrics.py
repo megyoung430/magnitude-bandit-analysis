@@ -78,6 +78,10 @@ REASON_MISSING_VALUES = "missing_values"
 REASON_TIE_EXCLUDED = "tie_excluded"
 
 OUTCOMES = ("stay", "switch", "switch_best_alt", "switch_other")
+# Rows of the curve figures: pairs whose chosen arm had value 0, and the others.
+CHOSEN_ZERO = "chosen_zero"
+CHOSEN_NONZERO = "chosen_nonzero"
+CHOSEN_ROWS = (CHOSEN_ZERO, CHOSEN_NONZERO)
 X_AXES = ("diff", "chosen", "alt")
 
 PAIR_COLUMNS = (
@@ -366,6 +370,53 @@ def stay_switch_curves(pairs: pd.DataFrame, *, pool_trials: bool) -> dict[str, d
     return {
         outcome: {axis: _curve(frame, outcome, axis, pool_trials) for axis in X_AXES}
         for outcome in OUTCOMES
+    }
+
+
+def split_by_chosen_value(pairs: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """The pairs whose chosen arm had value 0, and those whose chosen arm had a value above 0.
+
+    The value is the one the pairs were made with: true, or believed (a believed 0 is the
+    arm's last payout, whatever its true magnitude is now).
+
+    Args:
+        pairs (pd.DataFrame): ``StaySwitchPairs.pairs``.
+
+    Returns:
+        dict[str, pd.DataFrame]: ``{CHOSEN_ZERO: V(chosen) == 0, CHOSEN_NONZERO: V(chosen) >
+        0}``, in the order of ``CHOSEN_ROWS``; either may be empty.
+
+    Raises:
+        ValueError: If a chosen value is negative (magnitudes are never below 0).
+    """
+    if (pairs["v_chosen"] < 0).any():
+        raise ValueError("negative chosen values; reward magnitudes are never below 0")
+    zero = pairs["v_chosen"] == 0
+    return {
+        CHOSEN_ZERO: pairs.loc[zero].reset_index(drop=True),
+        CHOSEN_NONZERO: pairs.loc[~zero].reset_index(drop=True),
+    }
+
+
+def stay_switch_curves_by_row(
+    pairs: pd.DataFrame, *, pool_trials: bool
+) -> dict[str, dict[str, dict[str, Curve]] | None]:
+    """:func:`stay_switch_curves` separately for each row of :func:`split_by_chosen_value`.
+
+    A mouse without pairs in a row is not one of that row's mice, so it is left out of the
+    row's mean, standard error and n.
+
+    Args:
+        pairs (pd.DataFrame): ``StaySwitchPairs.pairs``.
+        pool_trials (bool): As in :func:`stay_switch_curves`. Keyword-only.
+
+    Returns:
+        dict: ``{row: curves}`` for each row of ``CHOSEN_ROWS``; ``None`` for a row without
+        pairs.
+    """
+    return {
+        row: stay_switch_curves(subset, pool_trials=pool_trials) if not subset.empty else None
+        for row, subset in split_by_chosen_value(pairs).items()
     }
 
 

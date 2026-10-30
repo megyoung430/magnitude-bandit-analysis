@@ -10,13 +10,18 @@ import pandas as pd
 import pytest
 
 from src.behavior_analysis.stay_switch_psychometrics import (
+    CHOSEN_NONZERO,
+    CHOSEN_ROWS,
+    CHOSEN_ZERO,
     OUTCOMES,
     TIE_ALL_THREE,
     TIE_ALTERNATIVES,
     TIE_CHOSEN_ALTERNATIVE,
     X_AXES,
+    split_by_chosen_value,
     stay_heatmap,
     stay_switch_curves,
+    stay_switch_curves_by_row,
     stay_switch_pairs,
 )
 
@@ -273,3 +278,81 @@ def test_a_trial_without_three_finite_magnitudes_has_no_pair():
     result = pairs_of({1: {"m": {key(1): session(values, "AAAA")}}})
     assert result.pairs["trial"].tolist() == [3]
     assert result.dropped["m"]["missing_values"] == 2
+
+
+# ------------------------------------------------------------------ rows by the chosen value
+
+
+def test_rows_split_pairs_by_whether_the_chosen_value_is_zero():
+    values = [mag(4, 2, 0)] * 4
+    result = pairs_of({1: {"m": {key(1): session(values, "CCAC")}}})
+    rows = split_by_chosen_value(result.pairs)
+    assert tuple(rows) == CHOSEN_ROWS == ("chosen_zero", "chosen_nonzero")
+    assert rows[CHOSEN_ZERO]["trial"].tolist() == [1, 2]  # C (0) before
+    assert rows[CHOSEN_NONZERO]["trial"].tolist() == [3]  # A (4) before
+    assert (rows[CHOSEN_ZERO]["v_chosen"] == 0).all()
+
+
+def test_believed_rows_use_the_believed_zero_not_the_true_one():
+    # C pays 0 at t2; at t3 its true value is 3, but the mouse last saw it pay 0
+    values = [mag(4, 2, 0)] * 3 + [mag(4, 2, 3)] * 2
+    problems = {1: {"m": {key(1): session(values, "ABCCC")}}}
+    believed = split_by_chosen_value(pairs_of(problems, use_believed=True).pairs)
+    assert believed[CHOSEN_ZERO]["trial"].tolist() == [3]
+    assert believed[CHOSEN_NONZERO]["trial"].tolist() == [4]  # C paid 3 at t3
+    true = split_by_chosen_value(pairs_of(problems).pairs)
+    assert true[CHOSEN_ZERO].empty  # by its true magnitude C is 3 at t3 and t4
+    assert true[CHOSEN_NONZERO]["trial"].tolist() == [1, 2, 3, 4]
+
+
+def test_a_negative_chosen_value_is_an_error():
+    pairs = weighting_pairs()
+    pairs.loc[0, "v_chosen"] = -1
+    with pytest.raises(ValueError, match="negative"):
+        split_by_chosen_value(pairs)
+
+
+def row_pairs():
+    """m1 and m2 have pairs with V(chosen) = 0 and above; m3 only above."""
+    rows = [
+        ("m1", 0, 4, 2, 0, 1, 0),
+        ("m1", 0, 4, 2, 1, 0, 0),
+        ("m1", 4, 2, 0, 1, 0, 0),
+        ("m2", 0, 2, 1, 0, 0, 1),
+        ("m2", 3, 2, 0, 0, 1, 0),
+        ("m3", 2, 4, 0, 0, 0.5, 0.5),
+        ("m3", 4, 3, 2, 1, 0, 0),
+    ]
+    return pd.DataFrame(rows, columns=["mouse", *COLUMNS])
+
+
+def test_curves_by_row_count_only_the_mice_with_pairs_in_that_row():
+    rows = stay_switch_curves_by_row(row_pairs(), pool_trials=True)
+    zero, nonzero = rows[CHOSEN_ZERO], rows[CHOSEN_NONZERO]
+    assert zero["stay"]["diff"].mice == ["m1", "m2"]
+    assert nonzero["stay"]["diff"].mice == ["m1", "m2", "m3"]
+    assert zero["stay"]["chosen"].x.tolist() == [0]
+    np.testing.assert_allclose(zero["stay"]["chosen"].per_mouse, [[0.5], [0.0]])
+    np.testing.assert_allclose(zero["stay"]["chosen"].mean, [0.25])
+
+
+def test_switch_targets_add_up_to_switch_within_each_row():
+    for pool_trials in (True, False):
+        rows = stay_switch_curves_by_row(row_pairs(), pool_trials=pool_trials)
+        for curves in rows.values():
+            for axis in X_AXES:
+                parts = (
+                    curves["switch_best_alt"][axis].per_mouse
+                    + curves["switch_other"][axis].per_mouse
+                )
+                np.testing.assert_allclose(parts, curves["switch"][axis].per_mouse)
+                np.testing.assert_allclose(
+                    curves["switch"][axis].per_mouse, 1 - curves["stay"][axis].per_mouse
+                )
+
+
+def test_a_row_without_pairs_has_no_curves():
+    pairs = row_pairs()
+    rows = stay_switch_curves_by_row(pairs[pairs["v_chosen"] > 0], pool_trials=True)
+    assert rows[CHOSEN_ZERO] is None
+    assert rows[CHOSEN_NONZERO]["stay"]["diff"].mice == ["m1", "m2", "m3"]

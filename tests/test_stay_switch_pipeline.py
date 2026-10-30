@@ -5,14 +5,19 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pytest
 
+from src.behavior_analysis.stay_switch_psychometrics import stay_switch_curves_by_row
 from src.behavior_visualization.plot_helpers import caption_path
 from src.behavior_visualization.plot_stay_switch import (
     plot_stay_heatmap_panel,
+    plot_stay_switch_curves,
     plot_stay_switch_panel,
+    plot_switch_target_curves,
 )
 from src.pipelines.stay_switch_psychometrics import run_stay_switch_analysis
+from tests.plot_capture import capture_figures
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +56,8 @@ def stems(basis, ties):
         f"Stay Heatmap {base}",
         f"Stay-Switch Curves {base} (Pool Trials True)",
         f"Stay-Switch Curves {base} (Pool Trials False)",
+        f"Switch Target Curves {base} (Pool Trials True)",
+        f"Switch Target Curves {base} (Pool Trials False)",
     ]
 
 
@@ -70,6 +77,8 @@ def test_writes_every_figure_in_every_format_and_returns_the_results(tmp_path):
         for entry in by_tie.values():
             assert set(entry) == {"pairs", "heatmap", "curves"}
             assert set(entry["curves"]) == {True, False}
+            for rows in entry["curves"].values():
+                assert set(rows) == {"chosen_zero", "chosen_nonzero"}
     assert plt.get_fignums() == []
 
 
@@ -78,8 +87,13 @@ def test_exclude_mode_has_no_tied_pairs_and_split_mode_keeps_them(tmp_path):
     exclude, split = results["true"]["exclude"], results["true"]["split"]
     assert exclude["pairs"].pairs["tie"].isna().all()
     assert split["pairs"].pairs["tie"].notna().any()
-    assert 0 not in exclude["curves"][True]["stay"]["diff"].x
-    assert 0 in split["curves"][True]["stay"]["diff"].x
+
+    def diffs(entry):
+        rows = entry["curves"][True].values()
+        return {x for curves in rows if curves for x in curves["stay"]["diff"].x}
+
+    assert 0 not in diffs(exclude)
+    assert 0 in diffs(split)
     assert exclude["pairs"].ties == split["pairs"].ties
 
 
@@ -99,12 +113,13 @@ def test_panel_titles_are_a_heading_and_the_statistics_line(tmp_path):
     results = run_stay_switch_analysis(
         data(), tmp_path, value_bases=("true",), tie_modes=("split",)
     )
-    curves = results["true"]["split"]["curves"][True]
+    curves = results["true"]["split"]["curves"][True]["chosen_nonzero"]
     ax = plot_stay_switch_panel(
         {"stay": curves["stay"]["diff"], "switch": curves["switch"]["diff"]},
+        "Chose Non-0 Option",
         "Value of Chosen - Best Alternative",
     )
-    assert ax.get_title() == ("Value of Chosen - Best Alternative\nmean ± se across mice, n=3 mice")
+    assert ax.get_title() == "Chose Non-0 Option\nmean ± se across mice, n=3 mice"
     assert [t.get_text() for t in ax.get_legend().get_texts()] == ["Stay", "Switch"]
     assert ax.get_xlabel() == "Value of Chosen - Best Alternative"
     assert ax.get_ylim() == (0, 1)
@@ -153,3 +168,98 @@ def test_unknown_options_raise(tmp_path, option, value):
 def test_no_mice_raises(tmp_path):
     with pytest.raises(ValueError, match="no subjects"):
         run_stay_switch_analysis({1: {}}, tmp_path)
+
+
+def row_test_pairs():
+    """m1, m2: pairs with V(chosen) = 0 and above; m3 only above, so the rows differ in n."""
+    rows = [
+        ("m1", 0, 4, 2, 0.0, 1.0, 0.0),
+        ("m1", 0, 4, 2, 1.0, 0.0, 0.0),
+        ("m1", 4, 2, 0, 1.0, 0.0, 0.0),
+        ("m1", 3, 4, 0, 0.0, 0.0, 1.0),
+        ("m2", 0, 2, 1, 0.0, 0.0, 1.0),
+        ("m2", 3, 2, 0, 0.0, 1.0, 0.0),
+        ("m2", 4, 3, 2, 1.0, 0.0, 0.0),
+        ("m3", 2, 4, 0, 0.0, 0.5, 0.5),
+        ("m3", 4, 3, 2, 1.0, 0.0, 0.0),
+    ]
+    columns = ["mouse", "v_chosen", "v_alt", "v_other", "stay", "switch_best_alt", "switch_other"]
+    return pd.DataFrame(rows, columns=columns)
+
+
+NO_TIES = {"chosen_alternative": 0, "alternatives": 0, "all_three": 0}
+
+
+def titled_axes(fig):
+    return [ax for ax in fig.axes if ax.get_title()]
+
+
+@pytest.mark.parametrize(
+    ("plot", "heading", "labels"),
+    [
+        (plot_stay_switch_curves, "Stay-Switch Curves (True Value)", ["Stay", "Switch"]),
+        (
+            plot_switch_target_curves,
+            "Switch Target Curves (True Value)",
+            ["Switch to Best Alternative", "Switch to Other Arm"],
+        ),
+    ],
+)
+def test_each_curve_figure_has_a_row_per_chosen_value_with_its_own_n(
+    monkeypatch, plot, heading, labels
+):
+    capture = capture_figures(monkeypatch)
+    curves = stay_switch_curves_by_row(row_test_pairs(), pool_trials=True)
+    plot(curves, "True", True, NO_TIES, "split", None)
+    (fig,) = capture.shown[0]
+    assert fig.get_suptitle() == heading
+    axes = titled_axes(fig)
+    assert len(axes) == 6
+    top, bottom = axes[:3], axes[3:]
+    for ax in top:
+        first, stats = ax.get_title().split("\n")
+        assert first == "Chose 0-Value Option" and stats.endswith("across mice, n=2 mice")
+    for ax in bottom:
+        first, stats = ax.get_title().split("\n")
+        assert first == "Chose Non-0 Option" and stats.endswith("across mice, n=3 mice")
+    assert [ax.get_xlabel() for ax in top] == [
+        "Value of Chosen - Best Alternative",
+        "Value of Chosen",
+        "Value of Best Alternative",
+    ]
+    assert list(top[1].get_xticks()) == [0]  # the V(chosen) panel of the 0 row: one point
+    lo, hi = top[1].get_xlim()
+    assert lo < 0 < hi and hi - lo >= 1
+    drawn = {line.get_label() for ax in fig.axes for line in ax.lines}
+    assert set(labels) <= drawn
+
+
+def test_the_single_point_of_the_zero_row_has_an_error_bar(monkeypatch):
+    capture = capture_figures(monkeypatch)
+    curves = stay_switch_curves_by_row(row_test_pairs(), pool_trials=True)
+    plot_stay_switch_curves(curves, "True", True, NO_TIES, "split", None)
+    (fig,) = capture.shown[0]
+    chosen_panel = titled_axes(fig)[1]
+    assert chosen_panel.containers  # the error bars
+    assert "mean ± se" in chosen_panel.get_title()
+
+
+def test_a_row_without_pairs_draws_empty_panels(monkeypatch):
+    capture = capture_figures(monkeypatch)
+    pairs = row_test_pairs()
+    curves = stay_switch_curves_by_row(pairs[pairs["v_chosen"] > 0], pool_trials=True)
+    plot_stay_switch_curves(curves, "True", True, NO_TIES, "split", None)
+    (fig,) = capture.shown[0]
+    top = titled_axes(fig)[:3]
+    assert all(ax.get_title() == "Chose 0-Value Option" for ax in top)
+    assert all(t.get_text() == "No pairs" for ax in top for t in ax.texts)
+
+
+def test_switch_target_caption_says_the_targets_are_fractions_of_all_pairs(tmp_path):
+    run_stay_switch_analysis(data(), tmp_path, value_bases=("believed",), tie_modes=("split",))
+    caption = caption_path(
+        tmp_path / "Switch Target Curves (Believed Value) (Ties Split) (Pool Trials True)"
+    ).read_text()
+    assert "fractions of all pairs, not of switches" in caption
+    assert "top, V(chosen) = 0" in caption
+    assert "Believed 0: the arm last paid 0" in caption

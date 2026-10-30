@@ -12,12 +12,13 @@ from src.behavior_analysis.get_choice_probs_by_value import TIE_MODES
 from src.behavior_analysis.reversal_format import check_blocks_only_sessions
 from src.behavior_analysis.stay_switch_psychometrics import (
     stay_heatmap,
-    stay_switch_curves,
+    stay_switch_curves_by_row,
     stay_switch_pairs,
 )
 from src.behavior_visualization.plot_stay_switch import (
     plot_stay_heatmap,
     plot_stay_switch_curves,
+    plot_switch_target_curves,
     ties_in_name,
 )
 from src.pipelines.value_psychometrics import VALUE_BASES, check_bools, check_choices
@@ -30,9 +31,11 @@ def _write_condition(pairs, label: str, tie_mode: str, pooling_modes, out_dir: P
     plot_stay_heatmap(heatmap, label, pairs.ties, tie_mode, out_dir / f"Stay Heatmap {stem}")
     curves_by_mode = {}
     for pool_trials in pooling_modes:
-        curves = stay_switch_curves(pairs.pairs, pool_trials=pool_trials)
-        name = f"Stay-Switch Curves {stem} (Pool Trials {pool_trials})"
-        plot_stay_switch_curves(curves, label, pool_trials, pairs.ties, tie_mode, out_dir / name)
+        curves = stay_switch_curves_by_row(pairs.pairs, pool_trials=pool_trials)
+        name = f"{stem} (Pool Trials {pool_trials})"
+        args = (curves, label, pool_trials, pairs.ties, tie_mode)
+        plot_stay_switch_curves(*args, out_dir / f"Stay-Switch Curves {name}")
+        plot_switch_target_curves(*args, out_dir / f"Switch Target Curves {name}")
         curves_by_mode[pool_trials] = curves
     return {"pairs": pairs, "heatmap": heatmap, "curves": curves_by_mode}
 
@@ -56,9 +59,13 @@ def run_stay_switch_analysis(
 
     - ``Stay Heatmap (<Value> Value) (Ties <Ties>)``: P(stay) over V(chosen) x V(alt);
     - ``Stay-Switch Curves (<Value> Value) (Ties <Ties>) (Pool Trials <True|False>)`` for each
-      pooling mode: P(stay) and P(switch), then P(switch to the best alternative) and P(switch
-      to the other arm), against V(chosen) - V(alt), V(chosen) and V(alt). ``True`` pools a
-      mouse's pairs at an x, ``False`` averages its (V(chosen), V(alt)) cells equally.
+      pooling mode: P(stay) and P(switch) against V(chosen) - V(alt), V(chosen) and V(alt), in
+      two rows: pairs whose chosen option had value 0 (top) and the others (bottom), by the
+      figure's own value basis. ``True`` pools a mouse's pairs at an x, ``False`` averages its
+      (V(chosen), V(alt)) cells equally;
+    - ``Switch Target Curves (...)`` with the same name parts and rows: P(switch to the best
+      alternative) and P(switch to the other arm), fractions of all pairs (they add up to
+      P(switch)).
 
     A value basis and tie mode without any trial pair draws nothing and warns.
 
@@ -71,8 +78,9 @@ def run_stay_switch_analysis(
 
     Returns:
         dict: ``{value_basis: {tie_mode: {"pairs": StaySwitchPairs, "heatmap": StayHeatmap,
-        "curves": {pool_trials: {outcome: {axis: Curve}}}}}}``; a condition without pairs has
-        only ``"pairs"``.
+        "curves": {pool_trials: {row: {outcome: {axis: Curve}} | None}}}}}`` (rows
+        ``chosen_zero`` and ``chosen_nonzero``, None without pairs); a condition without pairs
+        has only ``"pairs"``.
 
     Raises:
         ValueError: If an option has an unknown entry, a session is counter format (the

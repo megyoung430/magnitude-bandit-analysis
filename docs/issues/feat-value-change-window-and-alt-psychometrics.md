@@ -53,8 +53,15 @@ problem, a cohort's pooled drifting problems, the all-cohorts pool).
   psychometrics' exclude set: a tie of the chosen arm with the arm below V(alt) is kept here); `split` keeps them, V(chosen) = V(alt) at difference 0 and
   a switch between tied alternatives counted half to each target. Counts are in the captions.
 - Figures per value basis and tie mode: `Stay-Switch Curves (...) (Pool Trials True|False)`
-  (top row P(stay) and P(switch), bottom row the two switch targets, against V(chosen) - V(alt),
-  V(chosen), V(alt); per-mouse lines, mean ± se across mice) and `Stay Heatmap (...)` (P(stay)
+  (P(stay) and P(switch)) and `Switch Target Curves (...) (Pool Trials True|False)` (P(switch to
+  the best alternative) and P(switch to the other arm), fractions of all pairs that add up to
+  P(switch)), each against V(chosen) - V(alt), V(chosen), V(alt) with per-mouse lines and
+  mean ± se across mice. Meg's follow-up: each figure has a row for pairs whose chosen option had
+  value 0 ("Chose 0-Value Option", the believed 0 for believed values) and one for the others
+  ("Chose Non-0 Option"); each row's panels state its own n, and a mouse without pairs in a row
+  is left out of it. The 0 row's V(chosen) panel is one point with error bars. The stay heatmap
+  is not split (V(chosen) = 0 is its own row). Not made: switch targets conditional on switching
+  (P(target | switch)). And `Stay Heatmap (...)` (P(stay)
   over V(chosen) x V(alt), mean across mice, pairs per cell). Pooling: a mouse's pairs at an x
   pooled, or its (V(chosen), V(alt)) cells averaged equally.
 - Results are returned (pairs, heatmap tables, curves); no CSV, like the value psychometrics.
