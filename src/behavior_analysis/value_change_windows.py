@@ -41,7 +41,7 @@ Window definition
 Each event also records every reason its full ``-pre .. +post`` window is incomplete
 (``incomplete_causes``), found by scanning the whole window rather than stopping at the nearest
 cut, so a caller can keep only events with complete windows (see
-:mod:`src.behavior_analysis.value_change_symmetric`).
+:mod:`src.behavior_analysis.value_change_complete_window`).
 
 Filters
 -------
@@ -166,28 +166,50 @@ def describe_value_change_kind(config: ValueChangeConfig) -> str:
     return f"{rank} {direction} ({_FILTER_WORDS[config.rank_filter]})"
 
 
+def complete_window_text(pre: int, post: int) -> str:
+    """Name of a complete ``-pre .. +post`` window in figure titles and file names.
+
+    Equal sides keep the name ``Symmetric ±N Trials``; others read ``-2 to +4 Trials``, with an
+    ASCII hyphen as in the other file names.
+
+    Args:
+        pre (int): Trials before the value change.
+        post (int): Trials after the value-change trial.
+
+    Returns:
+        str: E.g. ``"Symmetric ±6 Trials"`` or ``"-2 to +4 Trials"``.
+    """
+    if pre == post:
+        return f"Symmetric ±{pre} Trials"
+    return f"-{pre} to +{post} Trials"
+
+
 def describe_value_change(
-    config: ValueChangeConfig, truncated: bool, symmetric_window: int | None = None
+    config: ValueChangeConfig,
+    truncated: bool,
+    complete_window: tuple[int, int] | None = None,
 ) -> str:
     """Readable name of a configuration and window mode, for figure titles and file names.
 
     Args:
         config (ValueChangeConfig): The rank, direction and event filter.
         truncated (bool): Whether the post windows are cut at the first rank swap.
-        symmetric_window (int | None): N of a symmetric ``-N .. +N`` complete-window figure, or
-            None for the regular full window. Default None. A symmetric figure is never truncated.
+        complete_window (tuple[int, int] | None): ``(pre, post)`` of a complete-window figure
+            (only events whose whole ``-pre .. +post`` window is intact), or None for the regular
+            full window. Default None. A complete-window figure is never truncated.
 
     Returns:
-        str: E.g. ``"Best-Value Decreases (Rank Swap, Truncated at Swap)"`` or
+        str: E.g. ``"Best-Value Decreases (Rank Swap, Truncated at Swap)"``,
+        ``"Best-Value Decreases (Rank Swap, -2 to +4 Trials)"`` or
         ``"Best-Value Decreases (Rank Swap, Symmetric ±6 Trials)"``.
 
     Raises:
-        ValueError: If both *truncated* and *symmetric_window* are given.
+        ValueError: If both *truncated* and *complete_window* are given.
     """
-    if symmetric_window is not None and truncated:
-        raise ValueError("a symmetric window cannot be truncated at the rank swap")
-    if symmetric_window is not None:
-        mode = f"Symmetric ±{symmetric_window} Trials"
+    if complete_window is not None and truncated:
+        raise ValueError("a complete window cannot be truncated at the rank swap")
+    if complete_window is not None:
+        mode = complete_window_text(*complete_window)
     else:
         mode = "Truncated at Swap" if truncated else "Full Window"
     rank, direction = _RANK_WORDS[config.rank], _DIRECTION_WORDS[config.direction]
@@ -254,10 +276,10 @@ class ValueChangeWindows(NamedTuple):
         counts (dict[str, int]): Accounting counts, with the keys of ``COUNT_KEYS``
             (``n_changes``, ``n_third_arm_changed``, ``n_tie_skipped``, ``n_filtered_out``,
             ``n_events``, ``n_sessions_without_trials``, ``n_missing_magnitude_trials``).
-            In symmetric windows ``n_events`` is the number kept and
+            In complete-window selections ``n_events`` is the number kept and
             ``n_events_before_exclusion`` (an extra key) the number found.
-        symmetric (bool): Whether only events with a complete ``-pre .. +post`` window are kept
-            (``pre == post``). Default False.
+        complete_window (bool): Whether only events with a complete ``-pre .. +post`` window
+            are kept. Default False.
     """
 
     config: ValueChangeConfig
@@ -266,7 +288,7 @@ class ValueChangeWindows(NamedTuple):
     truncate_at_rank_swap: bool
     events: dict[str, list[ValueChangeEvent]]
     counts: dict[str, int]
-    symmetric: bool = False
+    complete_window: bool = False
 
     @property
     def labels(self) -> tuple[str, ...]:
@@ -787,9 +809,15 @@ def merge_value_change_windows(windows_list: list[ValueChangeWindows]) -> ValueC
     if not windows_list:
         raise ValueError("no windows to merge")
     first = windows_list[0]
-    settings = (first.config, first.pre, first.post, first.truncate_at_rank_swap, first.symmetric)
+    settings = (
+        first.config,
+        first.pre,
+        first.post,
+        first.truncate_at_rank_swap,
+        first.complete_window,
+    )
     for w in windows_list:
-        w_settings = (w.config, w.pre, w.post, w.truncate_at_rank_swap, w.symmetric)
+        w_settings = (w.config, w.pre, w.post, w.truncate_at_rank_swap, w.complete_window)
         if w_settings != settings:
             raise ValueError(
                 f"cannot merge windows with different settings: {settings} vs {w_settings}"
@@ -983,8 +1011,8 @@ class ValueChangeCurves(NamedTuple):
         per_subject_n_events (dict[str, np.ndarray]): ``{subject: events with a trial at each
             t}``, the denominators of ``per_subject_mean``; shape ``(pre + post + 1,)``.
         per_subject_total_events (dict[str, int]): ``{subject: number of events}``.
-        symmetric (bool): Whether only events with a complete ``-pre .. +post`` window are
-            averaged. Default False.
+        complete_window (bool): Whether only events with a complete ``-pre .. +post`` window
+            are averaged. Default False.
     """
 
     config: ValueChangeConfig
@@ -1005,7 +1033,7 @@ class ValueChangeCurves(NamedTuple):
     weighting: str = "subject"
     per_subject_n_events: dict[str, np.ndarray] | None = None
     per_subject_total_events: dict[str, int] | None = None
-    symmetric: bool = False
+    complete_window: bool = False
 
 
 def summarize_windows(
@@ -1046,7 +1074,7 @@ def summarize_windows(
         counts=dict(windows.counts),
         per_subject_n_events=across["per_subject_n_events"],
         per_subject_total_events=across["per_subject_total_events"],
-        symmetric=windows.symmetric,
+        complete_window=windows.complete_window,
     )
 
 
