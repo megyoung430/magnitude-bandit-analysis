@@ -47,7 +47,6 @@ from tests.plot_fixtures import make_mouse
 
 ENTRY_POINTS = (
     "run_value_psychometric_analysis",
-    "run_stay_switch_analysis",
     "run_reversal_aligned_arm_analysis",
     "run_value_change_analysis",
     "run_port_preference_analysis",
@@ -61,13 +60,7 @@ STUB_RESULTS = {
         "symmetric_exclusions_table": pd.DataFrame(),
     },
 }
-FOLDERS = (
-    "value-psychometrics",
-    "value-psychometrics-stay-switch",
-    "reversal-aligned-arms",
-    "value-change",
-    "port-preference",
-)
+FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change", "port-preference")
 LONG_POKE_FILES = (
     "Long Pokes by Relative Session.png",
     "Maze Heatmaps - Pokes After Choice.png",
@@ -97,6 +90,13 @@ def calls(monkeypatch):
 
     for name in ENTRY_POINTS:
         monkeypatch.setattr(pipeline, name, recorder(name))
+    # Runs with the value psychometrics, not on a switch of its own; it only leaves its stub file,
+    # so the recorded calls stay one per selectable entry point.
+    def stay_switch(data, out_dir, **kwargs):
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        (Path(out_dir) / "stub.txt").write_text("run_stay_switch_analysis")
+
+    monkeypatch.setattr(pipeline, "run_stay_switch_analysis", stay_switch)
     # The real builder needs real block structure. This one gives each mouse a single "window",
     # the overall problem number of its sessions, to show which problems a pool was built from.
     monkeypatch.setattr(
@@ -199,6 +199,10 @@ def test_drifting_problems_get_the_value_folders_and_blocked_problems_do_not(
     for folder in FOLDERS:
         assert (pooled / folder / "stub.txt").exists(), folder
     assert not (cohort_dir / BLOCKED / "all-blocked-problems").exists()
+    stay_switch = "value-psychometrics-stay-switch"
+    for drifting in (*(cohort_dir / DRIFTING / f"problem-{k:02d}" for k in (1, 2)), pooled):
+        assert (drifting / stay_switch / "stub.txt").read_text() == "run_stay_switch_analysis"
+    assert not (blocked / stay_switch).exists()
 
 
 def test_long_pokes_are_written_for_every_problem_and_not_for_the_pool(
