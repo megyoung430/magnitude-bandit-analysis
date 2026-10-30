@@ -90,6 +90,7 @@ def calls(monkeypatch):
 
     for name in ENTRY_POINTS:
         monkeypatch.setattr(pipeline, name, recorder(name))
+
     # Runs with the value psychometrics, not on a switch of its own; it only leaves its stub file,
     # so the recorded calls stay one per selectable entry point.
     def stay_switch(data, out_dir, **kwargs):
