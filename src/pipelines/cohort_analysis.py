@@ -7,7 +7,8 @@ mouse's problems into blocked and drifting from the pyControl task name
 - blocked problems: choice probabilities, first leave, number of reversals, true-value rank
   proportions, long pokes with maze heatmaps, and single sessions;
 - drifting problems: number of reversals, true- and believed-value rank proportions, long pokes
-  with maze heatmaps, value heatmaps and psychometric curves, reversal-aligned arm choices,
+  with maze heatmaps, value heatmaps and psychometric curves, stay/switch psychometrics,
+  reversal-aligned arm choices,
   value-change choice probabilities, port preference and single sessions, plus the rank
   proportions and the value analyses and port preference pooled over all of a mouse's drifting
   problems;
@@ -18,11 +19,11 @@ Layout under ``results_root`` (``cohort`` is ``cohort-0N``)::
 
     figures/open-field/<cohort>/{blocked,drifting}/problem-KK/{reversal-stats,choice-stats,
         single-sessions,long-pokes}/
-    figures/open-field/<cohort>/drifting/problem-KK/{value-psychometrics,reversal-aligned-arms,
-        value-change,port-preference}/
+    figures/open-field/<cohort>/drifting/problem-KK/{value-psychometrics,
+        value-psychometrics-stay-switch,reversal-aligned-arms,value-change,port-preference}/
     figures/open-field/<cohort>/drifting/all-drifting-problems/{choice-stats,value-psychometrics,
-        reversal-aligned-arms,value-change,port-preference,sessions-per-problem,
-        port-finding-summary}/
+        value-psychometrics-stay-switch,reversal-aligned-arms,value-change,port-preference,
+        sessions-per-problem,port-finding-summary}/
     figures/open-field/<cohort>/drifting/all-drifting-problems-without-<mice>/  (only with
         ``exclude_mice``: the same subfolders, from the drifting problems without those mice, its
         figures' captions start "without <mice>"; its tables are in ``tables/.../<same name>/``)

@@ -59,6 +59,7 @@ from src.behavior_visualization.plot_single_session import plot_single_session
 from src.pipelines.poke_analysis import run_poke_analysis
 from src.pipelines.port_preference import run_port_preference_analysis
 from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
+from src.pipelines.stay_switch_psychometrics import run_stay_switch_analysis
 from src.pipelines.value_change_analysis import run_value_change_analysis
 from src.pipelines.value_psychometrics import run_value_psychometric_analysis
 
@@ -80,6 +81,7 @@ _SECTION_NAMES = {
 }
 LONG_POKES_FOLDER = "long-pokes"
 VALUE_PSYCHOMETRICS_FOLDER = "value-psychometrics"
+STAY_SWITCH_FOLDER = "value-psychometrics-stay-switch"
 REVERSAL_ARMS_FOLDER = "reversal-aligned-arms"
 VALUE_CHANGE_FOLDER = "value-change"
 PORT_PREFERENCE_FOLDER = "port-preference"
@@ -703,8 +705,9 @@ def run_drifting_value_analyses(
             problem folder, several for the pool over a mouse's drifting problems. Every
             analysis computes inside each problem and then combines the mice's results, so
             beliefs reset and windows end at each problem boundary.
-        out_dir (Path): Folder that receives ``value-psychometrics``, ``reversal-aligned-arms``,
-            ``value-change`` and ``port-preference``.
+        out_dir (Path): Folder that receives ``value-psychometrics`` and
+            ``value-psychometrics-stay-switch`` (both with ``run_value_psychometric_analysis``),
+            ``reversal-aligned-arms``, ``value-change`` and ``port-preference``.
         selection (AnalysisSelection): Which of the four to run.
         arm_scope_label (str): Scope named in the captions of the reversal-aligned and
             port-preference figures, given
@@ -736,6 +739,7 @@ def run_drifting_value_analyses(
             out_dir / VALUE_PSYCHOMETRICS_FOLDER,
             per_mouse_heatmaps=per_mouse_figures,
         )
+        run_stay_switch_analysis(problems, out_dir / STAY_SWITCH_FOLDER)
     if selection.run_reversal_aligned_arm_analysis:
         arms = run_reversal_aligned_arm_analysis(
             pooled_arm_windows(problems),

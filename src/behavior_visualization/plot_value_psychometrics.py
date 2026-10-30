@@ -65,7 +65,7 @@ PANELS = (
 
 
 @contextmanager
-def _new_figure(**subplots_kwargs):
+def new_figure(**subplots_kwargs):
     """Yield ``(fig, axes)`` of a new figure; the figure is closed if the body raises."""
     fig, axes = plt.subplots(**subplots_kwargs)
     try:
@@ -217,7 +217,7 @@ def _tie_caption(ties: dict[str, int], tie_mode: str) -> tuple[str, str]:
     return f"Ties {tie_label(tie_mode).lower()}.", f"{tie_summary(ties, tie_mode)}."
 
 
-def _finish_figure(fig: plt.Figure, title: Title) -> None:
+def finish_figure(fig: plt.Figure, title: Title) -> None:
     """Add the title above the panels, then lay the panels out below it.
 
     The top margin is fixed in inches so the title never overlaps the panels, however many
@@ -236,13 +236,13 @@ def _finish_figure(fig: plt.Figure, title: Title) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _cell_text_color(value: float, cmap) -> str:
+def cell_text_color(value: float, cmap) -> str:
     """White on dark cells, black on light ones (by the colour's luminance)."""
     r, g, b, _ = cmap(value)
     return "white" if 0.299 * r + 0.587 * g + 0.114 * b < 0.5 else "black"
 
 
-def _cell_label(value: float, n_trials: float) -> str:
+def cell_label(value: float, n_trials: float) -> str:
     """``"0.62\\nn=134"``, or ``"NA\\nn=0"`` for a cell without trials."""
     prob = "NA" if np.isnan(value) else f"{value:.2f}"
     return f"{prob}\nn={n_trials:g}"
@@ -283,9 +283,9 @@ def plot_prob_heatmap(
         ax.set_yticks(range(len(BEST_VALS)), list(reversed(BEST_VALS)))
         if annotate:
             for i, j in np.ndindex(values.shape):
-                color = "black" if np.isnan(values[i, j]) else _cell_text_color(values[i, j], cmap)
+                color = "black" if np.isnan(values[i, j]) else cell_text_color(values[i, j], cmap)
                 ax.text(
-                    j, i, _cell_label(values[i, j], counts[i, j]),
+                    j, i, cell_label(values[i, j], counts[i, j]),
                     ha="center", va="center", fontsize=9, color=color,
                 )  # fmt: skip
         ax.figure.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
@@ -308,7 +308,7 @@ def plot_overall_heatmaps(
             ``None`` or ``""`` shows the figure.
     """
     n_mice = len(tables.per_mouse_p_best)
-    with _new_figure(ncols=2, figsize=(10, 4.4)) as (fig, axs):
+    with new_figure(ncols=2, figsize=(10, 4.4)) as (fig, axs):
         for ax, prob, name in zip(
             axs, (tables.p_best, tables.p_second), ("Best", "Second"), strict=True
         ):
@@ -319,7 +319,7 @@ def plot_overall_heatmaps(
             ("Each cell: the mean across mice; n=trials summed over mice.",)
             + _tie_caption(tables.ties, tie_mode),
         )
-        _finish_figure(fig, title)
+        finish_figure(fig, title)
     save_or_show(fig, save_path or None)
 
 
@@ -345,7 +345,7 @@ def plot_per_mouse_heatmaps(
     mice = sorted(tables.per_mouse_p_best) if mice is None else list(mice)
     if not mice:
         raise ValueError("no mice to draw per-mouse heatmaps for")
-    with _new_figure(nrows=len(mice), ncols=2, figsize=(10, 4.4 * len(mice)), squeeze=False) as (
+    with new_figure(nrows=len(mice), ncols=2, figsize=(10, 4.4 * len(mice)), squeeze=False) as (
         fig,
         axs,
     ):
@@ -361,7 +361,7 @@ def plot_per_mouse_heatmaps(
             None,
             caption + _tie_caption(tables.ties, tie_mode),
         )
-        _finish_figure(fig, title)
+        finish_figure(fig, title)
     save_or_show(fig, save_path or None)
 
 
@@ -370,13 +370,13 @@ def plot_per_mouse_heatmaps(
 # ---------------------------------------------------------------------------
 
 
-def _draw_mouse_lines(ax: plt.Axes, curve: Curve, color: str) -> None:
+def draw_mouse_lines(ax: plt.Axes, curve: Curve, color: str) -> None:
     """Thin line per mouse; NaN breaks the line and lone points stay visible as markers."""
     for values in curve.per_mouse:
         ax.plot(curve.x, values, "-o", color=color, lw=1, ms=2.5, alpha=0.3)
 
 
-def _draw_mean(ax: plt.Axes, curve: Curve, color: str, label: str) -> None:
+def draw_mean(ax: plt.Axes, curve: Curve, color: str, label: str) -> None:
     """Thick mean line with markers, and the SE band where the SE is defined."""
     has_se = ~np.isnan(curve.se) & ~np.isnan(curve.mean)
     if has_se.any():
@@ -439,8 +439,8 @@ def plot_psychometric_panel(
     series = ((curve_best, COLOR_BEST, "P(best)"), (curve_second, COLOR_SECOND, "P(second)"))
     with axes_or_new(ax, figsize=(4.6, 4.2)) as ax:
         for curve, color, label in series:
-            _draw_mouse_lines(ax, curve, color)
-            _draw_mean(ax, curve, color, label)
+            draw_mouse_lines(ax, curve, color)
+            draw_mean(ax, curve, color, label)
         _annotate_means(ax, curve_best, curve_second)
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Choice Probability", fontsize=12)
@@ -478,12 +478,12 @@ def plot_psychometric_curves(
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
     weighting = "trials pooled within mouse" if pool_trials else "cell probabilities averaged"
-    with _new_figure(ncols=3, figsize=(13, 4.4)) as (fig, axs):
+    with new_figure(ncols=3, figsize=(13, 4.4)) as (fig, axs):
         for ax, (axis, xlabel) in zip(axs, PANELS, strict=True):
             plot_psychometric_panel(curves["best"][axis], curves["second"][axis], xlabel, ax=ax)
         caption = (
             f"{weighting.capitalize()}; thin lines: each mouse.",
             *_tie_caption(ties, tie_mode),
         )
-        _finish_figure(fig, Title(f"Psychometric Curves ({value_label} Value)", None, caption))
+        finish_figure(fig, Title(f"Psychometric Curves ({value_label} Value)", None, caption))
     save_or_show(fig, save_path or None)

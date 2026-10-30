@@ -48,6 +48,7 @@ from tests.poke_fixtures import Recording
 SUBFOLDERS = {
     "choice-stats",
     "value-psychometrics",
+    "value-psychometrics-stay-switch",
     "reversal-aligned-arms",
     "value-change",
     "port-preference",

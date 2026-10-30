@@ -47,6 +47,7 @@ from tests.plot_fixtures import make_mouse
 
 ENTRY_POINTS = (
     "run_value_psychometric_analysis",
+    "run_stay_switch_analysis",
     "run_reversal_aligned_arm_analysis",
     "run_value_change_analysis",
     "run_port_preference_analysis",
@@ -60,7 +61,13 @@ STUB_RESULTS = {
         "symmetric_exclusions_table": pd.DataFrame(),
     },
 }
-FOLDERS = ("value-psychometrics", "reversal-aligned-arms", "value-change", "port-preference")
+FOLDERS = (
+    "value-psychometrics",
+    "value-psychometrics-stay-switch",
+    "reversal-aligned-arms",
+    "value-change",
+    "port-preference",
+)
 LONG_POKE_FILES = (
     "Long Pokes by Relative Session.png",
     "Maze Heatmaps - Pokes After Choice.png",
