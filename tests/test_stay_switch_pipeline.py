@@ -115,7 +115,9 @@ def test_the_heatmap_prints_each_cell_with_its_pairs(tmp_path):
         data(), tmp_path, value_bases=("true",), tie_modes=("split",)
     )
     tables = results["true"]["split"]["heatmap"]
-    ax = plot_stay_heatmap_panel(tables, "P(stay) - True Value")
+    ax = plot_stay_heatmap_panel(tables)
+    assert ax.get_title() == ""  # the figure title and the colour-bar label name it
+    assert plot_stay_heatmap_panel(tables, "Mouse m1").get_title() == "Mouse m1"
     texts = [t.get_text() for t in ax.texts]
     assert len(texts) == tables.p_stay.size
     top_left = tables.p_stay.index[-1], tables.p_stay.columns[0]  # highest chosen value on top

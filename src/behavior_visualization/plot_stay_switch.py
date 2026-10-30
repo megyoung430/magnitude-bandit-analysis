@@ -185,7 +185,7 @@ def plot_stay_switch_curves(
 
 
 def plot_stay_heatmap_panel(
-    tables: StayHeatmap, title: str, ax: plt.Axes | None = None
+    tables: StayHeatmap, title: str | None = None, ax: plt.Axes | None = None
 ) -> plt.Axes:
     """P(stay) over V(chosen) (rows, highest on top) x V(alt) on a fixed 0-1 colour range.
 
@@ -193,7 +193,8 @@ def plot_stay_heatmap_panel(
 
     Args:
         tables (StayHeatmap): From ``stay_heatmap``.
-        title (str): Axes title.
+        title (str | None): Short axes title, for a figure of several panels; ``None`` (default)
+            leaves it to the figure title and the colour-bar label.
         ax (plt.Axes | None): Axes to draw into; a new figure if ``None``.
 
     Returns:
@@ -207,7 +208,8 @@ def plot_stay_heatmap_panel(
     size = (1.2 * len(columns) + 2.2, 1.0 * len(rows) + 1.6)
     with axes_or_new(ax, figsize=size) as ax:
         image = ax.imshow(np.ma.masked_invalid(values), cmap=cmap, vmin=0.0, vmax=1.0)
-        ax.set_title(title)
+        if title:
+            ax.set_title(title)
         ax.set_xlabel("Value of Best Alternative")
         ax.set_ylabel("Value of Chosen")
         ax.set_xticks(range(len(columns)), [f"{c:g}" for c in columns])
@@ -242,7 +244,7 @@ def plot_stay_heatmap(
     n_columns, n_rows = tables.p_stay.shape[1], tables.p_stay.shape[0]
     size = (max(6.0, 1.2 * n_columns + 2.6), 1.0 * n_rows + 2.4)
     with new_figure(figsize=size) as (fig, ax):
-        plot_stay_heatmap_panel(tables, f"P(stay) - {value_label} Value", ax=ax)
+        plot_stay_heatmap_panel(tables, ax=ax)
         title = Title(
             f"Stay Heatmap ({value_label} Value)",
             stats_line("mean", "mice", [(tables.n_mice, "mouse", "mice")]),
