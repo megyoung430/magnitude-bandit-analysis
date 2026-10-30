@@ -49,8 +49,8 @@ problem, a cohort's pooled drifting problems, the all-cohorts pool).
 - Outcome: stay, or switch (1 - stay) to the best alternative or to the other arm.
 - Pairs are kept across block and value changes, never across sessions or a missed trial.
 - Ties, relative to the chosen arm and mutually exclusive: V(chosen) = V(alt); the two
-  alternatives tie; all three tie. `exclude` drops them all (the trials the value
-  psychometrics' exclude mode drops); `split` keeps them, V(chosen) = V(alt) at difference 0 and
+  alternatives tie; all three tie. `exclude` drops them all (not quite the value
+  psychometrics' exclude set: a tie of the chosen arm with the arm below V(alt) is kept here); `split` keeps them, V(chosen) = V(alt) at difference 0 and
   a switch between tied alternatives counted half to each target. Counts are in the captions.
 - Figures per value basis and tie mode: `Stay-Switch Curves (...) (Pool Trials True|False)`
   (top row P(stay) and P(switch), bottom row the two switch targets, against V(chosen) - V(alt),
@@ -75,4 +75,8 @@ problem, a cohort's pooled drifting problems, the all-cohorts pool).
   `value-change/{mouse,event}-weighted/` folder; old ±6 figures are deleted on the next run of
   that folder. `value_change_symmetric_exclusions.csv` has `pre`, `post` instead of
   `symmetric_window`, and `value_change_bin_counts.csv` the new mode. Other figures unchanged.
+- Run each cohort once in full (not `--since` / `--last-sessions`) after this change: a partial
+  run only rewrites the problems it reruns, so the stacked exclusions table would mix ±6 rows
+  (`symmetric_window`) with -2 .. +4 rows (`pre`, `post`) and the other problems keep their ±6
+  figures.
 - New folder `value-psychometrics-stay-switch/` next to every `value-psychometrics/`.

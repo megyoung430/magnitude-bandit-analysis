@@ -35,8 +35,11 @@ Ties are named relative to the chosen arm, mutually exclusive, and counted in ei
 - ``all_three``: all three values are equal.
 
 A tie of the chosen arm with the remaining arm below ``v_alt`` changes nothing and is no tie.
-``tie_mode="exclude"`` drops every tied pair (the same trials the exclude mode of
-:mod:`src.behavior_analysis.value_psychometrics` drops: any tie among the three values).
+``tie_mode="exclude"`` drops every pair tied in one of these three ways. This is not the same
+set the exclude mode of :mod:`src.behavior_analysis.value_psychometrics` drops: that module also
+drops a tie between the chosen arm and the remaining arm below ``v_alt`` (e.g. chosen 2, alt 4,
+other 2), which is kept here because the stay/switch outcome and the switch target are
+unambiguous. Tie totals in the captions therefore differ from the value-psychometrics totals.
 ``"split"`` keeps them: a pair with ``v_chosen == v_alt`` sits at difference 0, and a switch
 between tied alternatives counts half to ``switch_best_alt`` and half to ``switch_other``, as the
 split mode shares tied rank positions evenly.
@@ -189,7 +192,9 @@ def _three_finite(values: Mapping | None) -> bool:
 def _drop_reason(trial: int, choices: list, magnitudes: list, values: Mapping) -> str | None:
     """Why trial *trial* of a session has no pair, or None if it has one.
 
-    *values* are the values the pair would use (the true magnitudes or the believed ones).
+    *values* are the values the pair would use (the true magnitudes or the believed ones). Only
+    trial *trial*'s magnitudes are checked: the pair uses trial t's values, so trial t-1 needs a
+    choice but not three finite magnitudes.
     """
     if trial == 0:
         return REASON_SESSION_START
