@@ -211,10 +211,11 @@ def _check_equal_lengths(tv):
         )
 
 
-def _session_trial_lists(sess):
+def session_trial_lists(sess):
     """``(reward_magnitudes, chosen_ranks, choices)`` over all recordings, or ``None``.
 
-    ``None`` when the session has no trial variables or no trials.
+    The recordings of the session are merged in order (as the importer does). ``None`` when the
+    session has no trial variables or no trials.
 
     Raises:
         ValueError: If the three lists of any recording differ in length.
@@ -239,7 +240,7 @@ def _problem_trial_lists(subject_id, sessions_dict):
     """
     reward_magnitudes, chosen_ranks, choices = [], [], []
     for key in ordered_session_keys(subject_id, sessions_dict):
-        trial_lists = _session_trial_lists(sessions_dict[key])
+        trial_lists = session_trial_lists(sessions_dict[key])
         if trial_lists is not None:
             for joined, new in zip(
                 (reward_magnitudes, chosen_ranks, choices), trial_lists, strict=True

@@ -17,17 +17,17 @@ from src.behavior_visualization.plot_value_psychometrics import (
     tie_label,
 )
 
-_VALUE_BASES = ("true", "believed")
+VALUE_BASES = ("true", "believed")
 
 
-def _check_choices(name: str, values, allowed: tuple) -> None:
+def check_choices(name: str, values, allowed: tuple) -> None:
     """Raise ValueError unless every entry of *values* is one of *allowed*."""
     unknown = [v for v in values if v not in allowed]
     if unknown:
         raise ValueError(f"{name} must only contain {list(allowed)}, got {unknown}")
 
 
-def _check_bools(name: str, values) -> None:
+def check_bools(name: str, values) -> None:
     """Raise ValueError unless every entry of *values* is a real ``bool`` (not 1 or "yes")."""
     unknown = [v for v in values if not isinstance(v, (bool, np.bool_))]
     if unknown:
@@ -114,9 +114,9 @@ def run_value_psychometric_analysis(
             mouse has any session.
     """
     check_blocks_only_sessions(subjects_trials_by_problem, "run_value_psychometric_analysis")
-    _check_choices("value_bases", value_bases, _VALUE_BASES)
-    _check_bools("pooling_modes", pooling_modes)
-    _check_choices("tie_modes", tie_modes, TIE_MODES)
+    check_choices("value_bases", value_bases, VALUE_BASES)
+    check_bools("pooling_modes", pooling_modes)
+    check_choices("tie_modes", tie_modes, TIE_MODES)
     out_dir = Path(out_dir)
     # Out-of-grid counts differ by tie mode (excluded ties never reach the grid), so the
     # warning comes from one mode: split, whose out-of-grid set is the larger.

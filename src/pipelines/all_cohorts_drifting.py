@@ -4,8 +4,9 @@
 ``drifting/all-drifting-problems/`` of one cohort, but for the drifting problems of the chosen
 cohorts together, in one folder that belongs to no cohort::
 
-    figures/open-field/all-cohorts/{choice-stats,value-psychometrics,reversal-aligned-arms,
-        value-change,port-preference,sessions-per-problem,port-finding-summary}/
+    figures/open-field/all-cohorts/{choice-stats,value-psychometrics,
+        value-psychometrics-stay-switch,reversal-aligned-arms,value-change,port-preference,
+        sessions-per-problem,port-finding-summary}/
     figures/open-field/all-cohorts/{reversal-aligned-arms,value-change}/{mouse-weighted,
         event-weighted}/   (their figures; nothing at the top level of those two folders)
     figures/open-field/all-cohorts/cohorts.txt
@@ -83,6 +84,7 @@ from src.pipelines.cohort_analysis import (
 from src.pipelines.open_field import (
     PORT_PREFERENCE_FOLDER,
     REVERSAL_ARMS_FOLDER,
+    STAY_SWITCH_FOLDER,
     VALUE_CHANGE_FOLDER,
     VALUE_PSYCHOMETRICS_FOLDER,
     AnalysisSelection,
@@ -107,6 +109,7 @@ RANK_FOLDER = "choice-stats"
 FIGURE_FOLDERS = (
     RANK_FOLDER,
     VALUE_PSYCHOMETRICS_FOLDER,
+    STAY_SWITCH_FOLDER,
     REVERSAL_ARMS_FOLDER,
     VALUE_CHANGE_FOLDER,
     PORT_PREFERENCE_FOLDER,

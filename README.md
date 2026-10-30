@@ -320,17 +320,36 @@ report all failures at the end.
   as independent, which events of one mouse are not, so it is narrower than the real
   uncertainty). Nothing is written at the top level of those two folders. The
   `reversal_aligned_arms_counts` table has a `weighting` column (`subject` or `event`).
-  Each value-change configuration also gets a **symmetric** version in the same two folders
-  (`... (All Events, Symmetric ±6 Trials).png`): windows of 6 trials before to 6 after the change,
-  keeping only events whose whole window is intact (no block or third-arm change, session edge,
-  best-arm change before the event, or missing choice), so every time point averages the same
-  events. A block or best arm that starts exactly at t = -N still counts as complete, and a
-  best/second tie in the pre window counts as a best-arm change. It has no rank-swap truncation. Switch it off or change N with
-  `run_value_change_analysis(..., symmetric_window=None | N)`. The events kept and dropped per
-  configuration are in `value_change_symmetric_exclusions.csv`: `n_excluded_*` count each event
-  once, by its first cause (block/third arm, session edge, best arm, other), and `n_with_*` count
-  the events having each cause, which overlap; the symmetric mode
-  (`symmetric_6`) is also in `value_change_bin_counts.csv`.
+  Each value-change configuration also gets a **complete-window** version in the same two
+  folders (`... (All Events, -2 to +4 Trials).png`): windows of 2 trials before to 4 after the
+  change, keeping only events whose whole window is intact (no block or third-arm change, session
+  edge, best-arm change before the event, or missing choice), so every time point averages the
+  same events. A block or best arm that starts exactly at t = -pre still counts as complete, and a
+  best/second tie in the pre window counts as a best-arm change. It has no rank-swap truncation.
+  `COMPLETE_WINDOW = (2, 4)` in `src/pipelines/value_change_analysis.py` sets the default; change
+  it or switch it off per call with `run_value_change_analysis(..., complete_window=(pre, post) |
+  None)`. Equal sides keep the old names (`Symmetric ±6 Trials`, mode `symmetric_6`); complete-window
+  figures of another size left from an earlier run are deleted when the folder is rewritten. The
+  events kept and dropped per configuration are in `value_change_symmetric_exclusions.csv` (name
+  kept; columns `pre` and `post` give the window): `n_excluded_*` count each event once, by its
+  first cause (block/third arm, session edge, best arm, other), and `n_with_*` count the events
+  having each cause, which overlap; the complete-window mode (`complete_pre2_post4`) is also in
+  `value_change_bin_counts.csv`.
+- **Stay/switch psychometrics** (`value-psychometrics-stay-switch/`, made wherever
+  `value-psychometrics/` is): on each trial t whose previous trial is in the same session, the
+  arm chosen on t-1 is the chosen option; with the true or believed values of trial t, V(chosen)
+  is its value and V(alt) the higher value of the two other arms. `Stay-Switch Curves (<Value>
+  Value) (Ties <Excluded|Split>) (Pool Trials <True|False>)` plots P(stay) and P(switch), and
+  `Switch Target Curves (...)` P(switch to the best alternative) and P(switch to the other arm)
+  (fractions of all pairs, adding up to P(switch)), against V(chosen) - V(alt), V(chosen) and
+  V(alt) (each mouse thin, mean ± se across mice), in two rows: the pairs whose chosen option had
+  value 0 (in the figure's own value basis, so a believed 0 for believed values) and the others,
+  each row with its own n of mice; `Stay Heatmap (<Value> Value)
+  (Ties ...)` shows P(stay) over V(chosen) x V(alt) with the pairs per cell. Pairs are kept
+  across block changes and never span sessions or a missed trial. Ties are named relative to the
+  chosen arm (V(chosen) = V(alt), the two alternatives tie, all three): excluded, or kept with a
+  switch between tied alternatives split half and half (see
+  `src/behavior_analysis/stay_switch_psychometrics.py`).
 - **Value-change diagnostic** (`scripts/individual_analyses/plot_value_change_diagnostic.py --cohorts 1 3
   [--no-cache]`): one PNG per drifting session in `figures/value-change-diagnostic/cohort-XX/problem-KK/<mouse>/`,
   showing the session's magnitudes and choices with each best-decrease rank-swap event's counted pre and post
@@ -399,12 +418,13 @@ report all failures at the end.
   | `drifting/problem-KK/reversal-stats/` | reversal counts |
   | `drifting/problem-KK/choice-stats/` | true- and believed-value rank proportions |
   | `drifting/problem-KK/value-psychometrics/` | value heatmaps and psychometric curves |
+  | `drifting/problem-KK/value-psychometrics-stay-switch/` | stay/switch curves and P(stay) heatmaps |
   | `drifting/problem-KK/reversal-aligned-arms/` | arm choice probability and magnitude around block changes |
   | `drifting/problem-KK/value-change/` | choice probabilities around value changes |
   | `drifting/problem-KK/port-preference/` | port preference per port (X vs plus only in the pooled folder) |
   | `drifting/problem-KK/long-pokes/`, `.../single-sessions/` | as for blocked |
   | `drifting/all-drifting-problems/choice-stats/` | rank proportions pooled over the drifting problems |
-  | `drifting/all-drifting-problems/{value-psychometrics,reversal-aligned-arms,value-change,port-preference}/` | the four drifting-only analyses pooled over the drifting problems |
+  | `drifting/all-drifting-problems/{value-psychometrics,value-psychometrics-stay-switch,reversal-aligned-arms,value-change,port-preference}/` | the drifting-only analyses pooled over the drifting problems |
   | `drifting/all-drifting-problems/sessions-per-problem/` | sessions each mouse ran per drifting problem: a line per mouse (a problem still running is hollow and dashed) and the mean ± SE of the completed problems; redrawn on every run (also a blocked-only partial one), because any new session can complete a problem |
   | `trial-block-summaries/all-problems/` | trial and block-length summaries |
 
@@ -442,7 +462,7 @@ uv run python scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 
 ```
 
 makes the figures of `drifting/all-drifting-problems/` (`choice-stats`, `value-psychometrics`,
-`reversal-aligned-arms`, `value-change`, `port-preference`, `sessions-per-problem`, `port-finding-summary`) from the drifting problems of the
+`value-psychometrics-stay-switch`, `reversal-aligned-arms`, `value-change`, `port-preference`, `sessions-per-problem`, `port-finding-summary`) from the drifting problems of the
 listed cohorts together (`--no-cache` re-imports the raw files). They go to
 `results/figures/open-field/all-cohorts/<same subfolders>/`, with `cohorts.txt` there naming the
 cohorts pooled, the mice per cohort and the time of the run; the diagnostic tables
