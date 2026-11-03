@@ -14,6 +14,7 @@ from src.behavior_analysis.stay_switch_psychometrics import (
     stay_heatmap,
     stay_switch_curves_by_row,
     stay_switch_pairs,
+    switch_target_curves_by_row,
 )
 from src.behavior_visualization.plot_stay_switch import (
     plot_stay_heatmap,
@@ -29,15 +30,21 @@ def _write_condition(pairs, label: str, tie_mode: str, pooling_modes, out_dir: P
     stem = f"({label} Value) ({ties_in_name(tie_mode)})"
     heatmap = stay_heatmap(pairs.pairs)
     plot_stay_heatmap(heatmap, label, pairs.ties, tie_mode, out_dir / f"Stay Heatmap {stem}")
-    curves_by_mode = {}
+    curves_by_mode, targets_by_mode = {}, {}
     for pool_trials in pooling_modes:
         curves = stay_switch_curves_by_row(pairs.pairs, pool_trials=pool_trials)
+        targets = switch_target_curves_by_row(pairs.pairs, pool_trials=pool_trials)
         name = f"{stem} (Pool Trials {pool_trials})"
-        args = (curves, label, pool_trials, pairs.ties, tie_mode)
-        plot_stay_switch_curves(*args, out_dir / f"Stay-Switch Curves {name}")
-        plot_switch_target_curves(*args, out_dir / f"Switch Target Curves {name}")
-        curves_by_mode[pool_trials] = curves
-    return {"pairs": pairs, "heatmap": heatmap, "curves": curves_by_mode}
+        common = (label, pool_trials, pairs.ties, tie_mode)
+        plot_stay_switch_curves(curves, *common, out_dir / f"Stay-Switch Curves {name}")
+        plot_switch_target_curves(targets, *common, out_dir / f"Switch Target Curves {name}")
+        curves_by_mode[pool_trials], targets_by_mode[pool_trials] = curves, targets
+    return {
+        "pairs": pairs,
+        "heatmap": heatmap,
+        "curves": curves_by_mode,
+        "switch_target_curves": targets_by_mode,
+    }
 
 
 def run_stay_switch_analysis(
@@ -63,9 +70,8 @@ def run_stay_switch_analysis(
       two rows: pairs whose chosen option had value 0 (top) and the others (bottom), by the
       figure's own value basis. ``True`` pools a mouse's pairs at an x, ``False`` averages its
       (V(chosen), V(alt)) cells equally;
-    - ``Switch Target Curves (...)`` with the same name parts and rows: P(switch to the best
-      alternative) and P(switch to the other arm), fractions of all pairs (they add up to
-      P(switch)).
+    - ``Switch Target Curves (...)`` with the same name parts and rows: P(best alternative |
+      switch) and P(other arm | switch), fractions of the row's switches (they add up to 1).
 
     A value basis and tie mode without any trial pair draws nothing and warns.
 
@@ -78,9 +84,10 @@ def run_stay_switch_analysis(
 
     Returns:
         dict: ``{value_basis: {tie_mode: {"pairs": StaySwitchPairs, "heatmap": StayHeatmap,
-        "curves": {pool_trials: {row: {outcome: {axis: Curve}} | None}}}}}`` (rows
-        ``chosen_zero`` and ``chosen_nonzero``, None without pairs); a condition without pairs
-        has only ``"pairs"``.
+        "curves": {pool_trials: {row: {outcome: {axis: Curve}} | None}},
+        "switch_target_curves": {pool_trials: {row: {target: {axis: Curve}} | None}}}}}``
+        (rows ``chosen_zero`` and ``chosen_nonzero``; None for a row without pairs, or without
+        switches for the targets); a condition without pairs has only ``"pairs"``.
 
     Raises:
         ValueError: If an option has an unknown entry, a session is counter format (the

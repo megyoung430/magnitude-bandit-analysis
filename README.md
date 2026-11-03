@@ -340,8 +340,8 @@ report all failures at the end.
   arm chosen on t-1 is the chosen option; with the true or believed values of trial t, V(chosen)
   is its value and V(alt) the higher value of the two other arms. `Stay-Switch Curves (<Value>
   Value) (Ties <Excluded|Split>) (Pool Trials <True|False>)` plots P(stay) and P(switch), and
-  `Switch Target Curves (...)` P(switch to the best alternative) and P(switch to the other arm)
-  (fractions of all pairs, adding up to P(switch)), against V(chosen) - V(alt), V(chosen) and
+  `Switch Target Curves (...)` P(best alternative | switch) and P(other arm | switch)
+  (fractions of the row's switches, adding up to 1; n=switches in each panel), against V(chosen) - V(alt), V(chosen) and
   V(alt) (each mouse thin, mean ± se across mice), in two rows: the pairs whose chosen option had
   value 0 (in the figure's own value basis, so a believed 0 for believed values) and the others,
   each row with its own n of mice; `Stay Heatmap (<Value> Value)
