@@ -79,6 +79,11 @@ def test_writes_every_figure_in_every_format_and_returns_the_results(tmp_path):
         assert set(by_tie) == {"exclude", "split"}
         for entry in by_tie.values():
             assert set(entry) == {"pairs", "heatmap", "curves", "switch_target_curves"}
+            assert set(entry["switch_target_curves"]) == {True, False}
+            for rows in entry["switch_target_curves"].values():
+                assert set(rows) == {"chosen_zero", "chosen_nonzero"}
+                for curves in rows.values():
+                    assert curves is None or set(curves) == {"switch_best_alt", "switch_other"}
             assert set(entry["curves"]) == {True, False}
             for rows in entry["curves"].values():
                 assert set(rows) == {"chosen_zero", "chosen_nonzero"}
@@ -183,7 +188,7 @@ def row_test_pairs():
         ("m2", 0, 2, 1, 0.0, 0.0, 1.0),
         ("m2", 3, 2, 0, 0.0, 1.0, 0.0),
         ("m2", 4, 3, 2, 1.0, 0.0, 0.0),
-        ("m3", 2, 4, 0, 0.0, 0.5, 0.5),
+        ("m3", 2, 4, 4, 0.0, 0.5, 0.5),
         ("m3", 4, 3, 2, 1.0, 0.0, 0.0),
     ]
     columns = ["mouse", "v_chosen", "v_alt", "v_other", "stay", "switch_best_alt", "switch_other"]
@@ -297,5 +302,6 @@ def test_switch_target_caption_says_the_targets_are_fractions_of_switches(tmp_pa
     ).read_text()
     assert "fractions of the switches" in caption
     assert "add up to 1" in caption
+    assert "rest on few switches" in caption
     assert "top, V(chosen) = 0" in caption
     assert "Believed 0: the arm last paid 0" in caption

@@ -382,6 +382,22 @@ def test_switch_targets_are_fractions_of_the_switches():
     assert best.n_trials.tolist() == [5, 1]  # switches, not pairs
 
 
+def test_switch_targets_pooled_or_averaged_over_cells():
+    # one mouse, V(chosen) 0: cell (0, 4) has 3 switches, 2 to the best alternative; cell
+    # (0, 2) has 1 switch, to the other arm
+    rows = [
+        ("m", 0, 4, 2, 0, 1, 0),
+        ("m", 0, 4, 2, 0, 1, 0),
+        ("m", 0, 4, 2, 0, 0, 1),
+        ("m", 0, 2, 1, 0, 0, 1),
+    ]
+    pairs = pd.DataFrame(rows, columns=["mouse", *COLUMNS])
+    pooled = switch_target_curves(pairs, pool_trials=True)["switch_best_alt"]["chosen"]
+    cells = switch_target_curves(pairs, pool_trials=False)["switch_best_alt"]["chosen"]
+    np.testing.assert_allclose(pooled.per_mouse, [[2 / 4]])
+    np.testing.assert_allclose(cells.per_mouse, [[(2 / 3 + 0) / 2]])
+
+
 def test_switch_targets_given_a_switch_add_up_to_one():
     for pool_trials in (True, False):
         curves = switch_target_curves(switch_pairs(), pool_trials=pool_trials)

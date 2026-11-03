@@ -341,8 +341,9 @@ report all failures at the end.
   is its value and V(alt) the higher value of the two other arms. `Stay-Switch Curves (<Value>
   Value) (Ties <Excluded|Split>) (Pool Trials <True|False>)` plots P(stay) and P(switch), and
   `Switch Target Curves (...)` P(best alternative | switch) and P(other arm | switch)
-  (fractions of the row's switches, adding up to 1; n=switches in each panel), against V(chosen) - V(alt), V(chosen) and
-  V(alt) (each mouse thin, mean ± se across mice), in two rows: the pairs whose chosen option had
+  (fractions of the row's switches, adding up to 1; n=switches in each panel), against
+  V(chosen) - V(alt), V(chosen) and V(alt) (each mouse thin, mean ± se across mice), in two
+  rows: the pairs whose chosen option had
   value 0 (in the figure's own value basis, so a believed 0 for believed values) and the others,
   each row with its own n of mice; `Stay Heatmap (<Value> Value)
   (Ties ...)` shows P(stay) over V(chosen) x V(alt) with the pairs per cell. Pairs are kept

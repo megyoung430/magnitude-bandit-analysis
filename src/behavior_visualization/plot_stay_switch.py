@@ -335,7 +335,8 @@ def plot_switch_target_curves(
         "Switch targets are fractions of the switches after the chosen option: "
         "P(best alternative | switch) and P(other arm | switch) add up to 1; stays are left "
         "out, and a mouse without switches in a row is not one of that row's mice.",
-        "n=switches: the switches of all mice in the row.",
+        "n=switches: the switches of all mice in the row. An x value appears only where some "
+        "mouse switched, and a mouse's point there can rest on few switches.",
     )
     caption = _curves_caption(value_label, pool_trials, ties, tie_mode, fractions)
     title = Title(f"Switch Target Curves ({value_label} Value)", None, caption)
