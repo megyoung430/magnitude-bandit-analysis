@@ -1,16 +1,18 @@
-"""Symmetric, complete-window selection of value-change events.
+"""Complete-window selection of value-change events: only intact ``-pre .. +post`` windows.
 
 The regular value-change windows keep every event and cut a window where it meets a block or
 third-arm change, a session edge or (before the event) a change of the best arm, so the curves
-at large ``|t|`` average fewer, different events than those near t = 0. The symmetric version
-instead keeps only events whose whole ``-N .. +N`` window is intact:
+at large ``|t|`` average fewer, different events than those near t = 0. The complete-window
+version instead keeps only events whose whole ``-pre .. +post`` window is intact, so every time
+point averages the same events. ``pre`` and ``post`` need not be equal (``pre == post == N`` is
+the symmetric ``±N`` version):
 
-- all ``2N + 1`` trials exist in the event's block with the event's third arm: no block change,
-  third-arm change, tied or missing magnitudes, or session edge. A block that starts exactly at
-  t = -N, or ends exactly at t = +N, keeps the event;
-- the best arm does not change in the pre window: every trial of t = -N .. -1 has the best arm
+- all ``pre + post + 1`` trials exist in the event's block with the event's third arm: no block
+  change, third-arm change, tied or missing magnitudes, or session edge. A block that starts
+  exactly at t = -pre, or ends exactly at t = +post, keeps the event;
+- the best arm does not change in the pre window: every trial of t = -pre .. -1 has the best arm
   of t = -1 (the pre-window rule of the regular windows; an event whose pre window that rule
-  would cut is excluded, not truncated). A best arm that starts exactly at t = -N keeps the
+  would cut is excluded, not truncated). A best arm that starts exactly at t = -pre keeps the
   event. A best/second tie in the pre window is a different state from a determined best arm,
   so it counts as a best-arm change (and only a tie at t = -1 continues a run of ties);
 - every trial has a choice. A trial that exists but has no choice (a missed trial) leaves a
@@ -18,7 +20,7 @@ instead keeps only events whose whole ``-N .. +N`` window is intact:
 
 A best-arm change in the post window is allowed: it is the outcome the figure looks at, and the
 regular windows allow it too. Rank-swap truncation is not applied, since blanking post trials
-would break the symmetry.
+would make the later time points average fewer events again.
 
 The whole window is scanned for every cause. Each excluded event is counted once in
 ``n_excluded_*``, under the first of: block or third-arm change, session edge, best-arm change,
@@ -72,15 +74,16 @@ def _exclusive_key(causes: frozenset[str]) -> str:
     return next(keys[0] for cause, keys in _CAUSE_KEYS.items() if cause in causes)
 
 
-def select_symmetric_windows(windows: ValueChangeWindows) -> tuple[ValueChangeWindows, dict]:
-    """Keep the events whose ``-N .. +N`` window is complete, and count why the others are not.
+def select_complete_windows(windows: ValueChangeWindows) -> tuple[ValueChangeWindows, dict]:
+    """Keep the events whose ``-pre .. +post`` window is complete, and count why the others are not.
 
     Args:
-        windows (ValueChangeWindows): Untruncated windows built with ``pre == post == N``.
+        windows (ValueChangeWindows): Untruncated windows built with the ``pre`` and ``post`` of
+            the complete window.
 
     Returns:
         tuple: ``(kept, exclusions)``. *kept* has the same configuration and only the complete
-        events (subjects without any are dropped), with ``symmetric`` True. Its ``counts`` are
+        events (subjects without any are dropped), with ``complete_window`` True. Its ``counts`` are
         those of *windows* except ``n_events``, now the number kept, and the extra
         ``n_events_before_exclusion``, the number found. *exclusions* is
         ``{"n_events_before": ..., "n_events_kept": ..., <each of EXCLUSION_KEYS>: ...,
@@ -89,17 +92,13 @@ def select_symmetric_windows(windows: ValueChangeWindows) -> tuple[ValueChangeWi
         having each cause, so they can add up to more.
 
     Raises:
-        ValueError: If the windows are truncated or already symmetric, ``pre != post``, or an
-            event does not record why its window is incomplete.
+        ValueError: If the windows are truncated or already selected, or an event does not
+            record why its window is incomplete.
     """
     if windows.truncate_at_rank_swap:
-        raise ValueError("symmetric selection needs untruncated windows")
-    if windows.symmetric:
-        raise ValueError("windows are already symmetric")
-    if windows.pre != windows.post:
-        raise ValueError(
-            f"symmetric selection needs pre == post, got {windows.pre}, {windows.post}"
-        )
+        raise ValueError("complete-window selection needs untruncated windows")
+    if windows.complete_window:
+        raise ValueError("windows are already selected for complete windows")
     tally: Counter = Counter({key: 0 for key in EXCLUSION_KEYS + ANY_CAUSE_KEYS})
     kept: dict[str, list[ValueChangeEvent]] = {}
     n_before = 0
@@ -115,4 +114,4 @@ def select_symmetric_windows(windows: ValueChangeWindows) -> tuple[ValueChangeWi
     n_kept = sum(map(len, kept.values()))
     exclusions = {"n_events_before": n_before, "n_events_kept": n_kept, **tally}
     counts = {**windows.counts, "n_events_before_exclusion": n_before, "n_events": n_kept}
-    return windows._replace(events=kept, counts=counts, symmetric=True), exclusions
+    return windows._replace(events=kept, counts=counts, complete_window=True), exclusions

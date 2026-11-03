@@ -154,17 +154,35 @@ def compute_believed_value(choices, reward_magnitudes):
         - ``believed_tie`` (str | None): Tie category among the believed values, see
           :func:`tie_category`.
     """
+    believed = believed_magnitudes_by_trial(choices, reward_magnitudes)
+    return [_trial_belief(choices[i], values) for i, values in enumerate(believed)]
+
+
+def believed_magnitudes_by_trial(choices, reward_magnitudes) -> list[dict]:
+    """The believed magnitude of every seen arm before each trial's choice.
+
+    An arm's believed magnitude is the magnitude it paid the last time it was chosen, before
+    trial i (so trial i's own outcome is not in it). Arms never chosen yet are left out.
+
+    Args:
+        choices (list[str]): Arm chosen on each trial.
+        reward_magnitudes (list[dict]): True ``{arm: magnitude}`` mapping per trial. Choices
+            beyond its length are ignored.
+
+    Returns:
+        list[dict]: ``{arm: believed magnitude}`` per trial, over the arms of that trial's
+        offer that have been seen.
+
+    Raises:
+        IndexError: If there are fewer choices than trials.
+    """
     last_seen = {}
     results = []
-
     for i, rm in enumerate(reward_magnitudes):
         choice = choices[i]
-        results.append(_trial_belief(choice, _believed_magnitudes(rm, last_seen)))
-
-        # Update last_seen AFTER recording.
+        results.append(_believed_magnitudes(rm, last_seen))
         # Known issue: the truthiness test also skips arms named 0 or "", so such an
         # arm would never count as seen; arm names are non-empty strings in practice.
         if choice and choice in rm:
             last_seen[choice] = rm[choice]
-
     return results

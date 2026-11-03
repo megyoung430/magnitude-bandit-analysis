@@ -47,8 +47,10 @@ Y_LABEL = "Choice Probability"
 
 def _window_caption(curves: ValueChangeCurves) -> str:
     """The caption line of the window mode, with the events it affects."""
-    if curves.symmetric:
-        return f"Window: symmetric ±{curves.pre} trials, complete windows only."
+    if curves.complete_window:
+        if curves.pre == curves.post:
+            return f"Window: symmetric ±{curves.pre} trials, complete windows only."
+        return f"Window: -{curves.pre} to +{curves.post} trials, complete windows only."
     if curves.truncate_at_rank_swap:
         truncated = count_text(curves.num_truncated, "event", "events")
         return f"Window: truncated at the first rank swap ({truncated} truncated)."

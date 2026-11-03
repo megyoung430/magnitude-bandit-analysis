@@ -8,11 +8,13 @@ Events are found per problem and per session, then merged per mouse, so the same
 one problem and a pool of problems. Believed-value events are deliberately not computed: the
 analysis was defined on the true values only.
 
-Besides the regular full-window and truncated figures, a *symmetric* version keeps only the
-events whose whole ``-N .. +N`` window is intact (see
-:mod:`src.behavior_analysis.value_change_symmetric`).
+Besides the regular full-window and truncated figures, a *complete-window* version keeps only
+the events whose whole ``-pre .. +post`` window is intact (see
+:mod:`src.behavior_analysis.value_change_complete_window`); :data:`COMPLETE_WINDOW` sets its
+default ``(pre, post)``.
 """
 
+import re
 from collections.abc import Mapping
 from numbers import Integral
 from pathlib import Path
@@ -20,10 +22,10 @@ from pathlib import Path
 import pandas as pd
 
 from src.behavior_analysis.reversal_format import check_blocks_only_sessions
-from src.behavior_analysis.value_change_symmetric import (
+from src.behavior_analysis.value_change_complete_window import (
     ANY_CAUSE_KEYS,
     EXCLUSION_KEYS,
-    select_symmetric_windows,
+    select_complete_windows,
 )
 from src.behavior_analysis.value_change_windows import (
     DEFAULT_POST,
@@ -47,37 +49,63 @@ from src.behavior_visualization.plot_value_change_choice_probs import (
 )
 from src.pipelines.weighting_folders import EVENT_WEIGHTED_FOLDER, MOUSE_WEIGHTED_FOLDER
 
-DEFAULT_SYMMETRIC_WINDOW = 6
+# (pre, post) of the complete-window figures: trials before and after the value change.
+COMPLETE_WINDOW = (2, 4)
+
+# A figure name of any complete window, as written by ``complete_window_text``.
+_COMPLETE_WINDOW_NAME = re.compile(r", (Symmetric ±\d+ Trials|-\d+ to \+\d+ Trials)\)\.")
 
 
 def _figure_stem(windows: ValueChangeWindows) -> str:
     """File name (without extension) of the figure of *windows*, e.g. ``Choice Probabilities
-    Around Best-Value Decreases (Rank Swap, Symmetric ±6 Trials)``."""
-    symmetric_window = windows.pre if windows.symmetric else None
-    heading = describe_value_change(windows.config, windows.truncate_at_rank_swap, symmetric_window)
+    Around Best-Value Decreases (Rank Swap, -2 to +4 Trials)``."""
+    complete_window = (windows.pre, windows.post) if windows.complete_window else None
+    heading = describe_value_change(windows.config, windows.truncate_at_rank_swap, complete_window)
     return f"Choice Probabilities Around {heading}"
 
 
-def _symmetric_mode_name(symmetric_window: int) -> str:
-    """Mode name of the symmetric version in summaries and tables, e.g. ``symmetric_6``."""
-    return f"symmetric_{symmetric_window}"
+def complete_window_mode_name(pre: int, post: int) -> str:
+    """Mode name of the complete-window version in summaries and tables.
 
-
-def _check_symmetric_window(symmetric_window: int | None) -> None:
-    """Raise ValueError unless *symmetric_window* is None or an integer >= 1 (a bool is not).
-
-    Any ``numbers.Integral`` is accepted, so a NumPy integer works.
+    Equal sides keep the name ``symmetric_N``; others are e.g. ``complete_pre2_post4``.
     """
-    if symmetric_window is None:
+    return f"symmetric_{pre}" if pre == post else f"complete_pre{pre}_post{post}"
+
+
+def _is_window_size(value) -> bool:
+    """Whether *value* is an integer >= 1; a bool is not, any ``numbers.Integral`` is."""
+    return not isinstance(value, bool) and isinstance(value, Integral) and value >= 1
+
+
+def _check_complete_window(complete_window) -> None:
+    """Raise ValueError unless *complete_window* is None or a tuple ``(pre, post)`` of integers
+    >= 1 (NumPy integers included)."""
+    if complete_window is None:
         return
-    if (
-        isinstance(symmetric_window, bool)
-        or not isinstance(symmetric_window, Integral)
-        or symmetric_window < 1
+    if not (
+        isinstance(complete_window, tuple)
+        and len(complete_window) == 2
+        and all(map(_is_window_size, complete_window))
     ):
         raise ValueError(
-            f"symmetric_window must be None or an integer >= 1, got {symmetric_window!r}"
+            "complete_window must be None or a tuple (pre, post) of integers >= 1, "
+            f"got {complete_window!r}"
         )
+
+
+def _remove_stale_complete_window_figures(out_dir: Path) -> None:
+    """Delete the complete-window figures an earlier run left in the two weighting folders.
+
+    The complete-window size is a setting, so a run with another one would otherwise leave the
+    old figures next to the new ones, looking current. The figures of this run are written
+    afterwards; nothing else in the folders is touched.
+    """
+    for folder in (MOUSE_WEIGHTED_FOLDER, EVENT_WEIGHTED_FOLDER):
+        directory = out_dir / folder
+        if directory.is_dir():
+            for path in directory.iterdir():
+                if path.is_file() and _COMPLETE_WINDOW_NAME.search(path.name):
+                    path.unlink()
 
 
 def _check_arguments(
@@ -85,7 +113,7 @@ def _check_arguments(
     pre: int,
     post: int,
     modes: tuple,
-    symmetric_window: int | None,
+    complete_window: tuple[int, int] | None,
 ) -> None:
     if not subjects_trials_by_problem:
         raise ValueError("no problems given: pass {problem: {subject: {session: ...}}}")
@@ -93,7 +121,7 @@ def _check_arguments(
     if not modes or not all(isinstance(m, bool) for m in modes):
         raise ValueError(f"truncate_modes must be a non-empty tuple of bools, got {modes!r}")
     check_window(pre, post)
-    _check_symmetric_window(symmetric_window)
+    _check_complete_window(complete_window)
 
 
 def pooled_windows(
@@ -194,11 +222,12 @@ def _bin_count_rows(config: ValueChangeConfig, mode: str, summary: dict) -> list
     ]
 
 
-def _exclusion_row(config: ValueChangeConfig, symmetric_window: int, exclusions: dict) -> dict:
-    """One table row: how many events the symmetric window kept and why it dropped the rest."""
+def _exclusion_row(config: ValueChangeConfig, pre: int, post: int, exclusions: dict) -> dict:
+    """One table row: how many events the complete window kept and why it dropped the rest."""
     return {
         "config": config.label,
-        "symmetric_window": symmetric_window,
+        "pre": pre,
+        "post": post,
         "n_events_before": exclusions["n_events_before"],
         "n_events_kept": exclusions["n_events_kept"],
         "n_excluded": exclusions["n_events_before"] - exclusions["n_events_kept"],
@@ -214,7 +243,7 @@ def run_value_change_analysis(
     post: int = DEFAULT_POST,
     truncate_modes: tuple[bool, ...] = (False, True),
     show_individual_mice: bool = False,
-    symmetric_window: int | None = DEFAULT_SYMMETRIC_WINDOW,
+    complete_window: tuple[int, int] | None = COMPLETE_WINDOW,
 ) -> dict:
     """Value-change-aligned choice-probability figures, contamination table and per-bin counts.
 
@@ -226,15 +255,18 @@ def run_value_change_analysis(
     top level of *out_dir*. Only figures are written; the tables are returned for the caller to
     save.
 
-    With *symmetric_window* = N the same figures are also made for the symmetric version, in the
-    same two folders and named ``... (<filter>, Symmetric ±N Trials)``: windows are built with
-    ``pre = post = N`` and only events whose whole ``-N .. +N`` window is intact are kept (no
-    block or third-arm change, session edge, best-arm change before the event or missing
-    choice), so every time point averages the same events. The x axis runs -N .. +N. There is no
-    rank-swap truncation in the symmetric version: blanking post trials would break the
-    symmetry. It is independent of *pre* and *post*. In its summary ``n_events`` and
-    ``counts["n_events"]`` are the events kept, and ``counts["n_events_before_exclusion"]`` those
-    found.
+    With *complete_window* = ``(a, b)`` the same figures are also made for the complete-window
+    version, in the same two folders and named ``... (<filter>, -a to +b Trials)`` (``...
+    (<filter>, Symmetric ±a Trials)`` when ``a == b``): windows are built with ``pre = a``,
+    ``post = b`` and only events whose whole ``-a .. +b`` window is intact are kept (no block or
+    third-arm change, session edge, best-arm change before the event or missing choice), so every
+    time point averages the same events. The x axis runs -a .. +b. There is no rank-swap
+    truncation in the complete-window version: blanking post trials would make the later time
+    points average fewer events again. It is independent of *pre* and *post*. In its summary
+    ``n_events`` and ``counts["n_events"]`` are the events kept, and
+    ``counts["n_events_before_exclusion"]`` those found. Complete-window figures of any size
+    left in the two folders by an earlier run are deleted first, so a changed size leaves no
+    stale figure.
 
     Args:
         subjects_trials_by_problem (dict): ``{problem: {subject: {session_key: session}}}``.
@@ -245,33 +277,39 @@ def run_value_change_analysis(
         truncate_modes (tuple[bool]): Which truncation modes to plot: False for full post
             windows, True for windows blanked from the first later best/second exchange.
         show_individual_mice (bool): Also draw each mouse's curve in grey.
-        symmetric_window (int | None): N of the symmetric complete-window version, an integer
-            >= 1; None switches it off. Default 6.
+        complete_window (tuple[int, int] | None): ``(pre, post)`` of the complete-window
+            version, integers >= 1; None switches it off. Default :data:`COMPLETE_WINDOW`,
+            ``(2, 4)``.
 
     Returns:
         dict: ``summaries`` (``{config label: {mode: {n_events, n_subjects, n_truncated,
         counts, x, mean, se, event_weighted, n_events_per_bin, n_subjects_per_bin, plotted,
         files}}}`` (``event_weighted`` is ``{mean, se}`` across events), mode
-        ``untruncated``, ``truncated_at_rank_swap`` or ``symmetric_N``), ``contamination``
+        ``untruncated``, ``truncated_at_rank_swap`` or the complete-window mode
+        ``complete_pre<a>_post<b>`` (``symmetric_<a>`` when ``a == b``)), ``contamination``
         (``{config label:
         contamination dict}``), ``contamination_table`` (DataFrame, one row per configuration:
         contamination of the post windows and event accounting, from the untruncated events),
         ``bin_counts_table`` (DataFrame, per configuration, mode and time point ``t``: how many
-        events and mice have a trial there, so thinning is visible; the mode ``symmetric_N`` has
+        events and mice have a trial there, so thinning is visible; the complete-window mode has
         the same count at every t), ``symmetric_exclusions_table`` (DataFrame, one row per
-        configuration: events before, kept and excluded in total and by reason, each excluded
-        event once (``n_excluded_*``), and the events having each cause, which can overlap
-        (``n_with_*``); empty without a symmetric window) and ``files`` (every saved figure path).
+        configuration: the window's ``pre`` and ``post``, events before, kept and excluded in
+        total and by reason, each excluded event once (``n_excluded_*``), and the events having
+        each cause, which can overlap (``n_with_*``); empty without a complete window; the name
+        is kept from when the window was always symmetric, so the CSV keeps its name) and
+        ``files`` (every saved figure path).
 
     Raises:
         ValueError: On empty input, a counter-format session (the drifting task has only block
-            changes), bad ``pre``/``post``/``truncate_modes``/``symmetric_window``, or any error
+            changes), bad ``pre``/``post``/``truncate_modes``/``complete_window``, or any error
             from ``get_value_change_windows``.
     """
-    _check_arguments(subjects_trials_by_problem, pre, post, truncate_modes, symmetric_window)
-    symmetric_window = None if symmetric_window is None else int(symmetric_window)
+    _check_arguments(subjects_trials_by_problem, pre, post, truncate_modes, complete_window)
+    if complete_window is not None:
+        complete_window = tuple(map(int, complete_window))
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    _remove_stale_complete_window_figures(out_dir)
     summaries, contamination, rows, bin_rows, exclusion_rows, files = {}, {}, [], [], [], []
     for config in value_change_configs():
         pooled = pooled_windows(subjects_trials_by_problem, config, pre, post)
@@ -284,17 +322,16 @@ def run_value_change_analysis(
             summaries[config.label][mode_name(truncated)] = summary
             files += summary["files"]
             bin_rows += _bin_count_rows(config, mode_name(truncated), summary)
-        if symmetric_window is not None:
-            pooled_symmetric = pooled_windows(
-                subjects_trials_by_problem, config, symmetric_window, symmetric_window
+        if complete_window is not None:
+            windows, exclusions = select_complete_windows(
+                pooled_windows(subjects_trials_by_problem, config, *complete_window)
             )
-            windows, exclusions = select_symmetric_windows(pooled_symmetric)
             summary = _mode_summary(windows, out_dir, show_individual_mice)
-            mode = _symmetric_mode_name(symmetric_window)
+            mode = complete_window_mode_name(*complete_window)
             summaries[config.label][mode] = summary
             files += summary["files"]
             bin_rows += _bin_count_rows(config, mode, summary)
-            exclusion_rows.append(_exclusion_row(config, symmetric_window, exclusions))
+            exclusion_rows.append(_exclusion_row(config, *complete_window, exclusions))
     return {
         "summaries": summaries,
         "contamination": contamination,

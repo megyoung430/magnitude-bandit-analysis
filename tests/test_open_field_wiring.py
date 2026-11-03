@@ -124,3 +124,17 @@ def test_each_value_analysis_returns_its_diagnostic_tables(monkeypatch):
         "value_change_bin_counts": "BINS",
         "value_change_symmetric_exclusions": "EXCLUSIONS",
     }
+
+
+def test_the_stay_switch_psychometrics_run_with_the_value_psychometrics(monkeypatch):
+    calls = []
+    monkeypatch.setattr(pipeline, "run_value_psychometric_analysis", lambda *a, **k: None)
+    monkeypatch.setattr(
+        pipeline, "run_stay_switch_analysis", lambda data, out_dir, **k: calls.append(out_dir)
+    )
+    selection = only(run_value_psychometric_analysis=True)
+    run_drifting_value_analyses({1: {}}, Path("out"), selection, arm_scope_label="x")
+    assert calls == [Path("out") / "value-psychometrics-stay-switch"]
+    calls.clear()
+    run_drifting_value_analyses({1: {}}, Path("out"), only(), arm_scope_label="x")
+    assert calls == []
