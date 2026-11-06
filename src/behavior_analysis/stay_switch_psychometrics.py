@@ -82,8 +82,6 @@ REASON_MISSING_VALUES = "missing_values"
 REASON_TIE_EXCLUDED = "tie_excluded"
 
 OUTCOMES = ("stay", "switch")
-# Where a switch goes: the arm holding v_alt, or the remaining arm.
-SWITCH_TARGETS = ("switch_best_alt", "switch_other")
 # X axis of the switch-target curve: v_alt - v_other, the gap between the two unchosen arms.
 SWITCH_TARGET_AXIS = "alt_gap"
 # Rows of the curve figures: pairs whose chosen arm had value 0, and the others.
@@ -473,6 +471,23 @@ def switch_target_curves_by_row(
         row: switch_target_curves(subset, pool_trials=pool_trials)
         if ((subset["stay"] == 0) & (subset["v_alt"] > subset["v_other"])).any()
         else None
+        for row, subset in split_by_chosen_value(pairs).items()
+    }
+
+
+def tied_switches_by_row(pairs: pd.DataFrame) -> dict[str, int]:
+    """Switches between tied alternatives (``v_alt == v_other``) in each row.
+
+    These switches have no best alternative and are left out of the switch-target curve.
+
+    Args:
+        pairs (pd.DataFrame): ``StaySwitchPairs.pairs``.
+
+    Returns:
+        dict[str, int]: ``{row: number of such switches}`` for each row of ``CHOSEN_ROWS``.
+    """
+    return {
+        row: int(((subset["stay"] == 0) & (subset["v_alt"] == subset["v_other"])).sum())
         for row, subset in split_by_chosen_value(pairs).items()
     }
 

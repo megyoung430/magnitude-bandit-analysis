@@ -16,3 +16,10 @@ the value gap between the best and second-best of the options not chosen on the 
 
 ## Results change
 Switch Target Curves only: new x axis and one panel per row. Rerun the pooled sets.
+
+## Notes
+- The caption counts the switches between tied alternatives left out of each row, and says
+  pairs with V(chosen) = V(alt) are kept (their alternatives differ). A row whose switches are
+  all tied shows "No untied switches".
+- Rows use V(chosen) on the switch trial (as the stay/switch rows do), so for true values a
+  pair straddling a block change can land in the other row.

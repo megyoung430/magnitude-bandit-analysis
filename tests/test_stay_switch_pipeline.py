@@ -19,6 +19,7 @@ from src.behavior_visualization.plot_stay_switch import (
     plot_stay_switch_curves,
     plot_stay_switch_panel,
     plot_switch_target_curves,
+    plot_switch_target_panel,
 )
 from src.pipelines.stay_switch_psychometrics import run_stay_switch_analysis
 from tests.plot_capture import capture_figures
@@ -197,6 +198,7 @@ def row_test_pairs():
 
 
 NO_TIES = {"chosen_alternative": 0, "alternatives": 0, "all_three": 0}
+NO_TIED_SWITCHES = {"chosen_zero": 0, "chosen_nonzero": 0}
 
 
 def titled_axes(fig):
@@ -254,7 +256,7 @@ def test_a_row_without_pairs_draws_empty_panels(monkeypatch):
 def test_switch_target_figure_has_one_panel_per_row_against_the_alternatives_gap(monkeypatch):
     capture = capture_figures(monkeypatch)
     curves = switch_target_curves_by_row(row_test_pairs(), pool_trials=True)
-    plot_switch_target_curves(curves, "True", True, NO_TIES, "split", None)
+    plot_switch_target_curves(curves, "True", True, NO_TIES, "split", NO_TIED_SWITCHES, None)
     (fig,) = capture.shown[0]
     assert fig.get_suptitle() == "Switch Target Curves (True Value)"
     zero, nonzero = titled_axes(fig)
@@ -268,18 +270,24 @@ def test_switch_target_figure_has_one_panel_per_row_against_the_alternatives_gap
         assert ax.get_ylabel() == "P(Best Alternative | Switch)"
         assert ax.get_ylim() == (0.0, 1.0)
         assert any(list(line.get_ydata()) == [0.5, 0.5] for line in ax.lines)  # chance
-    drawn = {line.get_label() for ax in fig.axes for line in ax.lines}
-    assert "Switch to Best Alternative" in drawn and "Switch to Other Arm" not in drawn
+    assert all(ax.get_legend() is None for ax in fig.axes)  # the y label names the one curve
+
+
+def test_the_switch_target_panel_makes_its_own_figure_without_axes():
+    curve = switch_target_curves_by_row(row_test_pairs(), pool_trials=True)["chosen_zero"]
+    ax = plot_switch_target_panel(curve, "Chose 0-Value Option")
+    assert ax.get_ylabel() == "P(Best Alternative | Switch)"
+    plt.close(ax.figure)
 
 
 def test_a_row_without_switches_draws_an_empty_switch_target_panel(monkeypatch):
     capture = capture_figures(monkeypatch)
     pairs = row_test_pairs()
     curves = switch_target_curves_by_row(pairs[pairs["v_chosen"] > 0], pool_trials=True)
-    plot_switch_target_curves(curves, "True", True, NO_TIES, "split", None)
+    plot_switch_target_curves(curves, "True", True, NO_TIES, "split", NO_TIED_SWITCHES, None)
     (fig,) = capture.shown[0]
     zero = titled_axes(fig)[0]
-    assert [t.get_text() for t in zero.texts] == ["No switches"]
+    assert [t.get_text() for t in zero.texts] == ["No untied switches"]
 
 
 def test_switch_target_caption_defines_the_conditional_and_the_gap(tmp_path):
@@ -293,6 +301,21 @@ def test_switch_target_caption_defines_the_conditional_and_the_gap(tmp_path):
     ).read_text()
     assert "Only the pairs whose next choice is a switch" in caption
     assert "V(best alternative) - V(other arm)" in caption
-    assert "gap 0" in caption
+    assert (
+        "Switches between tied alternatives (gap 0, all three tied included) left out: top "
+        in caption
+    )
+    assert "counts half to each" not in caption  # the stay/switch tie rule does not apply here
+    assert "(kept)" not in caption
     assert "top, V(chosen) = 0" in caption
     assert "Believed 0: the arm last paid 0" in caption
+
+
+def test_switch_target_caption_names_the_cells_when_they_are_averaged(tmp_path):
+    run_stay_switch_analysis(
+        data(), tmp_path, value_bases=("true",), pooling_modes=(False,), tie_modes=("split",)
+    )
+    caption = caption_path(
+        tmp_path / "Switch Target Curves (True Value) (Ties Split) (Pool Trials False)"
+    ).read_text()
+    assert "(V(chosen), V(alt)) cell" in caption

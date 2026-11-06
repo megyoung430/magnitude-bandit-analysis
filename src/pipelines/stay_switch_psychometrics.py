@@ -15,6 +15,7 @@ from src.behavior_analysis.stay_switch_psychometrics import (
     stay_switch_curves_by_row,
     stay_switch_pairs,
     switch_target_curves_by_row,
+    tied_switches_by_row,
 )
 from src.behavior_visualization.plot_stay_switch import (
     plot_stay_heatmap,
@@ -37,7 +38,12 @@ def _write_condition(pairs, label: str, tie_mode: str, pooling_modes, out_dir: P
         name = f"{stem} (Pool Trials {pool_trials})"
         common = (label, pool_trials, pairs.ties, tie_mode)
         plot_stay_switch_curves(curves, *common, out_dir / f"Stay-Switch Curves {name}")
-        plot_switch_target_curves(targets, *common, out_dir / f"Switch Target Curves {name}")
+        plot_switch_target_curves(
+            targets,
+            *common,
+            tied_switches_by_row(pairs.pairs),
+            out_dir / f"Switch Target Curves {name}",
+        )
         curves_by_mode[pool_trials], targets_by_mode[pool_trials] = curves, targets
     return {
         "pairs": pairs,

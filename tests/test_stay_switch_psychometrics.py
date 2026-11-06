@@ -25,6 +25,7 @@ from src.behavior_analysis.stay_switch_psychometrics import (
     stay_switch_pairs,
     switch_target_curves,
     switch_target_curves_by_row,
+    tied_switches_by_row,
 )
 
 
@@ -425,3 +426,28 @@ def test_a_row_without_switches_has_no_switch_target_curve():
     rows = switch_target_curves_by_row(stays_after_nonzero, pool_trials=True)
     assert rows[CHOSEN_NONZERO] is None
     assert rows[CHOSEN_ZERO].mice == ["m1", "m2"]
+
+
+def test_a_switch_tied_with_the_chosen_value_still_has_a_best_alternative():
+    # V(chosen) = V(alt) = 3 > V(other) = 1: the alternatives differ, so the switch counts
+    rows = [("m", 3, 3, 1, 0, 1, 0), ("m", 3, 3, 1, 0, 0, 1)]
+    curve = switch_target_curves(pd.DataFrame(rows, columns=["mouse", *COLUMNS]), pool_trials=True)
+    assert curve.x.tolist() == [2]
+    np.testing.assert_allclose(curve.per_mouse, [[0.5]])
+
+
+def test_a_row_with_only_tied_switches_has_no_switch_target_curve():
+    pairs = switch_pairs()
+    tied_after_zero = pairs[(pairs["v_chosen"] > 0) | (pairs["v_alt"] == pairs["v_other"])]
+    rows = switch_target_curves_by_row(tied_after_zero, pool_trials=True)
+    assert rows[CHOSEN_ZERO] is None
+
+
+def test_tied_switches_are_counted_per_row():
+    pairs = switch_pairs()
+    tied_nonzero = pd.DataFrame(
+        [("m4", 2, 1, 1, 0, 0.5, 0.5), ("m4", 2, 1, 1, 1, 0, 0)], columns=["mouse", *COLUMNS]
+    )
+    counts = tied_switches_by_row(pd.concat([pairs, tied_nonzero], ignore_index=True))
+    # m2's switch after a 0 and m4's switch after a 2; m4's stay is not a switch
+    assert counts == {CHOSEN_ZERO: 1, CHOSEN_NONZERO: 1}
