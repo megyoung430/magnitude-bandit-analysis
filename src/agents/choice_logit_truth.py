@@ -90,3 +90,30 @@ def project_utilities(utilities: np.ndarray, X: np.ndarray) -> np.ndarray:
         centred_x.reshape(-1, X.shape[2]), centred_u.reshape(-1), rcond=None
     )
     return weights
+
+
+def q_kernel_bounds(parameters, n_lags: int) -> pd.DataFrame:
+    """Bounds of the reward weight a value learner implies at each lag.
+
+    A reward followed by ``m`` further visits to the same arm contributes
+    ``beta * alpha * (1 - alpha)**m`` to that arm's utility, and ``m`` lies between 0 (the arm
+    was not chosen again) and ``k - 1`` (it was chosen on every trial since), for a reward
+    ``k`` trials back. The weight a lag-``k`` regressor can take is therefore between
+    ``beta * alpha * (1 - alpha)**(k - 1)`` and ``beta * alpha``.
+
+    Args:
+        parameters (Sequence[float]): ``(learning_rate, beta, kappa, plus_bias)``.
+        n_lags (int): Lags ``1..n_lags``.
+
+    Returns:
+        pd.DataFrame: ``lag, lower, upper``.
+    """
+    learning_rate, beta = parameters[0], parameters[1]
+    lags = np.arange(1, n_lags + 1)
+    return pd.DataFrame(
+        dict(
+            lag=lags,
+            lower=beta * learning_rate * (1 - learning_rate) ** (lags - 1),
+            upper=np.full(n_lags, beta * learning_rate),
+        )
+    )

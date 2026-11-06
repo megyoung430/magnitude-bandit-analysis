@@ -55,3 +55,10 @@ def test_projection_recovers_weights_of_an_exactly_linear_utility():
 def test_projection_rejects_mismatched_shapes():
     with pytest.raises(ValueError, match="utilities"):
         truth.project_utilities(np.zeros((5, 3)), np.zeros((6, 3, 2)))
+
+
+def test_q_kernel_bounds_are_the_geometric_and_the_flat_weight():
+    bounds = truth.q_kernel_bounds((0.25, 2.0, 0.0, 0.0), n_lags=3)
+    assert bounds["lag"].tolist() == [1, 2, 3]
+    np.testing.assert_allclose(bounds["upper"], [0.5, 0.5, 0.5])
+    np.testing.assert_allclose(bounds["lower"], [0.5, 0.375, 0.28125])

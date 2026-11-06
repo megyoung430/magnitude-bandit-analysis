@@ -54,12 +54,12 @@ START_MAGNITUDES = (4, 2, 0)
 # ---------------------------------------------------------------------------
 
 
-def load_drifting_trial_table(
+def load_drifting_problems(
     cohort_ids: Sequence[int],
     data_root: Path | None = None,
     trials_by_cohort: dict | None = None,
-) -> pd.DataFrame:
-    """The drifting problems of *cohort_ids* as one trial table.
+) -> dict:
+    """The drifting problems of *cohort_ids* pooled, ``{(cohort id, k): {mouse: sessions}}``.
 
     Each cohort is loaded cache-first: the newest snapshot of the import cache is used without
     reading the data share (sessions added since are missing; a ``StaleCacheWarning`` says
@@ -74,9 +74,7 @@ def load_drifting_trial_table(
             sessions}}}``; skips loading. Default ``None``.
 
     Returns:
-        pd.DataFrame: The table of
-        :func:`~src.behavior_analysis.drifting_trial_table.drifting_trial_table`; problems are
-        keyed ``(cohort id, drifting problem number)``.
+        dict: ``k`` is the drifting problem number within the cohort.
 
     Raises:
         ValueError: If a cohort id is invalid or repeated, a cohort has no drifting problem, or a
@@ -88,8 +86,21 @@ def load_drifting_trial_table(
             c: load_cohort(c, data_root, use_cache=True, from_cache=True).trials_by_problem
             for c in ids
         }
-    pooled = pool_cohorts({c: drifting_problems(trials_by_cohort[c]) for c in ids})
-    return drifting_trial_table(pooled.problems)
+    return pool_cohorts({c: drifting_problems(trials_by_cohort[c]) for c in ids}).problems
+
+
+def load_drifting_trial_table(
+    cohort_ids: Sequence[int],
+    data_root: Path | None = None,
+    trials_by_cohort: dict | None = None,
+) -> pd.DataFrame:
+    """The trial table of :func:`load_drifting_problems` (same arguments).
+
+    Returns:
+        pd.DataFrame: The table of
+        :func:`~src.behavior_analysis.drifting_trial_table.drifting_trial_table`.
+    """
+    return drifting_trial_table(load_drifting_problems(cohort_ids, data_root, trials_by_cohort))
 
 
 class SyntheticCohort(NamedTuple):

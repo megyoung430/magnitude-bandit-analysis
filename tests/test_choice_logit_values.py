@@ -31,6 +31,18 @@ def test_load_pools_the_drifting_problems_of_the_cohorts():
     assert sorted(table["problem"].unique()) == [(1, 1), (1, 2)]
 
 
+def test_load_problems_keys_them_by_cohort_and_number():
+    cohort = synthetic_cohort(["m1", "m2"])
+    problems = pipe.load_drifting_problems([1], trials_by_cohort={1: cohort})
+    assert sorted(problems) == [(1, 1), (1, 2)]
+    assert sorted(problems[(1, 1)]) == ["m1", "m2"]
+
+
+def test_load_rejects_a_repeated_cohort():
+    with pytest.raises(ValueError, match="once each"):
+        pipe.load_drifting_problems([1, 1], trials_by_cohort={1: {}})
+
+
 def test_simulated_cohort_is_reproducible_and_labelled(synthetic):
     again = pipe.simulate_cohort(
         PARAMETER_SETS, mice_per_set=2, n_problems=3, sessions_per_problem=2,
