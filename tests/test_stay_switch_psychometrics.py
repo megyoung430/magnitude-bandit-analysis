@@ -14,7 +14,6 @@ from src.behavior_analysis.stay_switch_psychometrics import (
     CHOSEN_ROWS,
     CHOSEN_ZERO,
     OUTCOMES,
-    SWITCH_TARGETS,
     TIE_ALL_THREE,
     TIE_ALTERNATIVES,
     TIE_CHOSEN_ALTERNATIVE,
@@ -26,6 +25,7 @@ from src.behavior_analysis.stay_switch_psychometrics import (
     stay_switch_pairs,
     switch_target_curves,
     switch_target_curves_by_row,
+    tied_switches_by_row,
 )
 
 
@@ -356,77 +356,98 @@ def test_a_row_without_pairs_has_no_curves():
 
 
 def switch_pairs():
-    """m1 switches three times (two to the best alternative), m2 twice, m3 stays only."""
+    """Rows (mouse, v_chosen, v_alt, v_other, stay, switch_best_alt, switch_other).
+
+    m1 switches four times after a 0 (gap 2: two of three to the best alternative; gap 1: once,
+    to the other arm) and once after a 3; m2 switches between tied alternatives once and to the
+    best alternative once; m3 only stays.
+    """
     rows = [
         ("m1", 0, 4, 2, 0, 1, 0),
         ("m1", 0, 4, 2, 0, 1, 0),
         ("m1", 0, 4, 2, 0, 0, 1),
         ("m1", 0, 4, 2, 1, 0, 0),  # a stay: not a switch, left out
+        ("m1", 0, 3, 2, 0, 0, 1),
         ("m1", 3, 2, 1, 0, 0, 1),
-        ("m2", 0, 4, 2, 0, 0.5, 0.5),  # a switch between tied alternatives
+        ("m2", 0, 4, 4, 0, 0.5, 0.5),  # tied alternatives: gap 0, no best, left out
         ("m2", 0, 4, 2, 0, 1, 0),
         ("m3", 4, 2, 1, 1, 0, 0),
     ]
     return pd.DataFrame(rows, columns=["mouse", *COLUMNS])
 
 
-def test_switch_targets_are_fractions_of_the_switches():
-    curves = switch_target_curves(switch_pairs(), pool_trials=True)
-    assert set(curves) == set(SWITCH_TARGETS) == {"switch_best_alt", "switch_other"}
-    best = curves["switch_best_alt"]["chosen"]
-    assert best.x.tolist() == [0, 3]
-    assert best.mice == ["m1", "m2"]  # m3 never switches
-    # m1 at V(chosen) 0: 2 of 3 switches to the best alternative; m2: 1.5 of 2
-    np.testing.assert_allclose(best.per_mouse, [[2 / 3, 0.0], [0.75, np.nan]])
-    np.testing.assert_allclose(best.mean, [(2 / 3 + 0.75) / 2, 0.0])
-    assert best.n_trials.tolist() == [5, 1]  # switches, not pairs
+def test_switch_target_curve_is_p_best_given_a_switch_against_the_alternatives_gap():
+    curve = switch_target_curves(switch_pairs(), pool_trials=True)
+    assert curve.x.tolist() == [1, 2]  # v_alt - v_other; the tied gap 0 is left out
+    assert curve.mice == ["m1", "m2"]  # m3 never switches
+    # m1: gap 1 has two switches, both to the other arm; gap 2 has 2 of 3 to the best
+    np.testing.assert_allclose(curve.per_mouse, [[0.0, 2 / 3], [np.nan, 1.0]])
+    np.testing.assert_allclose(curve.mean, [0.0, (2 / 3 + 1.0) / 2])
+    assert curve.n_trials.tolist() == [2, 4]  # switches, not pairs
 
 
-def test_switch_targets_pooled_or_averaged_over_cells():
-    # one mouse, V(chosen) 0: cell (0, 4) has 3 switches, 2 to the best alternative; cell
-    # (0, 2) has 1 switch, to the other arm
+def test_switch_target_curve_pooled_or_averaged_over_cells():
+    # one mouse at gap 2: cell (0, 4) has 3 switches, 2 to the best alternative; cell (1, 3) has
+    # 1 switch, to the other arm
     rows = [
         ("m", 0, 4, 2, 0, 1, 0),
         ("m", 0, 4, 2, 0, 1, 0),
         ("m", 0, 4, 2, 0, 0, 1),
-        ("m", 0, 2, 1, 0, 0, 1),
+        ("m", 1, 3, 1, 0, 0, 1),
     ]
     pairs = pd.DataFrame(rows, columns=["mouse", *COLUMNS])
-    pooled = switch_target_curves(pairs, pool_trials=True)["switch_best_alt"]["chosen"]
-    cells = switch_target_curves(pairs, pool_trials=False)["switch_best_alt"]["chosen"]
+    pooled = switch_target_curves(pairs, pool_trials=True)
+    cells = switch_target_curves(pairs, pool_trials=False)
     np.testing.assert_allclose(pooled.per_mouse, [[2 / 4]])
     np.testing.assert_allclose(cells.per_mouse, [[(2 / 3 + 0) / 2]])
 
 
-def test_switch_targets_given_a_switch_add_up_to_one():
-    for pool_trials in (True, False):
-        curves = switch_target_curves(switch_pairs(), pool_trials=pool_trials)
-        for axis in X_AXES:
-            best, other = curves["switch_best_alt"][axis], curves["switch_other"][axis]
-            total = best.per_mouse + other.per_mouse
-            finite = ~np.isnan(total)
-            np.testing.assert_allclose(total[finite], 1.0)
-
-
-def test_switch_targets_without_switches_raise():
+def test_switch_target_curve_without_untied_switches_raises():
     pairs = switch_pairs()
     with pytest.raises(ValueError, match="no switches"):
         switch_target_curves(pairs[pairs["stay"] == 1], pool_trials=True)
+    with pytest.raises(ValueError, match="no switches"):
+        switch_target_curves(pairs[pairs["v_alt"] == pairs["v_other"]], pool_trials=True)
 
 
-def test_switch_targets_by_row_use_only_that_rows_switches():
+def test_switch_target_curves_by_row_use_only_that_rows_switches():
     rows = switch_target_curves_by_row(switch_pairs(), pool_trials=True)
     zero, nonzero = rows[CHOSEN_ZERO], rows[CHOSEN_NONZERO]
-    assert zero["switch_best_alt"]["diff"].mice == ["m1", "m2"]
-    np.testing.assert_allclose(zero["switch_best_alt"]["diff"].per_mouse, [[2 / 3], [0.75]])
-    np.testing.assert_allclose(zero["switch_other"]["diff"].per_mouse, [[1 / 3], [0.25]])
-    assert nonzero["switch_other"]["diff"].mice == ["m1"]
-    np.testing.assert_allclose(nonzero["switch_other"]["diff"].per_mouse, [[1.0]])
+    assert zero.x.tolist() == [1, 2] and zero.mice == ["m1", "m2"]
+    np.testing.assert_allclose(zero.per_mouse, [[0.0, 2 / 3], [np.nan, 1.0]])
+    assert zero.n_trials.tolist() == [1, 4]
+    assert nonzero.x.tolist() == [1] and nonzero.mice == ["m1"]
+    np.testing.assert_allclose(nonzero.per_mouse, [[0.0]])
 
 
-def test_a_row_without_switches_has_no_switch_target_curves():
+def test_a_row_without_switches_has_no_switch_target_curve():
     pairs = switch_pairs()
     stays_after_nonzero = pairs[(pairs["v_chosen"] == 0) | (pairs["stay"] == 1)]
     rows = switch_target_curves_by_row(stays_after_nonzero, pool_trials=True)
     assert rows[CHOSEN_NONZERO] is None
-    assert rows[CHOSEN_ZERO]["switch_best_alt"]["diff"].mice == ["m1", "m2"]
+    assert rows[CHOSEN_ZERO].mice == ["m1", "m2"]
+
+
+def test_a_switch_tied_with_the_chosen_value_still_has_a_best_alternative():
+    # V(chosen) = V(alt) = 3 > V(other) = 1: the alternatives differ, so the switch counts
+    rows = [("m", 3, 3, 1, 0, 1, 0), ("m", 3, 3, 1, 0, 0, 1)]
+    curve = switch_target_curves(pd.DataFrame(rows, columns=["mouse", *COLUMNS]), pool_trials=True)
+    assert curve.x.tolist() == [2]
+    np.testing.assert_allclose(curve.per_mouse, [[0.5]])
+
+
+def test_a_row_with_only_tied_switches_has_no_switch_target_curve():
+    pairs = switch_pairs()
+    tied_after_zero = pairs[(pairs["v_chosen"] > 0) | (pairs["v_alt"] == pairs["v_other"])]
+    rows = switch_target_curves_by_row(tied_after_zero, pool_trials=True)
+    assert rows[CHOSEN_ZERO] is None
+
+
+def test_tied_switches_are_counted_per_row():
+    pairs = switch_pairs()
+    tied_nonzero = pd.DataFrame(
+        [("m4", 2, 1, 1, 0, 0.5, 0.5), ("m4", 2, 1, 1, 1, 0, 0)], columns=["mouse", *COLUMNS]
+    )
+    counts = tied_switches_by_row(pd.concat([pairs, tied_nonzero], ignore_index=True))
+    # m2's switch after a 0 and m4's switch after a 2; m4's stay is not a switch
+    assert counts == {CHOSEN_ZERO: 1, CHOSEN_NONZERO: 1}
