@@ -7,6 +7,7 @@ show it.
 """
 
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -82,8 +83,8 @@ def definition_caption(value_label: str) -> tuple[str, ...]:
         "chosen on t-1.",
         f"Values are the {value_label.lower()} values on trial t: V(chosen) is the chosen arm's "
         "value, V(alt) the higher value of the two other arms (the best alternative).",
-        "Stay: trial t picks the chosen arm again. Switch = 1 - stay, split into a switch to "
-        "the best alternative and to the other arm.",
+        "Stay: trial t picks the chosen arm again. Switch = 1 - stay: trial t picks the best "
+        "alternative or the other arm.",
         "Pairs across a block or value change are kept; pairs across sessions or a missed "
         "trial are not.",
     ]
@@ -161,7 +162,13 @@ def _draw_single_point_error(ax: plt.Axes, curve: Curve, color: str) -> None:
 
 
 def plot_stay_switch_panel(
-    curves: dict[str, Curve], heading: str, xlabel: str, ax: plt.Axes | None = None
+    curves: dict[str, Curve],
+    heading: str,
+    xlabel: str,
+    ax: plt.Axes | None = None,
+    *,
+    ylabel: str = "Probability",
+    counted: tuple[str, str] | None = None,
 ) -> plt.Axes:
     """Curves of the given outcomes against one x axis: mice thin, mean thick with se band.
 
@@ -173,6 +180,10 @@ def plot_stay_switch_panel(
         heading (str): First line of the panel title (the row).
         xlabel (str): X axis label.
         ax (plt.Axes | None): Axes to draw into; a new figure if ``None``.
+        ylabel (str): Y axis label. Default ``"Probability"``. Keyword-only.
+        counted (tuple[str, str] | None): ``(singular, plural)`` of what ``Curve.n_trials``
+            counts, to add its total to the statistics line (e.g. ``("switch",
+            "switches")``); ``None`` (default) adds nothing. Keyword-only.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -186,27 +197,30 @@ def plot_stay_switch_panel(
             if len(curve.x) == 1:
                 _draw_single_point_error(ax, curve, color)
         average = "mean ± se" if error_drawn(*(c.se for c in curves.values())) else "mean"
-        stats = stats_line(average, "mice", [(len(first.mice), "mouse", "mice")])
-        set_title(ax, Title(heading, stats), fontsize=12)
+        counts = [(len(first.mice), "mouse", "mice")]
+        if counted is not None:
+            counts.append((int(np.sum(first.n_trials)), *counted))
+        set_title(ax, Title(heading, stats_line(average, "mice", counts)), fontsize=12)
         _x_limits(ax, first.x)
         ax.legend(fontsize=10)
-        _finish_panel(ax, xlabel)
+        _finish_panel(ax, xlabel, ylabel)
     return ax
 
 
-def _finish_panel(ax: plt.Axes, xlabel: str) -> None:
+def _finish_panel(ax: plt.Axes, xlabel: str, ylabel: str = "Probability") -> None:
     ax.set_xlabel(xlabel, fontsize=12)
-    ax.set_ylabel("Probability", fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
     ax.set_ylim(0, 1)
     despine(ax)
 
 
-def _empty_panel(ax: plt.Axes, heading: str, xlabel: str) -> None:
-    """A panel of a row without pairs: its heading and a note, axes kept so columns line up."""
+def _empty_panel(ax: plt.Axes, heading: str, xlabel: str, note: str, ylabel: str) -> None:
+    """A panel of a row with nothing to draw: its heading and *note*, axes kept so columns
+    line up."""
     ax.set_title(heading, fontsize=12)
-    ax.text(0.5, 0.5, "No pairs", ha="center", va="center", transform=ax.transAxes)
+    ax.text(0.5, 0.5, note, ha="center", va="center", transform=ax.transAxes)
     ax.set_xticks([])
-    _finish_panel(ax, xlabel)
+    _finish_panel(ax, xlabel, ylabel)
 
 
 def _curves_caption(value_label, pool_trials, ties, tie_mode, extra=()) -> tuple[str, ...]:
@@ -220,18 +234,40 @@ def _curves_caption(value_label, pool_trials, ties, tie_mode, extra=()) -> tuple
     )
 
 
+class PanelSpec(NamedTuple):
+    """What the panels of a curve figure draw and say.
+
+    Attributes:
+        outcomes (tuple[str, ...]): The outcomes of ``OUTCOME_STYLE`` drawn in every panel.
+        ylabel (str): Y axis label.
+        empty_note (str): Text of a panel whose row has nothing to draw.
+        counted (tuple[str, str] | None): As in :func:`plot_stay_switch_panel`.
+    """
+
+    outcomes: tuple[str, ...]
+    ylabel: str
+    empty_note: str
+    counted: tuple[str, str] | None = None
+
+
+STAY_SWITCH_SPEC = PanelSpec(STAY_SWITCH_OUTCOMES, "Probability", "No pairs")
+SWITCH_TARGET_SPEC = PanelSpec(
+    SWITCH_TARGET_OUTCOMES, "Fraction of Switches", "No switches", ("switch", "switches")
+)
+
+
 def plot_outcome_curves(
     curves_by_row: dict[str, dict[str, dict[str, Curve]] | None],
-    outcomes: tuple[str, ...],
+    spec: PanelSpec,
     title: Title,
     save_path: str | Path | None = None,
 ) -> None:
-    """*outcomes* against three x axes, one row per chosen-value row; save or show.
+    """The outcomes of *spec* against three x axes, one row per chosen-value row; save or show.
 
     Args:
-        curves_by_row (dict): From ``stay_switch_curves_by_row``; a row of ``None`` draws empty
-            panels.
-        outcomes (tuple[str, ...]): The outcomes to draw in every panel.
+        curves_by_row (dict): ``{row: {outcome: {axis: Curve}} | None}`` for each row of
+            ``CHOSEN_ROWS``; a row of ``None`` draws empty panels.
+        spec (PanelSpec): The outcomes, labels and counts of the panels.
         title (Title): The figure title and caption.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
@@ -240,10 +276,13 @@ def plot_outcome_curves(
             curves = curves_by_row[row]
             for ax, (axis, xlabel) in zip(axes_row, PANELS, strict=True):
                 if curves is None:
-                    _empty_panel(ax, ROW_HEADINGS[row], xlabel)
+                    _empty_panel(ax, ROW_HEADINGS[row], xlabel, spec.empty_note, spec.ylabel)
                     continue
-                panel = {outcome: curves[outcome][axis] for outcome in outcomes}
-                plot_stay_switch_panel(panel, ROW_HEADINGS[row], xlabel, ax=ax)
+                panel = {outcome: curves[outcome][axis] for outcome in spec.outcomes}
+                plot_stay_switch_panel(
+                    panel, ROW_HEADINGS[row], xlabel, ax=ax, ylabel=spec.ylabel,
+                    counted=spec.counted,
+                )  # fmt: skip
         finish_figure(fig, title)
     save_or_show(fig, save_path or None)
 
@@ -268,7 +307,7 @@ def plot_stay_switch_curves(
     """
     caption = _curves_caption(value_label, pool_trials, ties, tie_mode)
     title = Title(f"Stay-Switch Curves ({value_label} Value)", None, caption)
-    plot_outcome_curves(curves_by_row, STAY_SWITCH_OUTCOMES, title, save_path)
+    plot_outcome_curves(curves_by_row, STAY_SWITCH_SPEC, title, save_path)
 
 
 def plot_switch_target_curves(
@@ -279,12 +318,13 @@ def plot_switch_target_curves(
     tie_mode: str,
     save_path: str | Path | None = None,
 ) -> None:
-    """P(switch to the best alternative) and P(switch to the other arm), rows as above.
+    """P(best alternative | switch) and P(other arm | switch), rows as above; save or show.
 
-    Both are fractions of all pairs, so they add up to P(switch).
+    Both are fractions of the row's switches, so they add up to 1; panel titles give the
+    switches as n.
 
     Args:
-        curves_by_row (dict): From ``stay_switch_curves_by_row``.
+        curves_by_row (dict): From ``switch_target_curves_by_row``.
         value_label (str): ``"True"`` or ``"Believed"``.
         pool_trials (bool): The weighting the curves were computed with, for the caption.
         ties (dict[str, int]): Tied pairs by category (``StaySwitchPairs.ties``).
@@ -292,12 +332,15 @@ def plot_switch_target_curves(
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
     fractions = (
-        "P(switch to best alternative) and P(switch to other arm) are fractions of all pairs, "
-        "not of switches: together they make P(switch).",
+        "Switch targets are fractions of the switches after the chosen option: "
+        "P(best alternative | switch) and P(other arm | switch) add up to 1; stays are left "
+        "out, and a mouse without switches in a row is not one of that row's mice.",
+        "n=switches: the switches of all mice in the row. An x value appears only where some "
+        "mouse switched, and a mouse's point there can rest on few switches.",
     )
     caption = _curves_caption(value_label, pool_trials, ties, tie_mode, fractions)
     title = Title(f"Switch Target Curves ({value_label} Value)", None, caption)
-    plot_outcome_curves(curves_by_row, SWITCH_TARGET_OUTCOMES, title, save_path)
+    plot_outcome_curves(curves_by_row, SWITCH_TARGET_SPEC, title, save_path)
 
 
 def plot_stay_heatmap_panel(
