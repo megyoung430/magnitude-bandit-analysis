@@ -203,8 +203,8 @@ def plot_stay_switch_panel(
                 _draw_single_point_error(ax, curve, color)
             if baselines is not None:
                 ax.plot(
-                    baselines[outcome].x, baselines[outcome].mean, "--", color=color, lw=1.8,
-                    zorder=4, label=f"{label} Baseline",
+                    baselines[outcome].x, baselines[outcome].mean, "--s", color=color, lw=1.6,
+                    ms=7, mfc="white", mew=1.4, zorder=6, label=f"{label} Baseline",
                 )  # fmt: skip
         average = "mean ± se" if error_drawn(*(c.se for c in curves.values())) else "mean"
         counts = [(len(first.mice), "mouse", "mice")]

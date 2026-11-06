@@ -153,6 +153,57 @@ def test_a_baseline_adds_dashed_lines_to_a_panel():
     assert not [line for line in plain.get_lines() if line.get_linestyle() == "--"]
 
 
+def test_a_baseline_on_top_of_the_observed_curve_stays_visible():
+    curves, baselines = curves_for()
+    ax = plots.plot_psychometric_panel(
+        curves["best"]["best_val"], curves["second"]["best_val"], "x",
+        baseline_best=baselines["best"]["best_val"],
+    )  # fmt: skip
+    dashed = next(line for line in ax.get_lines() if line.get_linestyle() == "--")
+    solid = max(
+        (ln for ln in ax.get_lines() if ln.get_linestyle() == "-"), key=lambda ln: ln.zorder
+    )
+    assert dashed.zorder > solid.zorder  # drawn above, so it cannot hide under the observed line
+    assert dashed.get_marker() not in ("", "None", None)  # hollow markers show where it coincides
+
+
+def test_bin_means_do_not_set_the_ticks_of_a_continuous_axis():
+    curves, _ = curves_for()
+    curve = curves["best"]["best_val"]
+    ax = plots.plot_psychometric_panel(curve, curves["second"]["best_val"], "x")
+    assert len(ax.get_xticks()) <= 8
+    assert not np.array_equal(np.round(ax.get_xticks(), 6), np.round(curve.x, 6))
+
+
+def test_exact_values_keep_one_tick_each():
+    table = mvp.rank_table(
+        np.repeat(["a", "b", "c"], 4),
+        np.tile([[0, 1, 2], [1, 2, 3], [2, 3, 4], [0, 2, 4]], (3, 1)).astype(float),
+        np.zeros(12, dtype=int),
+    )
+    curves, _ = mvp.psychometric_curves_from_table(table, n_bins=None)
+    ax = plots.plot_psychometric_panel(
+        curves["best"]["best_val"], curves["second"]["best_val"], "x"
+    )
+    assert list(ax.get_xticks()) == list(curves["best"]["best_val"].x)
+
+
+def test_rows_name_the_row_in_every_panel_title(tmp_path, titles):
+    curves, baselines = curves_for()
+    rows = [
+        plots.PsychometricRow(
+            "Value-Blind Sticky Agent", curves, plots.value_labels("V"), baselines
+        ),
+        plots.PsychometricRow("Value-Driven Agent", curves, plots.value_labels("V"), baselines),
+    ]
+    plots.plot_psychometric_rows(rows, "Control", ("c",), tmp_path / "rows")
+    panel_titles = titles["rows"][1]
+    assert sum(t.startswith("Value-Blind Sticky Agent") for t in panel_titles) == 3
+    assert sum(t.startswith("Value-Driven Agent") for t in panel_titles) == 3
+    caption = (tmp_path / "rows.caption.txt").read_text()
+    assert "coincide" in caption
+
+
 def test_psychometric_rows_need_a_row(tmp_path):
     with pytest.raises(ValueError, match="no rows"):
         plots.plot_psychometric_rows([], "x", (), tmp_path / "x")

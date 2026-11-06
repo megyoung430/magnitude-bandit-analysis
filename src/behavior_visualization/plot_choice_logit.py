@@ -309,8 +309,10 @@ def baseline_caption(min_mice: int) -> tuple[str, ...]:
     return (
         "Dashed: the probability that a model with choice history and tower bias but no reward "
         "term (fitted on the mouse's other problems) gives the same outcome on the same trials, "
-        "binned in the same way. Solid above dashed is what the value adds beyond repeating "
-        "recent choices and tower bias.",
+        "binned in the same way, drawn on top of the observed curve as hollow squares. Solid "
+        "above dashed is what the value adds beyond repeating recent choices and tower bias; "
+        "for an agent that ignores value, the observed curve should coincide with the baseline "
+        "(squares sit on the dots).",
         f"Means from fewer than {min_mice} mice are not drawn.",
     )
 
@@ -350,6 +352,7 @@ def plot_psychometric_rows(
                     ax=ax,
                     baseline_best=row.baselines["best"][axis] if row.baselines else None,
                     baseline_second=row.baselines["second"][axis] if row.baselines else None,
+                    heading=row.label,
                 )
         lines = (*caption, "Thin lines: each mouse.")
         if any(row.baselines for row in rows):

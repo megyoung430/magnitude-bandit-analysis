@@ -427,17 +427,19 @@ def plot_psychometric_panel(
     *,
     baseline_best: Curve | None = None,
     baseline_second: Curve | None = None,
+    heading: str | None = None,
 ) -> plt.Axes:
     """P(best) and P(second) against one x axis: mice thin, mean thick, SE band, mean values.
 
     Args:
         curve_best (Curve): P(best) against x.
         curve_second (Curve): P(second) against the same x.
-        xlabel (str): X axis label (also the title).
+        xlabel (str): X axis label (also the title unless *heading* is given).
         ax (plt.Axes | None): Axes to draw into; a new figure if ``None``.
         baseline_best (Curve | None): A reference P(best) on the same x (e.g. what a model
             without the value predicts), drawn as a dashed mean line. Keyword-only.
         baseline_second (Curve | None): The same for P(second). Keyword-only.
+        heading (str | None): First title line; default the x label. Keyword-only.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -453,9 +455,11 @@ def plot_psychometric_panel(
             draw_mean(ax, curve, color, label)
         for curve, color, label in baselines:
             if curve is not None:
+                # above the observed line, with hollow markers: a baseline that coincides with
+                # the observed curve still shows as a ring around each dot
                 ax.plot(
-                    curve.x, curve.mean, "--", color=color, lw=1.8, zorder=4,
-                    label=f"{label} Baseline",
+                    curve.x, curve.mean, "--s", color=color, lw=1.6, ms=7, mfc="white", mew=1.4,
+                    zorder=6, label=f"{label} Baseline",
                 )  # fmt: skip
         _annotate_means(ax, curve_best, curve_second)
         ax.set_xlabel(xlabel, fontsize=12)
@@ -463,7 +467,7 @@ def plot_psychometric_panel(
         n_mice = len(curve_best.mice)
         average = "mean ± se" if error_drawn(curve_best.se, curve_second.se) else "mean"
         stats = stats_line(average, "mice", [(n_mice, "mouse", "mice")])
-        set_title(ax, Title(xlabel, stats), fontsize=14)
+        set_title(ax, Title(heading or xlabel, stats), fontsize=14)
         ax.set_ylim(0, 1)
         if np.allclose(curve_best.x, np.round(curve_best.x)):
             ax.set_xticks(curve_best.x)  # exact values; bin means are left to the auto ticks
