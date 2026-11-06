@@ -146,7 +146,10 @@ def row_caption(value_label: str) -> tuple[str, ...]:
 
 def _x_limits(ax: plt.Axes, x: np.ndarray) -> None:
     """Ticks at the x values and equal padding at both ends (NaN ends do not move them)."""
-    ax.set_xticks(x)
+    # bin means of a continuous value can lie close together, so only exact (integer) values
+    # get a tick each; otherwise matplotlib chooses the ticks
+    if np.allclose(x, np.round(x)):
+        ax.set_xticks(x)
     pad = _X_PADDING * float(np.ptp(x)) if len(x) > 1 else _SINGLE_X_PAD
     ax.set_xlim(x[0] - pad, x[-1] + pad)
 

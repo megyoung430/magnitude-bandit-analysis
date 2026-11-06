@@ -465,7 +465,8 @@ def plot_psychometric_panel(
         stats = stats_line(average, "mice", [(n_mice, "mouse", "mice")])
         set_title(ax, Title(xlabel, stats), fontsize=14)
         ax.set_ylim(0, 1)
-        ax.set_xticks(curve_best.x)
+        if np.allclose(curve_best.x, np.round(curve_best.x)):
+            ax.set_xticks(curve_best.x)  # exact values; bin means are left to the auto ticks
         # Set explicitly: autoscaling ignores NaN points, so the limits would otherwise move
         # with whichever end points have data.
         pad = _X_PADDING * float(np.ptp(curve_best.x))

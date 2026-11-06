@@ -38,9 +38,8 @@ the prediction of the nuisance-only model (:mod:`src.behavior_analysis.choice_lo
 Everything here is pure: a trial table in, arrays out.
 """
 
-from typing import NamedTuple
-
 import warnings
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd

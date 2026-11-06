@@ -433,7 +433,7 @@ def _axis_columns(pairs: pd.DataFrame, n_bins: int | None, seed: int) -> pd.Data
 
 
 def _row_curves(subset, outcomes, baseline_outcomes, curve_function, n_bins, pool, min_mice, seed):
-    """``(curves, baselines)`` of one row of pairs; *curve_function* is a stay/switch curve maker."""
+    """``(curves, baselines)`` of one row of pairs; *curve_function* makes the stay/switch curves."""
     frame = _axis_columns(subset, n_bins, seed)
     observed = curve_function(frame, pool_trials=pool)
     baseline = (

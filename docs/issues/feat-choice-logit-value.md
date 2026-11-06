@@ -15,13 +15,20 @@ notebook.
 - `src/behavior_analysis/choice_logit_cv.py`: leave-one-problem-out scores of three nested models
   (reward; + choice history; + tower bias) and the held-out model value, the reward part of the
   full model's fold fit that excluded the problem.
-- `src/behavior_analysis/model_value_psychometrics.py`: rank shares, per-mouse quantile bins
-  (default 5), binned P(best)/P(second) curves and stay/switch pairs for a continuous value; rows
-  of the stay/switch figures are whether the previous choice was rewarded.
+  A reward tail (decayed sum of rewards older than the lags, decay chosen by held-out likelihood)
+  gives long-unvisited arms a value. The held-out choice+tower model without reward terms is the
+  *nuisance baseline*: a value built from recent rewards is non-zero mostly for recently chosen
+  arms, so sticky mice look value-driven; every value curve is drawn with its baseline (dashed).
+- `src/behavior_analysis/model_value_psychometrics.py`: rank-based per-mouse quantile bins
+  (default 5, never empty, x at the bin-mean value, means from fewer than 3 mice not drawn),
+  P(best)/P(second) curves and stay/switch pairs for a continuous value, each with its baseline;
+  rows of the stay/switch figures are whether the previous choice was rewarded.
 - `stay_switch_curves` accepts a precomputed `diff` column and `plot_outcome_curves` takes its
   row headings and panels as arguments (defaults unchanged).
 - `src/agents/choice_logit_truth.py`, `src/pipelines/choice_logit_values.py`: generating utilities
-  and their best linear summary for simulated agents, cache-first loading, simulated cohorts.
+  and the soft-target logit fit to their choice probabilities (reference weights) for simulated
+  agents, cache-first loading, simulated cohorts (six tower triples, random start magnitudes),
+  value-blind control.
 - `src/behavior_visualization/plot_choice_logit.py`: weights, model comparison, psychometric rows,
   stay/switch figures.
 - `scripts/choice_logit_values.ipynb`: the model, synthetic mice with known values, real data.
