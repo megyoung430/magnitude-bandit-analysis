@@ -16,7 +16,7 @@ import pandas as pd
 
 from src.behavior_analysis import choice_logit as cl
 from src.behavior_analysis.choice_logit_cv import MODELS
-from src.behavior_analysis.model_value_psychometrics import REWARDED, UNREWARDED
+from src.behavior_analysis.model_value_psychometrics import MIN_MICE, REWARDED, UNREWARDED
 from src.behavior_analysis.stats import nan_mean, nan_standard_error
 from src.behavior_visualization.plot_helpers import (
     Title,
@@ -53,7 +53,6 @@ REWARD_ROW_HEADINGS = {
     REWARDED: "Previous Choice Rewarded",
     UNREWARDED: "Previous Choice Unrewarded",
 }
-BINNED = " (Quantile Bin)"
 
 
 def _mice_stats(n_mice: int, *errors) -> str:
@@ -69,7 +68,8 @@ def _mice_stats(n_mice: int, *errors) -> str:
 
 def _kernel_matrix(weights: pd.DataFrame, group: str) -> pd.DataFrame:
     """Lags (columns) by mice (rows) of one group's weights."""
-    rows = weights.loc[weights["group"] == group]
+    # the reward tail has no lag: it is not a point of the kernel
+    rows = weights.loc[(weights["group"] == group) & weights["lag"].notna()]
     return rows.pivot(index="mouse", columns="lag", values="weight").sort_index(axis=1)
 
 
@@ -182,13 +182,14 @@ def plot_kernels(
         "Weights of the choice logit fitted to all of each mouse's trials; thin lines: each "
         "mouse; thick line: mean across mice with the se band.",
         "Reward kernel: change in an arm's logit per pulse received there k trials back. Choice "
-        "kernel: change in an arm's logit if it was chosen k trials back.",
+        "kernel: change in an arm's logit if it was chosen k trials back. Rewards older than "
+        "the lags enter through one decayed regressor (the reward tail), not drawn here.",
     ]
     if reference is not None:
         caption.append(
-            f"Dashed: {reference_label}, the least-squares weights of the same features that best "
-            "reproduce each agent's generating utility. Right: each point is one tower of one "
-            "mouse."
+            f"Dashed: {reference_label}, the weights of the same features that best reproduce "
+            "each agent's generating choice probabilities (cross-entropy fit, no sampling noise). "
+            "Right: each point is one tower of one mouse."
         )
     with new_figure(ncols=n_panels, figsize=(4.8 * n_panels, 4.4)) as (fig, axs):
         for ax, (group, heading, ylabel) in zip(axs, KERNEL_PANELS, strict=False):
@@ -209,13 +210,16 @@ def plot_kernels(
 
 def plot_model_comparison(
     comparison: pd.DataFrame, save_path: str | Path | None = None, ax: plt.Axes | None = None
-) -> None:
+) -> plt.Axes:
     """Held-out gain over chance of the nested models, one thin line per mouse.
 
     Args:
         comparison (pd.DataFrame): ``choice_logit_cv.model_comparison`` output.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
         ax (plt.Axes | None): Axes to draw into instead of a new figure (then nothing is saved).
+
+    Returns:
+        plt.Axes: The axes drawn into.
 
     Raises:
         ValueError: If *comparison* is empty.
@@ -243,10 +247,9 @@ def plot_model_comparison(
 
     if ax is not None:
         draw(ax)
-        return
+        return ax
     per_model = ", ".join(
-        f"{MODEL_LABELS[m].lower()} {v:.4f}"
-        for m, v in nats.mean(axis=0)[list(gain.columns)].items()
+        f"{MODEL_LABELS[m]} {v:.4f}" for m, v in nats.mean(axis=0)[list(gain.columns)].items()
     )
     caption = (
         "Leave-one-problem-out: each model is fitted on all but one of a mouse's problems and "
@@ -259,6 +262,7 @@ def plot_model_comparison(
         draw(new_ax)
         finish_figure(fig, Title("Choice Logit Model Comparison", None, caption))
     save_or_show(fig, save_path or None)
+    return new_ax
 
 
 # ---------------------------------------------------------------------------
@@ -272,22 +276,42 @@ class PsychometricRow(NamedTuple):
     Attributes:
         label (str): Name of the value basis (not drawn; the x labels name it).
         curves (dict[str, dict[str, Curve]]): ``curves[choice][axis]`` as returned by
-            ``binned_psychometric_curves`` or ``psychometric_curves``.
+            ``psychometric_curves_from_table`` or ``psychometric_curves``.
         xlabels (tuple[str, str, str]): X labels of the best, second and difference panels.
+        baselines (dict | None): The matching baseline curves, drawn dashed. Default ``None``.
     """
 
     label: str
     curves: dict
     xlabels: tuple
+    baselines: dict | None = None
 
 
-def value_labels(basis: str, binned: bool = True) -> tuple[str, str, str]:
-    """X labels of the three psychometric panels for the value *basis*, e.g. ``"Model Value"``."""
-    suffix = BINNED if binned else ""
+def value_labels(basis: str, unit: str | None = None, binned: bool = True) -> tuple[str, str, str]:
+    """X labels of the three psychometric panels for the value *basis*, e.g. ``"Model Value"``.
+
+    Args:
+        basis (str): Name of the value, used as given.
+        unit (str | None): Unit of the value, e.g. ``"Logit"`` or ``"Pulses"``. Default ``None``.
+        binned (bool): The x is the mean value in a quantile bin (``True``) or an exact value.
+    """
+    parts = (["Bin Mean"] if binned else []) + ([unit] if unit else [])
+    suffix = f" ({', '.join(parts)})" if parts else ""
     return (
         f"{basis} of Best{suffix}",
         f"{basis} of Second{suffix}",
         f"{basis} of Best - Second{suffix}",
+    )
+
+
+def baseline_caption(min_mice: int) -> tuple[str, ...]:
+    """Caption lines on the dashed baseline and on the means that are left out."""
+    return (
+        "Dashed: the probability that a model with choice history and tower bias but no reward "
+        "term (fitted on the mouse's other problems) gives the same outcome on the same trials, "
+        "binned in the same way. Solid above dashed is what the value adds beyond repeating "
+        "recent choices and tower bias.",
+        f"Means from fewer than {min_mice} mice are not drawn.",
     )
 
 
@@ -296,14 +320,16 @@ def plot_psychometric_rows(
     heading: str,
     caption: tuple[str, ...],
     save_path: str | Path | None = None,
+    min_mice: int = MIN_MICE,
 ) -> None:
     """P(best) and P(second) against three x axes, one row per value basis; save or show.
 
     Args:
         rows (list[PsychometricRow]): The value bases, top row first.
         heading (str): Figure title.
-        caption (tuple[str, ...]): Caption lines (the thin-line note is added).
+        caption (tuple[str, ...]): Caption lines (the thin-line and baseline notes are added).
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        min_mice (int): The ``min_mice`` the curves were made with, for the caption.
 
     Raises:
         ValueError: If there are no rows.
@@ -318,34 +344,46 @@ def plot_psychometric_rows(
         for axes_row, row in zip(axs, rows, strict=True):
             for ax, axis, xlabel in zip(axes_row, axes_names, row.xlabels, strict=True):
                 plot_psychometric_panel(
-                    row.curves["best"][axis], row.curves["second"][axis], xlabel, ax=ax
+                    row.curves["best"][axis],
+                    row.curves["second"][axis],
+                    xlabel,
+                    ax=ax,
+                    baseline_best=row.baselines["best"][axis] if row.baselines else None,
+                    baseline_second=row.baselines["second"][axis] if row.baselines else None,
                 )
         lines = (*caption, "Thin lines: each mouse.")
+        if any(row.baselines for row in rows):
+            lines += baseline_caption(min_mice)
         finish_figure(fig, Title(heading, None, lines))
     save_or_show(fig, save_path or None)
 
 
-def _stay_switch_panels(value_label: str) -> tuple[tuple[str, str], ...]:
+def _stay_switch_panels(value_label: str, unit: str | None) -> tuple[tuple[str, str], ...]:
+    suffix = f" (Bin Mean, {unit})" if unit else " (Bin Mean)"
     return (
-        ("diff", f"{value_label} of Chosen - Best Alternative{BINNED}"),
-        ("chosen", f"{value_label} of Chosen{BINNED}"),
-        ("alt", f"{value_label} of Best Alternative{BINNED}"),
+        ("diff", f"{value_label} of Chosen - Best Alternative{suffix}"),
+        ("chosen", f"{value_label} of Chosen{suffix}"),
+        ("alt", f"{value_label} of Best Alternative{suffix}"),
     )
 
 
-def _stay_switch_caption(value_label: str, pool_trials: bool) -> tuple[str, ...]:
+def _stay_switch_caption(
+    value_label: str, pool_trials: bool, with_baseline: bool, min_mice: int
+) -> tuple[str, ...]:
     weighting = "pairs pooled within mouse" if pool_trials else "cell probabilities averaged"
+    baseline = baseline_caption(min_mice) if with_baseline else ()
     return (
         "Pairs of consecutive trials (t-1, t) of one session; the chosen option is the arm "
         "chosen on t-1; pairs across a session start or a missed trial are not used.",
-        f"Values are the {value_label.lower()} of each arm on trial t: V(chosen) is the chosen "
-        "arm's value, V(alt) the higher value of the two other arms.",
+        f"Value: {value_label} of each arm on trial t; V(chosen) is the chosen arm's value, "
+        "V(alt) the higher value of the two other arms.",
         "Stay: trial t picks the chosen arm again. Switch = 1 - stay.",
         "Rows: whether the choice on t-1 was rewarded (a non-zero magnitude) or not; a "
         "continuous value has no 0-value row.",
-        "Values are cut into quantile bins per mouse, so a bin number is a rank among that "
-        "mouse's trials, not a value; the difference axis bins the raw difference.",
+        "Values are cut into quantile bins within each mouse and row; the x is the mean value in "
+        "the bin, averaged over mice. The difference axis bins the raw difference.",
         f"{weighting.capitalize()}; thin lines: each mouse.",
+        *baseline,
     )
 
 
@@ -354,6 +392,10 @@ def plot_stay_switch_by_reward(
     value_label: str,
     pool_trials: bool,
     save_path: str | Path | None = None,
+    *,
+    baselines_by_row: dict | None = None,
+    unit: str | None = None,
+    min_mice: int = MIN_MICE,
 ) -> None:
     """P(stay) and P(switch) against binned values, rows by whether t-1 was rewarded.
 
@@ -362,13 +404,16 @@ def plot_stay_switch_by_reward(
         value_label (str): Value basis for titles and labels, e.g. ``"Model Value"``.
         pool_trials (bool): The weighting the curves were computed with, for the caption.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        baselines_by_row (dict | None): The matching baseline curves, drawn dashed. Keyword-only.
+        unit (str | None): Unit of the value for the x labels. Keyword-only.
+        min_mice (int): The ``min_mice`` the curves were made with, for the caption. Keyword-only.
     """
-    title = Title(
-        f"Stay-Switch Curves ({value_label})", None, _stay_switch_caption(value_label, pool_trials)
-    )
+    caption = _stay_switch_caption(value_label, pool_trials, baselines_by_row is not None, min_mice)
+    title = Title(f"Stay-Switch Curves ({value_label})", None, caption)
     plot_outcome_curves(
         curves_by_row, STAY_SWITCH_SPEC, title, save_path,
-        row_headings=REWARD_ROW_HEADINGS, panels=_stay_switch_panels(value_label),
+        row_headings=REWARD_ROW_HEADINGS, panels=_stay_switch_panels(value_label, unit),
+        baselines_by_row=baselines_by_row,
     )  # fmt: skip
 
 
@@ -377,6 +422,10 @@ def plot_switch_targets_by_reward(
     value_label: str,
     pool_trials: bool,
     save_path: str | Path | None = None,
+    *,
+    baselines_by_row: dict | None = None,
+    unit: str | None = None,
+    min_mice: int = MIN_MICE,
 ) -> None:
     """P(best alternative | switch) and P(other arm | switch), rows as above; save or show.
 
@@ -385,14 +434,18 @@ def plot_switch_targets_by_reward(
         value_label (str): Value basis for titles and labels.
         pool_trials (bool): The weighting the curves were computed with, for the caption.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        baselines_by_row (dict | None): The matching baseline curves, drawn dashed. Keyword-only.
+        unit (str | None): Unit of the value for the x labels. Keyword-only.
+        min_mice (int): The ``min_mice`` the curves were made with, for the caption. Keyword-only.
     """
     caption = (
-        *_stay_switch_caption(value_label, pool_trials),
+        *_stay_switch_caption(value_label, pool_trials, baselines_by_row is not None, min_mice),
         "Switch targets are fractions of the switches after the chosen option, so they add up "
         "to 1; stays are left out.",
     )
     title = Title(f"Switch Target Curves ({value_label})", None, caption)
     plot_outcome_curves(
         curves_by_row, SWITCH_TARGET_SPEC, title, save_path,
-        row_headings=REWARD_ROW_HEADINGS, panels=_stay_switch_panels(value_label),
+        row_headings=REWARD_ROW_HEADINGS, panels=_stay_switch_panels(value_label, unit),
+        baselines_by_row=baselines_by_row,
     )  # fmt: skip

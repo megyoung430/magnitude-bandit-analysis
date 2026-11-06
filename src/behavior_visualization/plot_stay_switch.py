@@ -168,6 +168,7 @@ def plot_stay_switch_panel(
     *,
     ylabel: str = "Probability",
     counted: tuple[str, str] | None = None,
+    baselines: dict[str, Curve] | None = None,
 ) -> plt.Axes:
     """Curves of the given outcomes against one x axis: mice thin, mean thick with se band.
 
@@ -183,6 +184,8 @@ def plot_stay_switch_panel(
         counted (tuple[str, str] | None): ``(singular, plural)`` of what ``Curve.n_trials``
             counts, to add its total to the statistics line (e.g. ``("switch",
             "switches")``); ``None`` (default) adds nothing. Keyword-only.
+        baselines (dict[str, Curve] | None): ``{outcome: Curve}`` reference curves on the same x
+            (e.g. a model without the value), drawn as dashed mean lines. Keyword-only.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -195,6 +198,11 @@ def plot_stay_switch_panel(
             draw_mean(ax, curve, color, label)
             if len(curve.x) == 1:
                 _draw_single_point_error(ax, curve, color)
+            if baselines is not None:
+                ax.plot(
+                    baselines[outcome].x, baselines[outcome].mean, "--", color=color, lw=1.8,
+                    zorder=4, label=f"{label} Baseline",
+                )  # fmt: skip
         average = "mean ± se" if error_drawn(*(c.se for c in curves.values())) else "mean"
         counts = [(len(first.mice), "mouse", "mice")]
         if counted is not None:
@@ -263,6 +271,7 @@ def plot_outcome_curves(
     *,
     row_headings: dict[str, str] = ROW_HEADINGS,
     panels: tuple[tuple[str, str], ...] = PANELS,
+    baselines_by_row: dict | None = None,
 ) -> None:
     """The outcomes of *spec* against three x axes, one row per row of *row_headings*; save or show.
 
@@ -276,9 +285,15 @@ def plot_outcome_curves(
             rows by the value of the chosen option. Keyword-only.
         panels (tuple[tuple[str, str], ...]): ``(axis, x label)`` of each column. Default
             ``PANELS``. Keyword-only.
+        baselines_by_row (dict | None): Reference curves in the layout of *curves_by_row*, drawn
+            dashed in every panel. Default ``None``: none. Keyword-only.
     """
     size = (15, 4.5 * len(row_headings))
-    with new_figure(nrows=len(row_headings), ncols=len(panels), figsize=size) as (fig, axs):
+    # squeeze=False keeps the axes 2-D for a figure of a single row
+    with new_figure(nrows=len(row_headings), ncols=len(panels), figsize=size, squeeze=False) as (
+        fig,
+        axs,
+    ):
         for axes_row, (row, heading) in zip(axs, row_headings.items(), strict=True):
             curves = curves_by_row[row]
             for ax, (axis, xlabel) in zip(axes_row, panels, strict=True):
@@ -286,8 +301,12 @@ def plot_outcome_curves(
                     _empty_panel(ax, heading, xlabel, spec.empty_note, spec.ylabel)
                     continue
                 panel = {outcome: curves[outcome][axis] for outcome in spec.outcomes}
+                reference = None
+                if baselines_by_row is not None:
+                    reference = {o: baselines_by_row[row][o][axis] for o in spec.outcomes}
                 plot_stay_switch_panel(
                     panel, heading, xlabel, ax=ax, ylabel=spec.ylabel, counted=spec.counted,
+                    baselines=reference,
                 )  # fmt: skip
         finish_figure(fig, title)
     save_or_show(fig, save_path or None)

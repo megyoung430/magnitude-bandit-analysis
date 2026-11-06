@@ -424,6 +424,9 @@ def plot_psychometric_panel(
     curve_second: Curve,
     xlabel: str,
     ax: plt.Axes | None = None,
+    *,
+    baseline_best: Curve | None = None,
+    baseline_second: Curve | None = None,
 ) -> plt.Axes:
     """P(best) and P(second) against one x axis: mice thin, mean thick, SE band, mean values.
 
@@ -432,15 +435,28 @@ def plot_psychometric_panel(
         curve_second (Curve): P(second) against the same x.
         xlabel (str): X axis label (also the title).
         ax (plt.Axes | None): Axes to draw into; a new figure if ``None``.
+        baseline_best (Curve | None): A reference P(best) on the same x (e.g. what a model
+            without the value predicts), drawn as a dashed mean line. Keyword-only.
+        baseline_second (Curve | None): The same for P(second). Keyword-only.
 
     Returns:
         plt.Axes: The axes drawn into.
     """
     series = ((curve_best, COLOR_BEST, "P(best)"), (curve_second, COLOR_SECOND, "P(second)"))
+    baselines = (
+        (baseline_best, COLOR_BEST, "P(best)"),
+        (baseline_second, COLOR_SECOND, "P(second)"),
+    )
     with axes_or_new(ax, figsize=(4.6, 4.2)) as ax:
         for curve, color, label in series:
             draw_mouse_lines(ax, curve, color)
             draw_mean(ax, curve, color, label)
+        for curve, color, label in baselines:
+            if curve is not None:
+                ax.plot(
+                    curve.x, curve.mean, "--", color=color, lw=1.8, zorder=4,
+                    label=f"{label} Baseline",
+                )  # fmt: skip
         _annotate_means(ax, curve_best, curve_second)
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Choice Probability", fontsize=12)

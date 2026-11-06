@@ -107,21 +107,50 @@ def curves_for(n_mice=3, seed=0):
     n = 300 * n_mice
     values = rng.normal(size=(n, 3))
     chosen = np.where(rng.random(n) < 0.6, values.argmax(axis=1), rng.integers(0, 3, n))
-    table = mvp.rank_table(np.repeat([f"m{i}" for i in range(n_mice)], 300), values, chosen)
-    return mvp.binned_psychometric_curves(table, n_bins=4), table
+    probabilities = np.full((n, 3), 1 / 3)
+    table = mvp.rank_table(
+        np.repeat([f"m{i}" for i in range(n_mice)], 300), values, chosen, probabilities
+    )
+    return mvp.psychometric_curves_from_table(table, n_bins=4)
 
 
-def test_psychometric_rows_figure(tmp_path, titles):
-    curves, _ = curves_for()
+def test_psychometric_rows_figure_draws_the_baseline(tmp_path, titles):
+    curves, baselines = curves_for()
     rows = [
-        plots.PsychometricRow("Model Value", curves, plots.value_labels("Model Value")),
+        plots.PsychometricRow(
+            "Model Value", curves, plots.value_labels("Model Value", "Logit"), baselines
+        ),
         plots.PsychometricRow("Agent Q-Value", curves, plots.value_labels("Agent Q-Value")),
     ]
     base = tmp_path / "psychometrics"
     plots.plot_psychometric_rows(rows, "Psychometric Curves", ("A caption line.",), base)
     check_files(base)
     check_titles(titles, "psychometrics", 6)
-    assert "A caption line." in base.with_name("psychometrics.caption.txt").read_text()
+    caption = base.with_name("psychometrics.caption.txt").read_text()
+    assert "A caption line." in caption
+    assert "Dashed" in caption and "fewer than 3 mice" in caption
+
+
+def test_value_labels_name_the_unit_and_the_bin_mean():
+    assert plots.value_labels("Model Value", "Logit")[0] == "Model Value of Best (Bin Mean, Logit)"
+    assert plots.value_labels("Task Magnitude", "Pulses", binned=False)[2] == (
+        "Task Magnitude of Best - Second (Pulses)"
+    )
+    assert plots.value_labels("Agent Q-Value")[1] == "Agent Q-Value of Second (Bin Mean)"
+
+
+def test_a_baseline_adds_dashed_lines_to_a_panel():
+    curves, baselines = curves_for()
+    panel = lambda **kw: plots.plot_psychometric_panel(  # noqa: E731
+        curves["best"]["best_val"], curves["second"]["best_val"], "x", **kw
+    )
+    plain = panel()
+    with_baseline = panel(
+        baseline_best=baselines["best"]["best_val"], baseline_second=baselines["second"]["best_val"]
+    )
+    dashed = [line for line in with_baseline.get_lines() if line.get_linestyle() == "--"]
+    assert len(dashed) == 2
+    assert not [line for line in plain.get_lines() if line.get_linestyle() == "--"]
 
 
 def test_psychometric_rows_need_a_row(tmp_path):
@@ -143,7 +172,7 @@ def pairs_frame(seed=0):
         )
     )
     return mvp.stay_switch_pairs_from_values(
-        meta, rng.normal(size=(n, 3)), rng.integers(0, 3, n), n_bins=4
+        meta, rng.normal(size=(n, 3)), rng.integers(0, 3, n), np.full((n, 3), 1 / 3)
     )
 
 
@@ -157,19 +186,57 @@ def test_stay_switch_figures(tmp_path, titles, name, function):
         "stay": mvp.stay_switch_curves_by_reward,
         "target": mvp.switch_target_curves_by_reward,
     }[name]
-    curves = by_reward(pairs, pool_trials=True)
+    curves, baselines = by_reward(pairs, pool_trials=True, n_bins=4)
     base = tmp_path / name
-    function(curves, "Model Value", True, base)
+    function(curves, "Model Value", True, base, baselines_by_row=baselines, unit="Logit")
     check_files(base)
     check_titles(titles, name, 6)
     caption = base.with_name(f"{name}.caption.txt").read_text()
     assert "rewarded" in caption.lower()
+    assert "Dashed" in caption and "Model Value" in caption  # value label not lowercased
 
 
 def test_stay_switch_figure_keeps_an_empty_row(tmp_path, titles):
     pairs = pairs_frame()
-    curves = mvp.stay_switch_curves_by_reward(pairs[pairs["rewarded"]], pool_trials=True)
+    curves, _ = mvp.stay_switch_curves_by_reward(
+        pairs[pairs["rewarded"]], pool_trials=True, n_bins=4
+    )
     base = tmp_path / "empty-row"
     plots.plot_stay_switch_by_reward(curves, "Model Value", True, base)
     check_files(base)
     assert sum(t.startswith("Previous Choice Unrewarded") for t in titles["empty-row"][1]) == 3
+
+
+def test_a_curve_figure_with_a_single_row_is_drawn(tmp_path):
+    from src.behavior_visualization.plot_helpers import Title
+    from src.behavior_visualization.plot_stay_switch import STAY_SWITCH_SPEC, plot_outcome_curves
+
+    curves, _ = mvp.stay_switch_curves_by_reward(pairs_frame(), pool_trials=True, n_bins=4)
+    base = tmp_path / "one-row"
+    plot_outcome_curves(
+        {"rewarded": curves["rewarded"]}, STAY_SWITCH_SPEC, Title("One Row", None, ("c",)), base,
+        row_headings={"rewarded": "Previous Choice Rewarded"},
+        panels=(("diff", "x"), ("chosen", "y"), ("alt", "z")),
+    )  # fmt: skip
+    check_files(base)
+
+
+def test_the_model_comparison_returns_its_axes(tmp_path):
+    fresh = plots.plot_model_comparison(comparison_table(), tmp_path / "returned")
+    assert fresh.get_ylabel().startswith("Gain over Chance")
+    _, ax = plots.plt.subplots()
+    assert plots.plot_model_comparison(comparison_table(), ax=ax) is ax
+
+
+def test_the_reward_tail_is_not_a_point_of_the_kernel(tmp_path):
+    weights = pd.concat(
+        [
+            weights_table(),
+            pd.DataFrame(
+                [(f"m{m}", "reward_tail", "reward", np.nan, 0.1) for m in range(4)],
+                columns=["mouse", "feature", "group", "lag", "weight"],
+            ),
+        ]
+    )
+    plots.plot_kernels(weights, tmp_path / "with-tail")
+    assert "reward tail" in tmp_path.joinpath("with-tail.caption.txt").read_text()
