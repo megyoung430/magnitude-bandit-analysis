@@ -321,10 +321,10 @@ def model_values(X: np.ndarray, fit: LogitFit) -> np.ndarray:
     return X[:, :, reward] @ fit.beta[reward]
 
 
-def weights_table(mouse: str, fit: LogitFit) -> pd.DataFrame:
+def weights_table(mouse: str, feature_names: tuple, beta: np.ndarray) -> pd.DataFrame:
     """One row per weight: ``mouse, feature, group, lag`` (NaN for towers), ``weight``."""
     rows = []
-    for name, weight in zip(fit.feature_names, fit.beta, strict=True):
+    for name, weight in zip(feature_names, beta, strict=True):
         group = next(g for g, prefix in GROUP_PREFIX.items() if name.startswith(prefix))
         suffix = name.removeprefix(GROUP_PREFIX[group])
         lag = float(suffix) if group != TOWER else np.nan

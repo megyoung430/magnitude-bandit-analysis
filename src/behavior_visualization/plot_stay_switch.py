@@ -16,7 +16,6 @@ import numpy as np
 from src.behavior_analysis.get_choice_probs_by_value import TIE_EXCLUDE
 from src.behavior_analysis.stay_switch_psychometrics import (
     CHOSEN_NONZERO,
-    CHOSEN_ROWS,
     CHOSEN_ZERO,
     TIE_ALL_THREE,
     TIE_ALTERNATIVES,
@@ -261,27 +260,34 @@ def plot_outcome_curves(
     spec: PanelSpec,
     title: Title,
     save_path: str | Path | None = None,
+    *,
+    row_headings: dict[str, str] = ROW_HEADINGS,
+    panels: tuple[tuple[str, str], ...] = PANELS,
 ) -> None:
-    """The outcomes of *spec* against three x axes, one row per chosen-value row; save or show.
+    """The outcomes of *spec* against three x axes, one row per row of *row_headings*; save or show.
 
     Args:
         curves_by_row (dict): ``{row: {outcome: {axis: Curve}} | None}`` for each row of
-            ``CHOSEN_ROWS``; a row of ``None`` draws empty panels.
+            *row_headings*; a row of ``None`` draws empty panels.
         spec (PanelSpec): The outcomes, labels and counts of the panels.
         title (Title): The figure title and caption.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
+        row_headings (dict[str, str]): ``{row key: panel heading}``, top row first. Default: the
+            rows by the value of the chosen option. Keyword-only.
+        panels (tuple[tuple[str, str], ...]): ``(axis, x label)`` of each column. Default
+            ``PANELS``. Keyword-only.
     """
-    with new_figure(nrows=len(CHOSEN_ROWS), ncols=len(PANELS), figsize=(15, 9)) as (fig, axs):
-        for axes_row, row in zip(axs, CHOSEN_ROWS, strict=True):
+    size = (15, 4.5 * len(row_headings))
+    with new_figure(nrows=len(row_headings), ncols=len(panels), figsize=size) as (fig, axs):
+        for axes_row, (row, heading) in zip(axs, row_headings.items(), strict=True):
             curves = curves_by_row[row]
-            for ax, (axis, xlabel) in zip(axes_row, PANELS, strict=True):
+            for ax, (axis, xlabel) in zip(axes_row, panels, strict=True):
                 if curves is None:
-                    _empty_panel(ax, ROW_HEADINGS[row], xlabel, spec.empty_note, spec.ylabel)
+                    _empty_panel(ax, heading, xlabel, spec.empty_note, spec.ylabel)
                     continue
                 panel = {outcome: curves[outcome][axis] for outcome in spec.outcomes}
                 plot_stay_switch_panel(
-                    panel, ROW_HEADINGS[row], xlabel, ax=ax, ylabel=spec.ylabel,
-                    counted=spec.counted,
+                    panel, heading, xlabel, ax=ax, ylabel=spec.ylabel, counted=spec.counted,
                 )  # fmt: skip
         finish_figure(fig, title)
     save_or_show(fig, save_path or None)
