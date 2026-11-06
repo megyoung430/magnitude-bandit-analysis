@@ -17,6 +17,9 @@ reward magnitude at each arm drifts over time and periodically reverses.
 - Matching plotting functions for every analysis
 - Synthetic bandit task simulations (Gaussian Process and Markov-chain
   reward dynamics) for comparison against real behavior
+- `scripts/choice_logit_values.ipynb`: a choice logit (port location, reward history, choice
+  history) whose held-out reward part gives model values for the psychometrics, shown on simulated
+  Q-learning mice and on the data
 
 ## Project organisation
 

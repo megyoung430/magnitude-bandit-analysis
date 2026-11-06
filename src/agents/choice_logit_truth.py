@@ -108,7 +108,7 @@ def q_kernel_bounds(parameters, n_lags: int) -> pd.DataFrame:
     Returns:
         pd.DataFrame: ``lag, lower, upper``.
     """
-    learning_rate, beta = parameters[0], parameters[1]
+    learning_rate, beta, *_ = (float(x) for x in parameters)
     lags = np.arange(1, n_lags + 1)
     return pd.DataFrame(
         dict(
