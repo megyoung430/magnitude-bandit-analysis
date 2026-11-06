@@ -37,6 +37,7 @@ from src.behavior_visualization.plot_value_psychometrics import (
     HEATMAP_CMAP,
     cell_label,
     cell_text_color,
+    draw_baseline,
     draw_mean,
     draw_mouse_lines,
     finish_figure,
@@ -147,8 +148,13 @@ def row_caption(value_label: str) -> tuple[str, ...]:
 
 
 def _x_limits(ax: plt.Axes, x: np.ndarray) -> None:
-    """Ticks at the x values and equal padding at both ends (NaN ends do not move them)."""
-    ax.set_xticks(x)
+    """Ticks at the x values and equal padding at both ends (NaN ends do not move them).
+
+    Only exact (integer) values get a tick each; bin means of a continuous value can lie close
+    together, so matplotlib chooses those ticks.
+    """
+    if np.allclose(x, np.round(x)):
+        ax.set_xticks(x)
     pad = _X_PADDING * float(np.ptp(x)) if len(x) > 1 else _SINGLE_X_PAD
     ax.set_xlim(x[0] - pad, x[-1] + pad)
 
@@ -171,6 +177,7 @@ def plot_stay_switch_panel(
     ylabel: str = "Probability",
     counted: tuple[str, str] | None = None,
     legend: bool = True,
+    baselines: dict[str, Curve] | None = None,
 ) -> plt.Axes:
     """Curves of the given outcomes against one x axis: mice thin, mean thick with se band.
 
@@ -187,6 +194,10 @@ def plot_stay_switch_panel(
             counts, to add its total to the statistics line (e.g. ``("switch",
             "switches")``); ``None`` (default) adds nothing. Keyword-only.
         legend (bool): Draw a legend of the outcomes. Default ``True``. Keyword-only.
+        baselines (dict[str, Curve] | None): ``{outcome: Curve}`` reference curves on the same x
+            (e.g. a model without the value), drawn above the observed ones as hollow squares on
+            a dashed line, so a baseline that coincides with the observed curve stays visible.
+            Keyword-only.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -199,6 +210,8 @@ def plot_stay_switch_panel(
             draw_mean(ax, curve, color, label)
             if len(curve.x) == 1:
                 _draw_single_point_error(ax, curve, color)
+            if baselines is not None:
+                draw_baseline(ax, baselines[outcome], color, f"{label} Baseline")
         average = "mean ± se" if error_drawn(*(c.se for c in curves.values())) else "mean"
         counts = [(len(first.mice), "mouse", "mice")]
         if counted is not None:
@@ -246,6 +259,50 @@ def _curves_caption(value_label, pool_trials, ties_lines, extra=()) -> tuple[str
     )
 
 
+def plot_stay_switch_grid(
+    curves_by_row: dict,
+    title: Title,
+    save_path: str | Path | None = None,
+    *,
+    row_headings: dict[str, str] = ROW_HEADINGS,
+    panels: tuple[tuple[str, str], ...] = PANELS,
+    baselines_by_row: dict | None = None,
+) -> None:
+    """P(stay) and P(switch) against the x axes of *panels*, one row per row heading; save or show.
+
+    Args:
+        curves_by_row (dict): ``{row: {outcome: {axis: Curve}} | None}`` for each row of
+            *row_headings*; a row of ``None`` draws empty panels.
+        title (Title): The figure title and caption.
+        save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
+        row_headings (dict[str, str]): ``{row key: panel heading}``, top row first. Default: the
+            rows by the value of the chosen option. Keyword-only.
+        panels (tuple[tuple[str, str], ...]): ``(axis, x label)`` of each column. Default
+            ``PANELS``. Keyword-only.
+        baselines_by_row (dict | None): Reference curves in the layout of *curves_by_row*, drawn
+            in every panel. Default ``None``: none. Keyword-only.
+    """
+    size = (5 * len(panels), 4.5 * len(row_headings))
+    # squeeze=False keeps the axes 2-D for a figure of a single row
+    with new_figure(nrows=len(row_headings), ncols=len(panels), figsize=size, squeeze=False) as (
+        fig,
+        axs,
+    ):
+        for axes_row, (row, heading) in zip(axs, row_headings.items(), strict=True):
+            curves = curves_by_row[row]
+            for ax, (axis, xlabel) in zip(axes_row, panels, strict=True):
+                if curves is None:
+                    _empty_panel(ax, heading, xlabel, "No pairs", "Probability")
+                    continue
+                panel = {outcome: curves[outcome][axis] for outcome in STAY_SWITCH_OUTCOMES}
+                reference = None
+                if baselines_by_row is not None:
+                    reference = {o: baselines_by_row[row][o][axis] for o in STAY_SWITCH_OUTCOMES}
+                plot_stay_switch_panel(panel, heading, xlabel, ax=ax, baselines=reference)
+        finish_figure(fig, title)
+    save_or_show(fig, save_path or None)
+
+
 def plot_stay_switch_curves(
     curves_by_row: dict,
     value_label: str,
@@ -267,17 +324,7 @@ def plot_stay_switch_curves(
     """
     caption = _curves_caption(value_label, pool_trials, tie_caption(ties, tie_mode))
     title = Title(f"Stay-Switch Curves ({value_label} Value)", None, caption)
-    with new_figure(nrows=len(CHOSEN_ROWS), ncols=len(PANELS), figsize=(15, 9)) as (fig, axs):
-        for axes_row, row in zip(axs, CHOSEN_ROWS, strict=True):
-            curves = curves_by_row[row]
-            for ax, (axis, xlabel) in zip(axes_row, PANELS, strict=True):
-                if curves is None:
-                    _empty_panel(ax, ROW_HEADINGS[row], xlabel, "No pairs", "Probability")
-                    continue
-                panel = {outcome: curves[outcome][axis] for outcome in STAY_SWITCH_OUTCOMES}
-                plot_stay_switch_panel(panel, ROW_HEADINGS[row], xlabel, ax=ax)
-        finish_figure(fig, title)
-    save_or_show(fig, save_path or None)
+    plot_stay_switch_grid(curves_by_row, title, save_path)
 
 
 def switch_target_tie_caption(
@@ -305,7 +352,12 @@ def switch_target_tie_caption(
 
 
 def plot_switch_target_panel(
-    curve: Curve | None, heading: str, ax: plt.Axes | None = None
+    curve: Curve | None,
+    heading: str,
+    ax: plt.Axes | None = None,
+    *,
+    baseline: Curve | None = None,
+    xlabel: str = SWITCH_TARGET_XLABEL,
 ) -> plt.Axes:
     """P(best alternative | switch) against the gap between the unchosen arms, one row.
 
@@ -313,25 +365,27 @@ def plot_switch_target_panel(
         curve (Curve | None): From ``switch_target_curves``; ``None`` draws an empty panel.
         heading (str): First line of the panel title (the row).
         ax (plt.Axes | None): Axes to draw into; a new figure if ``None``.
+        baseline (Curve | None): A reference curve on the same x (e.g. a model without the
+            value), drawn above the observed one. Keyword-only.
+        xlabel (str): X axis label. Default ``SWITCH_TARGET_XLABEL``. Keyword-only.
 
     Returns:
         plt.Axes: The axes drawn into.
     """
     with axes_or_new(ax, figsize=(6, 4.2)) as ax:
         if curve is None:
-            _empty_panel(
-                ax, heading, SWITCH_TARGET_XLABEL, "No untied switches", SWITCH_TARGET_YLABEL
-            )
+            _empty_panel(ax, heading, xlabel, "No untied switches", SWITCH_TARGET_YLABEL)
             return ax
         ax.axhline(SWITCH_TARGET_CHANCE, color="0.6", linestyle=":", linewidth=1, zorder=0)
         plot_stay_switch_panel(
             {"switch_best_alt": curve},
             heading,
-            SWITCH_TARGET_XLABEL,
+            xlabel,
             ax=ax,
             ylabel=SWITCH_TARGET_YLABEL,
             counted=("switch", "switches"),
-            legend=False,
+            legend=baseline is not None,
+            baselines=None if baseline is None else {"switch_best_alt": baseline},
         )
     return ax
 

@@ -312,10 +312,15 @@ def stay_switch_pairs(
 
 
 def _with_outcomes_and_axes(pairs: pd.DataFrame) -> pd.DataFrame:
-    """*pairs* with the ``switch`` outcome and the x values of each axis."""
+    """*pairs* with the ``switch`` outcome and the x values of each axis.
+
+    The difference axis is ``v_chosen - v_alt`` unless *pairs* bring their own ``diff`` column
+    (pairs of binned values, whose bin numbers cannot be subtracted).
+    """
+    diff = pairs["diff"] if "diff" in pairs else pairs["v_chosen"] - pairs["v_alt"]
     return pairs.assign(
         switch=1.0 - pairs["stay"],
-        diff=pairs["v_chosen"] - pairs["v_alt"],
+        diff=diff,
         chosen=pairs["v_chosen"],
         alt=pairs["v_alt"],
         alt_gap=pairs["v_alt"] - pairs["v_other"],
@@ -359,7 +364,8 @@ def stay_switch_curves(pairs: pd.DataFrame, *, pool_trials: bool) -> dict[str, d
 
     Args:
         pairs (pd.DataFrame): ``StaySwitchPairs.pairs`` (at least ``mouse``, ``v_chosen``,
-            ``v_alt`` and ``stay``).
+            ``v_alt`` and ``stay``; an optional ``diff`` column replaces ``v_chosen - v_alt``
+            on the difference axis).
         pool_trials (bool): Within each mouse, average all its pairs at an x (``True``) or
             average its (v_chosen, v_alt) cells equally (``False``). Mice are the replicates
             for the mean and standard error either way. Keyword-only.
