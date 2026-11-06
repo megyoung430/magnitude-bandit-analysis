@@ -7,20 +7,23 @@ the arms in the order of :func:`src.behavior_analysis.choice_logit.design_matrix
 
 The choice logit is linear in lagged rewards, but ``Q`` is not: a reward is forgotten by a
 factor ``1 - learning_rate`` at each later *visit* of the same arm, not at each later trial, and
-an arm that is not chosen keeps its value. :func:`project_utilities` therefore gives the best
-linear approximation, in the logit's own features, of the generating utility: the weights a
-logit with these features would find if the choices followed the generating rule exactly.
-Those are the reference weights against which a fit is judged.
+an arm that is not chosen keeps its value. :func:`generating_weights` therefore fits the logit
+to the generating choice probabilities themselves, as soft targets (cross-entropy, no sampling
+noise): the weights a logit with these features would approach with unlimited data from the
+agent. Those are the reference weights against which a fit is judged.
 
 Everything here is pure.
 """
 
 import numpy as np
 import pandas as pd
+from scipy.special import logsumexp
 
 from src.agents.drifting_simulation import plus_ports
+from src.behavior_analysis import choice_logit as cl
 
 N_ARMS = 3
+REFERENCE_L2 = 1e-6
 
 
 def _problem_utilities(rows: pd.DataFrame, parameters) -> tuple[np.ndarray, np.ndarray]:
@@ -66,30 +69,28 @@ def true_utilities(trials: pd.DataFrame, parameters) -> tuple[np.ndarray, np.nda
     return utilities, q
 
 
-def project_utilities(utilities: np.ndarray, X: np.ndarray) -> np.ndarray:
-    """Least-squares weights of the logit's features that best reproduce *utilities*.
-
-    The softmax only sees utility differences within a trial, so both sides are centred on
-    each trial's mean over the three arms first.
+def generating_weights(
+    utilities: np.ndarray, X: np.ndarray, feature_names: tuple, l2: float = REFERENCE_L2
+) -> np.ndarray:
+    """The logit weights closest to the generating choice probabilities, in cross-entropy.
 
     Args:
         utilities (np.ndarray): ``(n_trials, 3)`` generating utility.
         X (np.ndarray): ``(n_trials, 3, n_features)`` design of the same trials.
+        feature_names (tuple[str, ...]): One name per feature.
+        l2 (float): Penalty; tiny by default, only to keep the fit finite.
 
     Returns:
         np.ndarray: ``(n_features,)`` reference weights.
 
     Raises:
         ValueError: If the shapes disagree.
+        RuntimeError: If the fit does not converge.
     """
     if utilities.shape != X.shape[:2]:
         raise ValueError(f"utilities {utilities.shape} do not match the design {X.shape}")
-    centred_u = utilities - utilities.mean(axis=1, keepdims=True)
-    centred_x = X - X.mean(axis=1, keepdims=True)
-    weights, *_ = np.linalg.lstsq(
-        centred_x.reshape(-1, X.shape[2]), centred_u.reshape(-1), rcond=None
-    )
-    return weights
+    targets = np.exp(utilities - logsumexp(utilities, axis=1, keepdims=True))
+    return cl.fit_soft_targets(X, targets, feature_names, l2).beta
 
 
 def q_kernel_bounds(parameters, n_lags: int) -> pd.DataFrame:

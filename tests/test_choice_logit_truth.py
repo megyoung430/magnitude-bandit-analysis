@@ -24,6 +24,7 @@ def simulated_table(seed=0):
     return drifting_trial_table(problems)
 
 
+@pytest.mark.filterwarnings("ignore:the problems")
 def test_true_utilities_reproduce_the_value_agent_likelihood():
     table = simulated_table()
     utilities, _ = truth.true_utilities(table, PARAMETERS)
@@ -44,17 +45,17 @@ def test_true_q_values_start_at_zero_and_follow_the_delta_rule():
     assert q[1, arm] == pytest.approx(PARAMETERS[0] * ordered["reward"].iloc[0])
 
 
-def test_projection_recovers_weights_of_an_exactly_linear_utility():
+def test_generating_weights_recover_an_exactly_linear_utility():
     rng = np.random.default_rng(1)
     X = rng.normal(size=(500, 3, 4))
     beta = np.array([0.5, -0.2, 1.0, 0.0])
-    reference = truth.project_utilities(X @ beta, X)
-    np.testing.assert_allclose(reference, beta, atol=1e-10)
+    reference = truth.generating_weights(X @ beta, X, tuple("abcd"))
+    np.testing.assert_allclose(reference, beta, atol=1e-3)
 
 
-def test_projection_rejects_mismatched_shapes():
+def test_generating_weights_reject_mismatched_shapes():
     with pytest.raises(ValueError, match="utilities"):
-        truth.project_utilities(np.zeros((5, 3)), np.zeros((6, 3, 2)))
+        truth.generating_weights(np.zeros((5, 3)), np.zeros((6, 3, 2)), ("a", "b"))
 
 
 def test_q_kernel_bounds_are_the_geometric_and_the_flat_weight():

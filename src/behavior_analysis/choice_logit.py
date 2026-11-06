@@ -2,12 +2,16 @@
 
 On every trial the mouse chooses among the three offered ports. Port ``a`` gets the utility
 
-    U_a(t) = bias[tower a] + sum_k wr_k * r_a(t-k) + sum_k wc_k * c_a(t-k)
+    U_a(t) = bias[tower a] + sum_k wr_k * r_a(t-k) + wt * tail_a(t) + sum_k wc_k * c_a(t-k)
 
 and is chosen with probability ``softmax_a(U)``, where
 
 - ``r_a(t-k)`` is the reward magnitude (pulses) received at port ``a`` on trial ``t-k`` if the
   mouse chose it then, else 0 (``reward_lag<k>`` features);
+- optionally one more reward regressor per port, the *tail* (``reward_tail``): the exponentially
+  weighted reward received there more than ``K`` trials ago, ``sum_{j>K} g**(j-K-1) r_a(t-j)``
+  with decay ``g``. Without it a port not chosen in the last ``K`` trials has no value at all,
+  and the last lag absorbs all older history;
 - ``c_a(t-k)`` is 1 if port ``a`` was chosen on trial ``t-k``, else 0 (``choice_lag<k>``);
 - ``bias`` is one weight per tower, shared by all problems of the mouse (``tower_<name>``). The
   alphabetically first tower is the reference with bias 0: adding the same constant to every
@@ -23,25 +27,35 @@ choice to repeat. A lag that reaches back before the start of the history is zer
 
 The model value
 ---------------
-``V_a(t) = sum_k wr_k * r_a(t-k)`` (:func:`model_values`) is the reward part alone. The choice
+``V_a(t) = sum_k wr_k * r_a(t-k) + wt * tail_a(t)`` (:func:`model_values`) is the reward part
+alone. The choice
 and tower terms are nuisance: they explain perseveration and port preference, and leaving them
-out of the value keeps both out of any psychometric drawn against it.
+out of the value keeps them out of the value itself. They do *not* keep them out of a
+psychometric drawn against it: a value built from recent rewards is non-zero mainly for recently
+chosen arms, and a perseverative mouse chooses those arms. Compare every such psychometric with
+the prediction of the nuisance-only model (:mod:`src.behavior_analysis.choice_logit_cv`).
 
 Everything here is pure: a trial table in, arrays out.
 """
 
 from typing import NamedTuple
 
+import warnings
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+from scipy.signal import lfilter
 from scipy.special import logsumexp
 
 N_ARMS = 3
 REWARD, CHOICE, TOWER = "reward", "choice", "tower"
 # Feature-name prefix of each feature group.
-GROUP_PREFIX = {REWARD: "reward_lag", CHOICE: "choice_lag", TOWER: "tower_"}
+GROUP_PREFIX = {REWARD: "reward_", CHOICE: "choice_lag", TOWER: "tower_"}
+TAIL_FEATURE = "reward_tail"
 DEFAULT_LAGS = 5
+# Decay per trial of the reward tail; the pipeline chooses it from a grid by held-out likelihood.
+DEFAULT_TAIL_DECAY = 0.9
 # L2 penalty on every weight, added to the summed (not mean) negative log likelihood. It is a
 # Gaussian prior with SD 1/sqrt(l2) = 1 logit per pulse (or per unit of the 0/1 features): weak
 # next to thousands of trials, but it keeps the fit finite when a feature hardly varies and
@@ -59,7 +73,7 @@ class LogitDesign(NamedTuple):
         feature_names (tuple[str, ...]): Names of the last axis of ``X``.
         meta (pd.DataFrame): One row per trial, in the order of ``X``: the columns of the trial
             table that later steps need (``mouse``, ``problem``, ``session``, ``trial``,
-            ``trial_in_session``, ``after_gap``, ``reward``).
+            ``trial_in_session``, ``after_gap``, ``reward``, ``magnitudes``).
         ports (np.ndarray | None): ``(n_trials, 3)`` port names behind axis 1 of ``X``.
     """
 
@@ -92,7 +106,16 @@ class LogitFit(NamedTuple):
 # Design matrix
 # ---------------------------------------------------------------------------
 
-META_COLUMNS = ("mouse", "problem", "session", "trial", "trial_in_session", "after_gap", "reward")
+META_COLUMNS = (
+    "mouse",
+    "problem",
+    "session",
+    "trial",
+    "trial_in_session",
+    "after_gap",
+    "reward",
+    "magnitudes",
+)
 
 
 def _lagged(values: np.ndarray, lag: int) -> np.ndarray:
@@ -118,7 +141,7 @@ def _problem_ports(rows: pd.DataFrame) -> list[str]:
     return ports
 
 
-def _problem_features(rows: pd.DataFrame, n_lags: int, towers: list[str]):
+def _problem_features(rows: pd.DataFrame, n_lags: int, towers: list[str], tail_decay):
     """``(X, chosen, ports)`` of one problem; *rows* in trial order."""
     ports = _problem_ports(rows)
     n = len(rows)
@@ -130,6 +153,10 @@ def _problem_features(rows: pd.DataFrame, n_lags: int, towers: list[str]):
     # a new segment starts at each session start and after each dropped trial
     segment = np.cumsum((rows["trial_in_session"].to_numpy() == 0) | rows["after_gap"].to_numpy())
     reward_lags = [_lagged(received, k) for k in range(1, n_lags + 1)]
+    if tail_decay is not None:
+        # tail(t) = decay * tail(t-1) + r(t-K-1): the recursion of the weighted sum over j > K
+        older = _lagged(received, n_lags + 1)
+        reward_lags.append(lfilter([1.0], [1.0, -tail_decay], older, axis=0))
     choice_lags = [
         _lagged(picked, k) * _same_segment(segment, k)[:, None] for k in range(1, n_lags + 1)
     ]
@@ -145,16 +172,41 @@ def _same_segment(segment: np.ndarray, lag: int) -> np.ndarray:
     return same
 
 
-def feature_names(n_lags: int, towers: list[str]) -> tuple[str, ...]:
-    """Names of the design columns: reward lags, choice lags, then one per non-reference tower."""
+def feature_names(n_lags: int, towers: list[str], tail: bool = False) -> tuple[str, ...]:
+    """Design column names: reward lags, the tail if any, choice lags, then the towers."""
     return (
-        tuple(f"{GROUP_PREFIX[REWARD]}{k}" for k in range(1, n_lags + 1))
+        tuple(f"reward_lag{k}" for k in range(1, n_lags + 1))
+        + ((TAIL_FEATURE,) if tail else ())
         + tuple(f"{GROUP_PREFIX[CHOICE]}{k}" for k in range(1, n_lags + 1))
         + tuple(f"{GROUP_PREFIX[TOWER]}{tower}" for tower in towers)
     )
 
 
-def design_matrix(trials: pd.DataFrame, n_lags: int = DEFAULT_LAGS) -> LogitDesign:
+def _warn_if_towers_disconnected(trials: pd.DataFrame) -> None:
+    """Warn if the problems' tower sets fall into groups that share no tower.
+
+    Tower biases are only comparable within a group of problems linked by shared towers; across
+    groups the common offset of the biases is set by the penalty alone (each group's mean is
+    shrunk to zero).
+    """
+    groups: list[set] = []
+    for _, rows in trials.groupby("problem", sort=False):
+        towers = {port for magnitudes in rows["magnitudes"] for port in magnitudes}
+        linked = [g for g in groups if g & towers]
+        merged = towers.union(*linked)
+        groups = [g for g in groups if not (g & towers)] + [merged]
+    if len(groups) > 1:
+        warnings.warn(
+            f"the problems of {trials['mouse'].iloc[0]} fall into {len(groups)} groups that share "
+            "no tower; tower biases of different groups differ by an offset that only the L2 "
+            "penalty fixes",
+            stacklevel=3,
+        )
+
+
+def design_matrix(
+    trials: pd.DataFrame, n_lags: int = DEFAULT_LAGS, tail_decay: float | None = None
+) -> LogitDesign:
     """The logit's features for one mouse's trials.
 
     Args:
@@ -162,33 +214,41 @@ def design_matrix(trials: pd.DataFrame, n_lags: int = DEFAULT_LAGS) -> LogitDesi
             (:func:`src.behavior_analysis.drifting_trial_table.drifting_trial_table`); rows are
             put in trial order within each problem.
         n_lags (int): Number of reward lags and of choice lags. Default ``DEFAULT_LAGS``.
+        tail_decay (float | None): Decay per trial of the reward tail, in (0, 1); ``None``
+            (default) adds no tail feature.
 
     Returns:
         LogitDesign: Features (see the module docstring), chosen port and trial metadata. Rows
         follow the problems in order of first appearance.
 
     Raises:
-        ValueError: If ``n_lags < 1``, *trials* hold more than one mouse or none, or a problem
-            does not offer the same three ports on every trial.
+        ValueError: If ``n_lags < 1``, *tail_decay* is not in (0, 1), *trials* hold more than one
+            mouse or none, or a problem does not offer the same three ports on every trial.
+
+    Warns:
+        UserWarning: If the problems' tower sets form groups that share no tower.
     """
     if n_lags < 1:
         raise ValueError(f"n_lags must be at least 1, got {n_lags}")
+    if tail_decay is not None and not 0 < tail_decay < 1:
+        raise ValueError(f"tail_decay must be in (0, 1), got {tail_decay}")
     if trials["mouse"].nunique() != 1:
         raise ValueError(
             f"design_matrix takes the trials of one mouse, got {trials['mouse'].nunique()} mice"
         )
+    _warn_if_towers_disconnected(trials)
     towers = sorted({port for magnitudes in trials["magnitudes"] for port in magnitudes})
     non_reference = towers[1:]
     parts, metas = [], []
     for _, rows in trials.groupby("problem", sort=False):
         rows = rows.sort_values("trial")
-        parts.append(_problem_features(rows, n_lags, non_reference))
+        parts.append(_problem_features(rows, n_lags, non_reference, tail_decay))
         metas.append(rows[list(META_COLUMNS)])
     X, chosen, ports = (np.concatenate(part) for part in zip(*parts, strict=True))
     return LogitDesign(
         X,
         chosen,
-        feature_names(n_lags, non_reference),
+        feature_names(n_lags, non_reference, tail_decay is not None),
         pd.concat(metas, ignore_index=True),
         ports,
     )
@@ -237,6 +297,65 @@ def negative_log_likelihood(beta: np.ndarray, X: np.ndarray, chosen: np.ndarray,
     probability = np.exp(utility - log_norm[:, None])
     gradient = np.einsum("na,naf->f", probability, X) - X[rows, chosen].sum(axis=0) + l2 * beta
     return value, gradient
+
+
+def soft_negative_log_likelihood(
+    beta: np.ndarray, X: np.ndarray, targets: np.ndarray, l2: float
+) -> tuple[float, np.ndarray]:
+    """Cross-entropy of the model's choice probabilities against *targets*, and its gradient.
+
+    The generalisation of :func:`negative_log_likelihood` to a probability for each arm instead
+    of a chosen arm (the one-hot case): ``sum_t [logsumexp_a U_a - sum_a q_a U_a] + l2/2 |beta|^2``.
+    """
+    utility = X @ beta
+    log_norm = logsumexp(utility, axis=1)
+    value = float((log_norm - (targets * utility).sum(axis=1)).sum() + 0.5 * l2 * beta @ beta)
+    probability = np.exp(utility - log_norm[:, None])
+    gradient = np.einsum("na,naf->f", probability - targets, X) + l2 * beta
+    return value, gradient
+
+
+def fit_soft_targets(
+    X: np.ndarray,
+    targets: np.ndarray,
+    feature_names: tuple,
+    l2: float = 0.0,
+    max_iterations: int = MAX_ITERATIONS,
+) -> LogitFit:
+    """The weights whose choice probabilities are closest (cross-entropy) to *targets*.
+
+    With the generating probabilities of an agent as targets this is the logit's limit with
+    unlimited data from that agent: the weights a fit to its choices would approach.
+
+    Args:
+        X (np.ndarray): ``(n_trials, 3, n_features)`` features.
+        targets (np.ndarray): ``(n_trials, 3)`` target probabilities, rows summing to 1.
+        feature_names (tuple[str, ...]): One name per feature.
+        l2 (float): Penalty weight. Default 0.
+        max_iterations (int): Iteration limit. Default ``MAX_ITERATIONS``.
+
+    Returns:
+        LogitFit: Its ``nll`` is the cross-entropy at the optimum.
+
+    Raises:
+        ValueError: If the shapes disagree or the rows of *targets* do not sum to 1.
+        RuntimeError: If the optimiser does not converge.
+    """
+    if targets.shape != X.shape[:2] or X.shape[2] != len(feature_names):
+        raise ValueError(f"targets {targets.shape} and X {X.shape} do not match")
+    if not np.allclose(targets.sum(axis=1), 1.0):
+        raise ValueError("each row of targets must sum to 1")
+    result = minimize(
+        soft_negative_log_likelihood,
+        np.zeros(X.shape[2]),
+        args=(X, targets, l2),
+        jac=True,
+        method="L-BFGS-B",
+        options={"maxiter": max_iterations},
+    )
+    if not result.success:
+        raise RuntimeError(f"the soft-target logit did not converge: {result.message}")
+    return LogitFit(result.x, tuple(feature_names), result.fun, len(X), l2)
 
 
 def log_likelihood(X: np.ndarray, chosen: np.ndarray, beta: np.ndarray) -> float:
@@ -301,11 +420,11 @@ def fit_logit(
 
 
 def model_values(X: np.ndarray, fit: LogitFit) -> np.ndarray:
-    """The reward part of the utility, ``sum_k wr_k * r_a(t-k)``, for each trial and port.
+    """The reward part of the utility, lags and tail, for each trial and port.
 
     Args:
         X (np.ndarray): ``(n_trials, 3, n_features)`` features with the columns of *fit*.
-        fit (LogitFit): Weights; only the ``reward_lag`` ones are used.
+        fit (LogitFit): Weights; only the reward ones (``reward_lag<k>``, ``reward_tail``) are used.
 
     Returns:
         np.ndarray: ``(n_trials, 3)`` model values in logit units.
@@ -326,7 +445,7 @@ def weights_table(mouse: str, feature_names: tuple, beta: np.ndarray) -> pd.Data
     rows = []
     for name, weight in zip(feature_names, beta, strict=True):
         group = next(g for g, prefix in GROUP_PREFIX.items() if name.startswith(prefix))
-        suffix = name.removeprefix(GROUP_PREFIX[group])
-        lag = float(suffix) if group != TOWER else np.nan
+        has_lag = name.startswith(("reward_lag", "choice_lag"))
+        lag = float(name.rsplit("lag", 1)[1]) if has_lag else np.nan
         rows.append(dict(mouse=mouse, feature=name, group=group, lag=lag, weight=float(weight)))
     return pd.DataFrame(rows, columns=["mouse", "feature", "group", "lag", "weight"])

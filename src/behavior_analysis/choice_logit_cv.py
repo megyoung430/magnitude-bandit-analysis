@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
+from scipy.special import logsumexp
 
 from src.behavior_analysis import choice_logit as cl
 
@@ -28,6 +29,9 @@ MODELS = {
     "full": (cl.REWARD, cl.CHOICE, cl.TOWER),
 }
 VALUE_MODEL = "full"
+# Choice history and tower bias without any reward term: what perseveration and port preference
+# alone predict. Its held-out probabilities are the baseline of every psychometric on a value.
+NUISANCE_GROUPS = (cl.CHOICE, cl.TOWER)
 
 
 class MouseCV(NamedTuple):
@@ -37,10 +41,13 @@ class MouseCV(NamedTuple):
         scores (pd.DataFrame): One row per held-out problem and model: ``mouse, problem, model,
             n_trials, held_out_log_likelihood`` (summed over the problem's trials).
         values (np.ndarray): ``(n_trials, 3)`` held-out model values, rows as in the design.
+        baseline (np.ndarray): ``(n_trials, 3)`` held-out choice probabilities of the
+            nuisance-only model (:data:`NUISANCE_GROUPS`), fitted on the other problems.
     """
 
     scores: pd.DataFrame
     values: np.ndarray
+    baseline: np.ndarray
 
 
 def cross_validate_mouse(design: cl.LogitDesign, l2: float = cl.DEFAULT_L2) -> MouseCV:
@@ -51,7 +58,8 @@ def cross_validate_mouse(design: cl.LogitDesign, l2: float = cl.DEFAULT_L2) -> M
         l2 (float): Penalty of the fits. Default ``choice_logit.DEFAULT_L2``.
 
     Returns:
-        MouseCV: Held-out scores of every model and the held-out values of the ``full`` model.
+        MouseCV: Held-out scores of every model, the held-out values of the ``full`` model and
+        the nuisance-only baseline probabilities.
 
     Raises:
         ValueError: If the mouse has fewer than two problems.
@@ -62,10 +70,17 @@ def cross_validate_mouse(design: cl.LogitDesign, l2: float = cl.DEFAULT_L2) -> M
         raise ValueError("leave-one-problem-out validation needs at least two problems")
     mouse = design.meta["mouse"].iloc[0]
     reduced = {name: cl.select_features(design, groups) for name, groups in MODELS.items()}
+    nuisance = cl.select_features(design, NUISANCE_GROUPS)
     values = np.full(design.X.shape[:2], np.nan)
+    baseline = np.full(design.X.shape[:2], np.nan)
     rows = []
     for code, problem in enumerate(problems):
         test = codes == code
+        base_fit = cl.fit_logit(
+            nuisance.X[~test], nuisance.chosen[~test], nuisance.feature_names, l2
+        )
+        utility = nuisance.X[test] @ base_fit.beta
+        baseline[test] = np.exp(utility - logsumexp(utility, axis=1, keepdims=True))
         for name, model in reduced.items():
             fit = cl.fit_logit(model.X[~test], model.chosen[~test], model.feature_names, l2)
             rows.append(
@@ -81,7 +96,7 @@ def cross_validate_mouse(design: cl.LogitDesign, l2: float = cl.DEFAULT_L2) -> M
             )
             if name == VALUE_MODEL:
                 values[test] = cl.model_values(model.X[test], fit)
-    return MouseCV(pd.DataFrame(rows), values)
+    return MouseCV(pd.DataFrame(rows), values, baseline)
 
 
 def model_comparison(scores: pd.DataFrame) -> pd.DataFrame:

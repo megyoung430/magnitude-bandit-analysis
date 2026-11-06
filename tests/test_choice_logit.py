@@ -309,6 +309,7 @@ def simulated_q_learner_table(learning_rate=0.3, beta=1.2, n_problems=3, seed=0)
     return drifting_trial_table(frames)
 
 
+@pytest.mark.filterwarnings("ignore:the problems")
 def test_q_learner_reward_kernel_is_positive_and_decays():
     table = simulated_q_learner_table()
     design = cl.design_matrix(table, n_lags=5)
@@ -317,3 +318,91 @@ def test_q_learner_reward_kernel_is_positive_and_decays():
     assert (kernel > 0).all()
     assert kernel[0] > kernel[1] > kernel[2]  # recent rewards weigh most
     assert kernel[:2].mean() > 1.5 * kernel[3:].mean()
+
+
+# ---------------------------------------------------------------------------
+# Reward tail, tower sets, soft targets
+# ---------------------------------------------------------------------------
+
+
+def test_tail_is_the_decayed_sum_of_rewards_older_than_the_lags():
+    choices = ["A1", "A1", "B3", "A1", "C2", "A1", "A1"]
+    magnitudes = [(1, 0, 2), (2, 0, 0), (3, 2, 0), (4, 0, 0), (1, 1, 3), (2, 0, 0), (1, 0, 0)]
+    frame = trial_frame(choices, magnitudes, session_starts={0})
+    design = cl.design_matrix(frame, n_lags=1, tail_decay=0.5)
+    assert design.feature_names[:2] == ("reward_lag1", "reward_tail")
+    received = np.zeros((7, 3))
+    for t, (c, m) in enumerate(zip(choices, magnitudes, strict=True)):
+        received[t, PORTS.index(c)] = m[PORTS.index(c)]
+    for t in range(7):
+        expected = sum(0.5 ** (j - 2) * received[t - j] for j in range(2, t + 1))
+        np.testing.assert_allclose(design.X[t, :, 1], expected if t >= 2 else 0)
+
+
+def test_tail_resets_at_a_problem_start(hand_built):
+    second = hand_built.assign(problem=2, trial=range(4))
+    both = cl.design_matrix(pd.concat([hand_built, second]), n_lags=1, tail_decay=0.9)
+    assert (both.X[4:6, :, 1] == 0).all()
+
+
+def test_model_value_includes_the_tail_but_no_choice_or_tower_terms():
+    X = np.random.default_rng(6).normal(size=(10, 3, 4))
+    names = ("reward_lag1", "reward_tail", "choice_lag1", "tower_B3")
+    fit = cl.LogitFit(np.array([0.5, 0.2, 9.0, 9.0]), names, 0.0, 10, 1.0)
+    np.testing.assert_allclose(cl.model_values(X, fit), X[:, :, 0] * 0.5 + X[:, :, 1] * 0.2)
+
+
+def test_tail_weight_is_in_the_reward_group_without_a_lag(hand_built):
+    design = cl.design_matrix(hand_built, n_lags=2, tail_decay=0.9)
+    table = cl.weights_table("m", design.feature_names, np.arange(len(design.feature_names)))
+    tail = table[table["feature"] == "reward_tail"].iloc[0]
+    assert tail["group"] == "reward" and np.isnan(tail["lag"])
+    assert cl.select_features(design, (cl.REWARD,)).feature_names == (
+        "reward_lag1", "reward_lag2", "reward_tail",
+    )  # fmt: skip
+
+
+def test_tail_decay_must_be_a_proper_fraction(hand_built):
+    with pytest.raises(ValueError, match="tail_decay"):
+        cl.design_matrix(hand_built, n_lags=1, tail_decay=1.0)
+
+
+def test_reference_tower_may_be_absent_from_a_problem():
+    first = trial_frame(["B3", "A1", "C2", "B3"], [(1, 2, 0)] * 4, {0})
+    second = trial_frame(
+        ["B3", "C2", "C2", "B3"], [(1, 2, 0)] * 4, {0}, ports=["B3", "C2", "D4"], problem=2
+    )
+    design = cl.design_matrix(pd.concat([first, second]), n_lags=1)
+    assert "tower_A1" not in design.feature_names  # A1 is the reference
+    assert (design.X[4:, :, design.feature_names.index("tower_B3")].sum(axis=1) == 1).all()
+    fit = cl.fit_logit(design.X, design.chosen, design.feature_names)
+    assert np.isfinite(fit.beta).all()
+
+
+def test_disconnected_tower_sets_warn_that_only_the_penalty_fixes_the_offset():
+    first = trial_frame(["B3", "A1", "C2", "B3"], [(1, 2, 0)] * 4, {0})
+    second = trial_frame(
+        ["B1", "A3", "C3", "B1"], [(1, 2, 0)] * 4, {0}, ports=["A3", "B1", "C3"], problem=2
+    )
+    with pytest.warns(UserWarning, match="share no tower"):
+        cl.design_matrix(pd.concat([first, second]), n_lags=1)
+
+
+def test_a_session_whose_first_trial_was_dropped_still_resets_choice_history():
+    frame = trial_frame(["B3", "A1", "A1"], [(1, 2, 0)] * 3, session_starts={0})
+    frame["trial_in_session"] = [4, 5, 6]  # trials 0-3 of the session were dropped
+    frame["after_gap"] = [True, False, False]
+    design = cl.design_matrix(frame, n_lags=1)
+    c1 = list(design.feature_names).index("choice_lag1")
+    assert (design.X[0, :, c1] == 0).all()
+    np.testing.assert_array_equal(design.X[1, :, c1], [0, 1, 0])
+
+
+def test_soft_target_fit_recovers_the_generating_weights_exactly():
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(300, 3, 4))
+    beta = np.array([0.4, -0.3, 0.9, 0.1])
+    names = tuple(f"f{i}" for i in range(4))
+    targets = np.exp(X @ beta - logsumexp(X @ beta, axis=1, keepdims=True))
+    fit = cl.fit_soft_targets(X, targets, names, l2=0.0)
+    np.testing.assert_allclose(fit.beta, beta, atol=1e-4)
