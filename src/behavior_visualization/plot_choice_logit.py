@@ -29,9 +29,8 @@ from src.behavior_visualization.plot_helpers import (
     stats_line,
 )
 from src.behavior_visualization.plot_stay_switch import (
-    STAY_SWITCH_SPEC,
-    SWITCH_TARGET_SPEC,
-    plot_outcome_curves,
+    plot_stay_switch_grid,
+    plot_switch_target_panel,
 )
 from src.behavior_visualization.plot_value_psychometrics import (
     finish_figure,
@@ -426,8 +425,8 @@ def plot_stay_switch_by_reward(
         value_label, pool_trials, baselines_by_row is not None, min_mice, binned
     )
     title = Title(f"Stay-Switch Curves ({value_label})", None, caption)
-    plot_outcome_curves(
-        curves_by_row, STAY_SWITCH_SPEC, title, save_path,
+    plot_stay_switch_grid(
+        curves_by_row, title, save_path,
         row_headings=REWARD_ROW_HEADINGS, panels=_stay_switch_panels(value_label, unit, binned),
         baselines_by_row=baselines_by_row,
     )  # fmt: skip
@@ -436,7 +435,7 @@ def plot_stay_switch_by_reward(
 def plot_switch_targets_by_reward(
     curves_by_row: dict,
     value_label: str,
-    pool_trials: bool,
+    tied_switches: dict[str, int],
     save_path: str | Path | None = None,
     *,
     baselines_by_row: dict | None = None,
@@ -444,28 +443,57 @@ def plot_switch_targets_by_reward(
     min_mice: int = MIN_MICE,
     binned: bool = True,
 ) -> None:
-    """P(best alternative | switch) and P(other arm | switch), rows as above; save or show.
+    """P(best alternative | switch) against the gap between the unchosen arms, one panel per row.
+
+    Rows are whether the previous choice was rewarded. Only the switches count; the x is
+    ``V(best alternative) - V(other arm)``, the gap between the two arms not chosen before.
 
     Args:
-        curves_by_row (dict): From ``switch_target_curves_by_reward``.
-        value_label (str): Value basis for titles and labels.
-        pool_trials (bool): The weighting the curves were computed with, for the caption.
+        curves_by_row (dict): ``{row: Curve | None}`` from ``switch_target_curves_by_reward``.
+        value_label (str): Value basis for the title and x label, e.g. ``"Model Value"``.
+        tied_switches (dict[str, int]): Switches between tied alternatives per row
+            (``tied_switches_by_reward``), left out of the curves; for the caption.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
-        baselines_by_row (dict | None): The matching baseline curves, drawn dashed. Keyword-only.
-        unit (str | None): Unit of the value for the x labels. Keyword-only.
+        baselines_by_row (dict | None): ``{row: Curve | None}`` baseline curves, drawn above the
+            observed ones. Keyword-only.
+        unit (str | None): Unit of the value for the x label. Keyword-only.
         min_mice (int): The ``min_mice`` the curves were made with, for the caption. Keyword-only.
-        binned (bool): As in :func:`plot_stay_switch_by_reward`. Keyword-only.
+        binned (bool): The curves were made with rank bins (``True``) or exact gaps. Keyword-only.
     """
+    parts = (["Bin Mean"] if binned else []) + ([unit] if unit else [])
+    xlabel = f"{value_label} of Best Alternative - Other Arm" + (
+        f" ({', '.join(parts)})" if parts else ""
+    )
+    axis_line = (
+        "x is cut into rank bins within each mouse and row, and placed at the mean gap in the "
+        "bin, averaged over mice."
+        if binned
+        else "The gap takes a few exact values, so each exact gap is an x position (no bins)."
+    )
+    baseline = baseline_caption(min_mice) if baselines_by_row is not None else ()
     caption = (
-        *_stay_switch_caption(
-            value_label, pool_trials, baselines_by_row is not None, min_mice, binned
-        ),
-        "Switch targets are fractions of the switches after the chosen option, so they add up "
-        "to 1; stays are left out.",
+        "Pairs of consecutive trials (t-1, t) of one session; rows: whether the choice on t-1 was "
+        "rewarded (a non-zero magnitude) or not. Only the pairs whose next choice is a switch "
+        "count.",
+        f"y: the fraction of those switches that go to the best alternative, the arm with the "
+        f"higher {value_label} of the two not chosen on t-1; P(other arm | switch) is one "
+        "minus it. Dotted line: 0.5, a random pick between the two.",
+        "x: the value of the best alternative minus the value of the other arm, on trial t. "
+        + axis_line,
+        "Switches between two arms of equal value have no best alternative and are left out: "
+        f"previous choice rewarded {tied_switches[REWARDED]}, unrewarded "
+        f"{tied_switches[UNREWARDED]}.",
+        "Switches pooled within mouse; thin lines: each mouse. n=switches: the switches of all "
+        "mice in the row; a point can rest on few switches.",
+        *baseline,
     )
     title = Title(f"Switch Target Curves ({value_label})", None, caption)
-    plot_outcome_curves(
-        curves_by_row, SWITCH_TARGET_SPEC, title, save_path,
-        row_headings=REWARD_ROW_HEADINGS, panels=_stay_switch_panels(value_label, unit, binned),
-        baselines_by_row=baselines_by_row,
-    )  # fmt: skip
+    with new_figure(nrows=len(REWARD_ROW_HEADINGS), ncols=1, figsize=(6, 9)) as (fig, axs):
+        for ax, (row, heading) in zip(axs, REWARD_ROW_HEADINGS.items(), strict=True):
+            plot_switch_target_panel(
+                curves_by_row[row], heading, ax,
+                baseline=None if baselines_by_row is None else baselines_by_row[row],
+                xlabel=xlabel,
+            )  # fmt: skip
+        finish_figure(fig, title)
+    save_or_show(fig, save_path or None)

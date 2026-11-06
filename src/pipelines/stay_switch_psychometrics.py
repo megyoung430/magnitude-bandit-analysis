@@ -15,6 +15,7 @@ from src.behavior_analysis.stay_switch_psychometrics import (
     stay_switch_curves_by_row,
     stay_switch_pairs,
     switch_target_curves_by_row,
+    tied_switches_by_row,
 )
 from src.behavior_visualization.plot_stay_switch import (
     plot_stay_heatmap,
@@ -37,7 +38,12 @@ def _write_condition(pairs, label: str, tie_mode: str, pooling_modes, out_dir: P
         name = f"{stem} (Pool Trials {pool_trials})"
         common = (label, pool_trials, pairs.ties, tie_mode)
         plot_stay_switch_curves(curves, *common, out_dir / f"Stay-Switch Curves {name}")
-        plot_switch_target_curves(targets, *common, out_dir / f"Switch Target Curves {name}")
+        plot_switch_target_curves(
+            targets,
+            *common,
+            tied_switches_by_row(pairs.pairs),
+            out_dir / f"Switch Target Curves {name}",
+        )
         curves_by_mode[pool_trials], targets_by_mode[pool_trials] = curves, targets
     return {
         "pairs": pairs,
@@ -70,8 +76,9 @@ def run_stay_switch_analysis(
       two rows: pairs whose chosen option had value 0 (top) and the others (bottom), by the
       figure's own value basis. ``True`` pools a mouse's pairs at an x, ``False`` averages its
       (V(chosen), V(alt)) cells equally;
-    - ``Switch Target Curves (...)`` with the same name parts and rows: P(best alternative |
-      switch) and P(other arm | switch), fractions of the row's switches (they add up to 1).
+    - ``Switch Target Curves (...)`` with the same name parts and rows, one panel per row:
+      among the pairs whose trial t is a switch, P(switch to the best alternative) against
+      V(best alternative) - V(other arm); switches between tied alternatives are left out.
 
     A value basis and tie mode without any trial pair draws nothing and warns.
 
@@ -85,9 +92,9 @@ def run_stay_switch_analysis(
     Returns:
         dict: ``{value_basis: {tie_mode: {"pairs": StaySwitchPairs, "heatmap": StayHeatmap,
         "curves": {pool_trials: {row: {outcome: {axis: Curve}} | None}},
-        "switch_target_curves": {pool_trials: {row: {target: {axis: Curve}} | None}}}}}``
-        (rows ``chosen_zero`` and ``chosen_nonzero``; None for a row without pairs, or without
-        switches for the targets); a condition without pairs has only ``"pairs"``.
+        "switch_target_curves": {pool_trials: {row: Curve | None}}}}}`` (rows ``chosen_zero``
+        and ``chosen_nonzero``; None for a row without pairs, or without untied switches for
+        the switch-target curve); a condition without pairs has only ``"pairs"``.
 
     Raises:
         ValueError: If an option has an unknown entry, a session is counter format (the

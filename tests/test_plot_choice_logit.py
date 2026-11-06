@@ -227,24 +227,52 @@ def pairs_frame(seed=0):
     )
 
 
-@pytest.mark.parametrize(
-    "name, function",
-    [("stay", plots.plot_stay_switch_by_reward), ("target", plots.plot_switch_targets_by_reward)],
-)
-def test_stay_switch_figures(tmp_path, titles, name, function):
-    pairs = pairs_frame()
-    by_reward = {
-        "stay": mvp.stay_switch_curves_by_reward,
-        "target": mvp.switch_target_curves_by_reward,
-    }[name]
-    curves, baselines = by_reward(pairs, pool_trials=True, n_bins=4)
-    base = tmp_path / name
-    function(curves, "Model Value", True, base, baselines_by_row=baselines, unit="Logit")
+def test_stay_switch_figure(tmp_path, titles):
+    curves, baselines = mvp.stay_switch_curves_by_reward(pairs_frame(), pool_trials=True, n_bins=4)
+    base = tmp_path / "stay"
+    plots.plot_stay_switch_by_reward(
+        curves, "Model Value", True, base, baselines_by_row=baselines, unit="Logit"
+    )
     check_files(base)
-    check_titles(titles, name, 6)
-    caption = base.with_name(f"{name}.caption.txt").read_text()
+    check_titles(titles, "stay", 6)
+    caption = base.with_name("stay.caption.txt").read_text()
     assert "rewarded" in caption.lower()
     assert "Dashed" in caption and "Model Value" in caption  # value label not lowercased
+
+
+def test_switch_target_figure_has_one_panel_per_row_with_the_baseline(tmp_path, titles):
+    pairs = pairs_frame()
+    curves, baselines = mvp.switch_target_curves_by_reward(pairs, n_bins=4)
+    tied = mvp.tied_switches_by_reward(pairs)
+    base = tmp_path / "target"
+    plots.plot_switch_targets_by_reward(
+        curves, "Model Value", tied, base, baselines_by_row=baselines, unit="Logit"
+    )
+    check_files(base)
+    check_titles(titles, "target", 2)
+    caption = base.with_name("target.caption.txt").read_text()
+    assert "Dotted line: 0.5" in caption and "left out" in caption and "Dashed" in caption
+    assert f"rewarded {tied['rewarded']}" in caption
+    assert "Best Alternative - Other Arm (Bin Mean, Logit)" in plot_xlabels(base)
+
+
+def plot_xlabels(base):
+    """The x labels drawn, read back from the saved svg text."""
+    return base.with_suffix(".svg").read_text()
+
+
+def test_switch_target_panel_draws_the_baseline_and_a_legend_only_for_it():
+    from src.behavior_visualization.plot_stay_switch import plot_switch_target_panel
+
+    curves, baselines = mvp.switch_target_curves_by_reward(pairs_frame(), n_bins=4)
+    plain = plot_switch_target_panel(curves["rewarded"], "Row")
+    with_baseline = plot_switch_target_panel(
+        curves["rewarded"], "Row", baseline=baselines["rewarded"], xlabel="x"
+    )
+    assert plain.get_legend() is None
+    assert with_baseline.get_legend() is not None
+    assert sum(line.get_linestyle() == "--" for line in with_baseline.get_lines()) == 1
+    assert with_baseline.get_xlabel() == "x"
 
 
 def test_stay_switch_figure_keeps_an_empty_row(tmp_path, titles):
@@ -260,12 +288,12 @@ def test_stay_switch_figure_keeps_an_empty_row(tmp_path, titles):
 
 def test_a_curve_figure_with_a_single_row_is_drawn(tmp_path):
     from src.behavior_visualization.plot_helpers import Title
-    from src.behavior_visualization.plot_stay_switch import STAY_SWITCH_SPEC, plot_outcome_curves
+    from src.behavior_visualization.plot_stay_switch import plot_stay_switch_grid
 
     curves, _ = mvp.stay_switch_curves_by_reward(pairs_frame(), pool_trials=True, n_bins=4)
     base = tmp_path / "one-row"
-    plot_outcome_curves(
-        {"rewarded": curves["rewarded"]}, STAY_SWITCH_SPEC, Title("One Row", None, ("c",)), base,
+    plot_stay_switch_grid(
+        {"rewarded": curves["rewarded"]}, Title("One Row", None, ("c",)), base,
         row_headings={"rewarded": "Previous Choice Rewarded"},
         panels=(("diff", "x"), ("chosen", "y"), ("alt", "z")),
     )  # fmt: skip

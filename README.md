@@ -18,8 +18,9 @@ reward magnitude at each arm drifts over time and periodically reverses.
 - Synthetic bandit task simulations (Gaussian Process and Markov-chain
   reward dynamics) for comparison against real behavior
 - `scripts/choice_logit_values.ipynb`: a choice logit (port location, reward history, choice
-  history) whose held-out reward part gives model values for the psychometrics, shown on simulated
-  Q-learning mice and on the data
+  history) whose held-out reward part gives model values for the psychometrics, stay/switch and
+  switch-target curves (each with a choice-history baseline), shown on simulated Q-learning mice
+  and on the data
 
 ## Project organisation
 
@@ -342,13 +343,14 @@ report all failures at the end.
   `value-psychometrics/` is): on each trial t whose previous trial is in the same session, the
   arm chosen on t-1 is the chosen option; with the true or believed values of trial t, V(chosen)
   is its value and V(alt) the higher value of the two other arms. `Stay-Switch Curves (<Value>
-  Value) (Ties <Excluded|Split>) (Pool Trials <True|False>)` plots P(stay) and P(switch), and
-  `Switch Target Curves (...)` P(best alternative | switch) and P(other arm | switch)
-  (fractions of the row's switches, adding up to 1; n=switches in each panel), against
-  V(chosen) - V(alt), V(chosen) and V(alt) (each mouse thin, mean ± se across mice), in two
-  rows: the pairs whose chosen option had
-  value 0 (in the figure's own value basis, so a believed 0 for believed values) and the others,
-  each row with its own n of mice; `Stay Heatmap (<Value> Value)
+  Value) (Ties <Excluded|Split>) (Pool Trials <True|False>)` plots P(stay) and P(switch)
+  against V(chosen) - V(alt), V(chosen) and V(alt) (each mouse thin, mean ± se across mice), in
+  two rows: the pairs whose chosen option had value 0 (in the figure's own value basis, so a
+  believed 0 for believed values) and the others, each row with its own n of mice.
+  `Switch Target Curves (...)` has the same two rows, one panel each: among the pairs whose
+  trial t is a switch, P(switch to the best alternative) against V(best alternative) - V(other
+  arm), the gap between the two arms not chosen on t-1 (switches between tied alternatives left
+  out; n=switches per panel). `Stay Heatmap (<Value> Value)
   (Ties ...)` shows P(stay) over V(chosen) x V(alt) with the pairs per cell. Pairs are kept
   across block changes and never span sessions or a missed trial. Ties are named relative to the
   chosen arm (V(chosen) = V(alt), the two alternatives tie, all three): excluded, or kept with a

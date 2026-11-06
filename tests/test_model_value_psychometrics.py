@@ -323,14 +323,103 @@ def test_baseline_of_a_value_blind_chooser_matches_the_observed_curves():
     assert np.ptp(baselines["rewarded"]["stay"]["chosen"].mean) < 0.15
 
 
-def test_target_curves_condition_on_a_switch_and_have_their_baseline():
-    pairs = random_pairs()
-    curves, baselines = mvp.switch_target_curves_by_reward(pairs, pool_trials=True, n_bins=4)
-    best = curves["rewarded"]["switch_best_alt"]["chosen"]
-    other = curves["rewarded"]["switch_other"]["chosen"]
-    np.testing.assert_allclose(best.mean + other.mean, 1.0)
-    base = baselines["rewarded"]["switch_best_alt"]["chosen"].mean
-    assert ((base > 0) & (base < 1)).all()
+def target_pairs():
+    """Hand-made pairs: only ``alt_gap = raw_alt - v_other``, the outcome and its baseline matter.
+
+    Rewarded row: mouse a switches at gaps 1, 1, 2, 2 (best alternative taken 0, 1, 1, 1; baseline
+    0.5, 0.5, 0.8, 0.8), mouse b at gaps 1, 2 (taken 0, 1; baseline 0.4, 0.9). Each mouse also has
+    a stay (not a switch) and a switch between tied alternatives (gap 0), which are left out.
+    """
+    rows = []
+
+    def add(mouse, gap, stay, best, base, rewarded=True):
+        v_other = 1.0
+        rows.append(
+            dict(
+                mouse=mouse, raw_alt=v_other + gap, v_other=v_other, stay=stay,
+                switch_best_alt=best, base_best_alt=base, rewarded=rewarded,
+            )
+        )  # fmt: skip
+
+    for gap, best, base in [(1, 0, 0.5), (1, 1, 0.5), (2, 1, 0.8), (2, 1, 0.8), (0, 0.5, 0.5)]:
+        add("a", gap, 0.0, best, base)
+    add("a", 3, 1.0, 0.0, 0.5)  # a stay: not a switch
+    for gap, best, base in [(1, 0, 0.4), (2, 1, 0.9), (0, 0.5, 0.5)]:
+        add("b", gap, 0.0, best, base)
+    return pd.DataFrame(rows)
+
+
+def test_target_curve_is_the_best_alternative_share_of_untied_switches_by_gap():
+    curves, baselines = mvp.switch_target_curves_by_reward(target_pairs(), n_bins=None)
+    best = curves["rewarded"]
+    assert best.x.tolist() == [1.0, 2.0]  # the gap between the unchosen arms, not a bin number
+    # mouse a: gap 1 -> (0 + 1) / 2, gap 2 -> 1; mouse b: gap 1 -> 0, gap 2 -> 1
+    np.testing.assert_allclose(best.per_mouse, [[0.5, 1.0], [0.0, 1.0]])
+    np.testing.assert_allclose(best.mean, [0.25, 1.0])
+    assert best.n_trials.tolist() == [3, 3]  # switches per gap, ties and stays not counted
+    base = baselines["rewarded"]
+    np.testing.assert_allclose(base.per_mouse, [[0.5, 0.8], [0.4, 0.9]])
+    np.testing.assert_allclose(base.mean, [0.45, 0.85])
+    np.testing.assert_array_equal(base.x, best.x)
+
+
+def test_switches_between_tied_alternatives_are_counted_not_drawn():
+    pairs = target_pairs()
+    assert mvp.tied_switches_by_reward(pairs) == {"rewarded": 2, "unrewarded": 0}
+    curves, _ = mvp.switch_target_curves_by_reward(pairs, n_bins=None)
+    assert 0.0 not in curves["rewarded"].x
+    assert curves["unrewarded"] is None  # no untied switch in the row
+
+
+def test_target_gap_bins_are_cut_within_each_reward_row_and_sit_at_the_bin_mean():
+    mouse = lambda gaps, best, rewarded: pd.DataFrame(  # noqa: E731
+        dict(
+            mouse="a", raw_alt=1.0 + np.array(gaps, dtype=float), v_other=1.0, stay=0.0,
+            switch_best_alt=best, base_best_alt=0.5, rewarded=rewarded,
+        )
+    )  # fmt: skip
+    pairs = pd.concat(
+        [
+            mouse([1, 2, 3, 4], [0.0, 0.0, 1.0, 1.0], True),
+            mouse([10, 20, 30, 40], [0.0, 1.0, 1.0, 1.0], False),
+        ],
+        ignore_index=True,
+    )
+    curves, baselines = mvp.switch_target_curves_by_reward(pairs, n_bins=2)
+    assert curves["rewarded"].x.tolist() == [1.5, 3.5]  # mean gap of {1, 2} and {3, 4}
+    assert curves["rewarded"].mean.tolist() == [0.0, 1.0]
+    assert curves["unrewarded"].x.tolist() == [15.0, 35.0]  # its own bins, not the other row's
+    assert curves["unrewarded"].mean.tolist() == [0.5, 1.0]
+    assert baselines["unrewarded"].mean.tolist() == [0.5, 0.5]
+
+
+def test_a_target_mean_from_too_few_mice_is_not_drawn():
+    pairs = target_pairs()
+    pairs = pairs[~((pairs["mouse"] == "b") & (pairs["raw_alt"] == 3.0))]  # b has gap 1 only
+    curves, baselines = mvp.switch_target_curves_by_reward(pairs, n_bins=None, min_mice=2)
+    assert curves["rewarded"].n_mice.tolist() == [2, 1]
+    assert np.isfinite(curves["rewarded"].mean[0]) and np.isnan(curves["rewarded"].mean[1])
+    assert np.isnan(baselines["rewarded"].mean[1])
+
+
+def test_target_curves_have_no_baseline_without_the_column():
+    pairs = target_pairs().drop(columns="base_best_alt")
+    curves, baselines = mvp.switch_target_curves_by_reward(pairs, n_bins=None)
+    assert baselines is None and curves["rewarded"] is not None
+
+
+def test_target_baseline_comes_from_the_pairs_of_real_values():
+    pairs = mvp.stay_switch_pairs_from_values(
+        toy_trials(), TOY_VALUES, TOY_CHOSEN, TOY_PROBABILITIES
+    )
+    # trial 3 (previous choice rewarded? reward on trial 2 was 3): switch to the best alternative
+    # arm 2 at gap 4 - 1 = 3, baseline 0.6 / 0.7
+    curves, baselines = mvp.switch_target_curves_by_reward(pairs, n_bins=None, min_mice=1)
+    assert curves["rewarded"].x.tolist() == [3.0]
+    assert curves["rewarded"].mean.tolist() == [1.0]
+    assert baselines["rewarded"].mean.tolist() == pytest.approx([0.6 / 0.7])
+    # trial 2 is a switch between tied alternatives, left out of the curve and counted
+    assert mvp.tied_switches_by_reward(pairs)["unrewarded"] == 1
 
 
 def test_curves_by_reward_leave_out_an_empty_row():
@@ -363,6 +452,7 @@ def test_stay_switch_axes_accept_a_precomputed_diff_column():
             mouse=["a", "a", "b", "b"],
             v_chosen=[1, 2, 1, 2],
             v_alt=[1, 1, 2, 2],
+            v_other=[0, 0, 0, 0],
             diff=[7, 8, 7, 8],
             stay=[1.0, 0.0, 1.0, 1.0],
         )

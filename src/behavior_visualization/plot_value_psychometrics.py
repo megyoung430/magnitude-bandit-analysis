@@ -376,6 +376,18 @@ def draw_mouse_lines(ax: plt.Axes, curve: Curve, color: str) -> None:
         ax.plot(curve.x, values, "-o", color=color, lw=1, ms=2.5, alpha=0.3)
 
 
+def draw_baseline(ax: plt.Axes, curve: Curve, color: str, label: str) -> None:
+    """Mean of a reference curve above the observed ones: hollow squares on a dashed line.
+
+    A baseline that coincides with the observed curve (a value-blind agent) still shows as a ring
+    around each dot.
+    """
+    ax.plot(
+        curve.x, curve.mean, "--s", color=color, lw=1.6, ms=7, mfc="white", mew=1.4, zorder=6,
+        label=label,
+    )  # fmt: skip
+
+
 def draw_mean(ax: plt.Axes, curve: Curve, color: str, label: str) -> None:
     """Thick mean line with markers, and the SE band where the SE is defined."""
     has_se = ~np.isnan(curve.se) & ~np.isnan(curve.mean)
@@ -455,12 +467,7 @@ def plot_psychometric_panel(
             draw_mean(ax, curve, color, label)
         for curve, color, label in baselines:
             if curve is not None:
-                # above the observed line, with hollow markers: a baseline that coincides with
-                # the observed curve still shows as a ring around each dot
-                ax.plot(
-                    curve.x, curve.mean, "--s", color=color, lw=1.6, ms=7, mfc="white", mew=1.4,
-                    zorder=6, label=f"{label} Baseline",
-                )  # fmt: skip
+                draw_baseline(ax, curve, color, f"{label} Baseline")
         _annotate_means(ax, curve_best, curve_second)
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Choice Probability", fontsize=12)

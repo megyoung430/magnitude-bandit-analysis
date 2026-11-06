@@ -7,7 +7,6 @@ show it.
 """
 
 from pathlib import Path
-from typing import NamedTuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -16,6 +15,7 @@ import numpy as np
 from src.behavior_analysis.get_choice_probs_by_value import TIE_EXCLUDE
 from src.behavior_analysis.stay_switch_psychometrics import (
     CHOSEN_NONZERO,
+    CHOSEN_ROWS,
     CHOSEN_ZERO,
     TIE_ALL_THREE,
     TIE_ALTERNATIVES,
@@ -37,6 +37,7 @@ from src.behavior_visualization.plot_value_psychometrics import (
     HEATMAP_CMAP,
     cell_label,
     cell_text_color,
+    draw_baseline,
     draw_mean,
     draw_mouse_lines,
     finish_figure,
@@ -49,10 +50,12 @@ OUTCOME_STYLE = {
     "stay": ("#0072B2", "Stay"),
     "switch": ("#D55E00", "Switch"),
     "switch_best_alt": ("#E69F00", "Switch to Best Alternative"),
-    "switch_other": ("#CC79A7", "Switch to Other Arm"),
 }
 STAY_SWITCH_OUTCOMES = ("stay", "switch")
-SWITCH_TARGET_OUTCOMES = ("switch_best_alt", "switch_other")
+SWITCH_TARGET_XLABEL = "Value of Best Alternative - Other Arm"
+SWITCH_TARGET_YLABEL = "P(Best Alternative | Switch)"
+# P(best alternative | switch) when the mouse picks between the two unchosen arms at random.
+SWITCH_TARGET_CHANCE = 0.5
 # Rows of the curve figures, top first, by the value of the option chosen before.
 ROW_HEADINGS = {
     CHOSEN_ZERO: "Chose 0-Value Option",
@@ -145,9 +148,11 @@ def row_caption(value_label: str) -> tuple[str, ...]:
 
 
 def _x_limits(ax: plt.Axes, x: np.ndarray) -> None:
-    """Ticks at the x values and equal padding at both ends (NaN ends do not move them)."""
-    # bin means of a continuous value can lie close together, so only exact (integer) values
-    # get a tick each; otherwise matplotlib chooses the ticks
+    """Ticks at the x values and equal padding at both ends (NaN ends do not move them).
+
+    Only exact (integer) values get a tick each; bin means of a continuous value can lie close
+    together, so matplotlib chooses those ticks.
+    """
     if np.allclose(x, np.round(x)):
         ax.set_xticks(x)
     pad = _X_PADDING * float(np.ptp(x)) if len(x) > 1 else _SINGLE_X_PAD
@@ -171,6 +176,7 @@ def plot_stay_switch_panel(
     *,
     ylabel: str = "Probability",
     counted: tuple[str, str] | None = None,
+    legend: bool = True,
     baselines: dict[str, Curve] | None = None,
 ) -> plt.Axes:
     """Curves of the given outcomes against one x axis: mice thin, mean thick with se band.
@@ -187,8 +193,11 @@ def plot_stay_switch_panel(
         counted (tuple[str, str] | None): ``(singular, plural)`` of what ``Curve.n_trials``
             counts, to add its total to the statistics line (e.g. ``("switch",
             "switches")``); ``None`` (default) adds nothing. Keyword-only.
+        legend (bool): Draw a legend of the outcomes. Default ``True``. Keyword-only.
         baselines (dict[str, Curve] | None): ``{outcome: Curve}`` reference curves on the same x
-            (e.g. a model without the value), drawn as dashed mean lines. Keyword-only.
+            (e.g. a model without the value), drawn above the observed ones as hollow squares on
+            a dashed line, so a baseline that coincides with the observed curve stays visible.
+            Keyword-only.
 
     Returns:
         plt.Axes: The axes drawn into.
@@ -202,17 +211,15 @@ def plot_stay_switch_panel(
             if len(curve.x) == 1:
                 _draw_single_point_error(ax, curve, color)
             if baselines is not None:
-                ax.plot(
-                    baselines[outcome].x, baselines[outcome].mean, "--s", color=color, lw=1.6,
-                    ms=7, mfc="white", mew=1.4, zorder=6, label=f"{label} Baseline",
-                )  # fmt: skip
+                draw_baseline(ax, baselines[outcome], color, f"{label} Baseline")
         average = "mean ± se" if error_drawn(*(c.se for c in curves.values())) else "mean"
         counts = [(len(first.mice), "mouse", "mice")]
         if counted is not None:
             counts.append((int(np.sum(first.n_trials)), *counted))
         set_title(ax, Title(heading, stats_line(average, "mice", counts)), fontsize=12)
         _x_limits(ax, first.x)
-        ax.legend(fontsize=10)
+        if legend:
+            ax.legend(fontsize=10)
         _finish_panel(ax, xlabel, ylabel)
     return ax
 
@@ -233,42 +240,27 @@ def _empty_panel(ax: plt.Axes, heading: str, xlabel: str, note: str, ylabel: str
     _finish_panel(ax, xlabel, ylabel)
 
 
-def _curves_caption(value_label, pool_trials, ties, tie_mode, extra=()) -> tuple[str, ...]:
-    weighting = "pairs pooled within mouse" if pool_trials else "cell probabilities averaged"
+def _weighting_caption(pool_trials: bool) -> str:
+    if pool_trials:
+        return "Pairs pooled within mouse; thin lines: each mouse."
+    return (
+        "Within a mouse, each (V(chosen), V(alt)) cell's probability counts once, whatever its "
+        "number of pairs; thin lines: each mouse."
+    )
+
+
+def _curves_caption(value_label, pool_trials, ties_lines, extra=()) -> tuple[str, ...]:
     return (
         *definition_caption(value_label),
         *row_caption(value_label),
         *extra,
-        f"{weighting.capitalize()}; thin lines: each mouse.",
-        *tie_caption(ties, tie_mode),
+        _weighting_caption(pool_trials),
+        *ties_lines,
     )
 
 
-class PanelSpec(NamedTuple):
-    """What the panels of a curve figure draw and say.
-
-    Attributes:
-        outcomes (tuple[str, ...]): The outcomes of ``OUTCOME_STYLE`` drawn in every panel.
-        ylabel (str): Y axis label.
-        empty_note (str): Text of a panel whose row has nothing to draw.
-        counted (tuple[str, str] | None): As in :func:`plot_stay_switch_panel`.
-    """
-
-    outcomes: tuple[str, ...]
-    ylabel: str
-    empty_note: str
-    counted: tuple[str, str] | None = None
-
-
-STAY_SWITCH_SPEC = PanelSpec(STAY_SWITCH_OUTCOMES, "Probability", "No pairs")
-SWITCH_TARGET_SPEC = PanelSpec(
-    SWITCH_TARGET_OUTCOMES, "Fraction of Switches", "No switches", ("switch", "switches")
-)
-
-
-def plot_outcome_curves(
-    curves_by_row: dict[str, dict[str, dict[str, Curve]] | None],
-    spec: PanelSpec,
+def plot_stay_switch_grid(
+    curves_by_row: dict,
     title: Title,
     save_path: str | Path | None = None,
     *,
@@ -276,12 +268,11 @@ def plot_outcome_curves(
     panels: tuple[tuple[str, str], ...] = PANELS,
     baselines_by_row: dict | None = None,
 ) -> None:
-    """The outcomes of *spec* against three x axes, one row per row of *row_headings*; save or show.
+    """P(stay) and P(switch) against the x axes of *panels*, one row per row heading; save or show.
 
     Args:
         curves_by_row (dict): ``{row: {outcome: {axis: Curve}} | None}`` for each row of
             *row_headings*; a row of ``None`` draws empty panels.
-        spec (PanelSpec): The outcomes, labels and counts of the panels.
         title (Title): The figure title and caption.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
         row_headings (dict[str, str]): ``{row key: panel heading}``, top row first. Default: the
@@ -289,9 +280,9 @@ def plot_outcome_curves(
         panels (tuple[tuple[str, str], ...]): ``(axis, x label)`` of each column. Default
             ``PANELS``. Keyword-only.
         baselines_by_row (dict | None): Reference curves in the layout of *curves_by_row*, drawn
-            dashed in every panel. Default ``None``: none. Keyword-only.
+            in every panel. Default ``None``: none. Keyword-only.
     """
-    size = (15, 4.5 * len(row_headings))
+    size = (5 * len(panels), 4.5 * len(row_headings))
     # squeeze=False keeps the axes 2-D for a figure of a single row
     with new_figure(nrows=len(row_headings), ncols=len(panels), figsize=size, squeeze=False) as (
         fig,
@@ -301,16 +292,13 @@ def plot_outcome_curves(
             curves = curves_by_row[row]
             for ax, (axis, xlabel) in zip(axes_row, panels, strict=True):
                 if curves is None:
-                    _empty_panel(ax, heading, xlabel, spec.empty_note, spec.ylabel)
+                    _empty_panel(ax, heading, xlabel, "No pairs", "Probability")
                     continue
-                panel = {outcome: curves[outcome][axis] for outcome in spec.outcomes}
+                panel = {outcome: curves[outcome][axis] for outcome in STAY_SWITCH_OUTCOMES}
                 reference = None
                 if baselines_by_row is not None:
-                    reference = {o: baselines_by_row[row][o][axis] for o in spec.outcomes}
-                plot_stay_switch_panel(
-                    panel, heading, xlabel, ax=ax, ylabel=spec.ylabel, counted=spec.counted,
-                    baselines=reference,
-                )  # fmt: skip
+                    reference = {o: baselines_by_row[row][o][axis] for o in STAY_SWITCH_OUTCOMES}
+                plot_stay_switch_panel(panel, heading, xlabel, ax=ax, baselines=reference)
         finish_figure(fig, title)
     save_or_show(fig, save_path or None)
 
@@ -326,49 +314,123 @@ def plot_stay_switch_curves(
     """P(stay) and P(switch) against three x axes, rows by the value of the chosen option.
 
     Args:
-        curves_by_row (dict): From ``stay_switch_curves_by_row``.
+        curves_by_row (dict): From ``stay_switch_curves_by_row``; a row of ``None`` draws empty
+            panels.
         value_label (str): ``"True"`` or ``"Believed"``.
         pool_trials (bool): The weighting the curves were computed with, for the caption.
         ties (dict[str, int]): Tied pairs by category (``StaySwitchPairs.ties``).
         tie_mode (str): The tie mode of the curves.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
-    caption = _curves_caption(value_label, pool_trials, ties, tie_mode)
+    caption = _curves_caption(value_label, pool_trials, tie_caption(ties, tie_mode))
     title = Title(f"Stay-Switch Curves ({value_label} Value)", None, caption)
-    plot_outcome_curves(curves_by_row, STAY_SWITCH_SPEC, title, save_path)
+    plot_stay_switch_grid(curves_by_row, title, save_path)
+
+
+def switch_target_tie_caption(
+    ties: dict[str, int], tie_mode: str, tied_switches: dict[str, int]
+) -> tuple[str, ...]:
+    """Caption lines of what the switch-target figure did with ties.
+
+    Args:
+        ties (dict[str, int]): Tied pairs by ``TIE_*`` category.
+        tie_mode (str): ``"exclude"`` or ``"split"``.
+        tied_switches (dict[str, int]): Switches between tied alternatives per row
+            (``tied_switches_by_row``), left out of the curves.
+
+    Returns:
+        tuple[str, ...]: One line per sentence.
+    """
+    if tie_mode == TIE_EXCLUDE:
+        return tie_caption(ties, tie_mode)
+    return (
+        "Pairs with V(chosen) = V(alt) are kept: their two alternatives differ, so a best "
+        f"alternative exists ({ties[TIE_CHOSEN_ALTERNATIVE]} such pairs).",
+        "Switches between tied alternatives (gap 0, all three tied included) left out: top "
+        f"{tied_switches[CHOSEN_ZERO]}, bottom {tied_switches[CHOSEN_NONZERO]}.",
+    )
+
+
+def plot_switch_target_panel(
+    curve: Curve | None,
+    heading: str,
+    ax: plt.Axes | None = None,
+    *,
+    baseline: Curve | None = None,
+    xlabel: str = SWITCH_TARGET_XLABEL,
+) -> plt.Axes:
+    """P(best alternative | switch) against the gap between the unchosen arms, one row.
+
+    Args:
+        curve (Curve | None): From ``switch_target_curves``; ``None`` draws an empty panel.
+        heading (str): First line of the panel title (the row).
+        ax (plt.Axes | None): Axes to draw into; a new figure if ``None``.
+        baseline (Curve | None): A reference curve on the same x (e.g. a model without the
+            value), drawn above the observed one. Keyword-only.
+        xlabel (str): X axis label. Default ``SWITCH_TARGET_XLABEL``. Keyword-only.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+    """
+    with axes_or_new(ax, figsize=(6, 4.2)) as ax:
+        if curve is None:
+            _empty_panel(ax, heading, xlabel, "No untied switches", SWITCH_TARGET_YLABEL)
+            return ax
+        ax.axhline(SWITCH_TARGET_CHANCE, color="0.6", linestyle=":", linewidth=1, zorder=0)
+        plot_stay_switch_panel(
+            {"switch_best_alt": curve},
+            heading,
+            xlabel,
+            ax=ax,
+            ylabel=SWITCH_TARGET_YLABEL,
+            counted=("switch", "switches"),
+            legend=baseline is not None,
+            baselines=None if baseline is None else {"switch_best_alt": baseline},
+        )
+    return ax
 
 
 def plot_switch_target_curves(
-    curves_by_row: dict,
+    curves_by_row: dict[str, Curve | None],
     value_label: str,
     pool_trials: bool,
     ties: dict[str, int],
     tie_mode: str,
+    tied_switches: dict[str, int],
     save_path: str | Path | None = None,
 ) -> None:
-    """P(best alternative | switch) and P(other arm | switch), rows as above; save or show.
+    """P(best alternative | switch) against V(best alternative) - V(other arm), one panel per row.
 
-    Both are fractions of the row's switches, so they add up to 1; panel titles give the
-    switches as n.
+    Rows as in the stay/switch figure: the value of the option chosen on the earlier trial of
+    each pair is 0 (top) or above 0 (bottom). Only pairs whose next choice is a switch count.
 
     Args:
-        curves_by_row (dict): From ``switch_target_curves_by_row``.
+        curves_by_row (dict[str, Curve | None]): From ``switch_target_curves_by_row``.
         value_label (str): ``"True"`` or ``"Believed"``.
         pool_trials (bool): The weighting the curves were computed with, for the caption.
         ties (dict[str, int]): Tied pairs by category (``StaySwitchPairs.ties``).
         tie_mode (str): The tie mode of the curves.
+        tied_switches (dict[str, int]): Switches between tied alternatives per row
+            (``tied_switches_by_row``), for the caption.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
-    fractions = (
-        "Switch targets are fractions of the switches after the chosen option: "
-        "P(best alternative | switch) and P(other arm | switch) add up to 1; stays are left "
-        "out, and a mouse without switches in a row is not one of that row's mice.",
-        "n=switches: the switches of all mice in the row. An x value appears only where some "
-        "mouse switched, and a mouse's point there can rest on few switches.",
+    definition = (
+        "Only the pairs whose next choice is a switch: y is the fraction of those switches that "
+        "go to the best alternative (the higher-valued of the two arms not chosen before); "
+        "P(other arm | switch) is one minus it.",
+        "x: V(best alternative) - V(other arm), the gap between the two unchosen arms on the "
+        "switch trial. Dotted line: 0.5, a random pick between the two.",
+        "n=switches: the switches of all mice in the row. A mouse without switches in a row is "
+        "not one of that row's mice; a point can rest on few switches.",
     )
-    caption = _curves_caption(value_label, pool_trials, ties, tie_mode, fractions)
+    ties_lines = switch_target_tie_caption(ties, tie_mode, tied_switches)
+    caption = _curves_caption(value_label, pool_trials, ties_lines, definition)
     title = Title(f"Switch Target Curves ({value_label} Value)", None, caption)
-    plot_outcome_curves(curves_by_row, SWITCH_TARGET_SPEC, title, save_path)
+    with new_figure(nrows=len(CHOSEN_ROWS), ncols=1, figsize=(6, 9)) as (fig, axs):
+        for ax, row in zip(axs, CHOSEN_ROWS, strict=True):
+            plot_switch_target_panel(curves_by_row[row], ROW_HEADINGS[row], ax)
+        finish_figure(fig, title)
+    save_or_show(fig, save_path or None)
 
 
 def plot_stay_heatmap_panel(

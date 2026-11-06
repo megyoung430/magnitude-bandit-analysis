@@ -49,10 +49,7 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.stats import nan_mean, nan_standard_error
-from src.behavior_analysis.stay_switch_psychometrics import (
-    stay_switch_curves,
-    switch_target_curves,
-)
+from src.behavior_analysis.stay_switch_psychometrics import stay_switch_curves
 from src.behavior_analysis.value_psychometrics import Curve
 
 DEFAULT_BINS = 5
@@ -432,18 +429,17 @@ def _axis_columns(pairs: pd.DataFrame, n_bins: int | None, seed: int) -> pd.Data
     return binned.dropna(subset=list(PAIR_BIN_COLUMNS.values()))
 
 
-def _row_curves(subset, outcomes, baseline_outcomes, curve_function, n_bins, pool, min_mice, seed):
-    """``(curves, baselines)`` of one row of pairs, made by *curve_function*."""
+def _row_curves(subset, baseline_outcomes, n_bins, pool, min_mice, seed):
+    """``(curves, baselines)`` of the stay/switch outcomes of one row of pairs."""
     frame = _axis_columns(subset, n_bins, seed)
-    observed = curve_function(frame, pool_trials=pool)
+    observed = stay_switch_curves(frame, pool_trials=pool)
     baseline = (
-        curve_function(frame.assign(**baseline_outcomes), pool_trials=pool)
+        stay_switch_curves(frame.assign(**baseline_outcomes), pool_trials=pool)
         if baseline_outcomes
         else None
     )
-    switches = frame if outcomes == "stay" else frame[frame["stay"] == 0]
     means = {
-        axis: _bin_means(switches, PAIR_BIN_COLUMNS[axis], raw) if n_bins else None
+        axis: _bin_means(frame, PAIR_BIN_COLUMNS[axis], raw) if n_bins else None
         for axis, raw in PAIR_AXES.items()
     }
     curves, baselines = {}, ({} if baseline else None)
@@ -459,30 +455,6 @@ def _row_curves(subset, outcomes, baseline_outcomes, curve_function, n_bins, poo
                     _masked(baseline[outcome][axis], keep), means[axis]
                 )
     return curves, baselines
-
-
-def _by_reward(pairs, kind, pool_trials, n_bins, min_mice, seed):
-    """The shared body of the two ``*_by_reward`` functions."""
-    with_baseline = "base_stay" in pairs
-    curves_by_row, baselines_by_row = {}, {}
-    for row, subset in split_by_previous_reward(pairs).items():
-        if kind == "stay":
-            usable, function = not subset.empty, stay_switch_curves
-            base = {"stay": subset["base_stay"]} if with_baseline else None
-        else:
-            usable, function = (subset["stay"] == 0).any(), switch_target_curves
-            base = (
-                {"switch_best_alt": subset["base_best_alt"], "switch_other": subset["base_other"]}
-                if with_baseline
-                else None
-            )
-        if not usable:
-            curves_by_row[row], baselines_by_row[row] = None, None
-            continue
-        curves_by_row[row], baselines_by_row[row] = _row_curves(
-            subset, kind, base, function, n_bins, pool_trials, min_mice, seed
-        )
-    return curves_by_row, (baselines_by_row if with_baseline else None)
 
 
 def stay_switch_curves_by_reward(
@@ -510,23 +482,98 @@ def stay_switch_curves_by_reward(
         {axis: Curve}}}``; ``None`` for a row without pairs, and ``baselines_by_row`` is ``None``
         without baseline columns. ``Curve.x`` is the mean value in the bin.
     """
-    return _by_reward(pairs, "stay", pool_trials, n_bins, min_mice, seed)
+    with_baseline = "base_stay" in pairs
+    base = (lambda subset: {"stay": subset["base_stay"]}) if with_baseline else (lambda _: None)
+    curves_by_row, baselines_by_row = {}, {}
+    for row, subset in split_by_previous_reward(pairs).items():
+        if subset.empty:
+            curves_by_row[row], baselines_by_row[row] = None, None
+            continue
+        curves_by_row[row], baselines_by_row[row] = _row_curves(
+            subset, base(subset), n_bins, pool_trials, min_mice, seed
+        )
+    return curves_by_row, (baselines_by_row if with_baseline else None)
+
+
+# ---------------------------------------------------------------------------
+# Switch targets
+# ---------------------------------------------------------------------------
+
+TARGET_GAP = "alt_gap"
+
+
+def _untied_switches(subset: pd.DataFrame) -> pd.DataFrame:
+    """The switches of *subset* whose two unchosen arms differ in value (a best alternative)."""
+    return subset.loc[(subset["stay"] == 0) & (subset["raw_alt"] > subset["v_other"])]
+
+
+def tied_switches_by_reward(pairs: pd.DataFrame) -> dict[str, int]:
+    """Switches between two unchosen arms of equal value, in each row of the reward split.
+
+    These have no best alternative and are left out of the switch-target curve.
+
+    Returns:
+        dict[str, int]: ``{row: count}`` for each of ``REWARD_ROWS``.
+    """
+    return {
+        row: int(((s["stay"] == 0) & (s["raw_alt"] == s["v_other"])).sum())
+        for row, s in split_by_previous_reward(pairs).items()
+    }
+
+
+def _target_frame(switches: pd.DataFrame, n_bins: int | None, seed: int) -> pd.DataFrame:
+    """*switches* with ``alt_gap`` as bin numbers (or exact gaps) and the raw gap in ``raw_gap``.
+
+    A mouse with fewer switches than bins is left out.
+    """
+    frame = switches.assign(raw_gap=switches["raw_alt"] - switches["v_other"])
+    if n_bins is None:
+        return frame.assign(**{TARGET_GAP: frame["raw_gap"].round(6)})
+    binned = frame.assign(**{TARGET_GAP: _binned_by_mouse(frame, "raw_gap", n_bins, seed)})
+    return binned.dropna(subset=[TARGET_GAP])
 
 
 def switch_target_curves_by_reward(
     pairs: pd.DataFrame,
     *,
-    pool_trials: bool,
     n_bins: int | None = DEFAULT_BINS,
     min_mice: int = MIN_MICE,
     seed: int = TIE_SEED,
 ) -> tuple[dict, dict | None]:
-    """P(best alternative | switch) and P(other arm | switch) per row, and the baseline.
+    """P(best alternative | switch) against the gap between the unchosen arms, per reward row.
 
-    As :func:`stay_switch_curves_by_reward`, over the switches of each row only; the baseline is
-    the model's probability of each target given a switch, on the same switches.
+    Only the switches count, and only those whose two unchosen arms differ in value (ties have
+    no best alternative; :func:`tied_switches_by_reward` counts them). The x is
+    ``V(best alternative) - V(other arm)``, cut into rank bins within each mouse and row and
+    placed at the bin-mean gap. Switches are pooled within a mouse. The baseline is the
+    nuisance model's probability of the best alternative given a switch, averaged in the same
+    bins.
+
+    Args:
+        pairs (pd.DataFrame): :func:`stay_switch_pairs_from_values` output.
+        n_bins (int | None): Bins per mouse and row; ``None`` uses the exact gaps (for discrete
+            values). Default ``DEFAULT_BINS``. Keyword-only.
+        min_mice (int): Means from fewer mice are not drawn. Keyword-only.
+        seed (int): Seed of the order of tied gaps in the bin cuts. Keyword-only.
 
     Returns:
-        tuple[dict, dict | None]: As there; ``None`` for a row without switches.
+        tuple[dict, dict | None]: ``(curves_by_row, baselines_by_row)``, each ``{row: Curve |
+        None}`` for the rows of ``REWARD_ROWS``; ``None`` for a row without untied switches,
+        and ``baselines_by_row`` is ``None`` without the ``base_best_alt`` column.
+        ``Curve.n_trials`` counts switches.
     """
-    return _by_reward(pairs, "target", pool_trials, n_bins, min_mice, seed)
+    with_baseline = "base_best_alt" in pairs
+    curves, baselines = {}, {}
+    for row, subset in split_by_previous_reward(pairs).items():
+        frame = _target_frame(_untied_switches(subset), n_bins, seed)
+        if frame.empty:
+            curves[row], baselines[row] = None, None
+            continue
+        observed = _curve(frame, "switch_best_alt", TARGET_GAP)
+        keep = _enough_mice(observed, min_mice)
+        means = _bin_means(frame, TARGET_GAP, "raw_gap") if n_bins else None
+        curves[row] = _positioned(_masked(observed, keep), means)
+        if with_baseline:
+            base = _curve(frame, "base_best_alt", TARGET_GAP)
+            baselines[row] = _positioned(_masked(base, keep), means)
+    return curves, (baselines if with_baseline else None)
