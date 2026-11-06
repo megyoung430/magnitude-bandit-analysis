@@ -12,6 +12,7 @@ from src.behavior_analysis.stay_switch_psychometrics import (
     stay_switch_curves_by_row,
     switch_target_curves_by_row,
 )
+from src.behavior_analysis.value_psychometrics import Curve
 from src.behavior_visualization.plot_helpers import caption_path
 from src.behavior_visualization.plot_stay_switch import (
     plot_stay_heatmap_panel,
@@ -82,8 +83,8 @@ def test_writes_every_figure_in_every_format_and_returns_the_results(tmp_path):
             assert set(entry["switch_target_curves"]) == {True, False}
             for rows in entry["switch_target_curves"].values():
                 assert set(rows) == {"chosen_zero", "chosen_nonzero"}
-                for curves in rows.values():
-                    assert curves is None or set(curves) == {"switch_best_alt", "switch_other"}
+                for curve in rows.values():
+                    assert curve is None or isinstance(curve, Curve)
             assert set(entry["curves"]) == {True, False}
             for rows in entry["curves"].values():
                 assert set(rows) == {"chosen_zero", "chosen_nonzero"}
@@ -202,31 +203,12 @@ def titled_axes(fig):
     return [ax for ax in fig.axes if ax.get_title()]
 
 
-@pytest.mark.parametrize(
-    ("plot", "by_row", "heading", "labels"),
-    [
-        (
-            plot_stay_switch_curves,
-            stay_switch_curves_by_row,
-            "Stay-Switch Curves (True Value)",
-            ["Stay", "Switch"],
-        ),
-        (
-            plot_switch_target_curves,
-            switch_target_curves_by_row,
-            "Switch Target Curves (True Value)",
-            ["Switch to Best Alternative", "Switch to Other Arm"],
-        ),
-    ],
-)
-def test_each_curve_figure_has_a_row_per_chosen_value_with_its_own_n(
-    monkeypatch, plot, by_row, heading, labels
-):
+def test_the_stay_switch_figure_has_a_row_per_chosen_value_with_its_own_n(monkeypatch):
     capture = capture_figures(monkeypatch)
-    curves = by_row(row_test_pairs(), pool_trials=True)
-    plot(curves, "True", True, NO_TIES, "split", None)
+    curves = stay_switch_curves_by_row(row_test_pairs(), pool_trials=True)
+    plot_stay_switch_curves(curves, "True", True, NO_TIES, "split", None)
     (fig,) = capture.shown[0]
-    assert fig.get_suptitle() == heading
+    assert fig.get_suptitle() == "Stay-Switch Curves (True Value)"
     axes = titled_axes(fig)
     assert len(axes) == 6
     top, bottom = axes[:3], axes[3:]
@@ -245,7 +227,7 @@ def test_each_curve_figure_has_a_row_per_chosen_value_with_its_own_n(
     lo, hi = top[1].get_xlim()
     assert lo < 0 < hi and hi - lo >= 1
     drawn = {line.get_label() for ax in fig.axes for line in ax.lines}
-    assert set(labels) <= drawn
+    assert {"Stay", "Switch"} <= drawn
 
 
 def test_the_single_point_of_the_zero_row_has_an_error_bar(monkeypatch):
@@ -269,29 +251,38 @@ def test_a_row_without_pairs_draws_empty_panels(monkeypatch):
     assert all(t.get_text() == "No pairs" for ax in top for t in ax.texts)
 
 
-def test_switch_target_panels_are_fractions_of_switches_with_their_count(monkeypatch):
+def test_switch_target_figure_has_one_panel_per_row_against_the_alternatives_gap(monkeypatch):
     capture = capture_figures(monkeypatch)
     curves = switch_target_curves_by_row(row_test_pairs(), pool_trials=True)
     plot_switch_target_curves(curves, "True", True, NO_TIES, "split", None)
     (fig,) = capture.shown[0]
-    axes = titled_axes(fig)
-    # row_test_pairs: 2 switches after a 0-value choice, 3 after a non-0 one
-    assert all(ax.get_title().endswith("n=2 mice, n=2 switches") for ax in axes[:3])
-    assert all(ax.get_title().endswith("n=3 mice, n=3 switches") for ax in axes[3:])
-    assert {ax.get_ylabel() for ax in axes} == {"Fraction of Switches"}
+    assert fig.get_suptitle() == "Switch Target Curves (True Value)"
+    zero, nonzero = titled_axes(fig)
+    # row_test_pairs: after a 0, m1 and m2 switch once each (gaps 2 and 1); after a non-0, m1
+    # and m2 switch once each (gaps 4 and 2) and m3's switch between tied alternatives is out
+    # each gap holds one mouse's switch, so there is no se to draw
+    assert zero.get_title() == "Chose 0-Value Option\nmean across mice, n=2 mice, n=2 switches"
+    assert nonzero.get_title() == "Chose Non-0 Option\nmean across mice, n=2 mice, n=2 switches"
+    for ax in (zero, nonzero):
+        assert ax.get_xlabel() == "Value of Best Alternative - Other Arm"
+        assert ax.get_ylabel() == "P(Best Alternative | Switch)"
+        assert ax.get_ylim() == (0.0, 1.0)
+        assert any(list(line.get_ydata()) == [0.5, 0.5] for line in ax.lines)  # chance
+    drawn = {line.get_label() for ax in fig.axes for line in ax.lines}
+    assert "Switch to Best Alternative" in drawn and "Switch to Other Arm" not in drawn
 
 
-def test_a_row_without_switches_draws_empty_switch_target_panels(monkeypatch):
+def test_a_row_without_switches_draws_an_empty_switch_target_panel(monkeypatch):
     capture = capture_figures(monkeypatch)
     pairs = row_test_pairs()
     curves = switch_target_curves_by_row(pairs[pairs["v_chosen"] > 0], pool_trials=True)
     plot_switch_target_curves(curves, "True", True, NO_TIES, "split", None)
     (fig,) = capture.shown[0]
-    top = titled_axes(fig)[:3]
-    assert all(t.get_text() == "No switches" for ax in top for t in ax.texts)
+    zero = titled_axes(fig)[0]
+    assert [t.get_text() for t in zero.texts] == ["No switches"]
 
 
-def test_switch_target_caption_says_the_targets_are_fractions_of_switches(tmp_path):
+def test_switch_target_caption_defines_the_conditional_and_the_gap(tmp_path):
     results = run_stay_switch_analysis(
         data(), tmp_path, value_bases=("believed",), tie_modes=("split",)
     )
@@ -300,8 +291,8 @@ def test_switch_target_caption_says_the_targets_are_fractions_of_switches(tmp_pa
     caption = caption_path(
         tmp_path / "Switch Target Curves (Believed Value) (Ties Split) (Pool Trials True)"
     ).read_text()
-    assert "fractions of the switches" in caption
-    assert "add up to 1" in caption
-    assert "rest on few switches" in caption
+    assert "Only the pairs whose next choice is a switch" in caption
+    assert "V(best alternative) - V(other arm)" in caption
+    assert "gap 0" in caption
     assert "top, V(chosen) = 0" in caption
     assert "Believed 0: the arm last paid 0" in caption

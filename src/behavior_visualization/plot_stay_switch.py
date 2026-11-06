@@ -53,7 +53,10 @@ OUTCOME_STYLE = {
     "switch_other": ("#CC79A7", "Switch to Other Arm"),
 }
 STAY_SWITCH_OUTCOMES = ("stay", "switch")
-SWITCH_TARGET_OUTCOMES = ("switch_best_alt", "switch_other")
+SWITCH_TARGET_XLABEL = "Value of Best Alternative - Other Arm"
+SWITCH_TARGET_YLABEL = "P(Best Alternative | Switch)"
+# P(best alternative | switch) when the mouse picks between the two unchosen arms at random.
+SWITCH_TARGET_CHANCE = 0.5
 # Rows of the curve figures, top first, by the value of the option chosen before.
 ROW_HEADINGS = {
     CHOSEN_ZERO: "Chose 0-Value Option",
@@ -251,9 +254,6 @@ class PanelSpec(NamedTuple):
 
 
 STAY_SWITCH_SPEC = PanelSpec(STAY_SWITCH_OUTCOMES, "Probability", "No pairs")
-SWITCH_TARGET_SPEC = PanelSpec(
-    SWITCH_TARGET_OUTCOMES, "Fraction of Switches", "No switches", ("switch", "switches")
-)
 
 
 def plot_outcome_curves(
@@ -310,37 +310,69 @@ def plot_stay_switch_curves(
     plot_outcome_curves(curves_by_row, STAY_SWITCH_SPEC, title, save_path)
 
 
+def plot_switch_target_panel(curve: Curve | None, heading: str, ax: plt.Axes) -> plt.Axes:
+    """P(best alternative | switch) against the gap between the unchosen arms, one row.
+
+    Args:
+        curve (Curve | None): From ``switch_target_curves``; ``None`` draws an empty panel.
+        heading (str): First line of the panel title (the row).
+        ax (plt.Axes): Axes to draw into.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+    """
+    if curve is None:
+        _empty_panel(ax, heading, SWITCH_TARGET_XLABEL, "No switches", SWITCH_TARGET_YLABEL)
+        return ax
+    ax.axhline(SWITCH_TARGET_CHANCE, color="0.6", linestyle=":", linewidth=1, zorder=0)
+    return plot_stay_switch_panel(
+        {"switch_best_alt": curve},
+        heading,
+        SWITCH_TARGET_XLABEL,
+        ax=ax,
+        ylabel=SWITCH_TARGET_YLABEL,
+        counted=("switch", "switches"),
+    )
+
+
 def plot_switch_target_curves(
-    curves_by_row: dict,
+    curves_by_row: dict[str, Curve | None],
     value_label: str,
     pool_trials: bool,
     ties: dict[str, int],
     tie_mode: str,
     save_path: str | Path | None = None,
 ) -> None:
-    """P(best alternative | switch) and P(other arm | switch), rows as above; save or show.
+    """P(best alternative | switch) against V(best alternative) - V(other arm), one panel per row.
 
-    Both are fractions of the row's switches, so they add up to 1; panel titles give the
-    switches as n.
+    Rows as in the stay/switch figure: the value of the option chosen on the earlier trial of
+    each pair is 0 (top) or above 0 (bottom). Only pairs whose next choice is a switch count.
 
     Args:
-        curves_by_row (dict): From ``switch_target_curves_by_row``.
+        curves_by_row (dict[str, Curve | None]): From ``switch_target_curves_by_row``.
         value_label (str): ``"True"`` or ``"Believed"``.
         pool_trials (bool): The weighting the curves were computed with, for the caption.
         ties (dict[str, int]): Tied pairs by category (``StaySwitchPairs.ties``).
         tie_mode (str): The tie mode of the curves.
         save_path (str | Path | None): Base path without extension; ``None`` or ``""`` shows.
     """
-    fractions = (
-        "Switch targets are fractions of the switches after the chosen option: "
-        "P(best alternative | switch) and P(other arm | switch) add up to 1; stays are left "
-        "out, and a mouse without switches in a row is not one of that row's mice.",
-        "n=switches: the switches of all mice in the row. An x value appears only where some "
-        "mouse switched, and a mouse's point there can rest on few switches.",
+    definition = (
+        "Only the pairs whose next choice is a switch: y is the fraction of those switches that "
+        "go to the best alternative (the higher-valued of the two arms not chosen before); "
+        "P(other arm | switch) is one minus it.",
+        "x: V(best alternative) - V(other arm), the gap between the two unchosen arms on the "
+        "switch trial. Switches at gap 0 (tied alternatives) have no best alternative and are "
+        "left out. Dotted line: 0.5, a random pick between the two.",
+        "n=switches: the switches of all mice in the row. A mouse without switches in a row is "
+        "not one of that row's mice; a point can rest on few switches.",
     )
-    caption = _curves_caption(value_label, pool_trials, ties, tie_mode, fractions)
+    caption = _curves_caption(value_label, pool_trials, ties, tie_mode, definition)
     title = Title(f"Switch Target Curves ({value_label} Value)", None, caption)
-    plot_outcome_curves(curves_by_row, SWITCH_TARGET_SPEC, title, save_path)
+    with new_figure(nrows=len(CHOSEN_ROWS), ncols=1, figsize=(6, 9)) as (fig, axs):
+        for ax, row in zip(axs, CHOSEN_ROWS, strict=True):
+            plot_switch_target_panel(curves_by_row[row], ROW_HEADINGS[row], ax)
+        finish_figure(fig, title)
+    save_or_show(fig, save_path or None)
 
 
 def plot_stay_heatmap_panel(

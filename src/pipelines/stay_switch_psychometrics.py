@@ -70,8 +70,9 @@ def run_stay_switch_analysis(
       two rows: pairs whose chosen option had value 0 (top) and the others (bottom), by the
       figure's own value basis. ``True`` pools a mouse's pairs at an x, ``False`` averages its
       (V(chosen), V(alt)) cells equally;
-    - ``Switch Target Curves (...)`` with the same name parts and rows: P(best alternative |
-      switch) and P(other arm | switch), fractions of the row's switches (they add up to 1).
+    - ``Switch Target Curves (...)`` with the same name parts and rows, one panel per row:
+      among the pairs whose trial t is a switch, P(switch to the best alternative) against
+      V(best alternative) - V(other arm); switches between tied alternatives are left out.
 
     A value basis and tie mode without any trial pair draws nothing and warns.
 
@@ -85,9 +86,9 @@ def run_stay_switch_analysis(
     Returns:
         dict: ``{value_basis: {tie_mode: {"pairs": StaySwitchPairs, "heatmap": StayHeatmap,
         "curves": {pool_trials: {row: {outcome: {axis: Curve}} | None}},
-        "switch_target_curves": {pool_trials: {row: {target: {axis: Curve}} | None}}}}}``
-        (rows ``chosen_zero`` and ``chosen_nonzero``; None for a row without pairs, or without
-        switches for the targets); a condition without pairs has only ``"pairs"``.
+        "switch_target_curves": {pool_trials: {row: Curve | None}}}}}`` (rows ``chosen_zero``
+        and ``chosen_nonzero``; None for a row without pairs, or without untied switches for
+        the switch-target curve); a condition without pairs has only ``"pairs"``.
 
     Raises:
         ValueError: If an option has an unknown entry, a session is counter format (the

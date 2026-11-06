@@ -10,8 +10,10 @@ each arm paid the last time it was chosen, before t's choice):
 
 The outcome is ``stay`` (t picks the same arm), else a switch (``switch = 1 - stay``) to
 either the arm holding ``v_alt`` (``switch_best_alt``) or the remaining arm (``switch_other``).
-The switch targets are given as fractions of the switches, P(target | switch), so the two add
-up to 1; stays are left out of them.
+The switch-target curve keeps only the pairs whose trial ``t`` is a switch and plots
+P(switch to the best alternative | switch) against the gap between the two arms not chosen on
+``t - 1``, ``v_alt - v_other`` (P(other arm | switch) is one minus it). A gap of 0 has no best
+alternative, so those switches are left out of it.
 
 Trial pairs
 -----------
@@ -80,8 +82,10 @@ REASON_MISSING_VALUES = "missing_values"
 REASON_TIE_EXCLUDED = "tie_excluded"
 
 OUTCOMES = ("stay", "switch")
-# Where a switch goes; as curves, fractions of the switches only.
+# Where a switch goes: the arm holding v_alt, or the remaining arm.
 SWITCH_TARGETS = ("switch_best_alt", "switch_other")
+# X axis of the switch-target curve: v_alt - v_other, the gap between the two unchosen arms.
+SWITCH_TARGET_AXIS = "alt_gap"
 # Rows of the curve figures: pairs whose chosen arm had value 0, and the others.
 CHOSEN_ZERO = "chosen_zero"
 CHOSEN_NONZERO = "chosen_nonzero"
@@ -316,6 +320,7 @@ def _with_outcomes_and_axes(pairs: pd.DataFrame) -> pd.DataFrame:
         diff=pairs["v_chosen"] - pairs["v_alt"],
         chosen=pairs["v_chosen"],
         alt=pairs["v_alt"],
+        alt_gap=pairs["v_alt"] - pairs["v_other"],
     )
 
 
@@ -377,34 +382,31 @@ def stay_switch_curves(pairs: pd.DataFrame, *, pool_trials: bool) -> dict[str, d
     }
 
 
-def switch_target_curves(pairs: pd.DataFrame, *, pool_trials: bool) -> dict[str, dict[str, Curve]]:
-    """P(switch to the best alternative | switch) and P(switch to the other arm | switch).
+def switch_target_curves(pairs: pd.DataFrame, *, pool_trials: bool) -> Curve:
+    """P(switch to the best alternative | switch) against the gap between the alternatives.
 
-    Only the switches count: each curve is the fraction of a mouse's switches at an x that go
-    to that target, so the two targets add up to 1 wherever the mouse switched. A switch
-    between two tied alternatives counts half to each (tie mode ``"split"``). A mouse that never
-    switches is not one of the mice; ``Curve.n_trials`` counts switches.
+    Only the switches count, and only those with a best alternative: a mouse's point at a gap
+    ``g = v_alt - v_other`` is the fraction of its switches at that gap that go to the arm
+    holding ``v_alt``. Switches between tied alternatives (``g = 0``) are left out, since
+    neither arm is the best one. A mouse without such switches is not one of the mice;
+    ``Curve.n_trials`` counts switches.
 
     Args:
         pairs (pd.DataFrame): ``StaySwitchPairs.pairs`` (at least ``mouse``, ``v_chosen``,
-            ``v_alt``, ``stay``, ``switch_best_alt``, ``switch_other``).
+            ``v_alt``, ``v_other``, ``stay``, ``switch_best_alt``).
         pool_trials (bool): As in :func:`stay_switch_curves`, over switches. Keyword-only.
 
     Returns:
-        dict[str, dict[str, Curve]]: ``curves[target][axis]`` for every target of
-        ``SWITCH_TARGETS`` and axis of ``X_AXES``.
+        Curve: P(best alternative | switch) at each gap.
 
     Raises:
-        ValueError: If there are no switches.
+        ValueError: If there are no switches with a best alternative.
     """
-    switches = pairs.loc[pairs["stay"] == 0]
+    switches = pairs.loc[(pairs["stay"] == 0) & (pairs["v_alt"] > pairs["v_other"])]
     if switches.empty:
-        raise ValueError("no switches to make switch target curves from")
+        raise ValueError("no switches with a best alternative to make a switch target curve from")
     frame = _with_outcomes_and_axes(switches)
-    return {
-        target: {axis: _curve(frame, target, axis, pool_trials) for axis in X_AXES}
-        for target in SWITCH_TARGETS
-    }
+    return _curve(frame, "switch_best_alt", SWITCH_TARGET_AXIS, pool_trials)
 
 
 def split_by_chosen_value(pairs: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -456,7 +458,7 @@ def stay_switch_curves_by_row(
 
 def switch_target_curves_by_row(
     pairs: pd.DataFrame, *, pool_trials: bool
-) -> dict[str, dict[str, dict[str, Curve]] | None]:
+) -> dict[str, Curve | None]:
     """:func:`switch_target_curves` separately for each row of :func:`split_by_chosen_value`.
 
     Args:
@@ -464,12 +466,12 @@ def switch_target_curves_by_row(
         pool_trials (bool): As in :func:`stay_switch_curves`. Keyword-only.
 
     Returns:
-        dict: ``{row: curves}`` for each row of ``CHOSEN_ROWS``; ``None`` for a row without
-        switches.
+        dict[str, Curve | None]: ``{row: curve}`` for each row of ``CHOSEN_ROWS``; ``None`` for a
+        row without switches that have a best alternative.
     """
     return {
         row: switch_target_curves(subset, pool_trials=pool_trials)
-        if (subset["stay"] == 0).any()
+        if ((subset["stay"] == 0) & (subset["v_alt"] > subset["v_other"])).any()
         else None
         for row, subset in split_by_chosen_value(pairs).items()
     }
