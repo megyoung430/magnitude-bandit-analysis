@@ -23,7 +23,9 @@ since last chosen") says how much an arm was visited, which is what "ports that 
 chosen a lot" leaves behind. The default decay 0.9 (half-life about 7 trials) is the default of
 the choice logit's reward tail; blocks last 30-35 trials, so it keeps the recent block's ports
 ahead of the previous block's. The decay is fixed, not fitted: ``w`` alone sets how strongly the
-trace guides a switch.
+trace guides a switch. The choice logit's choice-history baseline has five choice lags and no
+tail, so a trace with decay 0.9 (most of it beyond five lags) gives above-baseline switch targets
+in the logit's analyses with no value guidance; a fast trace (decay 0.5) does not.
 
 **Session starts.** The first trial of a session, and the first trial after a dropped trial,
 has no previous choice: it is uniform over the three arms, and the trace is cleared, as the

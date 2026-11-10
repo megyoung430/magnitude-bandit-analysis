@@ -344,3 +344,21 @@ def test_comparison_plots_write_every_figure_with_a_caption(comparison, tmp_path
         for extension in ("pdf", "png", "svg", "caption.txt"):
             assert f"{name}.{extension}" in names, (name, extension)
     assert "in-sample" in (tmp_path / "Null Agent Fits.caption.txt").read_text().lower()
+
+
+def test_magnitude_agents_excess_comes_from_the_recency_trace_not_from_graded_staying(
+    layouts_table,
+):
+    def rewarded_excess(w, decay):
+        params = {
+            m: na.WslsMagnitudeParams(0.2, -0.5, 0.5, w, decay)
+            for m in layouts_table["mouse"].unique()
+        }
+        cohort = pipe.simulate_null_cohort(layouts_table, params, "wsls_magnitude", 5, RULES)
+        analysis = logit_pipe.analyse_trial_table(cohort.trials, n_lags=5, tail_decay=0.9)
+        table = pipe.switch_target_excess(analysis, n_bins=4).set_index("row")
+        return table.loc["rewarded", "mean_excess"]
+
+    assert rewarded_excess(w=1.5, decay=0.9) > 0.1  # slow trace beyond the five baseline lags
+    assert abs(rewarded_excess(w=1.5, decay=0.5)) < 0.05  # fast trace: on the baseline
+    assert abs(rewarded_excess(w=0.0, decay=0.9)) < 0.05  # graded staying alone: on the baseline
