@@ -193,11 +193,24 @@ def test_gain_summary_with_enough_mice_gives_mean_se_and_tests():
     assert row["p_wilcoxon"] == pytest.approx(2 / 64)
 
 
-def test_gain_summary_with_too_few_mice_has_no_test():
-    table = pd.DataFrame({"gain": [0.01, 0.02, 0.03]})
+def test_five_mice_cannot_reach_significance_so_six_are_needed():
+    assert ext.MIN_TEST_MICE == 6
+    # the smallest two-sided p of five mice, all on one side
+    assert 2 * 0.5**5 > 0.05
+    assert 2 * 0.5**6 < 0.05
+
+
+def test_gain_summary_with_too_few_mice_has_no_mean_error_or_test():
+    table = pd.DataFrame({"gain": [0.01, 0.02, 0.03, 0.04, 0.05]})
     row = ext.gain_summary(table, ["gain"]).iloc[0]
-    assert row["n"] == 3
-    assert np.isnan(row["p_sign"]) and np.isnan(row["p_wilcoxon"])
+    assert row["n"] == 5 and row["n_positive"] == 5
+    for column in ("mean", "se", "p_sign", "p_wilcoxon"):
+        assert np.isnan(row[column]), column
+
+
+def test_gain_summary_with_a_single_mouse_has_no_mean():
+    row = ext.gain_summary(pd.DataFrame({"gain": [0.01]}), ["gain"]).iloc[0]
+    assert row["n"] == 1 and np.isnan(row["mean"])
 
 
 def test_gain_summary_of_all_zero_gains_is_not_significant():
@@ -307,3 +320,43 @@ def test_calibration_needs_enough_predictions_and_matching_shapes():
         ext.calibration_bins(np.full((4, 2), 0.5), np.zeros(4, dtype=int), n_bins=2)
     with pytest.raises(ValueError, match="per trial"):
         ext.calibration_bins(np.full((4, 3), 1 / 3), np.zeros(3, dtype=int), n_bins=2)
+
+
+# --- calibration noise floor -------------------------------------------------------------------
+
+
+def calibrated_draw(n, seed):
+    rng = np.random.default_rng(seed)
+    probabilities = rng.dirichlet([0.7, 0.7, 0.7], size=n)
+    chosen = (rng.random(n)[:, None] > probabilities.cumsum(axis=1)).sum(axis=1)
+    return probabilities, chosen
+
+
+def test_noise_floor_matches_the_error_of_a_perfectly_calibrated_sample():
+    probabilities, chosen = calibrated_draw(30000, 11)
+    mice = np.array(["a"] * 30000, dtype=object)
+    floor = ext.calibration_noise_floor(probabilities, mice, n_bins=10)
+    table = ext.calibration_table(probabilities, chosen, mice, n_bins=10)
+    actual = ext.calibration_summary(table).loc[0, "mean_abs_error"]
+    assert floor.loc[0, "noise_floor_mean_abs_error"] == pytest.approx(actual, abs=0.003)
+    assert floor.loc[0, "noise_floor_mean_abs_error"] > 0
+
+
+def test_noise_floor_is_reproducible_and_per_mouse():
+    probabilities, _ = calibrated_draw(2000, 12)
+    mice = np.array(["a"] * 1000 + ["b"] * 1000, dtype=object)
+    first = ext.calibration_noise_floor(probabilities, mice, n_bins=5)
+    again = ext.calibration_noise_floor(probabilities, mice, n_bins=5)
+    pd.testing.assert_frame_equal(first, again)
+    assert list(first["mouse"]) == ["a", "b"]
+    assert list(first.columns) == [
+        "mouse", "noise_floor_mean_abs_error", "noise_floor_weighted_abs_error",
+    ]  # fmt: skip
+    other = ext.calibration_noise_floor(probabilities, mice, n_bins=5, seed=1)
+    assert not np.allclose(first["noise_floor_mean_abs_error"], other["noise_floor_mean_abs_error"])
+
+
+def test_noise_floor_of_certain_predictions_is_zero():
+    probabilities = np.tile(np.array([1.0, 0.0, 0.0]), (200, 1))
+    floor = ext.calibration_noise_floor(probabilities, np.array(["a"] * 200, dtype=object), 4)
+    assert floor.loc[0, "noise_floor_mean_abs_error"] == pytest.approx(0.0)

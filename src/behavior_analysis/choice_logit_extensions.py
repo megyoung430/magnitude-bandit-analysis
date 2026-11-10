@@ -19,6 +19,7 @@ negative log likelihood per choice ("nats per choice") is better; chance is ``lo
 Everything here is pure: designs and tables in, tables out.
 """
 
+import zlib
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple
 
@@ -46,8 +47,9 @@ VARIANTS = {
     "choice only": (C,),
     "tower only": (T,),
 }
-# Fewer mice than this are shown as single mice, without a mean, error or test.
-MIN_TEST_MICE = 5
+# Fewer mice than this are shown as single mice, without a mean, error or test. Five mice can
+# never reach p < 0.05 in a two-sided exact test (the smallest p is 2 / 2**5 = 0.0625); six can.
+MIN_TEST_MICE = 6
 DEFAULT_CALIBRATION_BINS = 10
 
 
@@ -245,13 +247,13 @@ def gain_summary(
     Args:
         table (pd.DataFrame): One row per mouse, with a column of gains for each of *columns*.
         columns (Sequence[str]): The gain columns to summarize.
-        min_mice (int): With fewer mice the tests are NaN: two-sided tests of a handful of
-            mice cannot reach significance, and the figures show the mice individually.
-            Default ``MIN_TEST_MICE``.
+        min_mice (int): With fewer mice the mean, standard error and tests are NaN: five mice
+            cannot reach p < 0.05 in a two-sided exact test (the smallest p is 0.0625), and the
+            figures show such mice individually. Default ``MIN_TEST_MICE``.
 
     Returns:
         pd.DataFrame: One row per column: ``gain, n, mean, se, n_positive, p_wilcoxon,
-        p_sign``. ``se`` is NaN for a single mouse.
+        p_sign``; NaN in ``mean`` to ``p_sign`` below *min_mice* mice.
     """
     rows = []
     for column in columns:
@@ -262,8 +264,8 @@ def gain_summary(
             dict(
                 gain=column,
                 n=len(values),
-                mean=float(nan_mean(values[:, None])[0]),
-                se=float(nan_standard_error(values[:, None])[0]),
+                mean=float(nan_mean(values[:, None])[0]) if enough else np.nan,
+                se=float(nan_standard_error(values[:, None])[0]) if enough else np.nan,
                 n_positive=int((values > 0).sum()),
                 p_wilcoxon=p_wilcoxon,
                 p_sign=p_sign,
@@ -290,12 +292,12 @@ def variance_partition(comparison: pd.DataFrame) -> pd.DataFrame:
     - ``unique_<group>`` = ``loss(full minus the group) - loss(full)``: what only that group
       explains, given the other two.
     - ``shared_reward_choice`` = ``[gain(reward + tower) + gain(choice + tower)] - gain(full)``
-      with ``gain(model) = loss(tower only) - loss(model)``: what reward history and choice
-      history each explain beyond the tower bias, counted twice. It is positive when the two
-      histories overlap (a rewarded choice is also a repeated one) and negative when they
-      complement each other. The tower bias stays in every model of this term so that it is
-      measured against one baseline; the models without it would score below the tower-only model
-      for a mouse with a strong port preference.
+      with ``gain(model) = loss(tower only) - loss(model)``: the sum of what each history
+      explains beyond the tower bias, minus what both explain together. It is positive when the
+      two histories overlap, so the sum counts the same choices twice (a rewarded choice is also a
+      repeated one), and negative when they complement each other. The tower bias stays in
+      every model of this term so that it is measured against one baseline; the models without
+      it would score below the tower-only model for a mouse with a strong port preference.
     - Together ``gain_full_over_tower = unique_reward + unique_choice + shared_reward_choice``
       exactly.
     - ``only_<group>`` is the gain over chance (``log(3) - loss``) of the model with that group
@@ -345,7 +347,10 @@ def calibration_bins(
 
     Every (trial, arm) pair is one prediction, the arm's probability, with outcome 1 if that arm
     was chosen. The predictions are sorted and cut into *n_bins* groups of (nearly) equal size
-    (deciles by default), so every bin is estimated from as many pairs as any other.
+    (deciles by default), so every bin is estimated from as many pairs as any other. Tied
+    predictions can straddle a bin edge: equal values are split between the two bins in sorted
+    order, so a model with few distinct predictions (e.g. choice history only) has adjacent bins
+    with the same mean predicted probability.
 
     Args:
         probabilities (np.ndarray): ``(n_trials, 3)`` predicted choice probabilities.
@@ -437,3 +442,59 @@ def calibration_summary(table: pd.DataFrame) -> pd.DataFrame:
             "weighted_abs_error": by_mouse["weighted"].sum() / by_mouse["n_pairs"].sum(),
         }
     ).reset_index()
+
+
+def calibration_noise_floor(
+    probabilities: np.ndarray,
+    mice: np.ndarray,
+    n_bins: int = DEFAULT_CALIBRATION_BINS,
+    seed: int = 0,
+    n_draws: int = 20,
+) -> pd.DataFrame:
+    """The calibration error a perfectly calibrated model would show by sampling noise alone.
+
+    For each mouse the outcomes are drawn from the mouse's own held-out predictions (each trial's
+    choice from its three probabilities), and the calibration error is computed with the same
+    bins as for the real choices; the floor is the mean over *n_draws* draws. A model whose
+    error is near its floor is as calibrated as its trial count lets one tell.
+
+    Args:
+        probabilities (np.ndarray): ``(n_trials, 3)`` held-out predictions of all mice.
+        mice (np.ndarray): ``(n_trials,)`` mouse of each trial.
+        n_bins (int): Quantile bins per mouse. Default ``DEFAULT_CALIBRATION_BINS``.
+        seed (int): Seed of the draws; each mouse has its own stream derived from it and a
+            checksum of the mouse id, so adding a mouse changes no other mouse's floor. Default 0.
+        n_draws (int): Simulated outcome sets averaged per mouse. Default 20.
+
+    Returns:
+        pd.DataFrame: ``mouse, noise_floor_mean_abs_error, noise_floor_weighted_abs_error`` (the
+        two metrics of :func:`calibration_summary`), mice in order of first appearance.
+
+    Raises:
+        ValueError: If *mice* is not one per trial, or as :func:`calibration_bins`.
+    """
+    if mice.shape != (len(probabilities),):
+        raise ValueError("mice must hold one mouse id per trial")
+    rows = []
+    for mouse in pd.unique(mice):
+        own = probabilities[mice == mouse]
+        rng = np.random.default_rng([seed, zlib.crc32(str(mouse).encode())])
+        cumulative = own.cumsum(axis=1)
+        errors = []
+        for _ in range(n_draws):
+            # a draw from each row: the first arm whose cumulative probability exceeds u
+            simulated = np.minimum(
+                (rng.random(len(own))[:, None] >= cumulative).sum(axis=1), cl.N_ARMS - 1
+            )
+            table = calibration_bins(own, simulated, n_bins).assign(mouse=mouse)
+            errors.append(calibration_summary(table).iloc[0])
+        rows.append(
+            dict(
+                mouse=mouse,
+                noise_floor_mean_abs_error=float(np.mean([e["mean_abs_error"] for e in errors])),
+                noise_floor_weighted_abs_error=float(
+                    np.mean([e["weighted_abs_error"] for e in errors])
+                ),
+            )
+        )
+    return pd.DataFrame(rows)
