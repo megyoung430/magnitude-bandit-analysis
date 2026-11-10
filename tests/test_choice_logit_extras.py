@@ -146,3 +146,38 @@ def test_unknown_extra_is_rejected(hand_built):
 
 def test_ports_fixture_matches_sorted_arm_order():
     assert PORTS == sorted(PORTS)  # the expected arrays above assume A1, B3, C2
+
+
+def test_duplicate_extras_are_rejected(hand_built):
+    with pytest.raises(ValueError, match="duplicate"):
+        cl.design_matrix(hand_built, n_lags=2, extras=(cl.BELIEVED, cl.BELIEVED))
+
+
+def test_binary_tail_has_its_own_decay(hand_built):
+    design = cl.design_matrix(
+        hand_built, n_lags=1, tail_decay=0.9, extras=(cl.BINARY,), binary_tail_decay=0.5
+    )
+    # rewarded-or-not per trial for (A1, B3, C2): t0 B3, t1 A1, t2 A1, t3 C2, t4 B3 all paid
+    # tail(t) = 0.5 * tail(t-1) + rewarded(t-2); lag 1 is separate
+    expected_b3 = [0, 0, 1, 0.5, 0.25]  # B3 rewarded at t0 and t4
+    np.testing.assert_allclose(column(design, "binary_tail")[:, 1], expected_b3)
+    # the pulse tail keeps its own decay
+    pulse = cl.design_matrix(hand_built, n_lags=1, tail_decay=0.9)
+    np.testing.assert_allclose(column(design, "reward_tail"), column(pulse, "reward_tail"))
+
+
+def test_binary_tail_decay_defaults_to_the_pulse_decay(hand_built):
+    same = cl.design_matrix(hand_built, n_lags=1, tail_decay=0.9, extras=(cl.BINARY,))
+    explicit = cl.design_matrix(
+        hand_built, n_lags=1, tail_decay=0.9, extras=(cl.BINARY,), binary_tail_decay=0.9
+    )
+    np.testing.assert_array_equal(same.X, explicit.X)
+
+
+def test_binary_tail_decay_needs_a_tail_and_a_valid_value(hand_built):
+    with pytest.raises(ValueError, match="binary_tail_decay"):
+        cl.design_matrix(hand_built, n_lags=1, extras=(cl.BINARY,), binary_tail_decay=0.5)
+    with pytest.raises(ValueError, match="binary_tail_decay"):
+        cl.design_matrix(
+            hand_built, n_lags=1, tail_decay=0.9, extras=(cl.BINARY,), binary_tail_decay=1.5
+        )

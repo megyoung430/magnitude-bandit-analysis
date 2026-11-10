@@ -186,7 +186,12 @@ def _believed_features(received: np.ndarray, picked: np.ndarray) -> list[np.ndar
 
 
 def _problem_features(
-    rows: pd.DataFrame, n_lags: int, towers: list[str], tail_decay, extras: tuple[str, ...]
+    rows: pd.DataFrame,
+    n_lags: int,
+    towers: list[str],
+    tail_decay,
+    extras: tuple[str, ...],
+    binary_tail_decay,
 ):
     """``(X, chosen, ports)`` of one problem; *rows* in trial order."""
     ports = _problem_ports(rows)
@@ -212,7 +217,7 @@ def _problem_features(
             rewarded = (received > 0).astype(float)
             extra_columns += [_lagged(rewarded, k) for k in range(1, n_lags + 1)]
             if tail_decay is not None:
-                extra_columns.append(_tail(_lagged(rewarded, n_lags + 1), tail_decay))
+                extra_columns.append(_tail(_lagged(rewarded, n_lags + 1), binary_tail_decay))
         else:
             extra_columns += _believed_features(received, picked)
     X = np.stack(reward_lags + choice_lags + tower_columns + extra_columns, axis=2)
@@ -272,6 +277,7 @@ def design_matrix(
     n_lags: int = DEFAULT_LAGS,
     tail_decay: float | None = None,
     extras: tuple[str, ...] = (),
+    binary_tail_decay: float | None = None,
 ) -> LogitDesign:
     """The logit's features for one mouse's trials.
 
@@ -283,15 +289,19 @@ def design_matrix(
         tail_decay (float | None): Decay per trial of the reward tail, in (0, 1); ``None``
             (default) adds no tail feature.
         extras (tuple[str, ...]): Optional column groups to append, some of ``EXTRAS``
-            (``BINARY``, ``BELIEVED``; see the module docstring). Default none.
+            (``BINARY``, ``BELIEVED``; see the module docstring), each at most once. Default none.
+        binary_tail_decay (float | None): Decay of the ``binary_tail`` column, in (0, 1), so the
+            binary coding can have the decay that suits it rather than the pulse tail's. Default
+            ``None``: the same as *tail_decay*. Needs *tail_decay*.
 
     Returns:
         LogitDesign: Features (see the module docstring), chosen port and trial metadata. Rows
         follow the problems in order of first appearance.
 
     Raises:
-        ValueError: If ``n_lags < 1``, *tail_decay* is not in (0, 1), *extras* names an unknown
-            group, *trials* hold more than one mouse or none, or a problem does not offer the
+        ValueError: If ``n_lags < 1``, *tail_decay* or *binary_tail_decay* is not in (0, 1) (or
+            the latter is given without a tail), *extras* names an unknown or a repeated group,
+            *trials* hold more than one mouse or none, or a problem does not offer the
             same three ports on every trial.
 
     Warns:
@@ -304,6 +314,15 @@ def design_matrix(
     unknown = [e for e in extras if e not in EXTRAS]
     if unknown:
         raise ValueError(f"unknown extra column group {unknown}; expected some of {list(EXTRAS)}")
+    if len(set(extras)) != len(extras):
+        raise ValueError(f"duplicate extra column groups in {list(extras)}")
+    if binary_tail_decay is not None and (tail_decay is None or not 0 < binary_tail_decay < 1):
+        raise ValueError(
+            "binary_tail_decay must be in (0, 1) and needs a tail_decay, got "
+            f"{binary_tail_decay} with tail_decay {tail_decay}"
+        )
+    if binary_tail_decay is None:
+        binary_tail_decay = tail_decay
     if trials["mouse"].nunique() != 1:
         raise ValueError(
             f"design_matrix takes the trials of one mouse, got {trials['mouse'].nunique()} mice"
@@ -314,7 +333,9 @@ def design_matrix(
     parts, metas = [], []
     for _, rows in trials.groupby("problem", sort=False):
         rows = rows.sort_values("trial")
-        parts.append(_problem_features(rows, n_lags, non_reference, tail_decay, extras))
+        parts.append(
+            _problem_features(rows, n_lags, non_reference, tail_decay, extras, binary_tail_decay)
+        )
         metas.append(rows[list(META_COLUMNS)])
     X, chosen, ports = (np.concatenate(part) for part in zip(*parts, strict=True))
     return LogitDesign(
