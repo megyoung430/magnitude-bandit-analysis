@@ -210,13 +210,13 @@ def plot_binary_vs_pulse(
         "pulse: both sets of lags.",
         "Gain = held-out (leave-one-problem-out) nats per choice of the pulse model minus that of "
         "the model named; positive is better than the pulse model. Binary Instead of Pulse above "
-        "0 means the mouse follows whether it was rewarded, below 0 that it follows the "
+        "0 means choices follow whether the arm was rewarded, below 0 that they follow the "
         "magnitude.",
         f"Dots: mice; black bars: mean ± se across mice, drawn only for a source with at least "
         f"{ext.MIN_TEST_MICE} mice (fewer than {ext.MIN_TEST_MICE} mice: per-mouse values only).",
         *_binary_caption_lines(sources),
     )
-    with new_figure(ncols=2, figsize=(11, 4.8), sharey=True) as (fig, axs):
+    with new_figure(ncols=2, figsize=(13.5, 5.2), sharey=True) as (fig, axs):
         rng = jitter_rng()
         for ax, (column, heading) in zip(axs, BINARY_PANELS, strict=True):
             labeled: set = set()
@@ -227,7 +227,9 @@ def plot_binary_vs_pulse(
                 )[1]
                 for x, t in enumerate(sources.values())
             ]  # fmt: skip
-            _style_source_axis(ax, ticks, "Held-Out Gain over Pulse (Nats per Choice)")
+            _style_source_axis(
+                ax, ticks, "Held-Out Gain over Pulse (Nats per Choice)" if ax is axs[0] else ""
+            )
             stats = (
                 mice_stats(n_max, *errors)
                 if drawing_means
