@@ -147,3 +147,46 @@ def test_fits_table_flags_bounds_and_needs_the_magnitude_fit():
     assert table.loc["binary", "delta_nll_vs_magnitude"] == 10.0
     with pytest.raises(ValueError, match="no magnitude-agent fit"):
         sim.fits_table(fits[1:])
+
+
+class _ScriptedPolicy:
+    """Always picks arm *arm*; records the sessions it saw and what it was paid."""
+
+    def __init__(self, arm: int):
+        self.arm, self.paid, self.session_starts = arm, [], 0
+
+    def start_session(self) -> None:
+        self.session_starts += 1
+
+    def probabilities(self) -> np.ndarray:
+        return np.eye(3)[self.arm]
+
+    def update(self, action: int, magnitude: float) -> None:
+        self.paid.append((action, magnitude))
+
+
+def test_play_problem_runs_any_policy_through_the_task():
+    policy = _ScriptedPolicy(arm=1)
+    sessions = sim.play_problem(policy, LAYOUT, RULES, np.random.default_rng(0))
+    assert policy.session_starts == len(LAYOUT.session_lengths)
+    assert [len(s.trials) for s in sessions] == LAYOUT.session_lengths
+    assert {t["chosen_tow"] for s in sessions for t in s.trials} == {"B3"}
+    first = sessions[0].trials[0]
+    assert policy.paid[0] == (1, first["curr_rew_mag"]["B3"])
+
+
+def test_simulate_problem_is_the_value_policy_played():
+    by_kind = sim.simulate_problem(PARAMS, "magnitude", LAYOUT, RULES, np.random.default_rng(3))
+    policy = sim.ValuePolicy(PARAMS, "magnitude", LAYOUT)
+    by_policy = sim.play_problem(policy, LAYOUT, RULES, np.random.default_rng(3))
+    assert by_kind == by_policy
+
+
+def test_simulate_policy_mouse_labels_and_numbers_the_problems():
+    layouts = {"p1": LAYOUT, "p2": LAYOUT}
+    played = sim.simulate_policy_mouse(
+        lambda layout: _ScriptedPolicy(0), layouts, RULES, np.random.default_rng(0), "agent"
+    )
+    assert list(played) == ["p1", "p2"]
+    assert list(played["p2"]) == ["agent"]
+    assert {s["problem"] for s in played["p2"]["agent"].values()} == {2}

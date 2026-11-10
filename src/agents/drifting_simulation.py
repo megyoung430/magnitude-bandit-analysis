@@ -33,7 +33,8 @@ random state.
 """
 
 import json
-from typing import NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple, Protocol
 
 import numpy as np
 import pandas as pd
@@ -379,8 +380,54 @@ class SimulatedSession(NamedTuple):
     end: dict
 
 
-def simulate_problem(
-    parameters, kind: str, layout: MouseLayout, rules: TaskRules, rng: np.random.Generator
+class Policy(Protocol):
+    """What an agent must offer for the task to play it, one trial at a time.
+
+    The task calls :meth:`start_session` before a session's first trial (the agent forgets
+    whatever should not survive between sessions), then for every trial :meth:`probabilities`
+    to draw the choice and :meth:`update` with the arm chosen and the magnitude it paid.
+    Arms are indexed in the order of the layout's sorted ports.
+    """
+
+    def start_session(self) -> None: ...
+
+    def probabilities(self) -> np.ndarray: ...
+
+    def update(self, action: int, magnitude: float) -> None: ...
+
+
+class ValuePolicy:
+    """The value learner of :mod:`src.agents.value_agent` as a :class:`Policy`.
+
+    Values start at 0 for a problem and carry over its sessions; the previous choice is
+    cleared at each session start.
+
+    Args:
+        parameters (Sequence[float]): In ``value_agent.PARAMETER_NAMES`` order.
+        kind (str): One of ``AGENT_KINDS``; what the agent learns from.
+        layout (MouseLayout): Gives the ports and the initiation port (for the plus ports).
+    """
+
+    def __init__(self, parameters, kind: str, layout: "MouseLayout"):
+        self.parameters, self.kind = parameters, kind
+        self.plus = plus_ports(list(layout.ports), layout.initiation)
+        self.q = np.zeros(len(layout.ports))
+        self.previous: int | None = None
+
+    def start_session(self) -> None:
+        self.previous = None
+
+    def probabilities(self) -> np.ndarray:
+        return value_agent.choice_probabilities(self.q, self.previous, self.plus, self.parameters)
+
+    def update(self, action: int, magnitude: float) -> None:
+        reward = agent_rewards([magnitude], self.kind)[0]
+        self.q[action] += self.parameters[0] * (reward - self.q[action])
+        self.previous = action
+
+
+def play_problem(
+    policy: Policy, layout: MouseLayout, rules: TaskRules, rng: np.random.Generator
 ) -> list[SimulatedSession]:
     """One agent's play of one problem, one :class:`SimulatedSession` per session.
 
@@ -390,31 +437,28 @@ def simulate_problem(
     and ``rank_counts`` (choices of each rank so far in the session, this one included).
 
     Args:
-        parameters (Sequence[float]): In ``value_agent.PARAMETER_NAMES`` order.
-        kind (str): One of ``AGENT_KINDS``; what the agent learns from.
+        policy (Policy): The agent; it is used for this problem only (it keeps its learned
+            state between the problem's sessions).
         layout (MouseLayout): Ports, initiation port, starting values and session lengths.
         rules (TaskRules): Drift attempt rate and block lengths.
-        rng (np.random.Generator): Source of all randomness.
+        rng (np.random.Generator): Source of all randomness, the policy's choices included.
 
     Returns:
         list[SimulatedSession]: The sessions, in order (an empty session has no trials).
     """
-    learning_rate = parameters[0]
     ports = list(layout.ports)
-    plus = plus_ports(ports, layout.initiation)
     magnitudes = dict(layout.start_magnitudes)
     block_left = int(rng.choice(rules.block_lengths))
     counts: dict = {}
     total_blocks = 1
-    q = np.zeros(len(ports))
     sessions = []
     for n_trials in layout.session_lengths:
         start = {"num_blocks": 1, "tot_num_blocks": total_blocks, "curr_rew_mag": dict(magnitudes)}
-        previous, block_in_session, trials = None, 1, []
+        block_in_session, trials = 1, []
+        policy.start_session()
         rank_counts = dict.fromkeys(RANKS, 0)
         for t in range(n_trials):
-            p = value_agent.choice_probabilities(q, previous, plus, parameters)
-            action = int(rng.choice(len(ports), p=p))
+            action = int(rng.choice(len(ports), p=policy.probabilities()))
             port = ports[action]
             rank = _rank(magnitudes, port)
             rank_counts[rank] += 1
@@ -429,10 +473,8 @@ def simulate_problem(
                     "rank_counts": dict(rank_counts),
                 }
             )
-            reward = agent_rewards([magnitudes[port]], kind)[0]
-            q[action] += learning_rate * (reward - q[action])
+            policy.update(action, magnitudes[port])
             counts[port] = counts.get(port, 0) + 1
-            previous = action
             block_left -= 1
             if block_left <= 0:
                 # the swap replaces drift on this trial, so the old zero arm takes exactly the
@@ -450,6 +492,24 @@ def simulate_problem(
         }
         sessions.append(SimulatedSession(trials, start, end))
     return sessions
+
+
+def simulate_problem(
+    parameters, kind: str, layout: MouseLayout, rules: TaskRules, rng: np.random.Generator
+) -> list[SimulatedSession]:
+    """One value learner's play of one problem (see :func:`play_problem`).
+
+    Args:
+        parameters (Sequence[float]): In ``value_agent.PARAMETER_NAMES`` order.
+        kind (str): One of ``AGENT_KINDS``; what the agent learns from.
+        layout (MouseLayout): Ports, initiation port, starting values and session lengths.
+        rules (TaskRules): Drift attempt rate and block lengths.
+        rng (np.random.Generator): Source of all randomness.
+
+    Returns:
+        list[SimulatedSession]: The sessions, in order.
+    """
+    return play_problem(ValuePolicy(parameters, kind, layout), layout, rules, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +564,34 @@ def simulated_sessions(
     return reconcile_reversals({mouse: out})[mouse] if out else out
 
 
+def simulate_policy_mouse(
+    make_policy: Callable[[MouseLayout], Policy],
+    layouts: dict,
+    rules: TaskRules,
+    rng: np.random.Generator,
+    label: str,
+) -> dict:
+    """``{problem: {simulated mouse: sessions}}`` of one agent playing a mouse's problems.
+
+    Every problem gets a fresh policy, as every problem starts with no learned state.
+
+    Args:
+        make_policy (Callable): ``layout -> Policy``, called once per problem.
+        layouts (dict): ``{problem: MouseLayout}`` of the mouse (:func:`mouse_layouts`).
+        rules (TaskRules): The task rules.
+        rng (np.random.Generator): Source of randomness.
+        label (str): Id of the simulated animal, e.g. ``"MY_71_L-magnitude-1"``.
+
+    Returns:
+        dict: The simulated problems, keyed like the real ones.
+    """
+    problems = {}
+    for k, (problem, layout) in enumerate(layouts.items(), start=1):
+        sessions = play_problem(make_policy(layout), layout, rules, rng)
+        problems[problem] = {label: simulated_sessions(label, k, layout, sessions)}
+    return problems
+
+
 def simulate_mouse(
     fit: AgentFit, layouts: dict, rules: TaskRules, rng: np.random.Generator, label: str
 ) -> dict:
@@ -519,8 +607,6 @@ def simulate_mouse(
     Returns:
         dict: The simulated problems, keyed like the real ones.
     """
-    problems = {}
-    for k, (problem, layout) in enumerate(layouts.items(), start=1):
-        sessions = simulate_problem(fit.parameters, fit.kind, layout, rules, rng)
-        problems[problem] = {label: simulated_sessions(label, k, layout, sessions)}
-    return problems
+    return simulate_policy_mouse(
+        lambda layout: ValuePolicy(fit.parameters, fit.kind, layout), layouts, rules, rng, label
+    )
