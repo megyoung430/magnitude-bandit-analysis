@@ -135,3 +135,12 @@ def test_source_colors_are_one_per_source_and_distinct():
     colors = plots.source_colors(["Mice", "WSLS", "WSLS (Recency)", "Q-Learner"])
     assert len(set(colors.values())) == 4
     assert np.all([c.startswith("#") for c in colors.values()])
+
+
+def test_kernel_overlay_gives_each_sources_n_when_they_differ(tmp_path, figures):
+    sources = {"Mice": weights_table(4), "WSLS": weights_table(2, seed=1)}
+    plots.plot_kernels_by_source(sources, tmp_path / "Kernels by Source")
+    _, panels, legend, over = figures["Kernels by Source"]
+    assert legend == ["Mice (n=4)", "WSLS (n=2)"]
+    assert over == []
+    assert all("n=4 mice" in p for p in panels)  # the title states the largest

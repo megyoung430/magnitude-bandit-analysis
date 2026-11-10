@@ -54,7 +54,7 @@ REWARD_ROW_HEADINGS = {
 }
 
 
-def _mice_stats(n_mice: int, *errors) -> str:
+def mice_stats(n_mice: int, *errors) -> str:
     """``"mean ± se across mice, n=… mice"``; ``mean`` alone if no error is drawn."""
     average = "mean ± se" if error_drawn(*errors) else "mean"
     return stats_line(average, "mice", [(n_mice, "mouse", "mice")])
@@ -121,7 +121,7 @@ def plot_kernel_panel(
         ax.set_xticks(lags)
         ax.set_xlabel("Lag (Trials Back)", fontsize=12)
         ax.set_ylabel(ylabel, fontsize=12)
-        set_title(ax, Title(heading, _mice_stats(len(fitted), se)), fontsize=12)
+        set_title(ax, Title(heading, mice_stats(len(fitted), se)), fontsize=12)
         ax.legend(fontsize=10)
         despine(ax)
     return ax
@@ -241,7 +241,7 @@ def plot_model_comparison(
         ax.set_xticks(x, [MODEL_LABELS[m] for m in gain.columns])
         ax.set_xlim(-0.4, len(x) - 0.6)
         ax.set_ylabel("Gain over Chance (Nats per Choice)", fontsize=12)
-        set_title(ax, Title("Held-Out Model Comparison", _mice_stats(len(gain), se)), fontsize=12)
+        set_title(ax, Title("Held-Out Model Comparison", mice_stats(len(gain), se)), fontsize=12)
         despine(ax)
 
     if ax is not None:

@@ -14,7 +14,16 @@ import numpy as np
 import pandas as pd
 
 from src.behavior_analysis.stats import nan_mean, nan_standard_error
-from src.behavior_visualization.plot_choice_logit import KERNEL_PANELS, kernel_matrix
+from src.behavior_visualization.plot_choice_logit import (
+    KERNEL_PANELS,
+    PsychometricRow,
+    kernel_matrix,
+    mice_stats,
+    plot_psychometric_rows,
+    plot_stay_switch_by_reward,
+    plot_switch_targets_by_reward,
+    value_labels,
+)
 from src.behavior_visualization.plot_helpers import (
     Title,
     despine,
@@ -22,7 +31,6 @@ from src.behavior_visualization.plot_helpers import (
     mouse_color_map,
     save_or_show,
     set_title,
-    stats_line,
 )
 from src.behavior_visualization.plot_value_psychometrics import finish_figure, new_figure
 
@@ -39,13 +47,8 @@ SOURCE_PALETTE = (
 
 
 def source_colors(names: Sequence[str]) -> dict[str, str]:
-    """One palette colour per source, cycling past the palette's end."""
+    """One palette color per source, cycling past the palette's end."""
     return {n: SOURCE_PALETTE[i % len(SOURCE_PALETTE)] for i, n in enumerate(names)}
-
-
-def _mice_stats(n_mice: int, *errors) -> str:
-    average = "mean ± se" if error_drawn(*errors) else "mean"
-    return stats_line(average, "mice", [(n_mice, "mouse", "mice")])
 
 
 def _label(model: str) -> str:
@@ -70,7 +73,7 @@ def _plot_score_panel(scores: pd.DataFrame, ax: plt.Axes) -> None:
     ax.axhline(np.log(3), color="0.5", lw=0.8, ls=":")
     ax.set_xticks(x, [_label(m) for m in nats.columns], rotation=20, ha="right")
     ax.set_ylabel("Negative Log Likelihood (Nats per Choice)", fontsize=12)
-    set_title(ax, Title("Fit to Each Mouse's Choices", _mice_stats(len(nats), se)), fontsize=12)
+    set_title(ax, Title("Fit to Each Mouse's Choices", mice_stats(len(nats), se)), fontsize=12)
     despine(ax)
 
 
@@ -98,7 +101,7 @@ def _plot_stay_panel(observed: pd.DataFrame, implied: pd.DataFrame, ax: plt.Axes
     ax.set_ylim(0, 1)
     ax.set_xlabel("Pulses Paid by the Previous Choice", fontsize=12)
     ax.set_ylabel("P(Stay)", fontsize=12)
-    set_title(ax, Title("Stay After Each Magnitude", _mice_stats(len(table), se)), fontsize=12)
+    set_title(ax, Title("Stay After Each Magnitude", mice_stats(len(table), se)), fontsize=12)
     ax.legend(fontsize=10)
     despine(ax)
 
@@ -149,6 +152,8 @@ def plot_null_agent_fits(
 
 def _plot_source_kernel(sources: dict, group: str, heading: str, ylabel: str, ax: plt.Axes):
     colors = source_colors(list(sources))
+    counts = {name: w["mouse"].nunique() for name, w in sources.items()}
+    n_differ = len(set(counts.values())) > 1
     n_mice, errors = 0, []
     for name, weights in sources.items():
         matrix = kernel_matrix(weights, group)
@@ -156,13 +161,14 @@ def _plot_source_kernel(sources: dict, group: str, heading: str, ylabel: str, ax
         mean, se = nan_mean(matrix.to_numpy(), axis=0), nan_standard_error(matrix.to_numpy())
         if error_drawn(se):
             ax.fill_between(lags, mean - se, mean + se, color=colors[name], alpha=0.2, lw=0)
-        ax.plot(lags, mean, "-o", color=colors[name], lw=2, ms=4, label=name)
+        label = f"{name} (n={counts[name]})" if n_differ else name
+        ax.plot(lags, mean, "-o", color=colors[name], lw=2, ms=4, label=label)
         n_mice, errors = max(n_mice, len(matrix)), [*errors, se]
     ax.axhline(0, color="0.7", lw=0.8)
     ax.set_xticks(lags)
     ax.set_xlabel("Lag (Trials Back)", fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
-    set_title(ax, Title(heading, _mice_stats(n_mice, *errors)), fontsize=12)
+    set_title(ax, Title(heading, mice_stats(n_mice, *errors)), fontsize=12)
     ax.legend(fontsize=10)
     despine(ax)
 
@@ -189,10 +195,69 @@ def plot_kernels_by_source(sources: dict, save_path: str | Path | None = None) -
         "mean across the source's mice with its se band.",
         "Reward kernel: change in an arm's logit per pulse received there k trials back. Choice "
         "kernel: change in an arm's logit if it was chosen k trials back.",
-        f"Mice per source, {counts}. The title states the largest.",
+        f"Mice per source, {counts}. The title states the largest; the legend gives each "
+        "source's n when they differ.",
     )
     with new_figure(ncols=2, figsize=(10, 4.4)) as (fig, axs):
         for ax, (group, heading, ylabel) in zip(axs, KERNEL_PANELS, strict=True):
             _plot_source_kernel(sources, group, heading, ylabel, ax)
         finish_figure(fig, Title("Choice Logit Kernels by Source", None, caption))
     save_or_show(fig, save_path or None)
+
+
+# ---------------------------------------------------------------------------
+# One call for the whole comparison
+# ---------------------------------------------------------------------------
+
+
+def plot_comparison(comparison, out_dir: str | Path) -> None:
+    """Save every figure of a :class:`~src.pipelines.null_agents.NullComparison`.
+
+    Writes the fit figure, the kernels of all sources, the psychometrics of all sources, and a
+    stay/switch and a switch-target figure for each null agent into *out_dir* (each with pdf,
+    png, svg and caption files).
+
+    Args:
+        comparison (NullComparison): From ``null_agents.compare_with_controls``.
+        out_dir (str | Path): Folder; created if missing.
+    """
+    out_dir = Path(out_dir)
+    reference, *agents = comparison.analyses
+    plot_null_agent_fits(
+        comparison.scores,
+        comparison.observed_stay,
+        comparison.implied_stay,
+        out_dir / "Null Agent Fits",
+    )
+    plot_kernels_by_source(
+        {label: a.weights for label, a in comparison.analyses.items()},
+        out_dir / "Kernels by Source",
+    )
+    rows = [
+        PsychometricRow(label, curves, value_labels("Model Value", "Logit"), baselines)
+        for label, (curves, baselines) in comparison.psychometrics.items()
+    ]
+    plot_psychometric_rows(
+        rows,
+        "Psychometric Curves: Negative Controls",
+        (
+            f"Rows: the model value (held-out logit) of {reference} and of the win-stay/"
+            "lose-shift agents fitted to the same mice, each ranking the arms in per-mouse "
+            "quantile bins.",
+        ),
+        out_dir / "Psychometric Curves",
+        comparison.min_mice,
+    )
+    for label in agents:
+        value_label = f"{label} Model Value"
+        curves, baselines = comparison.stay_switch[label]
+        plot_stay_switch_by_reward(
+            curves, value_label, comparison.pool_trials, out_dir / f"{label} Stay-Switch Curves",
+            baselines_by_row=baselines, unit="Logit", min_mice=comparison.min_mice, binned=True,
+        )  # fmt: skip
+        targets, target_baselines, tied = comparison.switch_targets[label]
+        plot_switch_targets_by_reward(
+            targets, value_label, tied, out_dir / f"{label} Switch Target Curves",
+            baselines_by_row=target_baselines, unit="Logit", min_mice=comparison.min_mice,
+            binned=True,
+        )  # fmt: skip
