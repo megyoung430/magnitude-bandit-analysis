@@ -84,3 +84,25 @@ def test_bad_inputs_raise():
         value_agent.pad_sequences([bad])
     with pytest.raises(ValueError, match="n_starts"):
         value_agent.fit(_simulate((0.4, 1.0, 1.0, 0.5), n_problems=1, n_trials=10), n_starts=0)
+
+
+def test_trial_log_probabilities_by_hand_with_padding_marked_nan():
+    one = dict(actions=[0, 0], rewards=[2.0, 0.0], session_start=[True, False], plus=PLUS)
+    two = dict(actions=[1], rewards=[1.0], session_start=[True], plus=PLUS)
+    seqs = value_agent.pad_sequences([one, two])
+    params = (0.5, 1.0, 0.3, 0.2)
+    first = value_agent.choice_probabilities(np.zeros(3), None, PLUS, params)
+    second = value_agent.choice_probabilities(np.array([1.0, 0, 0]), 0, PLUS, params)
+    out = value_agent.trial_log_probabilities(params, seqs)
+    assert out.shape == seqs.actions.shape
+    assert out[0] == pytest.approx([np.log(first[0]), np.log(second[0])])
+    assert out[1, 0] == pytest.approx(np.log(first[1]))
+    assert np.isnan(out[1, 1])  # padded step
+
+
+def test_trial_log_probabilities_sum_to_the_likelihood():
+    seqs = _simulate((0.4, 1.0, 1.0, 0.5), n_problems=3, n_trials=120)
+    params = (0.3, 0.8, 0.6, 0.2)
+    per_trial = value_agent.trial_log_probabilities(params, seqs)
+    assert np.nansum(per_trial) == pytest.approx(value_agent.log_likelihood(params, seqs))
+    assert np.isnan(per_trial).sum() == (~seqs.mask).sum()

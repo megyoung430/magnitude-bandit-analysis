@@ -86,6 +86,43 @@ def pad_sequences(problems: list[dict]) -> Sequences:
     return Sequences(actions, rewards, starts, mask, plus)
 
 
+def _forward(params, seqs: Sequences, return_gradient: bool):
+    """``(per-trial log probabilities, gradient of their sum)``; see :func:`log_likelihood`.
+
+    The first is ``(n_problems, n_steps)`` with NaN at padded steps; the second is ``None``
+    unless *return_gradient*.
+    """
+    learning_rate, beta, kappa, plus_bias = (float(p) for p in params)
+    n_problems, n_steps = seqs.actions.shape
+    rows = np.arange(n_problems)
+    q = np.zeros((n_problems, 3))
+    dq = np.zeros((n_problems, 3))  # d q / d learning_rate
+    previous = np.full(n_problems, -1)
+    per_trial = np.full((n_problems, n_steps), np.nan)
+    gradient = np.zeros(4)
+    for t in range(n_steps):
+        live = seqs.mask[:, t]
+        action, reward = seqs.actions[:, t], seqs.rewards[:, t]
+        previous = np.where(seqs.session_start[:, t], -1, previous)
+        stay = (np.arange(3)[None, :] == previous[:, None]).astype(float)
+        logits = beta * q + kappa * stay + plus_bias * seqs.plus
+        log_p = logits - logsumexp(logits, axis=1, keepdims=True)
+        per_trial[:, t] = np.where(live, log_p[rows, action], np.nan)
+        if return_gradient:
+            p = np.exp(log_p)
+            for k, d_logits in enumerate((beta * dq, q, stay, seqs.plus)):
+                per_step = d_logits[rows, action] - (p * d_logits).sum(axis=1)
+                gradient[k] += per_step[live].sum()
+        error = reward - q[rows, action]
+        chosen_dq = dq[rows, action]
+        q_new = q[rows, action] + learning_rate * error
+        dq_new = (1 - learning_rate) * chosen_dq + error
+        q[rows[live], action[live]] = q_new[live]
+        dq[rows[live], action[live]] = dq_new[live]
+        previous = np.where(live, action, previous)
+    return per_trial, (gradient if return_gradient else None)
+
+
 def log_likelihood(params, seqs: Sequences, return_gradient: bool = False):
     """Summed log probability of the chosen ports, and optionally its gradient.
 
@@ -98,34 +135,27 @@ def log_likelihood(params, seqs: Sequences, return_gradient: bool = False):
         float | tuple[float, np.ndarray]: The log likelihood, with the ``(4,)`` gradient in
         ``PARAMETER_NAMES`` order when asked.
     """
-    learning_rate, beta, kappa, plus_bias = (float(p) for p in params)
-    n_problems, n_steps = seqs.actions.shape
-    rows = np.arange(n_problems)
-    q = np.zeros((n_problems, 3))
-    dq = np.zeros((n_problems, 3))  # d q / d learning_rate
-    previous = np.full(n_problems, -1)
-    total, gradient = 0.0, np.zeros(4)
-    for t in range(n_steps):
-        live = seqs.mask[:, t]
-        action, reward = seqs.actions[:, t], seqs.rewards[:, t]
-        previous = np.where(seqs.session_start[:, t], -1, previous)
-        stay = (np.arange(3)[None, :] == previous[:, None]).astype(float)
-        logits = beta * q + kappa * stay + plus_bias * seqs.plus
-        log_p = logits - logsumexp(logits, axis=1, keepdims=True)
-        total += log_p[rows, action][live].sum()
-        if return_gradient:
-            p = np.exp(log_p)
-            for k, d_logits in enumerate((beta * dq, q, stay, seqs.plus)):
-                per_trial = d_logits[rows, action] - (p * d_logits).sum(axis=1)
-                gradient[k] += per_trial[live].sum()
-        error = reward - q[rows, action]
-        chosen_dq = dq[rows, action]
-        q_new = q[rows, action] + learning_rate * error
-        dq_new = (1 - learning_rate) * chosen_dq + error
-        q[rows[live], action[live]] = q_new[live]
-        dq[rows[live], action[live]] = dq_new[live]
-        previous = np.where(live, action, previous)
+    per_trial, gradient = _forward(params, seqs, return_gradient)
+    total = float(np.nansum(per_trial))
     return (total, gradient) if return_gradient else total
+
+
+def trial_log_probabilities(params, seqs: Sequences) -> np.ndarray:
+    """Log probability of the chosen port on every trial, to score any subset of trials.
+
+    The agent learns from every trial of a problem, so the trials a score leaves out (e.g. the
+    session starts) still shape the values; select them in the returned array rather than
+    removing them from *seqs*. Fitting on some problems and scoring this on others is a held-out
+    score.
+
+    Args:
+        params (Sequence[float]): ``(learning_rate, beta, kappa, plus_bias)``.
+        seqs (Sequences): The problems to score.
+
+    Returns:
+        np.ndarray: ``(n_problems, n_steps)``, NaN at padded steps.
+    """
+    return _forward(params, seqs, False)[0]
 
 
 class Fit(NamedTuple):
