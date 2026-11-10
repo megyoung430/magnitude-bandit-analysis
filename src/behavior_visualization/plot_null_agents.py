@@ -132,7 +132,8 @@ def plot_null_agent_fits(
         "Right: observed P(stay) after a choice that paid each number of pulses (pairs of "
         "consecutive trials within a session), thin lines: each mouse; dashed: the mean "
         "probability each fitted agent implies. WSLS and WSLS (Recency) cannot depend on the "
-        "magnitude beyond rewarded versus not.",
+        "magnitude beyond rewarded versus not, and share one stay rule, so their dashed lines "
+        "coincide.",
     )
     with new_figure(ncols=2, figsize=(11, 4.6)) as (fig, (left, right)):
         _plot_score_panel(scores, left)
