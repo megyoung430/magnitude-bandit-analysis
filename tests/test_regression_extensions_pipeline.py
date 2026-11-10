@@ -1,5 +1,6 @@
 """The regression-extensions pipeline: per-mouse variants, source tables, skipping and caching."""
 
+import inspect
 from types import SimpleNamespace
 
 import numpy as np
@@ -95,11 +96,11 @@ def test_a_short_mouse_is_skipped_with_a_warning(cohort):
     assert "m9" not in set(result.comparison["mouse"])
 
 
-def test_no_analysable_mouse_raises():
+def test_no_analyzable_mouse_raises():
     short = simulate_logit_trials(
         "m9", 99, n_problems=4, sessions_per_problem=1, trials_per_session=10
     )
-    with pytest.warns(UserWarning), pytest.raises(ValueError, match="no mouse can be analysed"):
+    with pytest.warns(UserWarning), pytest.raises(ValueError, match="no mouse can be analyzed"):
         rx.analyse_extensions(short, **SETTINGS)
 
 
@@ -109,6 +110,96 @@ def test_the_cache_returns_the_same_result_and_is_written(cohort, tmp_path, sour
     again = rx.analyse_extensions(cohort, cache_dir=tmp_path, **SETTINGS)
     pd.testing.assert_frame_equal(first.comparison, again.comparison)
     pd.testing.assert_frame_equal(first.comparison, source.comparison)
+
+
+def mouse_arguments(cohort, variants=None):
+    trials = cohort[cohort["mouse"] == "m1"].reset_index(drop=True)
+    return (trials, 2, None, 1.0, variants or ext.VARIANTS, cl.EXTRAS, (None,), rx.code_version())
+
+
+def test_changing_a_variant_definition_misses_the_cache(cohort, tmp_path):
+    cached = rx.mouse_analyser(tmp_path)
+    arguments = mouse_arguments(cohort)
+    cached(*arguments)
+    assert cached.check_call_in_cache(*arguments)
+    changed = {**ext.VARIANTS, "no tower": (cl.REWARD,)}
+    assert not cached.check_call_in_cache(*mouse_arguments(cohort, changed))
+
+
+def test_changing_the_extras_or_the_binary_decays_misses_the_cache(cohort, tmp_path):
+    cached = rx.mouse_analyser(tmp_path)
+    arguments = mouse_arguments(cohort)
+    cached(*arguments)
+    fewer_extras = (*arguments[:5], (cl.BELIEVED,), *arguments[6:])
+    other_decays = (*arguments[:6], (None, None), arguments[7])
+    assert not cached.check_call_in_cache(*fewer_extras)
+    assert not cached.check_call_in_cache(*other_decays)
+
+
+def test_the_code_version_follows_the_logit_module_sources(monkeypatch):
+    before = rx.code_version()
+    assert before == rx.code_version()
+    real = inspect.getsource
+    monkeypatch.setattr(inspect, "getsource", lambda module: real(module) + "# edit\n")
+    assert rx.code_version() != before
+
+
+def test_worker_rejects_variants_without_the_models_it_needs(cohort):
+    arguments = list(mouse_arguments(cohort))
+    arguments[4] = {"full": ext.VARIANTS["full"]}
+    with pytest.raises(ValueError, match="full \\+ believed"):
+        rx.analyse_mouse_extensions(*arguments)
+
+
+def test_warnings_of_the_workers_reach_the_parent_also_from_the_cache(tmp_path):
+    # problems 1 and 2 of the simulated layouts share no tower
+    table = simulate_logit_cohort(
+        2, 20, n_problems=2, sessions_per_problem=2, trials_per_session=100
+    )
+    for _ in range(2):  # the second run is served from the cache
+        with pytest.warns(UserWarning, match="share no tower"):
+            rx.analyse_extensions(table, **SETTINGS, n_jobs=2, cache_dir=tmp_path)
+
+
+# --- the binary coding's own tail decay ---------------------------------------------------------
+
+
+def scores_with(ll_binary: float, n=100):
+    return pd.DataFrame(
+        {
+            "mouse": "m1",
+            "problem": [1, 2],
+            "model": ["binary", "binary"],
+            "n_trials": [n, n],
+            "held_out_log_likelihood": [ll_binary, ll_binary],
+        }
+    )
+
+
+def test_the_binary_decay_with_the_fewest_pooled_nats_is_chosen():
+    per_mouse = [
+        {0.5: scores_with(-40.0), 0.9: scores_with(-35.0)},
+        {0.5: scores_with(-30.0), 0.9: scores_with(-32.5)},
+    ]
+    decay, table = rx.select_binary_decay(per_mouse)
+    assert decay == 0.9  # pooled nats 0.5: 140/400 = 0.35, 0.9: 135/400 = 0.3375
+    assert list(table["binary_tail_decay"]) == [0.5, 0.9]
+    assert table["nats_per_choice"].tolist() == pytest.approx([0.35, 0.3375])
+
+
+def test_without_a_tail_there_is_no_binary_decay_to_choose():
+    decay, table = rx.select_binary_decay([{None: scores_with(-70.0)}])
+    assert decay is None and len(table) == 1
+
+
+def test_the_analysis_chooses_the_binary_decay_by_the_binary_models_own_likelihood(cohort):
+    result = rx.analyse_extensions(cohort, 2, 0.9, 1.0, binary_tail_grid=(0.5, 0.9))
+    table = result.binary_decay_table
+    best = table.loc[table["nats_per_choice"].idxmin(), "binary_tail_decay"]
+    assert result.binary_tail_decay == best
+    binary = result.comparison.query("model == 'binary'")
+    pooled = np.average(binary["nats_per_choice"], weights=binary["n_trials"])
+    assert pooled == pytest.approx(table["nats_per_choice"].min())
 
 
 # --- several sources ---------------------------------------------------------------------------
@@ -164,7 +255,16 @@ def test_source_summaries_report_mean_se_and_tests_per_source():
         }
     )
     summary = {
-        m: pd.DataFrame({"mouse": MICE, "mean_abs_error": 0.02, "weighted_abs_error": 0.01})
+        m: pd.DataFrame(
+            {
+                "mouse": MICE,
+                "mean_abs_error": 0.02,
+                "weighted_abs_error": 0.01,
+                "noise_floor_mean_abs_error": 0.015,
+                "noise_floor_weighted_abs_error": 0.008,
+                "nats_per_choice": 0.8,
+            }
+        )
         for m in rx.CALIBRATION_MODELS
     }
     tables = {
@@ -188,3 +288,65 @@ def test_source_summaries_report_mean_se_and_tests_per_source():
     assert shared["mean"] == pytest.approx(0.02)
     full = summaries.calibration.query("model == 'full' and term == 'mean_abs_error'").iloc[0]
     assert full["mean"] == pytest.approx(0.02)
+    floor = summaries.calibration.query(
+        "model == 'full' and term == 'noise_floor_mean_abs_error'"
+    ).iloc[0]
+    assert floor["mean"] == pytest.approx(0.015)
+    nats = summaries.calibration.query("model == 'choice only' and term == 'nats_per_choice'")
+    assert nats.iloc[0]["mean"] == pytest.approx(0.8)
+
+
+def small_tables(n):
+    mice = MICE[:n]
+    believed = pd.DataFrame(
+        {
+            "mouse": mice,
+            "believed_weight": 0.2,
+            "unvisited_weight": -0.1,
+            "gain_believed": 0.01,
+            "gain_no_reward_believed": -0.01,
+        }
+    )
+    binary = pd.DataFrame(
+        {"mouse": mice, "gain_binary": 0.02, "gain_binary_pulse": 0.0, "preferred": "binary"}
+    )
+    partition = pd.DataFrame(
+        {
+            "mouse": mice,
+            "unique_tower": 0.01,
+            "unique_reward": 0.03,
+            "unique_choice": 0.06,
+            "shared_reward_choice": 0.02,
+        }
+    )
+    summary = {
+        m: pd.DataFrame(
+            {
+                "mouse": mice,
+                "mean_abs_error": 0.02,
+                "weighted_abs_error": 0.01,
+                "noise_floor_mean_abs_error": 0.015,
+                "noise_floor_weighted_abs_error": 0.008,
+                "nats_per_choice": 0.8,
+            }
+        )
+        for m in rx.CALIBRATION_MODELS
+    }
+    return rx.ExtensionTables(believed, binary, partition, {}, summary)
+
+
+def test_summaries_of_fewer_than_six_mice_have_no_mean_error_or_test():
+    summaries = rx.source_summaries({"Mice": small_tables(5)})
+    for table in (summaries.gains, summaries.weights, summaries.partition, summaries.calibration):
+        assert (table["n"] == 5).all()
+        assert table["mean"].isna().all() and table["se"].isna().all()
+    assert summaries.gains["p_wilcoxon"].isna().all()
+
+
+def test_per_mouse_summary_lists_every_mouse_of_every_source_with_all_terms():
+    table = rx.per_mouse_summary({"Mice": small_tables(2), "WSLS": small_tables(3)})
+    assert list(table["source"]) == ["Mice", "Mice", "WSLS", "WSLS", "WSLS"]
+    assert {
+        "gain_believed", "gain_binary", "unique_reward", "shared_reward_choice",
+        "mean_abs_error_full", "noise_floor_mean_abs_error_full", "nats_per_choice_choice_only",
+    } <= set(table.columns)  # fmt: skip
