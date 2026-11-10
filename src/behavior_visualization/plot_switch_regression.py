@@ -266,7 +266,7 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
         _counts_caption(_mice_tables(sources)),
         *_counts_lines(sources),
     )
-    width = max(6.0, 3.8 * len(sources))
+    width = max(6.0, 4.3 * len(sources))
     with new_figure(
         nrows=len(sr.CONDITIONS), ncols=len(sources), figsize=(width, 4.3 * len(sr.CONDITIONS)),
         sharey=True, squeeze=False,
