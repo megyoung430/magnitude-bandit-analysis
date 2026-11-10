@@ -18,6 +18,7 @@ Drawing is in :mod:`src.behavior_visualization.plot_regression_extensions`.
 """
 
 import warnings
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -25,10 +26,12 @@ import numpy as np
 import pandas as pd
 from joblib import Memory, Parallel, delayed
 
+from src.agents import null_agents as na
 from src.behavior_analysis import choice_logit as cl
 from src.behavior_analysis import choice_logit_cv as cv
 from src.behavior_analysis import choice_logit_extensions as ext
 from src.pipelines.choice_logit_values import MIN_TRIALS, skip_reason
+from src.pipelines.null_agents import AGENT_LABELS, NullComparison
 
 # Bump when the design or the fits change in a way the cache key (the mouse's trials and the
 # settings) does not see.
@@ -218,4 +221,116 @@ def extension_tables(
         partition=ext.variance_partition(source.comparison),
         calibration=calibration,
         calibration_summary={name: ext.calibration_summary(t) for name, t in calibration.items()},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Several sources side by side
+# ---------------------------------------------------------------------------
+
+
+def comparison_inputs(
+    reference_label: str, trial_table: pd.DataFrame, comparison: NullComparison
+) -> dict:
+    """The reference and each null agent as ``{label: (trial table, LogitAnalysis)}``.
+
+    Args:
+        reference_label (str): The reference's name in *comparison*, e.g. ``"Mice"``.
+        trial_table (pd.DataFrame): The trial table the reference was analyzed from.
+        comparison (NullComparison): From ``null_agents.compare_with_controls``; its simulated
+            cohorts are reused, not simulated again.
+
+    Returns:
+        dict: The reference first, then the agents in ``null_agents.KINDS`` order.
+    """
+    inputs = {reference_label: (trial_table, comparison.analyses[reference_label])}
+    for kind in na.KINDS:
+        label = AGENT_LABELS[kind]
+        inputs[label] = (comparison.controls.cohorts[kind].trials, comparison.analyses[label])
+    return inputs
+
+
+def analyse_sources(
+    inputs: Mapping[str, tuple], n_jobs: int = 1, cache_dir: Path | None = None
+) -> dict[str, SourceExtensions]:
+    """:func:`analyse_extensions` of every source with the logit settings of its own analysis.
+
+    Args:
+        inputs (Mapping[str, tuple]): ``{label: (trial table, LogitAnalysis)}``, e.g. from
+            :func:`comparison_inputs`; the analysis supplies lags, tail decay and penalty.
+        n_jobs (int): Parallel workers over mice. Default 1.
+        cache_dir (Path | None): Per-mouse cache folder. Default ``None``: no cache.
+
+    Returns:
+        dict[str, SourceExtensions]: One result per label, in order.
+    """
+    return {
+        label: analyse_extensions(
+            table, a.n_lags, a.tail_decay, a.l2, n_jobs=n_jobs, cache_dir=cache_dir
+        )
+        for label, (table, a) in inputs.items()
+    }
+
+
+class SourceSummaries(NamedTuple):
+    """Means across mice of the four analyses, one block of rows per source.
+
+    Attributes:
+        gains (pd.DataFrame): ``source, term, n, mean, se, n_positive, p_wilcoxon, p_sign`` of the
+            held-out gains ``gain_believed``, ``gain_no_reward_believed``, ``gain_binary`` and
+            ``gain_binary_pulse`` (the tests are NaN below ``MIN_TEST_MICE`` mice, see
+            :func:`~src.behavior_analysis.choice_logit_extensions.gain_summary`).
+        weights (pd.DataFrame): ``source, term, n, mean, se`` of the believed-value and
+            never-visited weights.
+        partition (pd.DataFrame): The same for the unique and shared variance terms.
+        calibration (pd.DataFrame): ``source, model, term, n, mean, se`` of the two calibration
+            errors of each calibrated model.
+    """
+
+    gains: pd.DataFrame
+    weights: pd.DataFrame
+    partition: pd.DataFrame
+    calibration: pd.DataFrame
+
+
+BELIEVED_GAIN_TERMS = ("gain_believed", "gain_no_reward_believed")
+BINARY_GAIN_TERMS = ("gain_binary", "gain_binary_pulse")
+WEIGHT_TERMS = ("believed_weight", "unvisited_weight")
+PARTITION_TERMS = ("unique_tower", "unique_reward", "unique_choice", "shared_reward_choice")
+CALIBRATION_TERMS = ("mean_abs_error", "weighted_abs_error")
+MEAN_SE = ["term", "n", "mean", "se"]
+GAIN_COLUMNS = [*MEAN_SE, "n_positive", "p_wilcoxon", "p_sign"]
+
+
+def _summary(table: pd.DataFrame, terms: Sequence[str]) -> pd.DataFrame:
+    """``term, n, mean, se, ...`` of the columns *terms* across the mice of *table*."""
+    return ext.gain_summary(table, terms).rename(columns={"gain": "term"})
+
+
+def source_summaries(tables: Mapping[str, ExtensionTables]) -> SourceSummaries:
+    """Mean ± se across mice of every analysis, for each source.
+
+    Args:
+        tables (Mapping[str, ExtensionTables]): ``{source label: tables}``.
+
+    Returns:
+        SourceSummaries: Long tables with a ``source`` column, sources in order.
+    """
+    gains, weights, partition, calibration = [], [], [], []
+    for label, t in tables.items():
+        gains += [
+            _summary(t.believed, BELIEVED_GAIN_TERMS).assign(source=label),
+            _summary(t.binary_pulse, BINARY_GAIN_TERMS).assign(source=label),
+        ]
+        weights.append(_summary(t.believed, WEIGHT_TERMS)[MEAN_SE].assign(source=label))
+        partition.append(_summary(t.partition, PARTITION_TERMS)[MEAN_SE].assign(source=label))
+        calibration += [
+            _summary(summary, CALIBRATION_TERMS)[MEAN_SE].assign(source=label, model=model)
+            for model, summary in t.calibration_summary.items()
+        ]
+    return SourceSummaries(
+        gains=pd.concat(gains, ignore_index=True)[["source", *GAIN_COLUMNS]],
+        weights=pd.concat(weights, ignore_index=True)[["source", *MEAN_SE]],
+        partition=pd.concat(partition, ignore_index=True)[["source", *MEAN_SE]],
+        calibration=pd.concat(calibration, ignore_index=True)[["source", "model", *MEAN_SE]],
     )

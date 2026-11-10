@@ -1,5 +1,7 @@
 """The regression-extensions pipeline: per-mouse variants, source tables, skipping and caching."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -107,3 +109,82 @@ def test_the_cache_returns_the_same_result_and_is_written(cohort, tmp_path, sour
     again = rx.analyse_extensions(cohort, cache_dir=tmp_path, **SETTINGS)
     pd.testing.assert_frame_equal(first.comparison, again.comparison)
     pd.testing.assert_frame_equal(first.comparison, source.comparison)
+
+
+# --- several sources ---------------------------------------------------------------------------
+
+MICE = [f"m{i}" for i in range(1, 7)]
+
+
+def analysis_stub(n_lags=2, tail_decay=None, l2=1.0):
+    return SimpleNamespace(n_lags=n_lags, tail_decay=tail_decay, l2=l2)
+
+
+def test_comparison_inputs_list_the_reference_then_each_null_agent(cohort):
+    kinds = ("wsls", "wsls_recency", "wsls_magnitude")
+    comparison = SimpleNamespace(
+        controls=SimpleNamespace(cohorts={k: SimpleNamespace(trials=cohort) for k in kinds}),
+        analyses={
+            label: analysis_stub()
+            for label in ("Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)")
+        },
+    )
+    inputs = rx.comparison_inputs("Mice", cohort, comparison)
+    assert list(inputs) == ["Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)"]
+    assert inputs["Mice"][0] is cohort
+    assert inputs["WSLS"][1] is comparison.analyses["WSLS"]
+
+
+def test_analyse_sources_uses_each_sources_logit_settings(cohort):
+    inputs = {"A": (cohort, analysis_stub(n_lags=2)), "B": (cohort, analysis_stub(n_lags=3))}
+    sources = rx.analyse_sources(inputs)
+    assert list(sources) == ["A", "B"]
+    assert (sources["A"].n_lags, sources["B"].n_lags) == (2, 3)
+
+
+def test_source_summaries_report_mean_se_and_tests_per_source():
+    steps = np.arange(1, 7) * 0.01
+    believed = pd.DataFrame(
+        {
+            "mouse": MICE,
+            "believed_weight": 0.2,
+            "unvisited_weight": -0.1,
+            "gain_believed": steps,
+            "gain_no_reward_believed": -steps,
+        }
+    )
+    binary = pd.DataFrame({"mouse": MICE, "gain_binary": steps, "gain_binary_pulse": 0.0})
+    partition = pd.DataFrame(
+        {
+            "mouse": MICE,
+            "unique_tower": 0.01,
+            "unique_reward": 0.03,
+            "unique_choice": 0.06,
+            "shared_reward_choice": 0.02,
+        }
+    )
+    summary = {
+        m: pd.DataFrame({"mouse": MICE, "mean_abs_error": 0.02, "weighted_abs_error": 0.01})
+        for m in rx.CALIBRATION_MODELS
+    }
+    tables = {
+        label: rx.ExtensionTables(believed, binary, partition, {}, summary)
+        for label in ("Mice", "WSLS")
+    }
+    summaries = rx.source_summaries(tables)
+    gain = summaries.gains.query("source == 'Mice' and term == 'gain_believed'").iloc[0]
+    assert gain["n"] == 6 and gain["mean"] == pytest.approx(0.035)
+    assert gain["p_wilcoxon"] == pytest.approx(2 / 64)
+    assert set(summaries.gains["source"]) == {"Mice", "WSLS"}
+    assert set(summaries.gains["term"]) == {
+        "gain_believed",
+        "gain_no_reward_believed",
+        "gain_binary",
+        "gain_binary_pulse",
+    }
+    weight = summaries.weights.query("source == 'WSLS' and term == 'unvisited_weight'").iloc[0]
+    assert weight["mean"] == pytest.approx(-0.1)
+    shared = summaries.partition.query("term == 'shared_reward_choice'").iloc[0]
+    assert shared["mean"] == pytest.approx(0.02)
+    full = summaries.calibration.query("model == 'full' and term == 'mean_abs_error'").iloc[0]
+    assert full["mean"] == pytest.approx(0.02)
