@@ -17,12 +17,12 @@ import pandas as pd
 from src.behavior_analysis import switch_regression as sr
 from src.behavior_visualization.plot_helpers import Title, jitter_rng, save_or_show, set_title
 from src.behavior_visualization.plot_regression_extensions import (
-    _colors_of,
-    _counts_caption,
-    _draw_column,
-    _source_ticks,
-    _stats_line,
-    _style_source_axis,
+    colors_of,
+    counts_caption,
+    draw_column,
+    source_stats_line,
+    source_ticks,
+    style_source_axis,
 )
 from src.behavior_visualization.plot_value_psychometrics import finish_figure, new_figure
 
@@ -153,8 +153,8 @@ def _present_values(sources: Mapping) -> list[str]:
 def _value_grid(sources: Mapping, column: str, ylabel, heading: str, caption: tuple, save_path):
     """One panel per value variant (rows) and condition (columns), x = sources."""
     values = _present_values(sources)
-    colors = _colors_of(list(_mice_tables(sources).values()))
-    ticks = _source_ticks(_mice_tables(sources))
+    colors = colors_of(list(_mice_tables(sources).values()))
+    ticks = source_ticks(_mice_tables(sources))
     width = max(9.0, 2 * (1.2 * len(sources) + 1.5))
     with new_figure(
         nrows=len(values), ncols=len(sr.CONDITIONS), figsize=(width, 3.9 * len(values)),
@@ -169,11 +169,11 @@ def _value_grid(sources: Mapping, column: str, ylabel, heading: str, caption: tu
                     if len(mine):  # a source without this variant (no logit) is left empty
                         counts.append(len(mine))
                     errors.append(
-                        _draw_column(ax, x, mine.set_index("mouse")[column], colors, rng, labeled)
+                        draw_column(ax, x, mine.set_index("mouse")[column], colors, rng, labeled)
                     )
-                _style_source_axis(ax, ticks, ylabel(value) if col == 0 else "")
+                style_source_axis(ax, ticks, ylabel(value) if col == 0 else "")
                 title = f"{VALUE_LABELS[value]}, {CONDITION_LABELS[condition]}"
-                set_title(ax, Title(title, _stats_line(counts, errors)), fontsize=12)
+                set_title(ax, Title(title, source_stats_line(counts, errors)), fontsize=12)
                 ax.legend(fontsize=9)
         finish_figure(fig, Title(heading, None, caption))
     save_or_show(fig, save_path or None)
@@ -199,7 +199,7 @@ def plot_value_weights(sources: Mapping, save_path: str | Path | None = None) ->
         *MODEL_CAPTION,
         _settings_line(sources),
         _decay_line(sources),
-        _counts_caption(_mice_tables(sources)),
+        counts_caption(_mice_tables(sources)),
         *_counts_lines(sources),
         *_test_lines(sources, "beta", "logit per unit of value"),
     )
@@ -224,7 +224,7 @@ def plot_model_comparison(sources: Mapping, save_path: str | Path | None = None)
         *MODEL_CAPTION,
         _settings_line(sources),
         _decay_line(sources),
-        _counts_caption(_mice_tables(sources)),
+        counts_caption(_mice_tables(sources)),
         *_counts_lines(sources),
         *_test_lines(sources, "gain", "nats per switch"),
     )
@@ -251,7 +251,7 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = _colors_of(list(_mice_tables(sources).values()))
+    colors = colors_of(list(_mice_tables(sources).values()))
     features = list(dict.fromkeys(f for s in sources.values() for f in s.history["feature"]))
     labels = [_feature_label(f) for f in features]
     caption = (
@@ -263,7 +263,7 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
         *MODEL_CAPTION,
         _settings_line(sources),
         _decay_line(sources),
-        _counts_caption(_mice_tables(sources)),
+        counts_caption(_mice_tables(sources)),
         *_counts_lines(sources),
     )
     width = max(6.0, 4.3 * len(sources))
@@ -279,12 +279,12 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
                 wide = mine.pivot(index="mouse", columns="feature", values="weight")
                 empty = pd.Series(np.nan, index=wide.index)  # a feature the source lacks
                 errors = [
-                    _draw_column(ax, x, wide.get(f, empty), colors, rng, labeled)
+                    draw_column(ax, x, wide.get(f, empty), colors, rng, labeled)
                     for x, f in enumerate(features)
                 ]
-                _style_source_axis(ax, labels, "Weight (Logit)" if col == 0 else "")
+                style_source_axis(ax, labels, "Weight (Logit)" if col == 0 else "")
                 heading = f"{name}, {CONDITION_LABELS[condition]}"
-                set_title(ax, Title(heading, _stats_line([len(wide)], errors)), fontsize=12)
+                set_title(ax, Title(heading, source_stats_line([len(wide)], errors)), fontsize=12)
                 ax.legend(fontsize=9)
         finish_figure(fig, Title(HISTORY_WEIGHTS, None, caption))
     save_or_show(fig, save_path or None)
