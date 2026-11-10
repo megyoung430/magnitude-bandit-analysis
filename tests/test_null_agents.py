@@ -402,3 +402,31 @@ def test_perfect_separation_fails_instead_of_returning_a_runaway_weight():
         na.fit_wsls_recency(hand_table(choices, rewards), min_switches=1)
     with pytest.raises(RuntimeError, match="bound"):
         na.fit_win_curve(np.array([1, 1, 1, 2, 2, 2]), np.array([0, 0, 0, 1, 1, 1], dtype=bool))
+
+
+def test_parameters_accept_numpy_scalars_and_reject_missing_or_non_numeric_values():
+    na.WslsParams(np.float32(1.0), np.float64(-0.5))
+    na.WslsMagnitudeParams(1, -1, np.int64(0), 2.0, decay=np.float64(0.9))
+    for bad in (None, "x", np.nan, np.inf):
+        with pytest.raises(ValueError, match="finite number"):
+            na.WslsParams(bad, 0.0)
+    with pytest.raises(ValueError, match="finite number"):
+        na.WslsRecencyParams(1.0, -1.0, None)
+    with pytest.raises(ValueError, match="decay"):
+        na.WslsRecencyParams(1.0, -1.0, 1.0, decay=np.nan)
+
+
+def test_switch_weight_fit_rejects_nan_trace_differences():
+    delta = np.array([0.5] * 40 + [np.nan])
+    with pytest.raises(ValueError, match="NaN"):
+        na.fit_switch_weight(delta, np.ones(41, dtype=bool))
+
+
+def test_fits_and_decisions_reject_an_empty_table():
+    empty = hand_table([0, 1], [1, 1]).iloc[:0]
+    with pytest.raises(ValueError, match="empty"):
+        na.fit_wsls(empty)
+    with pytest.raises(ValueError, match="empty"):
+        na.decisions(empty, decay=0.9)
+    with pytest.raises(ValueError, match="empty"):
+        na.log_likelihood(empty, WSLS)

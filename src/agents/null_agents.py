@@ -35,7 +35,7 @@ Everything here is pure; fits take the drifting trial table
 (:func:`src.behavior_analysis.drifting_trial_table.drifting_trial_table`) and are per mouse.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import NamedTuple
 
 import numpy as np
@@ -64,9 +64,14 @@ OTHERS = np.array([[1, 2], [0, 2], [0, 1]])
 
 
 def _check_parameters(params, decay: float) -> None:
-    values = [v for v in vars(params).values() if isinstance(v, float)]
-    if not np.isfinite(values).all():
-        raise ValueError(f"parameters must be finite, got {vars(params)}")
+    for field in fields(params):
+        value = getattr(params, field.name)
+        try:
+            finite = bool(np.isfinite(float(value)))
+        except (TypeError, ValueError):
+            finite = False
+        if not finite:
+            raise ValueError(f"{field.name} must be a finite number, got {value!r}")
     if not 0 < decay < 1:
         raise ValueError(f"decay must be in (0, 1), got {decay}")
 
@@ -103,7 +108,7 @@ class WslsParams:
 
 @dataclass(frozen=True)
 class WslsRecencyParams:
-    """Soft WSLS whose switches favour the recently chosen arm.
+    """Soft WSLS whose switches favor the recently chosen arm.
 
     Attributes:
         a_win (float): Stay logit after a reward of any size.
@@ -309,6 +314,8 @@ def decisions(trials: pd.DataFrame, decay: float) -> Decisions:
         ValueError: If *trials* hold other than one mouse, or a problem does not offer the same
             three ports on every trial.
     """
+    if trials.empty:
+        raise ValueError("the trial table is empty")
     if trials["mouse"].nunique() != 1:
         raise ValueError(
             f"decisions takes the trials of one mouse, got {trials['mouse'].nunique()} mice"
@@ -392,7 +399,7 @@ def fit_win_curve(magnitudes: np.ndarray, stayed: np.ndarray) -> tuple[float, fl
 
     Raises:
         ValueError: If fewer than two distinct magnitudes occur.
-        RuntimeError: If the optimiser does not converge, or a parameter ends at
+        RuntimeError: If the optimizer does not converge, or a parameter ends at
             ``LOGIT_BOUND`` (the stays are perfectly predicted by magnitude).
     """
     magnitudes = np.asarray(magnitudes, dtype=float)
@@ -438,12 +445,16 @@ def fit_switch_weight(
         float: The weight.
 
     Raises:
-        ValueError: If there are fewer than *min_switches* informative switches.
-        RuntimeError: If the optimiser does not converge, or ``w`` ends at ``LOGIT_BOUND``
+        ValueError: If *delta_h* has NaN, or there are fewer than *min_switches* informative
+            switches.
+        RuntimeError: If the optimizer does not converge, or ``w`` ends at ``LOGIT_BOUND``
             (the switch targets are perfectly predicted by the trace).
     """
-    informative = np.asarray(delta_h) != 0
-    x = np.asarray(delta_h, dtype=float)[informative]
+    delta_h = np.asarray(delta_h, dtype=float)
+    if np.isnan(delta_h).any():
+        raise ValueError("delta_h contains NaN; pass only the switches' trace differences")
+    informative = delta_h != 0
+    x = delta_h[informative]
     sign = np.where(np.asarray(chose_first)[informative], 1.0, -1.0)
     if len(x) < min_switches:
         raise ValueError(
@@ -508,12 +519,14 @@ def fit_null_agents(
         dict: ``{mouse: params}``, mice in sorted order.
 
     Raises:
-        ValueError: For an unknown *kind*, or if a mouse has too few pairs or switches (the
-            message names the mouse), or the magnitude agent's mouse saw one rewarded magnitude.
+        ValueError: For an unknown *kind*, an empty table, a mouse with too few pairs or switches
+            (the message names the mouse), or one rewarded magnitude for the magnitude agent.
         RuntimeError: If a fit does not converge or runs to a bound (named by mouse).
     """
     if kind not in _FITS:
         raise ValueError(f"unknown agent {kind!r}; expected one of {KINDS}")
+    if trial_table.empty:
+        raise ValueError("the trial table is empty")
     fits = {}
     for mouse, rows in sorted(trial_table.groupby("mouse"), key=lambda item: item[0]):
         try:
