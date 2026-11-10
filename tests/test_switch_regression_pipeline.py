@@ -43,7 +43,7 @@ def analysis(cohort):
 def source(cohort, analysis):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return pipe.analyse_switch_source(cohort, analysis, trace_grid=GRID, min_switches=50)
+        return pipe.analyze_switch_source(cohort, analysis, trace_grid=GRID, min_switches=50)
 
 
 def test_every_mouse_has_every_condition_and_value(source):
@@ -68,7 +68,7 @@ def test_model_values_are_the_analysis_held_out_values(cohort, analysis, source)
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        direct = sr.analyse_mouse(
+        direct = sr.analyze_mouse(
             trials, analysis.n_lags, GRID, analysis.l2, min_switches=50, model_values=model
         )
     expected = sr.value_table(direct.scores, direct.weights)
@@ -87,7 +87,7 @@ def test_switch_counts_and_history_weights_are_kept(source):
 def test_without_an_analysis_there_is_no_model_value(cohort):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = pipe.analyse_switch_source(cohort, None, trace_grid=(0.9,), min_switches=50)
+        result = pipe.analyze_switch_source(cohort, None, trace_grid=(0.9,), min_switches=50)
     assert set(result.values["value"]) == {"true", "believed"}
     assert result.n_lags == sr.cl.DEFAULT_LAGS
 
@@ -96,8 +96,10 @@ def test_a_mouse_with_too_few_switches_is_skipped_with_a_warning(cohort):
     short = simulate_switch_mouse(
         "m9", 99, value_weight=0.0, n_problems=4, sessions_per_problem=1, trials_per_session=40
     )
-    with pytest.warns(UserWarning, match="m9 skipped: .*switches after"):
-        result = pipe.analyse_switch_source(
+    with pytest.warns(
+        UserWarning, match="m9 skipped: \\d+ switches after zero, \\d+ after non-zero"
+    ):
+        result = pipe.analyze_switch_source(
             pd.concat([cohort, short]), None, trace_grid=(0.9,), min_switches=50
         )
     assert "m9" in result.skipped
@@ -106,14 +108,14 @@ def test_a_mouse_with_too_few_switches_is_skipped_with_a_warning(cohort):
 
 def test_no_mouse_with_enough_switches_raises(cohort):
     with pytest.warns(UserWarning), pytest.raises(ValueError, match="no mouse has enough"):
-        pipe.analyse_switch_source(cohort, None, trace_grid=(0.9,), min_switches=10_000)
+        pipe.analyze_switch_source(cohort, None, trace_grid=(0.9,), min_switches=10_000)
 
 
 def test_mice_the_logit_skipped_are_not_analyzed(cohort, analysis):
     extra = simulate_switch_mouse("m8", 8, value_weight=0.0, **SIZE)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = pipe.analyse_switch_source(
+        result = pipe.analyze_switch_source(
             pd.concat([cohort, extra]), analysis, trace_grid=(0.9,), min_switches=50
         )
     assert "m8" not in set(result.values["mouse"])
@@ -124,25 +126,27 @@ def test_the_cache_returns_the_same_result_and_is_written(cohort, analysis, sour
     kwargs = dict(trace_grid=GRID, min_switches=50, cache_dir=tmp_path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        first = pipe.analyse_switch_source(cohort, analysis, **kwargs)
+        first = pipe.analyze_switch_source(cohort, analysis, **kwargs)
         assert any(tmp_path.rglob("*.pkl"))
-        again = pipe.analyse_switch_source(cohort, analysis, n_jobs=2, **kwargs)
+        again = pipe.analyze_switch_source(cohort, analysis, n_jobs=2, **kwargs)
     pd.testing.assert_frame_equal(first.values, again.values)
     pd.testing.assert_frame_equal(first.values, source.values)
 
 
 def test_changing_a_setting_misses_the_cache(cohort, tmp_path):
-    cached = pipe.mouse_analyser(tmp_path)
+    cached = pipe.mouse_analyzer(tmp_path)
     trials = cohort[cohort["mouse"] == "m1"].reset_index(drop=True)
-    arguments = (trials, 3, (0.9,), 1.0, sr.RECENCY_CAP, 50, None, pipe.code_version())
+    arguments = (trials, 3, (0.9,), 1.0, sr.RECENCY_CAP, 50, None, False, pipe.code_version())
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         cached(*arguments)
     assert cached.check_call_in_cache(*arguments)
     other_cap = (*arguments[:4], 50, *arguments[5:])
     other_grid = (arguments[0], 3, (0.5,), *arguments[3:])
+    with_firth = (*arguments[:7], True, arguments[8])
     assert not cached.check_call_in_cache(*other_cap)
     assert not cached.check_call_in_cache(*other_grid)
+    assert not cached.check_call_in_cache(*with_firth)
 
 
 def test_the_code_version_follows_the_module_sources(monkeypatch):
@@ -158,7 +162,7 @@ def test_warnings_of_the_workers_reach_the_parent_also_from_the_cache(tmp_path):
     table = _cohort(2, 40, n_problems=2, trials_per_session=400)
     for _ in range(2):  # the second run is served from the cache
         with pytest.warns(UserWarning, match="share no tower"):
-            pipe.analyse_switch_source(
+            pipe.analyze_switch_source(
                 table, None, trace_grid=(0.9,), min_switches=50, n_jobs=2, cache_dir=tmp_path
             )
 
@@ -167,7 +171,7 @@ def test_sources_are_analyzed_in_order_with_their_own_analysis(cohort, analysis)
     inputs = {"A": (cohort, analysis), "B": (cohort, None)}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sources = pipe.analyse_switch_sources(inputs, trace_grid=(0.9,), min_switches=50)
+        sources = pipe.analyze_switch_sources(inputs, trace_grid=(0.9,), min_switches=50)
     assert list(sources) == ["A", "B"]
     assert "model" in set(sources["A"].values["value"])
     assert "model" not in set(sources["B"].values["value"])
@@ -183,3 +187,27 @@ def test_source_summaries_and_per_mouse_table(source):
     assert {"source", "mouse", "condition", "value", "beta", "se", "gain", "n_switches",
             "trace_decay"} <= set(table.columns)  # fmt: skip
     assert len(table) == 2 * len(source.values)
+
+
+def test_only_a_lack_of_switches_skips_a_mouse_other_data_errors_raise(cohort):
+    broken = simulate_switch_mouse("m7", 7, value_weight=0.0, **SIZE)
+    first_problem = broken["problem"] == broken["problem"].iloc[0]
+    broken.loc[first_problem, "magnitudes"] = [
+        {k: v for k, v in m.items() if k != sorted(m)[0]}
+        for m in broken.loc[first_problem, "magnitudes"]
+    ]  # a problem that offers two arms is a data error, not a reason to skip
+    with pytest.raises(ValueError, match="three offered ports"):
+        pipe.analyze_switch_source(
+            pd.concat([cohort, broken]), None, trace_grid=(0.9,), min_switches=50
+        )
+
+
+def test_the_firth_setting_is_recorded_and_used(cohort):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        plain = pipe.analyze_switch_source(cohort, None, trace_grid=(0.9,), min_switches=50)
+        firth = pipe.analyze_switch_source(
+            cohort, None, trace_grid=(0.9,), min_switches=50, firth=True
+        )
+    assert (plain.firth, firth.firth) == (False, True)
+    assert not np.allclose(plain.values["beta"], firth.values["beta"])

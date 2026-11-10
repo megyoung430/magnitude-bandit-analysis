@@ -78,6 +78,12 @@ RECENCY_CAP = 100
 # Switches a mouse needs in each condition. The model has about 15 weights (4 lags, 3 recency
 # terms, up to 8 towers, the value); with fewer switches they rest mostly on the L2 prior.
 MIN_SWITCHES = 100
+# Firth's bias reduction in every fit (see fit_switch_logit).
+FIRTH = False
+
+
+class TooFewSwitchesError(ValueError):
+    """A mouse has too few switches (in a condition, or in too few problems) to be analyzed."""
 
 
 class ModelValues(NamedTuple):
@@ -217,8 +223,9 @@ def _check_model_values(design: cl.LogitDesign, model_values: ModelValues) -> np
     return model_values.values
 
 
-def _arm_features(design: cl.LogitDesign, start: np.ndarray, decay: float, cap: int):
-    """``(names, (n, 3, f))``: lags 2..K, trace, recency, never chosen, towers of every trial."""
+def _arm_features(design: cl.LogitDesign, cap: int):
+    """``(names, (n, 3, f))``: lags 2..K, trace (zeros, see ``_with_decay``), recency, never
+    chosen and towers of every trial."""
     names = list(design.feature_names)
     lag_names = [
         n for n in names if n.startswith(cl.GROUP_PREFIX[cl.CHOICE]) and n != "choice_lag1"
@@ -231,10 +238,67 @@ def _arm_features(design: cl.LogitDesign, start: np.ndarray, decay: float, cap: 
     recency = np.log1p(np.minimum(np.where(never, cap, since), cap))
     columns = (
         [design.X[:, :, names.index(n)] for n in lag_names]
-        + [choice_trace(design.chosen, start, decay), recency, never.astype(float)]
+        + [np.zeros_like(recency), recency, never.astype(float)]  # trace: set per decay
         + [design.X[:, :, names.index(n)] for n in tower_names]
     )
     return tuple(lag_names + [TRACE, RECENCY, NEVER] + tower_names), np.stack(columns, axis=2)
+
+
+class _SwitchParts(NamedTuple):
+    """Everything of :func:`switch_data` that does not depend on the trace decay."""
+
+    names: tuple
+    features: np.ndarray  # (n_trials, 3, f) per-arm features, the trace column still empty
+    chosen: np.ndarray  # (n_trials,) chosen arm of every trial
+    start: np.ndarray  # (n_trials,) the trial starts a segment
+    rows: np.ndarray
+    alternatives: np.ndarray
+    arm_values: dict
+    data: "SwitchData"  # the decay-independent fields; X is filled in per decay
+
+
+def _switch_parts(
+    trials: pd.DataFrame, n_lags: int, recency_cap: int, model_values: ModelValues | None
+) -> _SwitchParts:
+    if recency_cap < 1:
+        raise ValueError(f"recency_cap must be at least 1, got {recency_cap}")
+    design = cl.design_matrix(trials, n_lags, None, extras=(cl.BELIEVED,))
+    decisions = na.decisions(trials, 0.5)  # the decay of the agents' trace plays no part here
+    if len(decisions.start) != len(design.chosen):
+        raise RuntimeError("the stay/switch decisions and the design have different trials")
+    mouse = design.meta["mouse"].iloc[0]
+    rows = np.flatnonzero(decisions.switched)
+    if len(rows) == 0:
+        raise TooFewSwitchesError(f"mouse {mouse} never switches")
+    names, features = _arm_features(design, recency_cap)
+    alternatives = na.OTHERS[design.chosen[rows - 1]]
+    arm_values = _arm_values(design)
+    if model_values is not None:
+        arm_values[MODEL] = _check_model_values(design, model_values)
+    data = SwitchData(
+        X=np.empty((len(rows), 2, 0)),
+        chosen=(design.chosen[rows] == alternatives[:, 1]).astype(int),
+        feature_names=names,
+        values={kind: np.take_along_axis(v[rows], alternatives, axis=1)
+                for kind, v in arm_values.items()},
+        after_zero=decisions.prev_magnitude[rows] == 0,
+        problem=design.meta["problem"].to_numpy()[rows],
+        alternatives=alternatives,
+        rows=rows,
+        mouse=mouse,
+    )  # fmt: skip
+    return _SwitchParts(
+        names, features, design.chosen, decisions.start, rows, alternatives, arm_values, data
+    )
+
+
+def _with_decay(parts: _SwitchParts, decay: float) -> "SwitchData":
+    if not 0 < decay < 1:
+        raise ValueError(f"trace_decay must be in (0, 1), got {decay}")
+    features = parts.features.copy()
+    features[:, :, parts.names.index(TRACE)] = choice_trace(parts.chosen, parts.start, decay)
+    X = np.take_along_axis(features[parts.rows], parts.alternatives[:, :, None], axis=1)
+    return parts.data._replace(X=X)
 
 
 def switch_data(
@@ -260,46 +324,39 @@ def switch_data(
         SwitchData: One row per switch trial, problems in order of first appearance.
 
     Raises:
+        TooFewSwitchesError: If the mouse never switches.
         ValueError: As ``choice_logit.design_matrix`` (one mouse, three offered ports per
-            problem), for a decay outside (0, 1) or a cap below 1, if *model_values* are not
-            aligned with the trials, or if the mouse never switches.
+            problem), for a decay outside (0, 1) or a cap below 1, or if *model_values* are not
+            aligned with the trials.
 
     Warns:
         UserWarning: If the problems' tower sets form groups that share no tower (from
             ``design_matrix``).
     """
-    if not 0 < trace_decay < 1:
-        raise ValueError(f"trace_decay must be in (0, 1), got {trace_decay}")
-    if recency_cap < 1:
-        raise ValueError(f"recency_cap must be at least 1, got {recency_cap}")
-    design = cl.design_matrix(trials, n_lags, None, extras=(cl.BELIEVED,))
-    decisions = na.decisions(trials, trace_decay)
-    if len(decisions.start) != len(design.chosen):
-        raise RuntimeError("the stay/switch decisions and the design have different trials")
-    rows = np.flatnonzero(decisions.switched)
-    if len(rows) == 0:
-        raise ValueError(f"mouse {design.meta['mouse'].iloc[0]} never switches")
-    names, features = _arm_features(design, decisions.start, trace_decay, recency_cap)
-    alternatives = na.OTHERS[design.chosen[rows - 1]]
-    arm_values = _arm_values(design)
-    if model_values is not None:
-        arm_values[MODEL] = _check_model_values(design, model_values)
+    return switch_data_by_decay(trials, (trace_decay,), n_lags, recency_cap, model_values)[
+        trace_decay
+    ]
 
-    def take(per_arm: np.ndarray) -> np.ndarray:
-        return np.take_along_axis(per_arm[rows], alternatives, axis=1)
 
-    X = np.stack([take(features[:, :, f]) for f in range(len(names))], axis=2)
-    return SwitchData(
-        X=X,
-        chosen=(design.chosen[rows] == alternatives[:, 1]).astype(int),
-        feature_names=names,
-        values={kind: take(v) for kind, v in arm_values.items()},
-        after_zero=decisions.prev_magnitude[rows] == 0,
-        problem=design.meta["problem"].to_numpy()[rows],
-        alternatives=alternatives,
-        rows=rows,
-        mouse=design.meta["mouse"].iloc[0],
-    )
+def switch_data_by_decay(
+    trials: pd.DataFrame,
+    decays: Sequence[float],
+    n_lags: int = cl.DEFAULT_LAGS,
+    recency_cap: int = RECENCY_CAP,
+    model_values: ModelValues | None = None,
+) -> dict:
+    """``{decay: SwitchData}``: :func:`switch_data` for several trace decays, one design built.
+
+    Only the trace column depends on the decay, so the design matrix, the switch trials and the
+    values are computed once. Raises as :func:`switch_data`.
+    """
+    if len(decays) == 0:
+        raise ValueError("the trace decay grid is empty")
+    for decay in decays:
+        if not 0 < decay < 1:
+            raise ValueError(f"trace_decay must be in (0, 1), got {decay}")
+    parts = _switch_parts(trials, n_lags, recency_cap, model_values)
+    return {decay: _with_decay(parts, decay) for decay in decays}
 
 
 def select_condition(data: SwitchData, condition: str) -> SwitchData:
@@ -350,12 +407,34 @@ def model_design(data: SwitchData, value: str | None) -> tuple[np.ndarray, tuple
 # ---------------------------------------------------------------------------
 
 
-def _hessian(beta: np.ndarray, X: np.ndarray, l2: float) -> np.ndarray:
-    """Hessian of the penalized negative log likelihood: ``sum p(1-p) d d' + l2 I``."""
-    difference = X[:, 0] - X[:, 1]
+def _information(beta: np.ndarray, difference: np.ndarray, l2: float) -> np.ndarray:
+    """``sum p(1-p) d d' + l2 I``: Hessian of the L2-penalized negative log likelihood."""
     p_first = expit(difference @ beta)
     weight = p_first * (1 - p_first)
     return (difference * weight[:, None]).T @ difference + l2 * np.eye(len(beta))
+
+
+def _objective(beta, difference, first, l2, firth):
+    """Penalized negative log likelihood of the two-alternative logit, and its gradient.
+
+    ``P(first) = sigmoid(d @ beta)`` with ``d`` the first alternative's features minus the
+    second's. The L2 term is ``l2/2 |beta|^2``. With *firth* the Jeffreys term ``-1/2 log det
+    M`` is added, ``M`` the information of :func:`_information` (the prior included, so a column
+    that never varies keeps it invertible); its gradient is ``-sum_i h_i (1/2 - p_i) d_i`` with
+    ``h_i = p_i (1 - p_i) d_i' M^-1 d_i`` the leverage of switch ``i``.
+    """
+    z = difference @ beta
+    p_first = expit(z)
+    value = float((np.logaddexp(0, z) - first * z).sum() + 0.5 * l2 * beta @ beta)
+    gradient = difference.T @ (p_first - first) + l2 * beta
+    if firth:
+        information = _information(beta, difference, l2)
+        _, log_det = np.linalg.slogdet(information)
+        solved = np.linalg.solve(information, difference.T).T
+        leverage = p_first * (1 - p_first) * (difference * solved).sum(axis=1)
+        value -= 0.5 * log_det
+        gradient -= difference.T @ (leverage * (0.5 - p_first))
+    return value, gradient
 
 
 def fit_switch_logit(
@@ -364,11 +443,13 @@ def fit_switch_logit(
     feature_names: Sequence[str],
     l2: float = cl.DEFAULT_L2,
     max_iterations: int = cl.MAX_ITERATIONS,
+    firth: bool = FIRTH,
 ) -> SwitchFit:
     """Fit the two-alternative logit by L-BFGS-B on the penalized negative log likelihood.
 
-    The likelihood and its gradient are those of :func:`choice_logit.negative_log_likelihood`
-    (a softmax over the alternatives, here two); the objective is convex.
+    It is :func:`choice_logit.negative_log_likelihood` on two alternatives, written on the
+    difference of their features. With the L2 penalty alone the objective is convex; Firth's
+    Jeffreys-prior term (*firth*) removes the first-order small-sample bias of the estimates.
 
     Args:
         X (np.ndarray): ``(n, 2, n_features)`` features of the two alternatives.
@@ -377,6 +458,7 @@ def fit_switch_logit(
         l2 (float): Penalty, ``>= 0`` (a Gaussian prior with SD ``1/sqrt(l2)``). Default
             ``choice_logit.DEFAULT_L2``.
         max_iterations (int): Iteration limit. Default ``choice_logit.MAX_ITERATIONS``.
+        firth (bool): Add Firth's bias-reducing penalty. Default ``FIRTH``.
 
     Returns:
         SwitchFit: Weights, standard errors and the unpenalized negative log likelihood.
@@ -394,23 +476,34 @@ def fit_switch_logit(
         raise ValueError("chosen must hold 0 or 1 (the chosen alternative) for each switch")
     if l2 < 0:
         raise ValueError(f"l2 must be non-negative, got {l2}")
+    difference = X[:, 0] - X[:, 1]
+    first = (chosen == 0).astype(float)
     result = minimize(
-        cl.negative_log_likelihood,
+        _objective,
         np.zeros(X.shape[2]),
-        args=(X, chosen, l2),
+        args=(difference, first, l2, firth),
         jac=True,
         method="L-BFGS-B",
         options={"maxiter": max_iterations},
     )
     if not result.success:
         raise RuntimeError(f"the switch logit did not converge: {result.message}")
-    se = np.sqrt(np.diag(np.linalg.inv(_hessian(result.x, X, l2))))
+    se = np.sqrt(np.diag(np.linalg.inv(_information(result.x, difference, l2))))
     return SwitchFit(
         result.x, se, tuple(feature_names), -cl.log_likelihood(X, chosen, result.x), len(chosen)
     )
 
 
-def cross_validate(data: SwitchData, value: str | None, l2: float = cl.DEFAULT_L2) -> pd.DataFrame:
+def _condition_of(data: SwitchData) -> str:
+    """The condition of *data*'s switches, or ``"in both conditions"`` if they are mixed."""
+    if data.after_zero.all():
+        return "after zero"
+    return "after non-zero" if not data.after_zero.any() else "in both conditions"
+
+
+def cross_validate(
+    data: SwitchData, value: str | None, l2: float = cl.DEFAULT_L2, firth: bool = FIRTH
+) -> pd.DataFrame:
     """Leave-one-problem-out log likelihood of one model on the switches of *data*.
 
     Each problem with switches is held out once; the model is fitted on the other problems'
@@ -420,21 +513,25 @@ def cross_validate(data: SwitchData, value: str | None, l2: float = cl.DEFAULT_L
         data (SwitchData): Switch trials (usually of one condition).
         value (str | None): Value variant, or ``None`` for the history-only model.
         l2 (float): Penalty. Default ``choice_logit.DEFAULT_L2``.
+        firth (bool): Firth's bias reduction in every fit. Default ``FIRTH``.
 
     Returns:
         pd.DataFrame: ``problem, n_switches, held_out_log_likelihood``, one row per fold.
 
     Raises:
-        ValueError: If the switches come from fewer than two problems.
+        TooFewSwitchesError: If the switches come from fewer than two problems.
     """
     codes, problems = pd.factorize(pd.Series(data.problem))
     if len(problems) < 2:
-        raise ValueError("leave-one-problem-out validation needs switches in at least two problems")
+        raise TooFewSwitchesError(
+            f"mouse {data.mouse}: switches {_condition_of(data)} in {len(problems)} problem(s); "
+            "leave-one-problem-out validation needs at least two"
+        )
     X, names = model_design(data, value)
     rows = []
     for code, problem in enumerate(problems):
         test = codes == code
-        fit = fit_switch_logit(X[~test], data.chosen[~test], names, l2)
+        fit = fit_switch_logit(X[~test], data.chosen[~test], names, l2, firth=firth)
         rows.append(
             (problem, int(test.sum()), cl.log_likelihood(X[test], data.chosen[test], fit.beta))
         )
@@ -470,19 +567,19 @@ class MouseSwitchRegression(NamedTuple):
 def _check_counts(data: SwitchData, min_switches: int) -> None:
     for condition, n in switch_counts(data).items():
         if n < min_switches:
-            raise ValueError(
+            raise TooFewSwitchesError(
                 f"mouse {data.mouse}: {n} switches {condition.replace('_', ' ')}; at least "
                 f"{min_switches} are needed"
             )
 
 
-def _history_nats(by_condition: dict, l2: float) -> float:
+def _history_nats(by_condition: dict, l2: float, firth: bool) -> float:
     """Held-out nats per switch of the history-only models, pooled over the conditions."""
-    folds = pd.concat([cross_validate(d, None, l2) for d in by_condition.values()])
+    folds = pd.concat([cross_validate(d, None, l2, firth) for d in by_condition.values()])
     return float(-folds["held_out_log_likelihood"].sum() / folds["n_switches"].sum())
 
 
-def analyse_mouse(
+def analyze_mouse(
     trials: pd.DataFrame,
     n_lags: int = cl.DEFAULT_LAGS,
     trace_grid: Sequence[float] = TRACE_GRID,
@@ -490,14 +587,18 @@ def analyse_mouse(
     recency_cap: int = RECENCY_CAP,
     min_switches: int = MIN_SWITCHES,
     model_values: ModelValues | None = None,
+    firth: bool = FIRTH,
 ) -> MouseSwitchRegression:
     """Choose the trace decay, then fit and validate every model in both conditions.
 
     The decay is the one of *trace_grid* whose history-only models (no value) have the best
-    held-out likelihood, both conditions pooled. The value plays no part in the choice, so the
-    history is made as strong as it can be before the value is asked to add anything, and every
-    value variant of the mouse uses the same decay. Choosing it on the same folds that score the
-    gain flatters the history-only model slightly, which can only shrink the gain of the value.
+    held-out likelihood, both conditions pooled, and every value variant of the mouse uses it.
+    Two consequences. The decay is chosen on the same folds that then score the gain, so the
+    history-only model is favored and the gain of the value is likely biased down. And for a
+    mouse whose switches do follow value, a decay chosen without the value lets the trace take
+    up part of what the value explains, which biases a real value weight towards 0. Both make the
+    analysis conservative for a real effect; neither protects against a bias of the null (see
+    the null calibration in :mod:`src.pipelines.switch_regression`).
 
     Args:
         trials (pd.DataFrame): One mouse's rows of the drifting trial table.
@@ -507,23 +608,23 @@ def analyse_mouse(
         recency_cap (int): Cap of trials since chosen. Default ``RECENCY_CAP``.
         min_switches (int): Switches needed in each condition. Default ``MIN_SWITCHES``.
         model_values (ModelValues | None): Values of the ``model`` variant; ``None`` leaves it out.
+        firth (bool): Firth's bias reduction in every fit. Default ``FIRTH``.
 
     Returns:
         MouseSwitchRegression: Scores, weights, switch counts and the decay selection.
 
     Raises:
-        ValueError: If *trace_grid* is empty, a condition has fewer than *min_switches* switches
-            or switches in fewer than two problems, or as :func:`switch_data`.
+        TooFewSwitchesError: If a condition has fewer than *min_switches* switches or switches
+            in fewer than two problems.
+        ValueError: If *trace_grid* is empty, or as :func:`switch_data`.
         RuntimeError: If a fit does not converge.
     """
-    if len(trace_grid) == 0:
-        raise ValueError("the trace decay grid is empty")
-    candidates = {d: switch_data(trials, n_lags, d, recency_cap, model_values) for d in trace_grid}
+    candidates = switch_data_by_decay(trials, trace_grid, n_lags, recency_cap, model_values)
     _check_counts(next(iter(candidates.values())), min_switches)
     split = {
         d: {c: select_condition(data, c) for c in CONDITIONS} for d, data in candidates.items()
     }
-    nats = {d: _history_nats(by_condition, l2) for d, by_condition in split.items()}
+    nats = {d: _history_nats(by_condition, l2, firth) for d, by_condition in split.items()}
     best = min(trace_grid, key=lambda d: nats[d])
     mouse = candidates[best].mouse
     models = (HISTORY, *candidates[best].values)
@@ -532,10 +633,10 @@ def analyse_mouse(
         counts.append((mouse, condition, len(data.chosen), len(set(data.problem))))
         for model in models:
             value = None if model == HISTORY else model
-            folds = cross_validate(data, value, l2)
+            folds = cross_validate(data, value, l2, firth)
             scores.append(folds.assign(mouse=mouse, condition=condition, model=model))
             X, names = model_design(data, value)
-            fit = fit_switch_logit(X, data.chosen, names, l2)
+            fit = fit_switch_logit(X, data.chosen, names, l2, firth=firth)
             weights.append(
                 pd.DataFrame(
                     dict(mouse=mouse, condition=condition, model=model, feature=names,
@@ -667,4 +768,93 @@ def group_summary(table: pd.DataFrame, min_mice: int = ext.MIN_TEST_MICE) -> pd.
         rows.append(summary.assign(condition=condition, value=value))
     columns = ["condition", "value", "term", "n", "mean", "se", "n_positive", "p_wilcoxon",
                "p_sign", "re_mean", "re_se", "re_tau2"]  # fmt: skip
+    return pd.concat(rows, ignore_index=True)[columns]
+
+
+# ---------------------------------------------------------------------------
+# Null calibration
+# ---------------------------------------------------------------------------
+
+CALIBRATION_KEYS = ["mouse", "condition", "value"]
+
+
+def null_calibration(observed: pd.DataFrame, null: pd.DataFrame) -> pd.DataFrame:
+    """Each observed value weight and gain against its mouse's own null distribution.
+
+    The null of a mouse is the same analysis of agents that never look at the alternatives'
+    values, simulated on that mouse's task (``null`` holds one :func:`value_table` row per
+    replicate). Whatever bias the analysis has for such agents at the mouse's switch counts is in
+    the null, so the calibrated numbers are free of it.
+
+    Args:
+        observed (pd.DataFrame): :func:`value_table` of the mice.
+        null (pd.DataFrame): :func:`value_table` rows of the simulated replicates, with a
+            ``replicate`` column.
+
+    Returns:
+        pd.DataFrame: ``mouse, condition, value, term`` (``beta`` or ``gain``), ``observed,
+        n_null, null_mean, null_sd, null_low, null_high`` (2.5th and 97.5th percentiles), ``z``
+        (``(observed - null_mean) / null_sd``, NaN for a null without spread), ``percentile``
+        (fraction of the null below the observation, ties counted half) and ``p_empirical``
+        (two-sided, ``(1 + #{|null - null_mean| >= |observed - null_mean|}) / (n_null + 1)``).
+
+    Raises:
+        ValueError: If an observation has no null replicate.
+    """
+    rows = []
+    groups = dict(tuple(null.groupby(CALIBRATION_KEYS, sort=False)))
+    for _, obs in observed.iterrows():
+        key = tuple(obs[k] for k in CALIBRATION_KEYS)
+        if key not in groups:
+            raise ValueError(
+                f"no null replicates for {dict(zip(CALIBRATION_KEYS, key, strict=True))}"
+            )
+        mine = groups[key]
+        for term in ("beta", "gain"):
+            draws = mine[term].to_numpy(dtype=float)
+            center, spread = draws.mean(), draws.std(ddof=1)
+            value = float(obs[term])
+            extreme = np.abs(draws - center) >= abs(value - center)
+            rows.append(
+                dict(
+                    zip(CALIBRATION_KEYS, key, strict=True),
+                    term=term,
+                    observed=value,
+                    n_null=len(draws),
+                    null_mean=center,
+                    null_sd=spread,
+                    null_low=float(np.percentile(draws, 2.5)),
+                    null_high=float(np.percentile(draws, 97.5)),
+                    # a null that never varies gives no scale for a z (the p still holds)
+                    z=(value - center) / spread if spread > 0 else np.nan,
+                    percentile=float((draws < value).mean() + 0.5 * (draws == value).mean()),
+                    p_empirical=(1 + int(extreme.sum())) / (len(draws) + 1),
+                )
+            )
+    return pd.DataFrame(rows)
+
+
+def calibrated_summary(
+    calibration: pd.DataFrame, min_mice: int = ext.MIN_TEST_MICE
+) -> pd.DataFrame:
+    """Across mice: mean ± se and two-sided tests of the null-calibrated z.
+
+    Args:
+        calibration (pd.DataFrame): :func:`null_calibration` of the mice.
+        min_mice (int): Fewer mice give NaN mean, se and tests. Default ``MIN_TEST_MICE``.
+
+    Returns:
+        pd.DataFrame: ``condition, value, term, n, mean, se, n_positive, p_wilcoxon, p_sign`` of
+        the calibrated z (as ``choice_logit_extensions.gain_summary``).
+    """
+    rows = [
+        ext.gain_summary(group, ["z"], min_mice)
+        .drop(columns="gain")
+        .assign(condition=condition, value=value, term=term)
+        for (condition, value, term), group in calibration.groupby(
+            ["condition", "value", "term"], sort=False
+        )
+    ]
+    columns = ["condition", "value", "term", "n", "mean", "se", "n_positive", "p_wilcoxon",
+               "p_sign"]  # fmt: skip
     return pd.concat(rows, ignore_index=True)[columns]

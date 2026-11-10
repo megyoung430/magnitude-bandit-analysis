@@ -252,7 +252,7 @@ def test_fit_validates_its_inputs():
 @pytest.mark.parametrize("value_weight", [0.0, 0.6])
 def test_value_weight_is_recovered_from_a_mouse_that_follows_the_model(value_weight):
     trials = simulate_switch_mouse("m1", 11, value_weight=value_weight, trace_weight=1.0)
-    result = sr.analyse_mouse(trials, n_lags=5, trace_grid=(0.5, DECAY), min_switches=100)
+    result = sr.analyze_mouse(trials, n_lags=5, trace_grid=(0.5, DECAY), min_switches=100)
     weights = sr.value_table(result.scores, result.weights).set_index(["condition", "value"])
     for condition in sr.CONDITIONS:
         row = weights.loc[(condition, "true")]
@@ -267,7 +267,7 @@ def test_value_weight_is_recovered_from_a_mouse_that_follows_the_model(value_wei
 def test_too_few_switches_in_a_condition_fail_loudly():
     trials = simulate_switch_mouse("m1", 12, value_weight=0.0, trials_per_session=60)
     with pytest.raises(ValueError, match="switches after"):
-        sr.analyse_mouse(trials, n_lags=5, trace_grid=(DECAY,), min_switches=10_000)
+        sr.analyze_mouse(trials, n_lags=5, trace_grid=(DECAY,), min_switches=10_000)
 
 
 def test_switch_counts_per_condition(hand):
@@ -311,3 +311,88 @@ def test_random_effects_summary_matches_hand_computation():
     assert tau2 == pytest.approx(expected_tau2)
     assert mean == pytest.approx((w_star * beta).sum() / w_star.sum())
     assert error == pytest.approx(1 / np.sqrt(w_star.sum()))
+
+
+# ---------------------------------------------------------------------------
+# Null calibration
+# ---------------------------------------------------------------------------
+
+
+def _null_rows(mouse, betas, gains):
+    return pd.DataFrame(
+        dict(mouse=mouse, condition="after_zero", value="true", beta=betas, se=0.1, gain=gains,
+             replicate=np.arange(len(betas)))
+    )  # fmt: skip
+
+
+def test_null_calibration_gives_z_percentile_and_empirical_p():
+    null = _null_rows("m1", np.arange(-9, 10) / 10.0, np.zeros(19))  # mean 0, sd 0.5627
+    observed = pd.DataFrame(
+        dict(mouse=["m1"], condition="after_zero", value="true", beta=[0.85], se=0.1, gain=[0.0])
+    )
+    table = sr.null_calibration(observed, null).set_index("term")
+    beta = table.loc["beta"]
+    assert beta["n_null"] == 19
+    assert beta["null_mean"] == pytest.approx(0.0)
+    assert beta["z"] == pytest.approx(0.85 / np.std(np.arange(-9, 10) / 10.0, ddof=1))
+    assert beta["percentile"] == pytest.approx(18 / 19)  # 18 of 19 null values below 0.85
+    # two-sided: |null| >= 0.85 for -0.9 and 0.9, so p = (1 + 2) / (19 + 1)
+    assert beta["p_empirical"] == pytest.approx(3 / 20)
+    assert beta["null_low"] < -0.8 and beta["null_high"] > 0.8
+
+
+def test_an_observation_beyond_every_null_value_has_the_smallest_p():
+    null = _null_rows("m1", np.linspace(-0.1, 0.1, 9), np.zeros(9))
+    observed = pd.DataFrame(
+        dict(mouse=["m1"], condition="after_zero", value="true", beta=[1.0], se=0.1, gain=[0.0])
+    )
+    beta = sr.null_calibration(observed, null).set_index("term").loc["beta"]
+    assert beta["p_empirical"] == pytest.approx(1 / 10)
+    assert beta["percentile"] == 1.0
+
+
+def test_null_calibration_needs_a_null_for_every_observation():
+    observed = pd.DataFrame(
+        dict(mouse=["m2"], condition="after_zero", value="true", beta=[1.0], se=0.1, gain=[0.0])
+    )
+    with pytest.raises(ValueError, match="no null"):
+        sr.null_calibration(observed, _null_rows("m1", np.zeros(5), np.zeros(5)))
+
+
+def test_calibrated_summary_tests_the_z_of_six_mice():
+    rows = [
+        dict(mouse=f"m{i}", condition="after_zero", value="true", term="beta", z=z, p_empirical=0.1)
+        for i, z in enumerate([1.0, 2.0, 1.5, 0.5, 2.5, 1.2])
+    ]
+    summary = sr.calibrated_summary(pd.DataFrame(rows)).iloc[0]
+    assert summary["n"] == 6 and summary["mean"] == pytest.approx(1.45)
+    assert summary["p_wilcoxon"] == pytest.approx(2 / 64)
+    few = sr.calibrated_summary(pd.DataFrame(rows[:5])).iloc[0]
+    assert np.isnan(few["mean"]) and np.isnan(few["p_wilcoxon"])
+
+
+def test_firth_shrinks_the_small_sample_bias_of_a_rare_event_fit():
+    # a strong effect on few switches: maximum likelihood overestimates it, Firth less
+    estimates = {False: [], True: []}
+    for seed in range(40):
+        X, chosen = _logit_data([1.5], 40, 100 + seed)
+        for firth in estimates:
+            estimates[firth].append(
+                sr.fit_switch_logit(X, chosen, ("a",), 0.0, firth=firth).beta[0]
+            )
+    bias = {k: np.mean(v) - 1.5 for k, v in estimates.items()}
+    assert abs(bias[True]) < abs(bias[False])
+
+
+def test_firth_gradient_matches_finite_differences():
+    X, chosen = _logit_data([0.6, -0.3], 60, 3)
+    difference, first = X[:, 0] - X[:, 1], (chosen == 0).astype(float)
+    beta = np.array([0.2, -0.1])
+    _, gradient = sr._objective(beta, difference, first, 0.5, True)
+    step = 1e-6
+    numeric = [
+        (sr._objective(beta + step * e, difference, first, 0.5, True)[0]
+         - sr._objective(beta - step * e, difference, first, 0.5, True)[0]) / (2 * step)
+        for e in np.eye(2)
+    ]  # fmt: skip
+    np.testing.assert_allclose(gradient, numeric, rtol=1e-5)
