@@ -28,6 +28,11 @@ and the sessions go through the importer's ``extract_session_trials`` and
 ``reconcile_reversals``, so a block change after a session's last trial is recovered as it is
 for real data and every existing drifting analysis runs on them unchanged.
 
+The task is agent-agnostic: :func:`play_problem` runs any :class:`Policy` (an object with
+``start_session``, ``probabilities`` and ``update``) through one problem, and
+:func:`simulate_policy_mouse` does so over a mouse's problems. The value learner is
+:class:`ValuePolicy`; :func:`simulate_problem` and :func:`simulate_mouse` play it.
+
 Randomness comes only from the ``numpy.random.Generator`` passed in; nothing touches the global
 random state.
 """

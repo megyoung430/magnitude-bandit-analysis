@@ -1,5 +1,8 @@
 """The simulated drifting task and the agents that play it."""
 
+import hashlib
+import json
+
 import numpy as np
 import pytest
 
@@ -175,11 +178,40 @@ def test_play_problem_runs_any_policy_through_the_task():
     assert policy.paid[0] == (1, first["curr_rew_mag"]["B3"])
 
 
-def test_simulate_problem_is_the_value_policy_played():
-    by_kind = sim.simulate_problem(PARAMS, "magnitude", LAYOUT, RULES, np.random.default_rng(3))
-    policy = sim.ValuePolicy(PARAMS, "magnitude", LAYOUT)
-    by_policy = sim.play_problem(policy, LAYOUT, RULES, np.random.default_rng(3))
-    assert by_kind == by_policy
+# Digests of the value learner's simulations as produced by ``simulate_problem`` and
+# ``simulate_mouse`` before agents were played through ``play_problem``; a change in what the
+# value learner does (or in its random stream) changes them.
+GOLDEN = {
+    "problem/magnitude/0": "9bf9126ca12d30ae845689e6b11b7a60",
+    "mouse/magnitude/0": "1081a1d5fd6a6525c22ef38fd16e7926",
+    "problem/magnitude/1": "c4bf567a84b07f0e48283510491e706b",
+    "mouse/magnitude/1": "e504bdcfa339c928b36d5048abd9b652",
+    "problem/binary/0": "ba5e26c51e572daa980e94a4f3e06a36",
+    "mouse/binary/0": "908e54690cf7283b2b755e3bc7698969",
+    "problem/binary/1": "25d893e61744869a21a701b794561ef7",
+    "mouse/binary/1": "f7569426dbc7c8a147c317cb3563e6cd",
+}
+GOLDEN_LAYOUTS = {
+    1: LAYOUT,
+    2: LAYOUT._replace(start_magnitudes={"A1": 0, "B3": 2, "C2": 3}),
+}
+
+
+def _digest(payload) -> str:
+    return hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+@pytest.mark.parametrize("kind", ["magnitude", "binary"])
+@pytest.mark.parametrize("seed", [0, 1])
+def test_value_learner_simulations_match_the_recorded_output(kind, seed):
+    sessions = sim.simulate_problem(PARAMS, kind, LAYOUT, RULES, np.random.default_rng(seed))
+    payload = [[s.trials, s.start, s.end] for s in sessions]
+    assert _digest(payload) == GOLDEN[f"problem/{kind}/{seed}"]
+    fit = sim.AgentFit("m", kind, PARAMS, 0.0, 0)
+    played = sim.simulate_mouse(fit, GOLDEN_LAYOUTS, RULES, np.random.default_rng(seed), "m")
+    table = drifting_trial_table(played)
+    columns = [table["choice"].tolist(), table["reward"].tolist(), table["after_gap"].tolist()]
+    assert _digest(columns) == GOLDEN[f"mouse/{kind}/{seed}"]
 
 
 def test_simulate_policy_mouse_labels_and_numbers_the_problems():
