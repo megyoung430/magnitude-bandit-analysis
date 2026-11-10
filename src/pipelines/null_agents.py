@@ -20,6 +20,7 @@ steps, each a plain function:
 
 import zlib
 from dataclasses import fields
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -29,7 +30,7 @@ from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
 from src.behavior_analysis.drifting_trial_table import drifting_trial_table
 from src.pipelines.agent_baselines import measure_task_rules
-from src.pipelines.choice_logit_values import SyntheticCohort
+from src.pipelines.choice_logit_values import LogitAnalysis, SyntheticCohort, analyse_trial_table
 
 MAGNITUDES = (0, 1, 2, 3, 4)
 
@@ -178,3 +179,63 @@ def simulate_null_cohort(
     return SyntheticCohort(
         drifting_trial_table(problems), parameters_table(params_by_mouse), problems
     )
+
+
+# ---------------------------------------------------------------------------
+# All agents, end to end
+# ---------------------------------------------------------------------------
+
+
+class NullControls(NamedTuple):
+    """Every null agent fitted to a trial table, played on it, and analysed like the mice.
+
+    Attributes:
+        fits (dict): ``{kind: {mouse: params}}``.
+        cohorts (dict): ``{kind: SyntheticCohort}`` of the simulated agents.
+        analyses (dict): ``{kind: LogitAnalysis}`` of each simulated cohort.
+    """
+
+    fits: dict
+    cohorts: dict
+    analyses: dict
+
+
+def null_controls(
+    trial_table: pd.DataFrame,
+    seed: int,
+    *,
+    n_lags: int,
+    tail_decay: float | None,
+    l2: float,
+    decay: float = na.DEFAULT_DECAY,
+    rules: sim.TaskRules | None = None,
+) -> NullControls:
+    """Fit all of ``null_agents.KINDS`` to *trial_table*, simulate them and run the choice logit.
+
+    The logit settings should be those of the analysis of *trial_table* itself, so the agents
+    and the mice go through the same pipeline.
+
+    Args:
+        trial_table (pd.DataFrame): The mice's drifting trial table; every mouse must be fittable
+            (see :func:`~src.agents.null_agents.fit_null_agents`) and analysable.
+        seed (int): Base seed of the simulations.
+        n_lags (int): Lags of the logit. Keyword-only.
+        tail_decay (float | None): Reward-tail decay of the logit. Keyword-only.
+        l2 (float): Penalty of the logit. Keyword-only.
+        decay (float): Decay of the agents' history trace. Default ``DEFAULT_DECAY``.
+        rules (sim.TaskRules | None): The simulated task; ``None`` measures it from
+            *trial_table* once.
+
+    Returns:
+        NullControls: Fits, simulated cohorts and their logit analyses, keyed by agent kind.
+    """
+    rules = measure_task_rules(trial_table).rules if rules is None else rules
+    fits = {kind: na.fit_null_agents(trial_table, kind, decay) for kind in na.KINDS}
+    cohorts = {
+        kind: simulate_null_cohort(trial_table, fits[kind], kind, seed, rules) for kind in na.KINDS
+    }
+    analyses: dict[str, LogitAnalysis] = {
+        kind: analyse_trial_table(cohort.trials, n_lags=n_lags, tail_decay=tail_decay, l2=l2)
+        for kind, cohort in cohorts.items()
+    }
+    return NullControls(fits, cohorts, analyses)

@@ -152,3 +152,23 @@ def test_implied_stay_curves_follow_the_fitted_stay_logit(fits):
     params = fits["wsls_magnitude"]["sim01"]
     assert row["magnitude"].tolist() == [0, 1, 2, 3, 4]
     assert row["p_stay"].to_numpy() == pytest.approx(expit(params.stay_logit(np.arange(5))))
+
+
+@pytest.mark.filterwarnings("ignore:the problems of:UserWarning")  # three disjoint tower triples
+def test_null_controls_fit_simulate_and_analyse_every_agent(real_like):
+    controls = pipe.null_controls(real_like, seed=1, n_lags=3, tail_decay=0.9, l2=1.0, rules=RULES)
+    mice = sorted(real_like["mouse"].unique())
+    assert list(controls.fits) == list(na.KINDS)
+    assert list(controls.cohorts) == list(na.KINDS)
+    assert list(controls.analyses) == list(na.KINDS)
+    for kind in na.KINDS:
+        assert sorted(controls.fits[kind]) == mice
+        assert sorted(controls.cohorts[kind].trials["mouse"].unique()) == mice
+        assert sorted(controls.analyses[kind].designs) == mice
+        assert controls.analyses[kind].tail_decay == 0.9
+    # the agents differ in what they do, so the streams differ
+    assert (
+        not controls.cohorts["wsls"]
+        .trials["choice"]
+        .equals(controls.cohorts["wsls_magnitude"].trials["choice"])
+    )
