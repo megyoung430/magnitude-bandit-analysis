@@ -1,11 +1,12 @@
 """Figures of the switch regression: value weights, held-out gains and history weights.
 
 Drawing only: the numbers come from :mod:`src.pipelines.switch_regression` (one
-``SourceSwitchRegression`` per source). Each ``plot_*`` function builds a figure, then saves it
-(pdf, png, svg and a caption file) or shows it. Every figure puts the mice next to the controls
-(simulated Q-learner, null agents), one dot per mouse and black bars for the mean ± se across
-mice; a source with fewer than ``choice_logit_extensions.MIN_TEST_MICE`` mice shows its mice only,
-with no mean, error bar or test.
+``SourceSwitchRegression`` per source, and optionally a ``NullCalibration`` per source). Each
+``plot_*`` function builds a figure, then saves it (pdf, png, svg and a caption file) or shows it.
+Every figure puts the mice next to the controls (simulated Q-learner, null agents), one dot per
+mouse and black bars for the mean ± se across mice; a source with fewer than
+``choice_logit_extensions.MIN_TEST_MICE`` mice shows its mice only, with no mean, error bar or
+test. A calibrated mouse has a gray band behind its dot: the middle 95% of its own null.
 """
 
 from collections.abc import Mapping
@@ -21,10 +22,10 @@ from src.behavior_visualization.plot_regression_extensions import (
     counts_caption,
     draw_column,
     source_stats_line,
-    source_ticks,
     style_source_axis,
 )
 from src.behavior_visualization.plot_value_psychometrics import finish_figure, new_figure
+from src.pipelines.null_agents import AGENT_LABELS
 
 VALUE_WEIGHTS = "Switch Regression Value Weights"
 MODEL_COMPARISON = "Switch Regression Model Comparison"
@@ -65,7 +66,14 @@ MODEL_CAPTION = (
     "predicts held-out switch targets beyond choice history, recency and tower bias. Weights and "
     "their standard errors (Laplace, from the Hessian of the penalized likelihood) come from the "
     "fit to all of a condition's switches. Every weight has an L2 penalty (a Gaussian prior with "
-    "SD 1); nothing is standardized, so the value weight is in logit per pulse.",
+    "SD 1); nothing is standardized, so the value weight is in logit per pulse. The standard "
+    "errors are model-based (Laplace), not clustered by problem, so they can be too small when "
+    "switches within a problem are dependent; the random-effects (DerSimonian-Laird) se built on "
+    "them can be too small for real mice as well.",
+    "Readouts: the believed value and the true value after non-zero. The true value after zero "
+    "is weak even for the simulated Q-learner and cannot separate it from the null agents at these "
+    "switch counts. Read a mouse against its own null (gray band, calibrated z and p) rather than "
+    "against 0: a value-blind agent's raw weight is not reliably 0 at a mouse's switch counts.",
     "Dots: mice; black bars: mean ± se across mice.",
 )
 
@@ -86,6 +94,76 @@ def _check_sources(sources: Mapping) -> None:
 def _mice_tables(sources: Mapping) -> dict:
     """``{source: table with one row per mouse}``, for the shared caption and color helpers."""
     return {name: s.decays[["mouse"]] for name, s in sources.items()}
+
+
+def _ticks(sources: Mapping) -> list[str]:
+    """``"<source>\nn=<analyzed>"``, with the skipped mice counted when there are any."""
+    ticks = []
+    for name, s in sources.items():
+        skipped = f" ({len(s.skipped)} skipped)" if s.skipped else ""
+        ticks.append(f"{name}\nn={len(s.decays)}{skipped}")
+    return ticks
+
+
+def _skipped_lines(sources: Mapping) -> list[str]:
+    return [
+        f"Skipped, {name}: " + "; ".join(f"{m} ({reason})" for m, reason in s.skipped.items()) + "."
+        for name, s in sources.items()
+        if s.skipped
+    ]
+
+
+def _primary(calibration) -> pd.DataFrame:
+    """Rows of the first null agent of *calibration* (the realistic WSLS (Magnitude) by default)."""
+    table = calibration.calibration
+    return table[table["agent"] == table["agent"].iloc[0]]
+
+
+def _bands(calibration, value: str, condition: str, term: str) -> dict:
+    """``{mouse: (null_low, null_high)}`` of one panel, or ``{}`` without a calibration."""
+    if calibration is None:
+        return {}
+    rows = _primary(calibration).query(
+        "value == @value and condition == @condition and term == @term"
+    )
+    return {r.mouse: (r.null_low, r.null_high) for r in rows.itertuples()}
+
+
+def _calibration_lines(calibrations: Mapping, term: str) -> list[str]:
+    """Per mouse: calibrated z and empirical p against each null agent; and the across-mice test."""
+    lines = []
+    for name, calibration in calibrations.items():
+        table = calibration.calibration.query("term == @term")
+        agents = list(dict.fromkeys(table["agent"]))
+        first = AGENT_LABELS.get(agents[0], agents[0])
+        lines.append(
+            f"Null calibration, {name}: each mouse's fitted null agents ("
+            + ", ".join(AGENT_LABELS.get(a, a) for a in agents)
+            + f") played on its own task, {calibration.replicates} replicates each, through the "
+            "identical analysis; gray band: 2.5th-97.5th percentile of the "
+            f"{first} null. z = (observed - null mean) / null sd; p: two-sided empirical."
+        )
+        for (mouse, value, condition), group in table.groupby(
+            ["mouse", "value", "condition"], sort=False
+        ):
+            parts = [
+                f"z={r.z:.2f}, p={r.p_empirical:.3g} vs {AGENT_LABELS.get(r.agent, r.agent)}"
+                for r in group.itertuples()
+            ]
+            lines.append(
+                f"{name}, {mouse}, {VALUE_LABELS[value]}, {CONDITION_LABELS[condition]}: "
+                f"observed {group['observed'].iloc[0]:.4f}; " + "; ".join(parts) + "."
+            )
+        summary = calibration.summary.query("term == @term")
+        for row in summary.itertuples():
+            if np.isfinite(row.mean):
+                lines.append(
+                    f"{name}, calibrated z vs {AGENT_LABELS.get(row.agent, row.agent)}, "
+                    f"{VALUE_LABELS[row.value]}, {CONDITION_LABELS[row.condition]}: mean "
+                    f"{row.mean:.2f} ± se {row.se:.2f}; Wilcoxon p={row.p_wilcoxon:.3g} "
+                    f"(n={row.n} mice)."
+                )
+    return lines
 
 
 def _counts_lines(sources: Mapping) -> list[str]:
@@ -150,11 +228,19 @@ def _present_values(sources: Mapping) -> list[str]:
     return [v for v in sr.VALUES if v in present]
 
 
-def _value_grid(sources: Mapping, column: str, ylabel, heading: str, caption: tuple, save_path):
+def _value_grid(
+    sources: Mapping,
+    column: str,
+    ylabel,
+    heading: str,
+    caption: tuple,
+    save_path,
+    calibrations: Mapping,
+):
     """One panel per value variant (rows) and condition (columns), x = sources."""
     values = _present_values(sources)
     colors = colors_of(list(_mice_tables(sources).values()))
-    ticks = source_ticks(_mice_tables(sources))
+    ticks = _ticks(sources)
     width = max(9.0, 2 * (1.2 * len(sources) + 1.5))
     with new_figure(
         nrows=len(values), ncols=len(sr.CONDITIONS), figsize=(width, 3.9 * len(values)),
@@ -164,13 +250,18 @@ def _value_grid(sources: Mapping, column: str, ylabel, heading: str, caption: tu
         for row, value in enumerate(values):
             for col, condition in enumerate(sr.CONDITIONS):
                 ax, labeled, counts, errors = axs[row, col], set(), [], []
-                for x, s in enumerate(sources.values()):
+                for x, (name, s) in enumerate(sources.items()):
                     mine = s.values.query("value == @value and condition == @condition")
-                    if len(mine):  # a source without this variant (no logit) is left empty
-                        counts.append(len(mine))
+                    if mine.empty:  # e.g. no model value for a source without a logit analysis
+                        ax.text(x, 0, "not fitted", rotation=90, ha="center", va="bottom",
+                                color="0.5", fontsize=8)  # fmt: skip
+                        continue
+                    counts.append(len(mine))
+                    bands = _bands(calibrations.get(name), value, condition, column)
                     errors.append(
-                        draw_column(ax, x, mine.set_index("mouse")[column], colors, rng, labeled)
-                    )
+                        draw_column(ax, x, mine.set_index("mouse")[column], colors, rng, labeled,
+                                    bands=bands)
+                    )  # fmt: skip
                 style_source_axis(ax, ticks, ylabel(value) if col == 0 else "")
                 title = f"{VALUE_LABELS[value]}, {CONDITION_LABELS[condition]}"
                 set_title(ax, Title(title, source_stats_line(counts, errors)), fontsize=12)
@@ -184,12 +275,17 @@ def _value_grid(sources: Mapping, column: str, ylabel, heading: str, caption: tu
 # ---------------------------------------------------------------------------
 
 
-def plot_value_weights(sources: Mapping, save_path: str | Path | None = None) -> None:
+def plot_value_weights(
+    sources: Mapping, save_path: str | Path | None = None, calibrations: Mapping | None = None
+) -> None:
     """The value weight of each variant after zero and after non-zero, by source.
 
     Args:
         sources (Mapping): ``{source label: SourceSwitchRegression}``, the mice first.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        calibrations (Mapping | None): ``{source label: NullCalibration}`` of the sources whose
+            mice are calibrated (gray null band per mouse, calibrated z and p in the caption).
+            Default ``None``.
 
     Raises:
         ValueError: If there are no sources or a source has no mice.
@@ -201,17 +297,25 @@ def plot_value_weights(sources: Mapping, save_path: str | Path | None = None) ->
         _decay_line(sources),
         counts_caption(_mice_tables(sources)),
         *_counts_lines(sources),
+        *_skipped_lines(sources),
         *_test_lines(sources, "beta", "logit per unit of value"),
+        *_calibration_lines(calibrations or {}, "beta"),
     )
-    _value_grid(sources, "beta", WEIGHT_UNITS.get, VALUE_WEIGHTS, caption, save_path)
+    _value_grid(
+        sources, "beta", WEIGHT_UNITS.get, VALUE_WEIGHTS, caption, save_path, calibrations or {}
+    )
 
 
-def plot_model_comparison(sources: Mapping, save_path: str | Path | None = None) -> None:
+def plot_model_comparison(
+    sources: Mapping, save_path: str | Path | None = None, calibrations: Mapping | None = None
+) -> None:
     """The held-out gain of adding each value variant to the history-only model, by source.
 
     Args:
         sources (Mapping): ``{source label: SourceSwitchRegression}``, the mice first.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        calibrations (Mapping | None): ``{source label: NullCalibration}``; as in
+            :func:`plot_value_weights`, for the gain. Default ``None``.
 
     Raises:
         ValueError: If there are no sources or a source has no mice.
@@ -226,9 +330,14 @@ def plot_model_comparison(sources: Mapping, save_path: str | Path | None = None)
         _decay_line(sources),
         counts_caption(_mice_tables(sources)),
         *_counts_lines(sources),
+        *_skipped_lines(sources),
         *_test_lines(sources, "gain", "nats per switch"),
+        *_calibration_lines(calibrations or {}, "gain"),
     )
-    _value_grid(sources, "gain", lambda _: GAIN_LABEL, MODEL_COMPARISON, caption, save_path)
+    _value_grid(
+        sources, "gain", lambda _: GAIN_LABEL, MODEL_COMPARISON, caption, save_path,
+        calibrations or {},
+    )  # fmt: skip
 
 
 def _feature_label(feature: str) -> str:
@@ -260,11 +369,15 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
         "logit per unit of the decayed choice count. Recency: logit per unit of log(1 + trials "
         "since chosen), negative when recently chosen arms are preferred. Never chosen: logit for "
         "an arm not yet chosen in the problem. Tower biases are fitted too and not shown.",
+        "The trace's unit depends on its decay (a count decayed by 0.5 runs to 2, by 0.95 to 20), "
+        "so trace weights of mice with different decays are not on one scale: for a source whose "
+        "mice chose different decays the trace column shows the mice only, without a mean.",
         *MODEL_CAPTION,
         _settings_line(sources),
         _decay_line(sources),
         counts_caption(_mice_tables(sources)),
         *_counts_lines(sources),
+        *_skipped_lines(sources),
     )
     width = max(6.0, 4.3 * len(sources))
     with new_figure(
@@ -278,10 +391,12 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
                 mine = s.history.query("condition == @condition")
                 wide = mine.pivot(index="mouse", columns="feature", values="weight")
                 empty = pd.Series(np.nan, index=wide.index)  # a feature the source lacks
+                one_decay = s.decays["trace_decay"].nunique() == 1
                 errors = [
-                    draw_column(ax, x, wide.get(f, empty), colors, rng, labeled)
+                    draw_column(ax, x, wide.get(f, empty), colors, rng, labeled,
+                                summary=one_decay or f != sr.TRACE)
                     for x, f in enumerate(features)
-                ]
+                ]  # fmt: skip
                 style_source_axis(ax, labels, "Weight (Logit)" if col == 0 else "")
                 heading = f"{name}, {CONDITION_LABELS[condition]}"
                 set_title(ax, Title(heading, source_stats_line([len(wide)], errors)), fontsize=12)
@@ -290,14 +405,18 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
     save_or_show(fig, save_path or None)
 
 
-def plot_switch_regression(sources: Mapping, out_dir: str | Path) -> None:
+def plot_switch_regression(
+    sources: Mapping, out_dir: str | Path, calibrations: Mapping | None = None
+) -> None:
     """Save the three switch-regression figures into *out_dir* (created if missing).
 
     Args:
         sources (Mapping): ``{source label: SourceSwitchRegression}``, the mice first.
         out_dir (str | Path): Folder of the figures.
+        calibrations (Mapping | None): ``{source label: NullCalibration}`` of the calibrated
+            sources. Default ``None``.
     """
     out_dir = Path(out_dir)
-    plot_value_weights(sources, out_dir / VALUE_WEIGHTS)
-    plot_model_comparison(sources, out_dir / MODEL_COMPARISON)
+    plot_value_weights(sources, out_dir / VALUE_WEIGHTS, calibrations)
+    plot_model_comparison(sources, out_dir / MODEL_COMPARISON, calibrations)
     plot_history_weights(sources, out_dir / HISTORY_WEIGHTS)

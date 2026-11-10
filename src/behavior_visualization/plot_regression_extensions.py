@@ -81,11 +81,24 @@ def draw_column(
     colors: Mapping[str, str],
     rng: np.random.Generator,
     labeled: set,
+    bands: Mapping[str, tuple[float, float]] | None = None,
+    summary: bool = True,
 ) -> float:
     """Dots of the mice (index of *values*) at *x*, and the mean ± se bar if enough mice.
 
     A mouse is named in the legend once per panel (*labeled* collects those already named). The
     bar is drawn for ``MIN_TEST_MICE`` or more mice only.
+
+    Args:
+        ax (plt.Axes): The panel.
+        x (float): Position of the column.
+        values (pd.Series): One value per mouse, indexed by mouse.
+        colors (Mapping[str, str]): ``{mouse: color}``.
+        rng (np.random.Generator): Jitter of the dots.
+        labeled (set): Mice already in the panel's legend; updated.
+        bands (Mapping[str, tuple[float, float]] | None): ``{mouse: (low, high)}`` drawn as a gray
+            vertical band behind that mouse's dot (e.g. its null interval). Default ``None``.
+        summary (bool): Draw the mean ± se bar (with enough mice). Default True.
 
     Returns:
         float: The standard error drawn, NaN when no bar or no error is drawn.
@@ -93,9 +106,13 @@ def draw_column(
     for mouse, value in values.dropna().items():
         label = None if mouse in labeled else mouse
         labeled.add(mouse)
-        ax.plot(jittered(np.array([x]), DOT_JITTER, rng), [value], "o", color=colors[mouse],
-                ms=5, alpha=0.85, label=label, zorder=3)  # fmt: skip
-    if len(values.dropna()) < ext.MIN_TEST_MICE:
+        dot_x = jittered(np.array([x]), DOT_JITTER, rng)
+        if bands and mouse in bands:
+            ax.plot([dot_x[0]] * 2, bands[mouse], color="0.7", lw=5, alpha=0.6,
+                    solid_capstyle="butt", zorder=2)  # fmt: skip
+        ax.plot(dot_x, [value], "o", color=colors[mouse], ms=5, alpha=0.85, label=label,
+                zorder=3)  # fmt: skip
+    if not summary or len(values.dropna()) < ext.MIN_TEST_MICE:
         return np.nan
     column = values.to_numpy(dtype=float)[:, None]
     mean, se = float(nan_mean(column)[0]), float(nan_standard_error(column)[0])
