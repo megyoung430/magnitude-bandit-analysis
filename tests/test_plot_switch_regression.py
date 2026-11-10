@@ -124,6 +124,8 @@ def test_a_source_without_model_values_leaves_its_column_empty(tmp_path, saved_f
     plots.plot_value_weights(sources, tmp_path / "v")
     _, panels, _ = _panels(saved_figures, "v")
     assert len(panels) == 6
+    # the empty source does not count, so the panel still states the one n of the others
+    assert all(STATS_LINE.search(p.split("\n")[-1]) for p in panels), panels
 
 
 def test_every_figure_needs_sources(tmp_path):

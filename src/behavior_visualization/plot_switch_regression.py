@@ -166,7 +166,8 @@ def _value_grid(sources: Mapping, column: str, ylabel, heading: str, caption: tu
                 ax, labeled, counts, errors = axs[row, col], set(), [], []
                 for x, s in enumerate(sources.values()):
                     mine = s.values.query("value == @value and condition == @condition")
-                    counts.append(len(mine))
+                    if len(mine):  # a source without this variant (no logit) is left empty
+                        counts.append(len(mine))
                     errors.append(
                         _draw_column(ax, x, mine.set_index("mouse")[column], colors, rng, labeled)
                     )
