@@ -124,7 +124,7 @@ def _mouse_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
 LABEL_HEADROOM = 0.15
 
 
-def _column_mean(values: pd.Series, summary: bool = True) -> float:
+def column_mean(values: pd.Series, summary: bool = True) -> float:
     """The mean that :func:`draw_column` draws as a bar, NaN when it draws none."""
     values = values.dropna()
     if not summary or len(values) < ext.MIN_TEST_MICE:
@@ -132,7 +132,7 @@ def _column_mean(values: pd.Series, summary: bool = True) -> float:
     return float(values.mean())
 
 
-def _label_means(ax, means: Mapping[float, float]) -> None:
+def label_means(ax, means: Mapping[float, float]) -> None:
     """Write each column's mean (``{x: mean}``) at the top of the panel, above its bar.
 
     The panels are narrow, so the number is easier to read than the bar's height. Columns
@@ -144,7 +144,7 @@ def _label_means(ax, means: Mapping[float, float]) -> None:
                     va="top", fontsize=8)  # fmt: skip
 
 
-def _add_headroom(ax) -> None:
+def add_headroom(ax) -> None:
     """Raise the top of *ax*'s y range (shared axes follow) so the mean labels clear the data."""
     low, high = ax.get_ylim()
     ax.set_ylim(low, high + LABEL_HEADROOM * (high - low))
@@ -320,14 +320,14 @@ def _value_grid(
                     bands = _bands(calibrations.get(name), value, condition, column)
                     per_mouse = mine.set_index("mouse")[column]
                     errors.append(draw_column(ax, x, per_mouse, colors, rng, labeled, bands=bands))
-                    means[x] = _column_mean(per_mouse)
-                _label_means(ax, means)
+                    means[x] = column_mean(per_mouse)
+                label_means(ax, means)
                 style_source_axis(ax, ticks, ylabel(value) if col == 0 else "")
                 title = f"{VALUE_LABELS[value]}, {CONDITION_LABELS[condition]}"
                 set_title(ax, Title(title, source_stats_line(counts, errors)), fontsize=12)
                 if ax.get_legend_handles_labels()[1]:  # a panel of gray mice only has none
                     ax.legend(fontsize=9)
-            _add_headroom(axs[row, 0])  # once per row: the row shares its y axis
+            add_headroom(axs[row, 0])  # once per row: the row shares its y axis
         finish_figure(fig, Title(heading, None, caption))
     save_or_show(fig, save_path or None)
 
@@ -460,8 +460,8 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
                     draw_column(ax, x, c, colors, rng, labeled, summary=summary)
                     for x, (c, summary) in enumerate(zip(columns, summaries, strict=True))
                 ]  # fmt: skip
-                _label_means(ax, {
-                    x: _column_mean(c, summary)
+                label_means(ax, {
+                    x: column_mean(c, summary)
                     for x, (c, summary) in enumerate(zip(columns, summaries, strict=True))
                 })  # fmt: skip
                 style_source_axis(ax, labels, "Weight (Logit)" if col == 0 else "")
@@ -469,7 +469,7 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
                 set_title(ax, Title(heading, source_stats_line([len(wide)], errors)), fontsize=12)
                 if ax.get_legend_handles_labels()[1]:  # a panel of gray mice only has none
                     ax.legend(fontsize=9)
-        _add_headroom(axs[0, 0])  # once: every panel shares the y axis
+        add_headroom(axs[0, 0])  # once: every panel shares the y axis
         finish_figure(fig, Title(HISTORY_WEIGHTS, None, caption))
     save_or_show(fig, save_path or None)
 

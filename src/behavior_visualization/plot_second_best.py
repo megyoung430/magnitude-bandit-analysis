@@ -36,9 +36,9 @@ from src.behavior_visualization.plot_regression_extensions import (
 )
 from src.behavior_visualization.plot_switch_regression import (
     OTHER_MICE_COLOR,
-    _add_headroom,
-    _column_mean,
-    _label_means,
+    add_headroom,
+    column_mean,
+    label_means,
 )
 from src.behavior_visualization.plot_value_psychometrics import finish_figure, new_figure
 from src.pipelines.null_agents import AGENT_LABELS
@@ -310,8 +310,8 @@ def plot_second_best_choices(
                     bands = _bands(calibrations.get(name), measure, condition)
                     per_mouse = mine.set_index("mouse")["p"]
                     errors.append(draw_column(ax, x, per_mouse, colors, rng, labeled, bands=bands))
-                    means[x] = _column_mean(per_mouse)
-                _label_means(ax, means)
+                    means[x] = column_mean(per_mouse)
+                label_means(ax, means)
                 style_source_axis(ax, ticks, CHOSE_LABELS[measure] if col == 0 else "")
                 ax.axhline(0.5, color="0.6", lw=0.8, ls=":", zorder=1)
                 ax.set(ylim=(0, 1), yticks=np.linspace(0, 1, 5))
@@ -319,7 +319,7 @@ def plot_second_best_choices(
                 stats = source_stats_line(counts, errors) if counts else None
                 set_title(ax, Title(title, stats), fontsize=12)
         _mice_legend(axs[0, -1], colors, unnamed)  # once: panels differ in which mice they draw
-        _add_headroom(axs[0, 0])  # once: every panel shares the y axis
+        add_headroom(axs[0, 0])  # once: every panel shares the y axis
         finish_figure(fig, Title(SECOND_BEST_CHOICES, None, caption))
     save_or_show(fig, save_path or None)
 

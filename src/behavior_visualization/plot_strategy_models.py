@@ -31,9 +31,9 @@ from src.behavior_visualization.plot_regression_extensions import (
 )
 from src.behavior_visualization.plot_switch_regression import (
     OTHER_MICE_COLOR,
-    _add_headroom,
-    _column_mean,
-    _label_means,
+    add_headroom,
+    column_mean,
+    label_means,
 )
 from src.behavior_visualization.plot_value_psychometrics import finish_figure, new_figure
 from src.pipelines import strategy_comparison as pipe
@@ -247,13 +247,13 @@ def _draw_panel(ax, sources, column, source_column, colors, unnamed, rng, ticks,
             continue
         counts.append(len(values))
         errors.append(draw_column(ax, x, values, colors, rng, labeled))
-        means[x] = _column_mean(values)
-    _label_means(ax, means)
+        means[x] = column_mean(values)
+    label_means(ax, means)
     style_source_axis(ax, ticks, ylabel)
     set_title(ax, Title(title, source_stats_line(counts, errors)), fontsize=12)
     if ax.get_legend_handles_labels()[1]:
         ax.legend(fontsize=9)
-    _add_headroom(ax)
+    add_headroom(ax)
 
 
 def plot_strategy_model_comparison(
