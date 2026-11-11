@@ -194,10 +194,12 @@ class MouseComparison(NamedTuple):
             one row per held-out problem and model.
         parameters (pd.DataFrame): ``mouse, model, parameter, value, at_bound`` of every model
             fitted to all of the mouse's trials.
+        fits (dict): ``{model: params}`` of those fits, to simulate the models.
     """
 
     scores: pd.DataFrame
     parameters: pd.DataFrame
+    fits: dict
 
 
 def fit_all(trials: pd.DataFrame, n_starts: int, seed: int) -> dict:
@@ -260,10 +262,8 @@ def cross_validate(
         rows += score_fold(
             mouse, problem, trials[~test], trials[test], n_starts, 1000 * seed + fold
         )
-    return MouseComparison(
-        scores=pd.DataFrame(rows),
-        parameters=parameters_table(mouse, fit_all(trials, n_starts, seed)),
-    )
+    fits = fit_all(trials, n_starts, seed)
+    return MouseComparison(pd.DataFrame(rows), parameters_table(mouse, fits), fits)
 
 
 # ---------------------------------------------------------------------------

@@ -118,6 +118,7 @@ def test_scores_are_finite_log_likelihoods_below_zero(comparison):
 
 
 def test_full_fit_parameters_are_listed_for_every_model(comparison):
+    assert set(comparison[1].fits) == set(sm.MODELS)  # the fitted objects, for simulation
     parameters = comparison[1].parameters
     assert set(parameters["model"]) == set(sm.MODELS)
     heuristic = parameters[parameters["model"] == sm.HEURISTIC_PLUS].set_index("parameter")
