@@ -1,4 +1,4 @@
-"""Held-out comparison of WSLS (Magnitude), Heuristic+ and the Q-learner, and model recovery."""
+"""Held-out comparison of WSLS (Magnitude), Heuristic+, the Q-learner and WSLS (Graded)."""
 
 import warnings
 
@@ -66,6 +66,14 @@ def test_wsls_score_is_the_null_agents_likelihood_without_the_session_starts():
     n_starts = na.decisions(trials, params.decay).start.sum()
     expected = na.log_likelihood(trials, params) - n_starts * np.log(1 / 3)
     assert sm.SPECS[sm.WSLS_MAGNITUDE].score(trials, params) == pytest.approx(expected)
+
+
+def test_graded_score_is_the_null_agents_likelihood_without_the_session_starts():
+    trials = simulate_mouse(sm.WSLS_GRADED, seed=1, n_problems=2)
+    params = PARAMETERS[sm.WSLS_GRADED]
+    n_starts = na.decisions(trials, na.DEFAULT_DECAY).start.sum()
+    expected = na.log_likelihood(trials, params) - n_starts * np.log(1 / 3)
+    assert sm.SPECS[sm.WSLS_GRADED].score(trials, params) == pytest.approx(expected)
 
 
 def test_heuristic_score_is_its_likelihood_without_the_session_starts():
@@ -170,8 +178,13 @@ def _scores(nats_by_model, n_choices=100, mouse="m1"):
     )  # fmt: skip
 
 
-def _three(mouse, wsls, heuristic, q):
-    nats = {sm.WSLS_MAGNITUDE: wsls, sm.HEURISTIC_PLUS: heuristic, sm.Q_LEARNER: q}
+def _four(mouse, wsls, heuristic, q, graded=1.5):
+    nats = {
+        sm.WSLS_MAGNITUDE: wsls,
+        sm.HEURISTIC_PLUS: heuristic,
+        sm.Q_LEARNER: q,
+        sm.WSLS_GRADED: graded,
+    }
     return _scores(nats, 100, mouse)
 
 
@@ -184,11 +197,13 @@ def test_nats_per_choice_pools_the_folds_of_a_mouse():
 def test_differences_are_the_first_model_minus_the_second_per_mouse():
     scores = pd.concat(
         [
-            _three("a", 1.00, 0.95, 0.90),
-            _three("b", 0.80, 0.78, 0.82),
+            _four("a", 1.00, 0.95, 0.90, graded=0.97),
+            _four("b", 0.80, 0.78, 0.82, graded=0.79),
         ]
     )  # fmt: skip
     differences = sm.difference_table(sm.nats_table(scores)).set_index("mouse")
+    assert differences.loc["a", "wsls_graded_minus_q_learner"] == pytest.approx(0.07)
+    assert differences.loc["b", "wsls_graded_minus_wsls_magnitude"] == pytest.approx(-0.01)
     assert differences.loc["a", "heuristic_plus_minus_q_learner"] == pytest.approx(0.05)
     assert differences.loc["b", "heuristic_plus_minus_q_learner"] == pytest.approx(-0.04)
     assert differences.loc["a", "wsls_magnitude_minus_q_learner"] == pytest.approx(0.10)
@@ -198,17 +213,18 @@ def test_differences_are_the_first_model_minus_the_second_per_mouse():
 def test_the_winner_is_the_lowest_held_out_nats_and_wins_are_counted():
     scores = pd.concat(
         [
-            _three("a", 1.00, 0.95, 0.90),
-            _three("b", 0.80, 0.78, 0.82),
-            _three("c", 0.80, 0.85, 0.82),
+            _four("a", 1.00, 0.95, 0.90),
+            _four("b", 0.80, 0.78, 0.82),
+            _four("c", 0.80, 0.85, 0.82),
+            _four("d", 0.80, 0.85, 0.82, graded=0.70),
         ]
     )  # fmt: skip
     winners = sm.winners(sm.nats_table(scores))
     assert dict(zip(winners["mouse"], winners["winner"], strict=True)) == {
-        "a": sm.Q_LEARNER, "b": sm.HEURISTIC_PLUS, "c": sm.WSLS_MAGNITUDE,
+        "a": sm.Q_LEARNER, "b": sm.HEURISTIC_PLUS, "c": sm.WSLS_MAGNITUDE, "d": sm.WSLS_GRADED,
     }  # fmt: skip
     assert sm.win_counts(winners).to_dict() == {
-        sm.WSLS_MAGNITUDE: 1, sm.HEURISTIC_PLUS: 1, sm.Q_LEARNER: 1,
+        sm.WSLS_MAGNITUDE: 1, sm.HEURISTIC_PLUS: 1, sm.Q_LEARNER: 1, sm.WSLS_GRADED: 1,
     }  # fmt: skip
 
 
@@ -220,6 +236,8 @@ def test_difference_summary_gives_mean_se_and_tests_from_six_mice():
             "heuristic_plus_minus_q_learner": rng.normal(-0.02, 0.005, 8),
             "wsls_magnitude_minus_q_learner": rng.normal(0.02, 0.005, 8),
             "heuristic_plus_minus_wsls_magnitude": rng.normal(-0.04, 0.005, 8),
+            "wsls_graded_minus_q_learner": rng.normal(0.01, 0.005, 8),
+            "wsls_graded_minus_wsls_magnitude": rng.normal(-0.01, 0.005, 8),
         }
     )
     summary = sm.difference_summary(table).set_index("comparison")
@@ -271,7 +289,7 @@ def test_parameter_recovery_needs_the_same_mice_and_parameters_on_both_sides():
 
 @pytest.fixture(scope="module")
 def recovered():
-    """Two seeded mice per generating model, each fitted and compared with all three models."""
+    """Two seeded mice per generating model, each fitted and compared with all four models."""
     rows = []
     for model in sm.MODELS:
         for seed in (1, 2):
@@ -285,8 +303,8 @@ def recovered():
 
 def test_the_generating_model_wins_more_often_than_chance(recovered):
     correct = (recovered["winner"] == recovered["generator"]).mean()
-    assert len(recovered) == 6
-    assert correct >= 4 / 6  # chance is 1/3
+    assert len(recovered) == 2 * len(sm.MODELS)
+    assert correct >= 5 / 8  # chance is 1/4
 
 
 def test_every_model_is_recovered_at_least_once(recovered):

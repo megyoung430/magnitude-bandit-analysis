@@ -35,6 +35,8 @@ def fake_source(n, seed=0, prefix="m", skipped=None):
             (sm.HEURISTIC_PLUS, "u", rng.normal(2.0, 0.3)),
             (sm.Q_LEARNER, "learning_rate", rng.uniform(0.1, 0.5)),
             (sm.Q_LEARNER, "beta", rng.uniform(1, 3)),
+            (sm.WSLS_GRADED, "w_m", rng.normal(0.5, 0.1)),
+            (sm.WSLS_GRADED, "p_recent", rng.uniform(0.5, 0.9)),
         ):
             parameters.append(dict(mouse=mouse, model=model, parameter=parameter, value=value,
                                    at_bound=False))  # fmt: skip
@@ -60,7 +62,11 @@ def fake_recovery(diagonal=1.0, n_mice=4, correlation=0.95, seed=0):
         for generator in sm.MODELS:
             for replicate in range(2):
                 hit = rng.uniform() < diagonal
-                winner = generator if hit else sm.MODELS[(sm.MODELS.index(generator) + 1) % 3]
+                winner = (
+                    generator
+                    if hit
+                    else sm.MODELS[(sm.MODELS.index(generator) + 1) % len(sm.MODELS)]
+                )
                 won.append(dict(mouse=mouse, generator=generator, replicate=replicate,
                                 winner=winner))  # fmt: skip
                 for model, name in plots.RECOVERED:
@@ -189,6 +195,7 @@ def test_recovery_figure(tmp_path, saved_figures):  # noqa: F811
     assert suptitle == "Strategy Model Recovery"
     assert [p.split("\n")[0] for p in panels] == [
         "Model Recovery", "Heuristic+ v", "Heuristic+ u", "Q-Learner Learning Rate",
+        "WSLS (Graded) p_recent",
     ]  # fmt: skip
     assert "m1" in legend and over == []
     assert "Model recovery is good" in caption_of(base)

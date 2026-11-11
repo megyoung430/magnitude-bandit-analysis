@@ -45,15 +45,25 @@ MODEL_LABELS = {
     sm.WSLS_MAGNITUDE: "WSLS (Magnitude)",
     sm.HEURISTIC_PLUS: "Heuristic+",
     sm.Q_LEARNER: "Q-Learner",
+    sm.WSLS_GRADED: "WSLS (Graded)",
 }
-# Okabe-Ito blue, vermillion and green for the three models.
-MODEL_COLORS = {sm.WSLS_MAGNITUDE: "#0072B2", sm.HEURISTIC_PLUS: "#D55E00", sm.Q_LEARNER: "#009E73"}
+# Okabe-Ito blue, vermillion, green and reddish purple for the four models.
+MODEL_COLORS = {
+    sm.WSLS_MAGNITUDE: "#0072B2",
+    sm.HEURISTIC_PLUS: "#D55E00",
+    sm.Q_LEARNER: "#009E73",
+    sm.WSLS_GRADED: "#CC79A7",
+}
 PARAMETER_LABELS = {
     "v": "Believed-Value Weight (v)",
     "u": "Never-Visited Weight (u)",
     "q_learning_rate": "Q-Learner Learning Rate",
     "q_beta": "Q-Learner Beta",
+    "graded_w_m": "WSLS (Graded) Magnitude Weight (w_m)",
+    "p_recent": "WSLS (Graded) p_recent",
 }
+# Parameters whose short name is shown as written rather than title-cased.
+AS_WRITTEN = ("p_recent",)
 # Fraction of simulated mice of a model that must be won by that model to call it recovered, and
 # the correlation of a recovered parameter with its generating value to call it recovered.
 POOR_RECOVERY = 0.8
@@ -63,6 +73,7 @@ RECOVERED = (
     (sm.HEURISTIC_PLUS, "v"),
     (sm.HEURISTIC_PLUS, "u"),
     (sm.Q_LEARNER, "learning_rate"),
+    (sm.WSLS_GRADED, "p_recent"),
 )
 
 
@@ -80,8 +91,10 @@ def _check_sources(sources: Mapping) -> None:
 
 
 def _parameter_name(parameter: str) -> str:
-    """Display name of a generating parameter (``v`` and ``u`` stay as written)."""
-    return parameter if len(parameter) == 1 else parameter.replace("_", " ").title()
+    """Display name of a generating parameter (``v``, ``u`` and ``p_recent`` stay as written)."""
+    if len(parameter) == 1 or parameter in AS_WRITTEN:
+        return parameter
+    return parameter.replace("_", " ").title()
 
 
 def diagonal(recovery) -> pd.Series:
@@ -90,7 +103,7 @@ def diagonal(recovery) -> pd.Series:
 
 
 def recovery_statement(recovery) -> list[str]:
-    """Plain sentences on model recovery and on the recovery of ``v``, ``u`` and the Q rate.
+    """Plain sentences on model recovery and on the recovery of the ``RECOVERED`` parameters.
 
     A model is called poorly recovered when fewer than ``POOR_RECOVERY`` of its simulated mice
     are won by it; a parameter when its correlation with the generating value is below
@@ -200,7 +213,8 @@ def _mouse_lines(sources: Mapping) -> list[str]:
         lines.append(
             f"{row.source}, {row.mouse}: held-out nats per choice {nats}; winner "
             f"{MODEL_LABELS[row.winner]}; v={row.v:.2f}, u={row.u:.2f}, Q learning rate "
-            f"{row.q_learning_rate:.3f}, Q beta {row.q_beta:.2f}"
+            f"{row.q_learning_rate:.3f}, Q beta {row.q_beta:.2f}, graded w_m={row.graded_w_m:.2f}, "
+            f"p_recent={row.p_recent:.2f}"
             + (f"; choice logit {row.choice_logit:.4f}" if np.isfinite(row.choice_logit) else "")
             + "."
         )
@@ -213,7 +227,7 @@ def _wins_panel(ax, sources: Mapping, ticks: list[str]) -> None:
     width = 0.8 / len(sm.MODELS)
     for k, model in enumerate(sm.MODELS):
         counts = wins[wins["model"] == model].set_index("source")["n_mice"]
-        x = np.arange(len(sources)) + (k - 1) * width
+        x = np.arange(len(sources)) + (k - (len(sm.MODELS) - 1) / 2) * width
         ax.bar(x, [counts[name] for name in sources], width, color=MODEL_COLORS[model],
                label=MODEL_LABELS[model])  # fmt: skip
     ax.set_xticks(range(len(ticks)), ticks, rotation=20, ha="right")
@@ -243,11 +257,12 @@ def _draw_panel(ax, sources, column, source_column, colors, unnamed, rng, ticks,
 def plot_strategy_model_comparison(
     sources: Mapping, save_path: str | Path | None = None, recovery=None
 ) -> None:
-    """Held-out paired differences of the three models, wins per model and fitted parameters.
+    """Held-out paired differences of the four models, wins per model and fitted parameters.
 
     Top row: held-out nats per choice of the first model minus the second (negative: the first
     predicts held-out choices better) per mouse, and the mice won by each model. Bottom row: the
-    fitted ``v``, ``u``, Q-learner learning rate and beta.
+    fitted ``v``, ``u``, Q-learner learning rate and beta, and WSLS (Graded) ``w_m`` and
+    ``p_recent``.
 
     Args:
         sources (Mapping): ``{source label: SourceComparison}``, the mice first.
@@ -274,8 +289,11 @@ def plot_strategy_model_comparison(
         "that also follow what the alternatives last paid (v) and whether they were ever chosen "
         "(u); the Q-learner (value_agent: learning rate, beta, stickiness, bias to the plus-shaped "
         "ports; several starts). The trace decay is fixed at 0.9 for both heuristics, not fitted, "
-        "so Heuristic+ nests WSLS (Magnitude) and a difference is attributable to v and u.",
-        "Scored: every choice with a previous choice in its segment, for all three models; the "
+        "so Heuristic+ nests WSLS (Magnitude) and a difference is attributable to v and u. "
+        "WSLS (Graded): staying grows with the last payout (intercept w0 and slope w_m), and a "
+        "switch goes to the more recently chosen of the two alternatives with probability "
+        "p_recent, otherwise to the other (it does not nest WSLS (Magnitude)).",
+        "Scored: every choice with a previous choice in its segment, for all four models; the "
         "Q-learner still learns from the segment starts. The choice logit's held-out nats (listed "
         "per mouse below) is a descriptive reference, scored on all trials.",
         "Differences: first model minus second, nats per choice pooled over the mouse's held-out "
@@ -296,14 +314,17 @@ def plot_strategy_model_comparison(
         rows = table[table["source"] == name]
         return rows.set_index("mouse")[column]
 
-    with new_figure(nrows=2, ncols=4, figsize=(17.0, 8.6), squeeze=False) as (fig, axs):
+    with new_figure(nrows=2, ncols=len(pairs) + 1, figsize=(20.0, 8.6), squeeze=False) as (
+        fig,
+        axs,
+    ):
         rng = jitter_rng()
         for col, (first, second) in enumerate(pairs):
             _draw_panel(axs[0, col], sources, sm.comparison_name(first, second), differences,
                         colors, unnamed, rng, ticks,
                         "Held-Out Nats per Choice, First Minus Second" if col == 0 else "",
                         _comparison_title(first, second))  # fmt: skip
-        _wins_panel(axs[0, 3], sources, ticks)
+        _wins_panel(axs[0, len(pairs)], sources, ticks)
         for col, name in enumerate(PARAMETER_LABELS):
             _draw_panel(axs[1, col], sources, name, parameter, colors, unnamed, rng, ticks,
                         "Fitted Value", PARAMETER_LABELS[name])  # fmt: skip
@@ -348,7 +369,7 @@ def _parameter_panel(ax, recovery, model, parameter, colors, labeled) -> None:
 
 
 def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) -> None:
-    """Confusion matrix of model recovery, and recovery of v, u and the Q-learner learning rate.
+    """Confusion matrix of model recovery, and recovery of v, u, the Q rate and p_recent.
 
     Args:
         recovery (Recovery): :func:`src.pipelines.strategy_comparison.recover_models`.
@@ -363,7 +384,7 @@ def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) 
     n_mice = recovery.won["mouse"].nunique()
     caption = (
         f"Each of {n_mice} mice's fitted models played that mouse's own problems "
-        f"({recovery.replicates} simulated mouse per model and mouse), and the three models "
+        f"({recovery.replicates} simulated mouse per model and mouse), and the four models "
         "were compared on those simulated mice by the identical held-out procedure. Left: "
         "fraction of each generating model's simulated mice won by each model (diagonal: "
         "recovered), with counts. Other panels: parameter fitted to the simulated mouse against "
@@ -371,7 +392,10 @@ def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) 
         "in the color of the real mouse it was fitted to.",
         *recovery_statement(recovery),
     )
-    with new_figure(nrows=1, ncols=4, figsize=(17.0, 4.6), squeeze=False) as (fig, axs):
+    with new_figure(nrows=1, ncols=1 + len(RECOVERED), figsize=(20.0, 4.6), squeeze=False) as (
+        fig,
+        axs,
+    ):
         _confusion_panel(axs[0, 0], recovery)
         stats = f"n={recovery.won.shape[0]} simulated mice"
         set_title(axs[0, 0], Title("Model Recovery", stats), fontsize=12)
@@ -379,7 +403,7 @@ def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) 
         for ax, (model, parameter) in zip(axs[0, 1:], RECOVERED, strict=True):
             _parameter_panel(ax, recovery, model, parameter, colors, labeled)
         handles, names = axs[0, 1].get_legend_handles_labels()  # the mice, named once
-        axs[0, 3].legend(handles, names, loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False,
+        axs[0, -1].legend(handles, names, loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False,
                          fontsize=9)  # fmt: skip
         finish_figure(fig, Title(STRATEGY_MODEL_RECOVERY, None, caption))
     save_or_show(fig, save_path or None)

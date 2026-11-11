@@ -41,7 +41,7 @@ WSLS, WSLS_RECENCY = "wsls", "wsls_recency"
 WSLS_MAGNITUDE, WSLS_GRADED = "wsls_magnitude", "wsls_graded"
 HEURISTIC_PLUS, Q_LEARNER = "heuristic_plus", "q_learner"
 # The models of the strategy comparison and its recovery, in table order.
-MODELS = (WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER)
+MODELS = (WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER, WSLS_GRADED)
 # The null agents, scored held out like the comparison's models (``cross_validate(models=...)``).
 NULL_MODELS = (WSLS, WSLS_RECENCY, WSLS_MAGNITUDE, WSLS_GRADED)
 # Every model that can be fitted and scored, in table order.
@@ -52,6 +52,8 @@ COMPARISONS = (
     (HEURISTIC_PLUS, Q_LEARNER),
     (WSLS_MAGNITUDE, Q_LEARNER),
     (HEURISTIC_PLUS, WSLS_MAGNITUDE),
+    (WSLS_GRADED, Q_LEARNER),
+    (WSLS_GRADED, WSLS_MAGNITUDE),
 )
 # The Q-learner's likelihood has a slow and a fast mode for some mice, so every fit starts from
 # several points (see value_agent).

@@ -106,7 +106,8 @@ def test_no_analyzable_mouse_raises():
 def test_per_mouse_table_and_summaries(source):
     table = pipe.per_mouse_table({"Mice": source})
     assert list(table.columns[:2]) == ["source", "mouse"]
-    assert {"winner", "v", "u", "q_learning_rate", "q_beta", "choice_logit"} <= set(table.columns)
+    parameters = {"v", "u", "q_learning_rate", "q_beta", "graded_w_m", "p_recent"}
+    assert {"winner", "choice_logit"} | parameters <= set(table.columns)
     assert len(table) == 3
     summary = pipe.source_summaries({"Mice": source})
     assert summary["source"].eq("Mice").all() and summary["mean"].isna().all()  # three mice

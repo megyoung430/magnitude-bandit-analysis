@@ -54,6 +54,8 @@ PARAMETER_COLUMNS = {
     "u": (sm.HEURISTIC_PLUS, "u"),
     "q_learning_rate": (sm.Q_LEARNER, "learning_rate"),
     "q_beta": (sm.Q_LEARNER, "beta"),
+    "graded_w_m": (sm.WSLS_GRADED, "w_m"),
+    "p_recent": (sm.WSLS_GRADED, "p_recent"),
 }
 
 
