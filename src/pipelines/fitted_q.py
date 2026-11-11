@@ -304,14 +304,20 @@ def power_check(
         ``fraction_above``: the fraction of replicates with a larger weight (ties count half).
 
     Raises:
-        ValueError: If fewer than one replicate is asked for or a mouse has no fitted Q-learner.
+        ValueError: If fewer than one replicate is asked for or no mouse has a fitted Q-learner.
+
+    Warns:
+        UserWarning: For each mouse without a fitted Q-learner (it was not compared), which is left
+            out.
     """
     if replicates < 1:
         raise ValueError(f"replicates must be at least 1, got {replicates}")
-    mice = list(source.decays["mouse"])
-    missing = [m for m in mice if m not in params_by_mouse]
-    if missing:
-        raise ValueError(f"no fitted Q-learner for mice {missing}")
+    mice = [m for m in source.decays["mouse"] if m in params_by_mouse]
+    for mouse in source.decays["mouse"]:
+        if mouse not in params_by_mouse:
+            warnings.warn(f"mouse {mouse} left out: no fitted Q-learner", stacklevel=2)
+    if not mice:
+        raise ValueError("no fitted Q-learner for any mouse of the switch regression")
     rules_of = switch_pipe.rules_by_mouse(trial_table, mice, rules)
     settings = (source.n_lags, source.trace_grid, source.l2, source.recency_cap,
                 source.min_switches, source.firth)  # fmt: skip

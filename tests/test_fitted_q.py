@@ -147,9 +147,12 @@ def test_the_power_check_is_cached_and_reproducible(mice, fits, switch_source, t
     pd.testing.assert_frame_equal(first, again)
 
 
-def test_the_power_check_needs_fits_for_every_mouse(mice, fits, switch_source):
-    with pytest.raises(ValueError, match="no fitted Q-learner"):
-        fq.power_check(mice, switch_source, {"m1": fits["m1"]}, replicates=2, rules=RULES)
+def test_the_power_check_leaves_out_mice_without_a_fit_and_warns(mice, fits, switch_source):
+    with pytest.warns(UserWarning, match="mouse m2 left out"):
+        table = fq.power_check(mice, switch_source, {"m1": fits["m1"]}, replicates=2, rules=RULES)
+    assert set(table["mouse"]) == {"m1"}
+    with pytest.raises(ValueError, match="no fitted Q-learner for any"):
+        fq.power_check(mice, switch_source, {}, replicates=2, rules=RULES)
     with pytest.raises(ValueError, match="at least 1"):
         fq.power_check(mice, switch_source, fits, replicates=0, rules=RULES)
 
