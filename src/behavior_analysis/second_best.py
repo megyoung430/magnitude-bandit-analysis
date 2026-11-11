@@ -358,6 +358,8 @@ def calibrate(observed: pd.DataFrame, null: pd.DataFrame) -> pd.DataFrame:
     Raises:
         ValueError: If an observation has no null replicate.
     """
+    if null.empty:
+        raise ValueError("no null replicates")
     keep = ["mouse", "condition", "value", "beta", "gain"]
     calibration = sr.null_calibration(
         _as_value_table(observed)[keep], _as_value_table(null.dropna(subset=["p"]))

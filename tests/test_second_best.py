@@ -235,6 +235,14 @@ def test_calibration_without_a_null_raises():
         sb.calibrate(observed, _null_draws([0.5, 0.4], mouse="other"))
 
 
+def test_calibration_without_any_replicate_raises():
+    observed = pd.DataFrame(
+        dict(mouse=["m1"], measure=[sb.TRUE_BETTER], condition=[sb.POOLED], p=[0.9])
+    )
+    with pytest.raises(ValueError, match="no null replicates"):
+        sb.calibrate(observed, pd.DataFrame())
+
+
 def test_calibrated_summary_tests_z_across_mice_from_six_mice():
     rng = np.random.default_rng(0)
     rows = [

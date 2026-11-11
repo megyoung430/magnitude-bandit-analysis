@@ -384,7 +384,7 @@ def simulate_mouse_null(
     return _MouseNull(values, failed, tuple(dict.fromkeys(str(w.message) for w in caught)))
 
 
-def _rules_by_mouse(trial_table: pd.DataFrame, mice: Sequence[str], rules) -> dict:
+def rules_by_mouse(trial_table: pd.DataFrame, mice: Sequence[str], rules) -> dict:
     """``{mouse: TaskRules}`` from one rule set, ``{cohort: rules}`` or ``None`` (measured)."""
     if rules is None:
         rules = null_pipe.task_rules_by_cohort(trial_table)
@@ -480,7 +480,7 @@ def calibrate_source(
     missing = [(a, m) for a in agents for m in mice if m not in fits.get(a, {})]
     if missing:
         raise ValueError(f"no fitted null agent for (agent, mouse) {missing}")
-    rules_of = _rules_by_mouse(trial_table, mice, rules)
+    rules_of = rules_by_mouse(trial_table, mice, rules)
     settings = (source.n_lags, source.trace_grid, source.l2, source.recency_cap,
                 source.min_switches, source.firth)  # fmt: skip
     by_mouse = {m: rows.reset_index(drop=True) for m, rows in trial_table.groupby("mouse")}
