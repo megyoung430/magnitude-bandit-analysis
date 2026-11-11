@@ -35,6 +35,14 @@ reward magnitude at each arm drifts over time and periodically reverses.
   chosen and tower bias, after unrewarded and after rewarded choices, with each mouse calibrated
   against its own fitted null agents replayed on its task
   (`src/behavior_analysis/switch_regression.py`, `src/pipelines/switch_regression.py`)
+- Strategy tests in the same notebook: the second-best test (where a switch from the best arm goes,
+  with graded curves by magnitude difference) and a held-out comparison of WSLS (Magnitude), a
+  Heuristic+, a Q-learner and WSLS (Graded) per mouse (every null agent is also scored
+  leave-one-problem-out), with model and parameter recovery, a fitted Q-learner as
+  positive control and longer schedules for the comparison agents
+  (`src/behavior_analysis/second_best.py`, `src/behavior_analysis/strategy_models.py`,
+  `src/pipelines/second_best.py`, `src/pipelines/strategy_comparison.py`,
+  `src/pipelines/fitted_q.py`)
 
 ## Project organisation
 
