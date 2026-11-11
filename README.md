@@ -50,6 +50,13 @@ reward magnitude at each arm drifts over time and periodically reverses.
   `docs/issues/feat-kernel-q.md`
   (`src/agents/kernel_q_agent.py`, `src/behavior_analysis/stay_by_run_length.py`,
   `src/pipelines/choice_kernel_long.py`, `src/behavior_visualization/plot_kernel_q.py`)
+- Rank-signature tests (`scripts/rank_signatures.ipynb`): five behavioral tests of a ranked value
+  algorithm against a softmax value learner (stay depends on the second best, abrupt switching at
+  believed crossings, a categorical third option, ranks over values, transfer and block-change
+  inference), each calibrated against replays of agents fitted per mouse, on drifting problems
+  1 to 7 of cohort 1 and all of cohort 3; see `docs/issues/feat-rank-signatures.md`
+  (`src/behavior_analysis/rank_*.py`, `src/pipelines/rank_signatures.py`,
+  `src/behavior_visualization/plot_rank_signatures.py`)
 
 ## Project organisation
 

@@ -3,7 +3,8 @@
 Drawing only: the numbers come from :mod:`src.pipelines.rank_signatures` (a :class:`FigureData`
 bundles the analysis of the mice, the replays and the calibration). One dot is one mouse in its own
 color; for an agent it is the mean of that mouse's replays, with the 2.5th to 97.5th percentile of
-the replays as a thin bar. A source with fewer than ``MIN_TEST_MICE`` mice shows dots only (no mean,
+the replays as a thin bar (cut at the axis, which is fitted to the dots). A source with fewer
+than ``MIN_TEST_MICE`` mice shows dots only (no mean,
 error bar or test). Curves draw the mice's mean ± se (the mice alone below that number) and the
 agents' mean over mice. Each figure is saved as pdf, png and svg with a ``.caption.txt``; the long
 text (definitions, the calibrated z and p of every readout, the mice that pass) is in the caption.
@@ -140,9 +141,18 @@ def _mean_bar(ax, x: float, values: np.ndarray) -> float:
     return se
 
 
+def _limit_to_dots(ax, ys: np.ndarray) -> None:
+    """Fit the y-axis to the dots: an agent's replay bar can be far wider than the mice differ
+    from one another, and would hide them; a bar longer than the axis is cut at its edge."""
+    ys = ys[np.isfinite(ys)]
+    if len(ys):
+        pad = 0.12 * (ys.max() - ys.min() or 1.0)
+        ax.set_ylim(ys.min() - pad, ys.max() + pad)
+
+
 def scalar_panel(ax, readout: str, data: FigureData, colors: dict, rng) -> list[float]:
     """Dots of one readout: the mice, then each agent's replays; returns the se drawn per column."""
-    errors = []
+    errors, dots = [], []
     observed = data.source.readouts.set_index("mouse")[readout]
     columns = [("Mice", observed, None)] + [
         (m, _agent_summary(data, m, readout), m) for m in _models(data)
@@ -158,6 +168,8 @@ def scalar_panel(ax, readout: str, data: FigureData, colors: dict, rng) -> list[
         xs = jittered(np.full(len(ys), float(x)), 0.12, rng)
         ax.scatter(xs, ys, c=[colors[n] for n in names], s=34, zorder=3, edgecolor="none")
         errors.append(_mean_bar(ax, x, ys))
+        dots.append(ys)
+    _limit_to_dots(ax, np.concatenate(dots))
     ax.axhline(0, color="0.8", lw=0.8, zorder=1)
     ax.set_xticks(range(len(columns)), _tick_labels(data), rotation=20, ha="right", fontsize=9)
     despine(ax)
@@ -228,7 +240,8 @@ def _common_caption(data: FigureData, readouts: Sequence[str], *definitions: str
     return (
         *definitions,
         "Dots: mice, colored per mouse; for an agent, the mean of that mouse's replays with the "
-        "2.5th to 97.5th percentile of the replays as a thin bar. Black bars: mean ± se across "
+        "2.5th to 97.5th percentile of the replays as a thin bar (cut at the axis, which "
+        "is fitted to the dots). Black bars: mean ± se across "
         f"mice (drawn from {ext.MIN_TEST_MICE} mice).",
         *_skipped_line(data),
         *_failed_line(data),
