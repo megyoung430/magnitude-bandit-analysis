@@ -89,7 +89,7 @@ def test_fit_figure_has_two_panels_with_statistics_and_a_caption(tmp_path, figur
     assert len(panels) == 2
     assert all(STATS_LINE.search(p.split("\n")[-1]) for p in panels), panels
     caption = base.with_name("Null Agent Fits.caption.txt").read_text()
-    assert "in-sample" in caption.lower() and "held out" in caption.lower()
+    assert "leave-one-problem-out" in caption.lower() and "same folds" in caption.lower()
     assert "WSLS (Magnitude)" in legend and "Observed" in legend
 
 

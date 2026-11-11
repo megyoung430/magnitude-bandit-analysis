@@ -27,6 +27,7 @@ lags) therefore shows above-baseline switch targets with no value guidance at al
 (:func:`switch_target_excess`); a fast trace that fits in five lags does not.
 """
 
+import warnings
 import zlib
 from collections.abc import Mapping
 from dataclasses import fields
@@ -39,6 +40,7 @@ from scipy.special import expit
 from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
 from src.behavior_analysis import model_value_psychometrics as mvp
+from src.behavior_analysis import strategy_models as sm
 from src.behavior_analysis.drifting_trial_table import drifting_trial_table
 from src.pipelines.agent_baselines import measure_task_rules
 from src.pipelines.choice_logit_values import (
@@ -78,10 +80,67 @@ def parameters_table(params_by_mouse: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+class HeldOut(NamedTuple):
+    """Leave-one-problem-out scores of the null agents.
+
+    Attributes:
+        folds (pd.DataFrame): ``strategy_models`` fold scores, one row per mouse, held-out
+            problem and agent: ``mouse, problem, model, n_choices, n_segment_starts,
+            held_out_log_likelihood``.
+        table (pd.DataFrame): ``mouse, model, n_choices, log_likelihood, nats_per_choice``: held-out
+            nats per trial pooled over the mouse's folds (segment starts at ``log(1/3)``, so the
+            denominator is every trial, as the choice logit's).
+        skipped (dict[str, str]): Mice that cannot be cross-validated and why.
+    """
+
+    folds: pd.DataFrame
+    table: pd.DataFrame
+    skipped: dict
+
+
+def heldout_scores(trial_table: pd.DataFrame, models=sm.NULL_MODELS) -> HeldOut:
+    """Fit every null agent on all but one problem of each mouse and score the held-out one.
+
+    The folds, the fits and the scoring are those of the strategy comparison
+    (:func:`src.behavior_analysis.strategy_models.cross_validate`), and the folds are the choice
+    logit's: one per problem, in order of first appearance.
+
+    Args:
+        trial_table (pd.DataFrame): A drifting trial table.
+        models (Sequence[str]): The agents to score. Default ``strategy_models.NULL_MODELS``.
+
+    Returns:
+        HeldOut: Scores per fold, nats per trial per mouse and agent, and the skipped mice.
+
+    Raises:
+        ValueError: If no mouse can be cross-validated.
+        RuntimeError: If a fit does not converge.
+
+    Warns:
+        UserWarning: For each mouse that cannot be cross-validated (fewer than two problems, or
+            a training set an agent cannot be fitted to), which is then left out.
+    """
+    folds, skipped = [], {}
+    for mouse, rows in sorted(trial_table.groupby("mouse"), key=lambda item: item[0]):
+        rows = rows.reset_index(drop=True)
+        if reason := sm.skip_reason(rows, min_trials=0):
+            skipped[mouse] = reason
+            warnings.warn(f"mouse {mouse} skipped: {reason}", stacklevel=2)
+            continue
+        folds.append(sm.cross_validate(rows, models=models).scores)
+    if not folds:
+        raise ValueError(
+            "no mouse can be cross-validated: " + "; ".join(f"{m}: {r}" for m, r in skipped.items())
+        )
+    folds = pd.concat(folds, ignore_index=True)
+    return HeldOut(folds, sm.heldout_nats_per_trial(folds), skipped)
+
+
 def scores_table(trial_table: pd.DataFrame, fits_by_kind: dict) -> pd.DataFrame:
     """In-sample negative log likelihood of each fitted agent on each mouse's choices.
 
-    Two to four fitted parameters against thousands of choices, so the score is not held out.
+    Fitted and scored on the same trials, so not comparable with a held-out score (see
+    :func:`heldout_scores`); the optimism is small for two to four parameters.
 
     Args:
         trial_table (pd.DataFrame): The trial table the agents were fitted to.
@@ -435,8 +494,9 @@ class NullComparison(NamedTuple):
         controls (NullControls): The fitted, simulated and analyzed agents.
         analyses (dict): ``{label: LogitAnalysis}``, the reference first, then the agents (labels
             ``AGENT_LABELS``).
-        scores (pd.DataFrame): ``mouse, model, nats_per_choice``: each agent in-sample, and the
-            reference logit's held-out ``choice_logit`` rows.
+        scores (pd.DataFrame): ``mouse, model, nats_per_choice``: each agent's leave-one-problem-
+            out nats per trial (:func:`heldout_scores`), and the reference logit's held-out
+            ``choice_logit`` rows, on the same folds.
         observed_stay (pd.DataFrame): :func:`stay_by_magnitude` of the reference's mice.
         implied_stay (pd.DataFrame): :func:`implied_stay_curves` of the fits.
         psychometrics (dict): ``{label: (curves, baselines)}`` of the model value.
@@ -451,6 +511,8 @@ class NullComparison(NamedTuple):
         extra_cohorts (dict | None): ``{label: SyntheticCohort}`` of further simulated sources
             analyzed like the agents and listed after them (e.g. the fitted Q-learner, a positive
             control), or ``None``.
+        in_sample (pd.DataFrame | None): :func:`scores_table`, the agents scored on the trials
+            they were fitted to (labeled in-sample; not comparable with ``scores``).
     """
 
     controls: NullControls
@@ -467,6 +529,7 @@ class NullComparison(NamedTuple):
     min_mice: int
     pool_trials: bool
     extra_cohorts: dict | None = None
+    in_sample: pd.DataFrame | None = None
 
 
 def compare_with_controls(
@@ -540,9 +603,9 @@ def compare_with_controls(
         }
     )  # fmt: skip
     logit = reference.comparison.query("model == 'full'").assign(model="choice_logit")
+    held_out = heldout_scores(table)
     scores = pd.concat(
-        [scores_table(table, controls.fits), logit[["mouse", "model", "nats_per_choice"]]],
-        ignore_index=True,
+        [held_out.table, logit[["mouse", "model", "nats_per_choice"]]], ignore_index=True
     )
     psychometrics, effects, stay_switch, switch_targets, excess = {}, [], {}, {}, []
     for label, analysis in analyses.items():
@@ -582,4 +645,5 @@ def compare_with_controls(
         min_mice=min_mice,
         pool_trials=pool_trials,
         extra_cohorts=extra_cohorts or None,
+        in_sample=scores_table(table, controls.fits),
     )

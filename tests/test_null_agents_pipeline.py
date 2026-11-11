@@ -322,7 +322,7 @@ def test_comparison_tabulates_the_reference_and_every_agent(comparison, real_lik
     assert list(comparison.effects["source"]) == labels
     assert set(comparison.switch_excess["source"]) == set(labels)
     mice = real_like["mouse"].nunique()
-    # four in-sample agents plus the logit's held-out score, one row per mouse
+    # four held-out agents plus the logit's held-out score, one row per mouse
     assert set(comparison.scores["model"]) == {*na.KINDS, "choice_logit"}
     assert len(comparison.scores) == 5 * mice
     assert comparison.analyses["WSLS"].tail_decay == 0.9  # the reference's logit settings
@@ -365,7 +365,7 @@ def test_an_extra_cohort_is_analyzed_like_the_agents_and_listed_after_them(
     fitted = result.analyses["Q-Learner (Fitted)"]
     assert fitted.n_lags == 3 and fitted.tail_decay == 0.9  # the reference's logit settings
     assert sorted(fitted.designs) == sorted(result.analyses["Mice"].designs)  # the mice's names
-    assert set(result.scores["model"]) == {*na.KINDS, "choice_logit"}  # no in-sample score for it
+    assert set(result.scores["model"]) == {*na.KINDS, "choice_logit"}
 
 
 def test_an_extra_label_may_not_repeat_a_source(real_like, comparison_with_fitted_q):
@@ -419,7 +419,7 @@ def test_comparison_plots_write_every_figure_with_a_caption(comparison, tmp_path
     for name in expected:
         for extension in ("pdf", "png", "svg", "caption.txt"):
             assert f"{name}.{extension}" in names, (name, extension)
-    assert "in-sample" in (tmp_path / "Null Agent Fits.caption.txt").read_text().lower()
+    assert "leave-one-problem-out" in (tmp_path / "Null Agent Fits.caption.txt").read_text().lower()
 
 
 def test_magnitude_agents_excess_comes_from_the_recency_trace_not_from_graded_staying(

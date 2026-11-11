@@ -37,8 +37,15 @@ from src.agents import null_agents as na
 from src.agents import value_agent as va
 from src.behavior_analysis import choice_logit_extensions as ext
 
-WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER = "wsls_magnitude", "heuristic_plus", "q_learner"
+WSLS, WSLS_RECENCY = "wsls", "wsls_recency"
+WSLS_MAGNITUDE, WSLS_GRADED = "wsls_magnitude", "wsls_graded"
+HEURISTIC_PLUS, Q_LEARNER = "heuristic_plus", "q_learner"
+# The models of the strategy comparison and its recovery, in table order.
 MODELS = (WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER)
+# The null agents, scored held out like the comparison's models (``cross_validate(models=...)``).
+NULL_MODELS = (WSLS, WSLS_RECENCY, WSLS_MAGNITUDE, WSLS_GRADED)
+# Every model that can be fitted and scored, in table order.
+ALL_MODELS = (WSLS, WSLS_RECENCY, WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER, WSLS_GRADED)
 # The pairs whose held-out nats are differenced, first minus second: negative means the first
 # model predicts held-out choices better.
 COMPARISONS = (
@@ -82,11 +89,14 @@ def _n_starts(trials: pd.DataFrame) -> int:
     return int(na.decisions(trials, na.DEFAULT_DECAY).start.sum())
 
 
-def _fit_wsls(train: pd.DataFrame, n_starts: int, seed: int) -> na.WslsMagnitudeParams:
-    return na.fit_null_agents(train, "wsls_magnitude")[train["mouse"].iloc[0]]
+def _fit_null(kind: str):
+    def fit(train: pd.DataFrame, n_starts: int, seed: int):
+        return na.fit_null_agents(train, kind)[train["mouse"].iloc[0]]
+
+    return fit
 
 
-def _score_wsls(test: pd.DataFrame, params: na.WslsMagnitudeParams) -> float:
+def _score_wsls(test: pd.DataFrame, params) -> float:
     # the null agents' likelihood counts every segment start as log(1/3)
     return na.log_likelihood(test, params) - _n_starts(test) * np.log(1 / na.N_ARMS)
 
@@ -114,14 +124,21 @@ def _fields(params) -> dict:
     return {f.name: float(getattr(params, f.name)) for f in fields(params)}
 
 
-SPECS = {
-    WSLS_MAGNITUDE: ModelSpec(
-        fit=_fit_wsls,
+def _null_spec(kind: str) -> ModelSpec:
+    return ModelSpec(
+        fit=_fit_null(kind),
         score=_score_wsls,
         policy=lambda params, layout: na.NullPolicy(params),
         describe=_fields,
         at_bounds=lambda params: (),
-    ),
+    )
+
+
+SPECS = {
+    WSLS: _null_spec(WSLS),
+    WSLS_RECENCY: _null_spec(WSLS_RECENCY),
+    WSLS_MAGNITUDE: _null_spec(WSLS_MAGNITUDE),
+    WSLS_GRADED: _null_spec(WSLS_GRADED),
     HEURISTIC_PLUS: ModelSpec(
         fit=_fit_heuristic,
         score=_score_heuristic,
@@ -158,6 +175,9 @@ def _unfittable(train: pd.DataFrame) -> str | None:
     informative = int((d.delta_h[d.switched] != 0).sum())
     if informative < na.MIN_SWITCHES:
         return f"{informative} switches with a history difference; at least {na.MIN_SWITCHES}"
+    recent = int((d.recent[d.switched] != 0).sum())
+    if recent < na.MIN_SWITCHES:
+        return f"{recent} switches with a more recent alternative; at least {na.MIN_SWITCHES}"
     return None
 
 
@@ -202,19 +222,31 @@ class MouseComparison(NamedTuple):
     fits: dict
 
 
-def fit_all(trials: pd.DataFrame, n_starts: int, seed: int) -> dict:
-    """``{model: params}`` of every model fitted to *trials*."""
-    return {name: spec.fit(trials, n_starts, seed) for name, spec in SPECS.items()}
+def fit_all(trials: pd.DataFrame, n_starts: int, seed: int, models: Sequence[str] = MODELS) -> dict:
+    """``{model: params}`` of each of *models* fitted to *trials*."""
+    return {name: SPECS[name].fit(trials, n_starts, seed) for name in models}
 
 
 def score_fold(
-    mouse: str, problem, train: pd.DataFrame, test: pd.DataFrame, n_starts: int, seed: int
+    mouse: str,
+    problem,
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    n_starts: int,
+    seed: int,
+    models: Sequence[str] = MODELS,
 ) -> list[dict]:
-    """The held-out score of every model: fitted on *train*, scored on *test*."""
-    n_choices = int((~na.decisions(test, na.DEFAULT_DECAY).start).sum())
-    fits = fit_all(train, n_starts, seed)
+    """The held-out score of each of *models*: fitted on *train*, scored on *test*.
+
+    ``n_choices`` counts the choices with a previous choice (the ones scored) and
+    ``n_segment_starts`` the segment starts of *test*, which no model is scored on.
+    """
+    n_start = _n_starts(test)
+    n_choices = len(test) - n_start
+    fits = fit_all(train, n_starts, seed, models)
     return [
         dict(mouse=mouse, problem=problem, model=name, n_choices=n_choices,
+             n_segment_starts=n_start,
              held_out_log_likelihood=SPECS[name].score(test, params))
         for name, params in fits.items()
     ]  # fmt: skip
@@ -233,14 +265,19 @@ def parameters_table(mouse: str, fits: dict) -> pd.DataFrame:
 
 
 def cross_validate(
-    trials: pd.DataFrame, n_starts: int = Q_STARTS, seed: int = 0
+    trials: pd.DataFrame, n_starts: int = Q_STARTS, seed: int = 0, models: Sequence[str] = MODELS
 ) -> MouseComparison:
-    """Leave-one-problem-out held-out scores of every model, and their full-data parameters.
+    """Leave-one-problem-out held-out scores of *models*, and their full-data parameters.
+
+    The folds are those of the choice logit (``choice_logit_cv``): one per problem, in order of
+    first appearance.
 
     Args:
         trials (pd.DataFrame): One mouse's rows of the drifting trial table.
         n_starts (int): Random starts of each Q-learner fit. Default ``Q_STARTS``.
         seed (int): Seed of the starting points; each fold has its own stream. Default 0.
+        models (Sequence[str]): The models to fit and score. Default ``MODELS``;
+            ``NULL_MODELS`` for the null agents.
 
     Returns:
         MouseComparison: Scores per fold and model, and the parameters of the fits to all trials.
@@ -260,9 +297,9 @@ def cross_validate(
     for fold, problem in enumerate(problems):
         test = codes == fold
         rows += score_fold(
-            mouse, problem, trials[~test], trials[test], n_starts, 1000 * seed + fold
+            mouse, problem, trials[~test], trials[test], n_starts, 1000 * seed + fold, models
         )
-    fits = fit_all(trials, n_starts, seed)
+    fits = fit_all(trials, n_starts, seed, models)
     return MouseComparison(pd.DataFrame(rows), parameters_table(mouse, fits), fits)
 
 
@@ -285,11 +322,43 @@ def nats_table(scores: pd.DataFrame) -> pd.DataFrame:
         n_choices=("n_choices", "sum"), log_likelihood=("held_out_log_likelihood", "sum")
     )
     total["nats_per_choice"] = -total["log_likelihood"] / total["n_choices"]
-    order = {name: i for i, name in enumerate(MODELS)}
+    order = {name: i for i, name in enumerate(ALL_MODELS)}
     return (
         total.drop(columns="log_likelihood")
         .reset_index()
         .sort_values(["mouse", "model"], key=lambda s: s.map(order) if s.name == "model" else s,
+                     kind="stable")
+        .reset_index(drop=True)
+    )  # fmt: skip
+
+
+def heldout_nats_per_trial(scores: pd.DataFrame) -> pd.DataFrame:
+    """Held-out nats per *trial* of each model and mouse, segment starts at ``log(1/3)``.
+
+    The scores leave out the segment starts (no model but the Q-learner predicts them). To
+    compare with a model scored on every trial, such as the choice logit, each start is credited
+    with the uniform ``log(1/3)`` the null agents give it.
+
+    Args:
+        scores (pd.DataFrame): ``MouseComparison.scores`` of one or more mice, concatenated.
+
+    Returns:
+        pd.DataFrame: ``mouse, model, n_choices`` (all trials of the held-out problems),
+        ``log_likelihood`` and ``nats_per_choice`` (negative mean log likelihood, lower is
+        better), models in ``ALL_MODELS`` order.
+    """
+    total = scores.groupby(["mouse", "model"], sort=False).agg(
+        n_choices=("n_choices", "sum"), n_segment_starts=("n_segment_starts", "sum"),
+        scored=("held_out_log_likelihood", "sum"),
+    )  # fmt: skip
+    total["log_likelihood"] = total["scored"] + total["n_segment_starts"] * np.log(1 / na.N_ARMS)
+    total["n_choices"] = total["n_choices"] + total["n_segment_starts"]
+    total["nats_per_choice"] = -total["log_likelihood"] / total["n_choices"]
+    order = {name: i for i, name in enumerate(ALL_MODELS)}
+    return (
+        total[["n_choices", "log_likelihood", "nats_per_choice"]]
+        .reset_index()
+        .sort_values(["mouse", "model"], key=lambda c: c.map(order) if c.name == "model" else c,
                      kind="stable")
         .reset_index(drop=True)
     )  # fmt: skip
