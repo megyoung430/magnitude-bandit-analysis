@@ -69,23 +69,36 @@ def _check_sources(sources: Mapping[str, pd.DataFrame]) -> None:
         raise ValueError(f"no mice in {empty}")
 
 
-def _colors_of(tables: Sequence[pd.DataFrame]) -> dict[str, str]:
+def colors_of(tables: Sequence[pd.DataFrame]) -> dict[str, str]:
     """One color per mouse over all *tables*, in sorted order."""
     return mouse_color_map(sorted({m for t in tables for m in t["mouse"]}))
 
 
-def _draw_column(
+def draw_column(
     ax: plt.Axes,
     x: float,
     values: pd.Series,
     colors: Mapping[str, str],
     rng: np.random.Generator,
     labeled: set,
+    bands: Mapping[str, tuple[float, float]] | None = None,
+    summary: bool = True,
 ) -> float:
     """Dots of the mice (index of *values*) at *x*, and the mean ± se bar if enough mice.
 
     A mouse is named in the legend once per panel (*labeled* collects those already named). The
     bar is drawn for ``MIN_TEST_MICE`` or more mice only.
+
+    Args:
+        ax (plt.Axes): The panel.
+        x (float): Position of the column.
+        values (pd.Series): One value per mouse, indexed by mouse.
+        colors (Mapping[str, str]): ``{mouse: color}``.
+        rng (np.random.Generator): Jitter of the dots.
+        labeled (set): Mice already in the panel's legend; updated.
+        bands (Mapping[str, tuple[float, float]] | None): ``{mouse: (low, high)}`` drawn as a gray
+            vertical band behind that mouse's dot (e.g. its null interval). Default ``None``.
+        summary (bool): Draw the mean ± se bar (with enough mice). Default True.
 
     Returns:
         float: The standard error drawn, NaN when no bar or no error is drawn.
@@ -93,9 +106,13 @@ def _draw_column(
     for mouse, value in values.dropna().items():
         label = None if mouse in labeled else mouse
         labeled.add(mouse)
-        ax.plot(jittered(np.array([x]), DOT_JITTER, rng), [value], "o", color=colors[mouse],
-                ms=5, alpha=0.85, label=label, zorder=3)  # fmt: skip
-    if len(values.dropna()) < ext.MIN_TEST_MICE:
+        dot_x = jittered(np.array([x]), DOT_JITTER, rng)
+        if bands and mouse in bands:
+            ax.plot([dot_x[0]] * 2, bands[mouse], color="0.7", lw=5, alpha=0.6,
+                    solid_capstyle="butt", zorder=2)  # fmt: skip
+        ax.plot(dot_x, [value], "o", color=colors[mouse], ms=5, alpha=0.85, label=label,
+                zorder=3)  # fmt: skip
+    if not summary or len(values.dropna()) < ext.MIN_TEST_MICE:
         return np.nan
     column = values.to_numpy(dtype=float)[:, None]
     mean, se = float(nan_mean(column)[0]), float(nan_standard_error(column)[0])
@@ -104,7 +121,7 @@ def _draw_column(
     return se
 
 
-def _stats_line(counts: Sequence[int], errors: Sequence[float]) -> str:
+def source_stats_line(counts: Sequence[int], errors: Sequence[float]) -> str:
     """The statistics line of a panel that shows several sources, each with its own n.
 
     Sources with fewer than ``MIN_TEST_MICE`` mice show their mice only. The n is stated when all
@@ -119,11 +136,13 @@ def _stats_line(counts: Sequence[int], errors: Sequence[float]) -> str:
     return f"per mouse, {n_text}"
 
 
-def _source_ticks(sources: Mapping[str, pd.DataFrame]) -> list[str]:
+def source_ticks(sources: Mapping[str, pd.DataFrame]) -> list[str]:
+    """``"<source>\nn=<mice>"`` tick labels, one per source (rows of its table are mice)."""
     return [f"{name}\nn={len(t)}" for name, t in sources.items()]
 
 
-def _counts_caption(tables: Mapping[str, pd.DataFrame]) -> str:
+def counts_caption(tables: Mapping[str, pd.DataFrame]) -> str:
+    """The caption line naming each source's number of mice and the six-mice rule."""
     counts = ", ".join(f"{name}: n={len(t)} mice" for name, t in tables.items())
     return (
         f"Mice per source, {counts}. A source with fewer than {ext.MIN_TEST_MICE} mice shows "
@@ -131,7 +150,8 @@ def _counts_caption(tables: Mapping[str, pd.DataFrame]) -> str:
     )
 
 
-def _style_source_axis(ax: plt.Axes, labels: Sequence[str], ylabel: str) -> None:
+def style_source_axis(ax: plt.Axes, labels: Sequence[str], ylabel: str) -> None:
+    """A zero line, one slanted x tick per label, the y label and no top or right spine."""
     ax.axhline(0, color="0.7", lw=0.8, zorder=1)
     ax.set_xticks(range(len(labels)), labels, rotation=20, ha="right")
     ax.set_xlim(-0.6, len(labels) - 0.4)
@@ -158,7 +178,7 @@ def plot_believed_value(
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = _colors_of(list(sources.values()))
+    colors = colors_of(list(sources.values()))
     caption = (
         "Believed value: the magnitude (pulses) an arm last paid when the mouse chose it in the "
         "current problem; 0 before the arm's first visit, where the never-visited indicator is 1, "
@@ -169,7 +189,7 @@ def plot_believed_value(
         "of the model named; positive is better than the full model. Instead of reward lags: "
         "choice history, tower bias and believed value, without the reward lags.",
         "Dots: mice; black bars: mean ± se across mice.",
-        _counts_caption(sources),
+        counts_caption(sources),
     )
     counts = [len(t) for t in sources.values()]
     with new_figure(nrows=2, ncols=2, figsize=(11, 8.6)) as (fig, axs):
@@ -177,11 +197,11 @@ def plot_believed_value(
         for ax, (column, heading, ylabel) in zip(axs.ravel(), BELIEVED_PANELS, strict=True):
             labeled: set = set()
             errors = [
-                _draw_column(ax, x, t.set_index("mouse")[column], colors, rng, labeled)
+                draw_column(ax, x, t.set_index("mouse")[column], colors, rng, labeled)
                 for x, t in enumerate(sources.values())
             ]
-            _style_source_axis(ax, _source_ticks(sources), ylabel)
-            set_title(ax, Title(heading, _stats_line(counts, errors)), fontsize=12)
+            style_source_axis(ax, source_ticks(sources), ylabel)
+            set_title(ax, Title(heading, source_stats_line(counts, errors)), fontsize=12)
             ax.legend(fontsize=9)
         finish_figure(fig, Title("Believed Value in the Choice Logit", None, caption))
     save_or_show(fig, save_path or None)
@@ -228,7 +248,7 @@ def plot_binary_vs_pulse(
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = _colors_of(list(sources.values()))
+    colors = colors_of(list(sources.values()))
     counts = [len(t) for t in sources.values()]
     decays = ""
     if tail_decays:
@@ -252,7 +272,7 @@ def plot_binary_vs_pulse(
         "slightly favors the pulse coding. The columns are not standardized, to leave the "
         "standard model unchanged.",
         "Dots: mice; black bars: mean ± se across mice.",
-        _counts_caption(sources),
+        counts_caption(sources),
         *_binary_caption_lines(sources),
     )
     with new_figure(ncols=2, figsize=(13.5, 5.2), sharey=True) as (fig, axs):
@@ -260,15 +280,15 @@ def plot_binary_vs_pulse(
         for ax, (column, heading) in zip(axs, BINARY_PANELS, strict=True):
             labeled: set = set()
             errors = [
-                _draw_column(ax, x, t.set_index("mouse")[column], colors, rng, labeled)
+                draw_column(ax, x, t.set_index("mouse")[column], colors, rng, labeled)
                 for x, t in enumerate(sources.values())
             ]
-            _style_source_axis(
+            style_source_axis(
                 ax,
-                _source_ticks(sources),
+                source_ticks(sources),
                 "Held-Out Gain over Pulse (Nats per Choice)" if ax is axs[0] else "",
             )
-            set_title(ax, Title(heading, _stats_line(counts, errors)), fontsize=12)
+            set_title(ax, Title(heading, source_stats_line(counts, errors)), fontsize=12)
             ax.legend(fontsize=9)
         finish_figure(fig, Title("Binary and Pulse Reward Coding", None, caption))
     save_or_show(fig, save_path or None)
@@ -295,7 +315,7 @@ def plot_variance_partition(
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = _colors_of(list(sources.values()))
+    colors = colors_of(list(sources.values()))
     labels = [label for _, label in PARTITION_COLUMNS]
     caption = (
         "Held-out (leave-one-problem-out) nats per choice. Unique tower, reward and choice: the "
@@ -307,7 +327,7 @@ def plot_variance_partition(
         "same choices, negative when they complement each other. Unique reward + unique "
         "choice + shared = the full model's gain over the tower only model.",
         "Dots: mice; black bars: mean ± se across mice.",
-        _counts_caption(sources),
+        counts_caption(sources),
     )
     width = max(5.5, 3.6 * len(sources))
     with new_figure(ncols=len(sources), figsize=(width, 4.8), sharey=True, squeeze=False) as (
@@ -318,11 +338,11 @@ def plot_variance_partition(
         for ax, (name, table) in zip(axs[0], sources.items(), strict=True):
             labeled: set = set()
             errors = [
-                _draw_column(ax, x, table.set_index("mouse")[column], colors, rng, labeled)
+                draw_column(ax, x, table.set_index("mouse")[column], colors, rng, labeled)
                 for x, (column, _) in enumerate(PARTITION_COLUMNS)
             ]
-            _style_source_axis(ax, labels, "Held-Out Gain (Nats per Choice)")
-            set_title(ax, Title(name, _stats_line([len(table)], errors)), fontsize=12)
+            style_source_axis(ax, labels, "Held-Out Gain (Nats per Choice)")
+            set_title(ax, Title(name, source_stats_line([len(table)], errors)), fontsize=12)
             ax.legend(fontsize=9)
         finish_figure(fig, Title("Unique and Shared Variance of Regressor Groups", None, caption))
     save_or_show(fig, save_path or None)
@@ -432,7 +452,7 @@ def plot_calibration(
     _check_sources(tables)
     if set(tables) != set(summaries):
         raise ValueError(f"tables {list(tables)} and summaries {list(summaries)} differ")
-    colors = _colors_of(list(tables.values()))
+    colors = colors_of(list(tables.values()))
     n_bins = max(t["bin"].nunique() for t in tables.values())
     caption = _calibration_caption(label, summaries, n_bins)
     with new_figure(ncols=len(tables), figsize=(4.8 * len(tables), 5.0)) as (fig, axs):
@@ -443,7 +463,7 @@ def plot_calibration(
                 ax,
                 Title(
                     CALIBRATION_LABELS.get(model, model),
-                    _stats_line([table["mouse"].nunique()], [se]),
+                    source_stats_line([table["mouse"].nunique()], [se]),
                 ),
                 fontsize=12,
             )

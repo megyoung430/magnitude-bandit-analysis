@@ -30,6 +30,11 @@ reward magnitude at each arm drifts over time and periodically reverses.
   binary against pulse reward coding, unique and shared variance of the regressor groups, and
   calibration plots with the observed choice fraction on the y axis
   (`src/behavior_analysis/choice_logit_extensions.py`, `src/pipelines/regression_extensions.py`)
+- Switch regression in the same notebook: on switch trials, does the value of the two
+  alternatives predict where the mouse goes beyond choice lags, a slow choice trace, trials since
+  chosen and tower bias, after unrewarded and after rewarded choices, with each mouse calibrated
+  against its own fitted null agents replayed on its task
+  (`src/behavior_analysis/switch_regression.py`, `src/pipelines/switch_regression.py`)
 
 ## Project organisation
 
