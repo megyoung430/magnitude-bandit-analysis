@@ -57,6 +57,7 @@ AGENT_LABELS = {
     "wsls_recency": "WSLS (Recency)",
     "wsls_magnitude": "WSLS (Magnitude)",
     "wsls_graded": "WSLS (Graded)",
+    "wsls_habit": "WSLS (Habit)",
 }
 
 

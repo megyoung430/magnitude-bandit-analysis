@@ -23,6 +23,13 @@ analyses of the choice logit is what outcome-dependent staying alone produces.
   memory runs on across sessions and resets at a problem start, as the switch regression's
   trials-since-chosen does) and otherwise to the other one, the third arm; if neither was chosen
   yet in the problem it is 50/50. It keeps no decaying trace.
+- ``"wsls_habit"`` (:class:`WslsHabitParams`): WSLS (Magnitude) whose stay logit also grows with
+  the *choice kernel* of the arm just chosen, ``w_h * K``, so staying builds up over a run of
+  consecutive choices (a habit) instead of depending on the last outcome alone. The kernel is
+  that of :mod:`src.agents.kernel_q_agent` (``K <- K + alpha_k (1 - K)`` for the chosen arm,
+  ``K <- (1 - alpha_k) K`` for the others, cleared at a segment start), evaluated after the
+  previous trial's update. Switches follow the recency rule, unchanged. ``w_h = 0`` is WSLS
+  (Magnitude).
 
 **History trace.** ``h_a(t)`` is the exponentially decaying count of past choices of arm ``a``,
 ``h_a(t) = sum_k decay**(k-1) * [arm chosen on trial t-k = a]``. A count (rather than "trials
@@ -54,8 +61,12 @@ from scipy.signal import lfilter
 from scipy.special import expit, log_expit
 
 N_ARMS = 3
-KINDS = ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded")
+KINDS = ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded", "wsls_habit")
 DEFAULT_DECAY = 0.9
+# Candidate rates of the habit kernel (time constants 1 / alpha_k of 2 to 50 trials). The rate
+# enters the likelihood non-linearly and the stay rule is a logistic regression at each fixed
+# rate, so the fit takes the best rate of this grid on the training trials.
+HABIT_RATES = (0.02, 0.03, 0.05, 0.08, 0.12, 0.2, 0.3, 0.5)
 # Stay fractions are clipped to [CLIP, 1 - CLIP] before the logit, so a mouse that never (or
 # always) stays gets a finite, large logit (about 5.3) instead of an infinite one.
 CLIP = 0.005
@@ -211,11 +222,51 @@ class WslsGradedParams:
         return np.where(recent == 0, 0.5, np.where(recent > 0, self.p_recent, 1 - self.p_recent))
 
 
+@dataclass(frozen=True)
+class WslsHabitParams:
+    """WSLS (Magnitude) with a habit: staying also grows with the current arm's choice kernel.
+
+    Attributes:
+        a_win (float): Stay logit after a reward of 1 pulse, with no habit.
+        a_lose (float): Stay logit after no reward, with no habit.
+        b (float): Change of the stay logit per further pulse.
+        w (float): Weight of the trace difference on a switch (0: uniform switches).
+        w_h (float): Weight of the chosen arm's choice kernel on the stay logit (0: none).
+        alpha_k (float): Rate of the choice kernel, in (0, 1].
+        decay (float): Decay of the switch trace, in (0, 1). Default ``DEFAULT_DECAY``.
+    """
+
+    a_win: float
+    a_lose: float
+    b: float
+    w: float
+    w_h: float
+    alpha_k: float
+    decay: float = DEFAULT_DECAY
+
+    def __post_init__(self):
+        _check_parameters(self, self.decay)
+        if not 0 < self.alpha_k <= 1:
+            raise ValueError(f"alpha_k must be in (0, 1], got {self.alpha_k}")
+
+    @property
+    def switch_weight(self) -> float:
+        return self.w
+
+    def stay_logit(self, magnitude, kernel=0.0) -> np.ndarray:
+        """Logit of staying after *magnitude* pulses, with the chosen arm's *kernel* (scalar or
+        array)."""
+        magnitude = np.asarray(magnitude, dtype=float)
+        base = np.where(magnitude > 0, self.a_win + self.b * (magnitude - 1), self.a_lose)
+        return base + self.w_h * np.asarray(kernel, dtype=float)
+
+
 AGENT_PARAMS = {
     "wsls": WslsParams,
     "wsls_recency": WslsRecencyParams,
     "wsls_magnitude": WslsMagnitudeParams,
     "wsls_graded": WslsGradedParams,
+    "wsls_habit": WslsHabitParams,
 }
 
 
@@ -225,7 +276,12 @@ AGENT_PARAMS = {
 
 
 def choice_probabilities(
-    params, previous: int | None, magnitude: float, h: np.ndarray, recent: int = 0
+    params,
+    previous: int | None,
+    magnitude: float,
+    h: np.ndarray,
+    recent: int = 0,
+    kernel: np.ndarray | None = None,
 ):
     """The agent's probability of each arm on one trial.
 
@@ -239,6 +295,8 @@ def choice_probabilities(
         recent (int): For the graded agent: ``+1`` if the first other arm was chosen more
             recently in the problem than the second, ``-1`` if the second, ``0`` if neither was
             chosen yet. Ignored by the other agents. Default 0.
+        kernel (np.ndarray | None): For the habit agent: ``(3,)`` choice kernel after the previous
+            trial. Ignored by the other agents. Default ``None`` (zeros).
 
     Returns:
         np.ndarray: ``(3,)`` probabilities.
@@ -246,7 +304,11 @@ def choice_probabilities(
     if previous is None:
         return np.full(N_ARMS, 1 / N_ARMS)
     first, second = OTHERS[previous]
-    stay = float(expit(params.stay_logit(magnitude)))
+    if isinstance(params, WslsHabitParams):
+        habit = 0.0 if kernel is None else kernel[previous]
+        stay = float(expit(params.stay_logit(magnitude, habit)))
+    else:
+        stay = float(expit(params.stay_logit(magnitude)))
     if isinstance(params, WslsGradedParams):
         to_first = float(params.to_first(recent))
     else:
@@ -281,6 +343,7 @@ class NullPolicy:
         self.previous: int | None = None
         self.magnitude = 0.0
         self.trace = np.zeros(N_ARMS)
+        self.kernel = np.zeros(N_ARMS)
 
     def _recent(self) -> int:
         if self.previous is None:
@@ -290,12 +353,15 @@ class NullPolicy:
 
     def probabilities(self) -> np.ndarray:
         return choice_probabilities(
-            self.params, self.previous, self.magnitude, self.trace, self._recent()
+            self.params, self.previous, self.magnitude, self.trace, self._recent(), self.kernel
         )
 
     def update(self, action: int, magnitude: float) -> None:
         self.trace = self.params.decay * self.trace
         self.trace[action] += 1.0
+        if isinstance(self.params, WslsHabitParams):
+            chosen = np.arange(N_ARMS) == action
+            self.kernel = self.kernel + self.params.alpha_k * (chosen - self.kernel)
         self.previous, self.magnitude = action, magnitude
         self.last_chosen[action] = self.n_trials
         self.n_trials += 1
@@ -420,6 +486,53 @@ def decisions(trials: pd.DataFrame, decay: float) -> Decisions:
     return Decisions(*(np.concatenate(field) for field in zip(*parts, strict=True)))
 
 
+def _problem_kernel(rows: pd.DataFrame, alpha_k: float) -> np.ndarray:
+    ports = _problem_ports(rows)
+    chosen = np.array([ports.index(c) for c in rows["choice"]], dtype=int)
+    start = (rows["trial_in_session"].to_numpy() == 0) | rows["after_gap"].to_numpy(dtype=bool)
+    start[0] = True
+    picked = np.zeros((len(chosen), N_ARMS))
+    picked[np.arange(len(chosen)), chosen] = 1.0
+    bounds = [*np.flatnonzero(start), len(chosen)]
+    after = np.zeros_like(picked)
+    for first, last in zip(bounds[:-1], bounds[1:], strict=True):
+        # K[t] = (1 - alpha_k) K[t-1] + alpha_k picked[t], from 0 at the segment start
+        after[first:last] = lfilter([alpha_k], [1.0, -(1.0 - alpha_k)], picked[first:last], axis=0)
+    current = np.full(len(chosen), np.nan)
+    current[1:] = after[np.arange(len(chosen) - 1), chosen[:-1]]
+    return np.where(start, np.nan, current)
+
+
+def current_kernel(trials: pd.DataFrame, alpha_k: float) -> np.ndarray:
+    """The choice kernel of the arm chosen on the previous trial, at every decision.
+
+    The kernel follows ``K <- K + alpha_k (1 - K)`` for the arm chosen and ``K <- (1 - alpha_k) K``
+    for the others, from 0 at a segment start, and the value returned for trial ``t`` includes
+    the choice on trial ``t - 1``. Rows are aligned with :func:`decisions`.
+
+    Args:
+        trials (pd.DataFrame): One mouse's rows of the drifting trial table.
+        alpha_k (float): Kernel rate, in (0, 1].
+
+    Returns:
+        np.ndarray: One value per trial, NaN at segment starts.
+
+    Raises:
+        ValueError: For an *alpha_k* outside (0, 1], an empty table, or a problem that does not
+            offer the same three ports on every trial.
+    """
+    if not 0 < alpha_k <= 1:
+        raise ValueError(f"alpha_k must be in (0, 1], got {alpha_k}")
+    if trials.empty:
+        raise ValueError("the trial table is empty")
+    return np.concatenate(
+        [
+            _problem_kernel(rows.sort_values("trial"), alpha_k)
+            for _, rows in trials.groupby("problem", sort=False)
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Likelihood
 # ---------------------------------------------------------------------------
@@ -438,7 +551,11 @@ def log_likelihood(trials: pd.DataFrame, params) -> float:
     """
     d = decisions(trials, params.decay)
     pairs = ~d.start
-    stay_logit = params.stay_logit(np.nan_to_num(d.prev_magnitude))
+    if isinstance(params, WslsHabitParams):
+        kernel = np.nan_to_num(current_kernel(trials, params.alpha_k))
+        stay_logit = params.stay_logit(np.nan_to_num(d.prev_magnitude), kernel)
+    else:
+        stay_logit = params.stay_logit(np.nan_to_num(d.prev_magnitude))
     if isinstance(params, WslsGradedParams):
         to_first = params.to_first(d.recent)
         with np.errstate(divide="ignore"):  # p_recent of 0 or 1 gives -inf, as it should
@@ -542,6 +659,54 @@ def _fit_stay_logistic(
     if np.any(np.abs(result.x) > LOGIT_BOUND - 1e-2):
         raise RuntimeError(f"the {label} fit ended at the bound {LOGIT_BOUND}: {result.x}")
     return float(result.x[0]), float(result.x[1])
+
+
+def _fit_logistic_design(
+    design: np.ndarray, stayed: np.ndarray, label: str
+) -> tuple[np.ndarray, float]:
+    """Weights and negative log likelihood of P(stay) = sigmoid(design @ weights)."""
+
+    def nll(theta):
+        z = design @ theta
+        return (np.logaddexp(0, z) - stayed * z).sum(), design.T @ (expit(z) - stayed)
+
+    bounds = [(-LOGIT_BOUND, LOGIT_BOUND)] * design.shape[1]
+    result = minimize(nll, np.zeros(design.shape[1]), jac=True, method="L-BFGS-B", bounds=bounds)
+    if not result.success:
+        raise RuntimeError(f"the {label} fit did not converge: {result.message}")
+    if np.any(np.abs(result.x) > LOGIT_BOUND - 1e-2):
+        raise RuntimeError(f"the {label} fit ended at the bound {LOGIT_BOUND}: {result.x}")
+    return result.x, float(result.fun)
+
+
+def fit_habit_stay(
+    magnitudes: np.ndarray, stayed: np.ndarray, kernel: np.ndarray
+) -> tuple[tuple[float, float, float, float], float]:
+    """``(a_win, a_lose, b, w_h)`` of the habit agent's stay rule at a fixed kernel, by ML.
+
+    P(stay) = sigmoid(a_win + b * (m - 1) + w_h * K) after a reward of ``m`` pulses and
+    sigmoid(a_lose + w_h * K) after none, with ``K`` the chosen arm's kernel.
+
+    Args:
+        magnitudes (np.ndarray): Pulses paid by the previous choice (0 when unrewarded).
+        stayed (np.ndarray): Whether the next trial repeated the choice.
+        kernel (np.ndarray): The chosen arm's kernel at each pair (:func:`current_kernel`).
+
+    Returns:
+        tuple[tuple[float, float, float, float], float]: The weights and the negative log
+        likelihood of the stays.
+
+    Raises:
+        ValueError: If fewer than two distinct rewarded magnitudes occur.
+        RuntimeError: If the optimizer does not converge or a weight ends at ``LOGIT_BOUND``.
+    """
+    magnitudes = np.asarray(magnitudes, dtype=float)
+    win = magnitudes > 0
+    if len(np.unique(magnitudes[win])) < 2:
+        raise ValueError("fewer than two distinct rewarded magnitudes; a magnitude slope needs two")
+    design = np.column_stack([win, ~win, win * (magnitudes - 1.0), kernel]).astype(float)
+    weights, nll = _fit_logistic_design(design, np.asarray(stayed, dtype=float), "habit stay")
+    return tuple(float(w) for w in weights), nll
 
 
 def fit_stay_line(
@@ -667,6 +832,21 @@ def _fit_graded(
     return WslsGradedParams(w0, w_m, p_recent)
 
 
+def _fit_habit(rows: pd.DataFrame, d: Decisions, decay: float, min_pairs: int, min_switches: int):
+    """The habit agent: the best of ``HABIT_RATES`` by the training likelihood of the stays."""
+    _require_pairs(d, min_pairs)
+    pairs = ~d.start
+    magnitudes, stayed = np.nan_to_num(d.prev_magnitude)[pairs], d.stayed[pairs]
+    fits = {
+        rate: fit_habit_stay(magnitudes, stayed, current_kernel(rows, rate)[pairs])
+        for rate in HABIT_RATES
+    }
+    rate = min(fits, key=lambda r: fits[r][1])
+    a_win, a_lose, b, w_h = fits[rate][0]
+    w = fit_switch_weight(d.delta_h[d.switched], d.chose_first[d.switched], min_switches)
+    return WslsHabitParams(a_win, a_lose, b, w, w_h, rate, decay)
+
+
 _FITS = {
     "wsls": _fit_wsls,
     "wsls_recency": _fit_recency,
@@ -707,7 +887,7 @@ def fit_null_agents(
             (the message names the mouse), or one rewarded magnitude for the magnitude agent.
         RuntimeError: If a fit does not converge or runs to a bound (named by mouse).
     """
-    if kind not in _FITS:
+    if kind not in KINDS:
         raise ValueError(f"unknown agent {kind!r}; expected one of {KINDS}")
     if trial_table.empty:
         raise ValueError("the trial table is empty")
@@ -717,6 +897,8 @@ def fit_null_agents(
             d = decisions(rows, decay)
             if kind == "wsls_graded":
                 fits[mouse] = _fit_graded(d, decay, min_pairs, min_switches, fix_intercept)
+            elif kind == "wsls_habit":
+                fits[mouse] = _fit_habit(rows, d, decay, min_pairs, min_switches)
             else:
                 fits[mouse] = _FITS[kind](d, decay, min_pairs, min_switches)
         except (ValueError, RuntimeError) as error:

@@ -30,7 +30,7 @@ def test_the_stay_logit_is_linear_in_the_magnitude_with_the_intercept_after_zero
 
 
 def test_graded_is_a_registered_kind_after_the_other_three():
-    assert na.KINDS == ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded")
+    assert na.KINDS[:4] == ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded")
     assert na.AGENT_PARAMS["wsls_graded"] is na.WslsGradedParams
 
 

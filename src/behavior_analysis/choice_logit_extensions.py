@@ -32,6 +32,7 @@ from src.behavior_analysis import choice_logit as cl
 from src.behavior_analysis.stats import nan_mean, nan_standard_error
 
 R, C, T, B, BIN = cl.REWARD, cl.CHOICE, cl.TOWER, cl.BELIEVED, cl.BINARY
+CT = cl.CHOICE_TAIL
 
 # Variant name -> the feature groups of that model. "full" is the model of the other analyses.
 VARIANTS = {
@@ -47,6 +48,9 @@ VARIANTS = {
     "choice only": (C,),
     "tower only": (T,),
 }
+# The pair that asks whether a choice tail adds to the choice lags; it needs a design built with
+# ``extras=(CHOICE_TAIL,)`` (not part of ``VARIANTS``, whose designs have the other extras).
+TAIL_VARIANTS = {"full": (R, C, T), "full + choice tail": (R, C, T, CT)}
 # Fewer mice than this are shown as single mice, without a mean, error or test. Five mice can
 # never reach p < 0.05 in a two-sided exact test (the smallest p is 2 / 2**5 = 0.0625); six can.
 MIN_TEST_MICE = 6
