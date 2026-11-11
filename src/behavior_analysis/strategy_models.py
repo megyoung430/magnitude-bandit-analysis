@@ -1,4 +1,4 @@
-"""A heuristic or a value learner? Three models scored on held-out problems.
+"""A heuristic or a value learner? Models scored on held-out problems.
 
 Per mouse, each model is fitted on all but one problem and scored on the held-out one, for every
 problem in turn (the leave-one-problem-out folds of the choice logit,
@@ -10,7 +10,15 @@ problem in turn (the leave-one-problem-out folds of the choice logit,
   last paid and whether they were ever chosen (:mod:`src.agents.heuristic_agent`);
 - ``q_learner``: the value learner (:mod:`src.agents.value_agent`) with a learning rate, an
   inverse temperature, stickiness and a bias to the plus-shaped ports, fitted by multi-start
-  maximum likelihood.
+  maximum likelihood;
+- ``kernel_q``: the richer value learner of :mod:`src.agents.kernel_q_agent` (separate learning
+  rates for better and worse than expected, forgetting of unchosen values, a multi-trial choice
+  kernel), with the same bias to the plus-shaped ports. Four ablations (``ABLATIONS``) each remove
+  one piece; they are scored on the same folds but are not models of the comparison: they never
+  win a mouse and are not generators of the recovery;
+- ``wsls_habit``: WSLS (Magnitude) whose stay logit also grows with the current arm's choice
+  kernel (:class:`src.agents.null_agents.WslsHabitParams`), a stay rule with a multi-trial
+  memory of its own choices and no values.
 
 **What is scored.** Every choice that has a previous choice in its segment (so not a session's
 first trial or the first trial after a dropped trial). The first choice of a segment is uniform
@@ -25,7 +33,8 @@ parameter tables treat the models alike.
 """
 
 from collections.abc import Callable, Sequence
-from dataclasses import fields
+from dataclasses import fields, replace
+from functools import partial
 from typing import NamedTuple
 
 import numpy as np
@@ -33,6 +42,7 @@ import pandas as pd
 
 from src.agents import drifting_simulation as sim
 from src.agents import heuristic_agent as ha
+from src.agents import kernel_q_agent as kq
 from src.agents import null_agents as na
 from src.agents import value_agent as va
 from src.behavior_analysis import choice_logit_extensions as ext
@@ -40,12 +50,18 @@ from src.behavior_analysis import choice_logit_extensions as ext
 WSLS, WSLS_RECENCY = "wsls", "wsls_recency"
 WSLS_MAGNITUDE, WSLS_GRADED = "wsls_magnitude", "wsls_graded"
 HEURISTIC_PLUS, Q_LEARNER = "heuristic_plus", "q_learner"
+KERNEL_Q, WSLS_HABIT = "kernel_q", "wsls_habit"
+# The nested ablations of the kernel Q-learner, named ``kernel_q_<variant>``.
+ABLATIONS = tuple(f"kernel_q_{name}" for name in kq.VARIANTS if name != "full")
 # The models of the strategy comparison and its recovery, in table order.
-MODELS = (WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER, WSLS_GRADED)
+MODELS = (WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER, WSLS_GRADED, KERNEL_Q, WSLS_HABIT)
+# Scored on the comparison's folds: the models and the ablations of the kernel Q-learner.
+COMPARED = (*MODELS, *ABLATIONS)
 # The null agents, scored held out like the comparison's models (``cross_validate(models=...)``).
-NULL_MODELS = (WSLS, WSLS_RECENCY, WSLS_MAGNITUDE, WSLS_GRADED)
+NULL_MODELS = (WSLS, WSLS_RECENCY, WSLS_MAGNITUDE, WSLS_GRADED, WSLS_HABIT)
 # Every model that can be fitted and scored, in table order.
-ALL_MODELS = (WSLS, WSLS_RECENCY, WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER, WSLS_GRADED)
+ALL_MODELS = (WSLS, WSLS_RECENCY, WSLS_MAGNITUDE, HEURISTIC_PLUS, Q_LEARNER, WSLS_GRADED,
+              KERNEL_Q, WSLS_HABIT, *ABLATIONS)  # fmt: skip
 # The pairs whose held-out nats are differenced, first minus second: negative means the first
 # model predicts held-out choices better.
 COMPARISONS = (
@@ -54,9 +70,15 @@ COMPARISONS = (
     (HEURISTIC_PLUS, WSLS_MAGNITUDE),
     (WSLS_GRADED, Q_LEARNER),
     (WSLS_GRADED, WSLS_MAGNITUDE),
+    (KERNEL_Q, WSLS_MAGNITUDE),
+    (KERNEL_Q, Q_LEARNER),
+    (WSLS_HABIT, WSLS_MAGNITUDE),
+    (WSLS_HABIT, KERNEL_Q),
 )
+# Each ablation minus the full kernel Q-learner: positive means removing the piece hurts.
+ABLATION_COMPARISONS = tuple((name, KERNEL_Q) for name in ABLATIONS)
 # The Q-learner's likelihood has a slow and a fast mode for some mice, so every fit starts from
-# several points (see value_agent).
+# several points (see value_agent); so does the kernel Q-learner's.
 Q_STARTS = 5
 Q_KIND = "magnitude"  # the Q-learner learns from the pulses
 # As the choice logit's minimum (choice_logit_values.MIN_TRIALS).
@@ -122,6 +144,30 @@ def _score_q(test: pd.DataFrame, params: Sequence[float]) -> float:
     return float(per_trial[seqs.mask & ~seqs.session_start].sum())
 
 
+def _fit_kernel_q(variant: kq.Variant):
+    def fit(train: pd.DataFrame, n_starts: int, seed: int) -> tuple[float, ...]:
+        result = kq.fit(sim.problem_sequences(train, Q_KIND), n_starts, seed, variant)
+        return tuple(float(p) for p in result.parameters)
+
+    return fit
+
+
+def _score_kernel_q(test: pd.DataFrame, params: Sequence[float]) -> float:
+    seqs = sim.problem_sequences(test, Q_KIND)
+    per_trial = kq.trial_log_probabilities(params, seqs)
+    return float(per_trial[seqs.mask & ~seqs.session_start].sum())
+
+
+def _kernel_q_spec(variant: kq.Variant) -> ModelSpec:
+    return ModelSpec(
+        fit=_fit_kernel_q(variant),
+        score=_score_kernel_q,
+        policy=lambda params, layout: sim.KernelQPolicy(params, Q_KIND, layout),
+        describe=lambda params: {name: params[kq.INDEX[name]] for name in variant.free},
+        at_bounds=lambda params: kq.parameters_at_bounds(params, variant),
+    )
+
+
 def _fields(params) -> dict:
     return {f.name: float(getattr(params, f.name)) for f in fields(params)}
 
@@ -141,6 +187,7 @@ SPECS = {
     WSLS_RECENCY: _null_spec(WSLS_RECENCY),
     WSLS_MAGNITUDE: _null_spec(WSLS_MAGNITUDE),
     WSLS_GRADED: _null_spec(WSLS_GRADED),
+    WSLS_HABIT: _null_spec(WSLS_HABIT),
     HEURISTIC_PLUS: ModelSpec(
         fit=_fit_heuristic,
         score=_score_heuristic,
@@ -155,6 +202,8 @@ SPECS = {
         describe=lambda params: dict(zip(va.PARAMETER_NAMES, params, strict=True)),
         at_bounds=va.parameters_at_bounds,
     ),
+    KERNEL_Q: _kernel_q_spec(kq.VARIANTS["full"]),
+    **{name: _kernel_q_spec(kq.VARIANTS[name.removeprefix("kernel_q_")]) for name in ABLATIONS},
 }
 
 
@@ -306,6 +355,71 @@ def cross_validate(
 
 
 # ---------------------------------------------------------------------------
+# The trace decay of WSLS (Magnitude)
+# ---------------------------------------------------------------------------
+
+# Trace decays of the profile; the comparison fixes it at ``na.DEFAULT_DECAY`` (0.9).
+DECAY_GRID = (0.3, 0.5, 0.7, 0.8, 0.9, 0.95)
+# The profile's reference without a trace: uniform switches. It is listed at this decay, which
+# the trace itself cannot take (a decay of 0 would leave both alternatives' traces at 0).
+NO_TRACE = 0.0
+
+
+def _wsls_fold_score(train: pd.DataFrame, test: pd.DataFrame, decay: float) -> float:
+    """Held-out log likelihood of WSLS (Magnitude) fitted on *train* with trace *decay*."""
+    mouse = train["mouse"].iloc[0]
+    params = na.fit_null_agents(train, WSLS_MAGNITUDE, decay=decay)[mouse]
+    return _score_wsls(test, params)
+
+
+def _no_trace_fold_score(train: pd.DataFrame, test: pd.DataFrame) -> float:
+    """As :func:`_wsls_fold_score` with the switch weight held at 0 (uniform switches).
+
+    The stay rule does not depend on the trace, so the maximum likelihood of the model without a
+    trace is the fitted stay rule with the switch weight set to 0.
+    """
+    mouse = train["mouse"].iloc[0]
+    params = na.fit_null_agents(train, WSLS_MAGNITUDE)[mouse]
+    return _score_wsls(test, replace(params, w=0.0))
+
+
+def decay_profile(trials: pd.DataFrame, decays: Sequence[float] = DECAY_GRID) -> pd.DataFrame:
+    """Held-out nats per choice of WSLS (Magnitude) as a function of its trace decay.
+
+    The folds, the training fits and the score are those of the comparison
+    (:func:`cross_validate`), with the decay fitted for nothing: each value of *decays* is a
+    separate model with that decay fixed. ``NO_TRACE`` is added as a reference.
+
+    Args:
+        trials (pd.DataFrame): One mouse's rows of the drifting trial table.
+        decays (Sequence[float]): Trace decays in (0, 1). Default ``DECAY_GRID``.
+
+    Returns:
+        pd.DataFrame: ``mouse, decay, n_choices, nats_per_choice`` (negative mean log likelihood
+        over the held-out choices pooled across folds; lower is better), ``NO_TRACE`` first.
+
+    Raises:
+        ValueError: If *trials* hold other than one mouse or fewer than two problems.
+    """
+    if trials["mouse"].nunique() != 1:
+        raise ValueError(f"decay_profile takes one mouse, got {trials['mouse'].nunique()}")
+    mouse = trials["mouse"].iloc[0]
+    codes, problems = pd.factorize(trials["problem"])
+    if len(problems) < 2:
+        raise ValueError(f"mouse {mouse}: {len(problems)} problem(s); at least two problems needed")
+    folds = [(trials[codes != k], trials[codes == k]) for k in range(len(problems))]
+    n_choices = sum(len(test) - _n_starts(test) for _, test in folds)
+    scorers = {NO_TRACE: _no_trace_fold_score,
+               **{d: partial(_wsls_fold_score, decay=d) for d in decays}}  # fmt: skip
+    rows = [
+        dict(mouse=mouse, decay=decay, n_choices=n_choices,
+             nats_per_choice=-sum(score(train, test) for train, test in folds) / n_choices)
+        for decay, score in scorers.items()
+    ]  # fmt: skip
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
 # Tables across mice
 # ---------------------------------------------------------------------------
 
@@ -371,38 +485,47 @@ def comparison_name(first: str, second: str) -> str:
     return f"{first}_minus_{second}"
 
 
-def difference_table(nats: pd.DataFrame) -> pd.DataFrame:
-    """Per mouse, the paired differences of held-out nats per choice of ``COMPARISONS``.
+def difference_table(nats: pd.DataFrame, comparisons=COMPARISONS) -> pd.DataFrame:
+    """Per mouse, the paired differences of held-out nats per choice of *comparisons*.
 
     Args:
         nats (pd.DataFrame): :func:`nats_table` of the mice.
+        comparisons (Sequence[tuple[str, str]]): ``(first, second)`` model pairs. Default
+            ``COMPARISONS``; ``ABLATION_COMPARISONS`` for the ablations against the full model.
 
     Returns:
         pd.DataFrame: ``mouse`` and one column per comparison, first model minus second:
         negative means the first predicts held-out choices better.
     """
     wide = nats.pivot(index="mouse", columns="model", values="nats_per_choice")
-    table = pd.DataFrame({comparison_name(a, b): wide[a] - wide[b] for a, b in COMPARISONS})
+    table = pd.DataFrame({comparison_name(a, b): wide[a] - wide[b] for a, b in comparisons})
     return table.reset_index()
 
 
-def difference_summary(table: pd.DataFrame, min_mice: int = ext.MIN_TEST_MICE) -> pd.DataFrame:
+def difference_summary(
+    table: pd.DataFrame, min_mice: int = ext.MIN_TEST_MICE, comparisons=COMPARISONS
+) -> pd.DataFrame:
     """Across mice: mean ± se and the Wilcoxon and sign tests of each paired difference.
 
     Args:
         table (pd.DataFrame): :func:`difference_table` of one source.
         min_mice (int): Fewer mice give NaN mean, se and tests. Default ``MIN_TEST_MICE``.
+        comparisons (Sequence[tuple[str, str]]): The pairs of *table*. Default ``COMPARISONS``.
 
     Returns:
         pd.DataFrame: ``comparison, n, mean, se, n_positive`` (mice where the first model fits
         worse), ``p_wilcoxon, p_sign``.
     """
-    columns = [comparison_name(a, b) for a, b in COMPARISONS]
+    columns = [comparison_name(a, b) for a, b in comparisons]
     return ext.gain_summary(table, columns, min_mice).rename(columns={"gain": "comparison"})
 
 
 def winners(nats: pd.DataFrame) -> pd.DataFrame:
-    """``mouse, winner``: the model with the lowest held-out nats per choice of each mouse."""
+    """``mouse, winner``: the model of ``MODELS`` with the lowest held-out nats of each mouse.
+
+    The ablations are scored for comparison with the full kernel Q-learner and never win.
+    """
+    nats = nats[nats["model"].isin(MODELS)]
     best = nats.loc[nats.groupby("mouse", sort=False)["nats_per_choice"].idxmin()]
     return best.rename(columns={"model": "winner"})[["mouse", "winner"]].reset_index(drop=True)
 

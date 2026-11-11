@@ -70,8 +70,6 @@ START_CENTERS = {name: float(np.mean(r)) for name, r in START_RANGES.items()}
 AT_BOUND_ATOL = 1e-6
 # The parameters that are rates or retention fractions in [0, 1].
 _UNIT_INTERVAL = ("alpha_pos", "alpha_neg", "zeta", "alpha_k")
-# The three parameters that move values, in the order of the gradient's value-derivative axis.
-_VALUE_PARAMETERS = ("alpha_pos", "alpha_neg", "zeta")
 
 
 class Variant(NamedTuple):
@@ -199,15 +197,26 @@ def update_state(q, k, action: int, reward: float, params) -> tuple[np.ndarray, 
     return new_q, new_k
 
 
-def _add_gradient(gradient, name, d_logits, p, action, live) -> None:
-    """Add the live trials' d log p(chosen) / d *name* to ``gradient`` in place.
+def _softmax(logits) -> tuple[np.ndarray, np.ndarray]:
+    """``(log p, p)`` of ``(n, 3)`` logits; inline because scipy logsumexp dominated the fit."""
+    shifted = logits - logits.max(axis=1, keepdims=True)
+    log_p = shifted - np.log(np.exp(shifted).sum(axis=1, keepdims=True))
+    return log_p, np.exp(log_p)
 
-    *d_logits* is the derivative of every arm's logit with respect to the parameter; the
+
+def _step_gradient(beta, beta_k, q, k, dq, dk, plus, p, action) -> np.ndarray:
+    """``(n, 7)`` d log p(chosen) / d parameter for every problem, in ``PARAMETER_NAMES`` order.
+
+    *d_logits* holds the derivative of every arm's logit with respect to each parameter; the
     derivative of the log softmax at the chosen arm is its own minus the probability-weighted one.
     """
-    rows = np.arange(len(action))
-    per_step = d_logits[rows, action] - (p * d_logits).sum(axis=1)
-    gradient[INDEX[name]] += per_step[live].sum()
+    d_logits = np.empty((len(action), 3, len(PARAMETER_NAMES)))
+    d_logits[:, :, :3] = beta * dq
+    d_logits[:, :, INDEX["alpha_k"]] = beta_k * dk
+    d_logits[:, :, INDEX["beta"]] = q
+    d_logits[:, :, INDEX["beta_k"]] = k
+    d_logits[:, :, INDEX["plus_bias"]] = plus
+    return d_logits[np.arange(len(action)), action] - (p[:, :, None] * d_logits).sum(axis=1)
 
 
 def _forward(params, seqs, return_gradient: bool):
@@ -230,17 +239,11 @@ def _forward(params, seqs, return_gradient: bool):
         cleared = seqs.session_start[:, t, None]
         k, dk = np.where(cleared, 0.0, k), np.where(cleared, 0.0, dk)
         logits = beta * q + beta_k * k + plus_bias * seqs.plus
-        log_p = logits - logsumexp(logits, axis=1, keepdims=True)
+        log_p, p = _softmax(logits)
         per_trial[:, t] = np.where(live, log_p[rows, action], np.nan)
         if return_gradient:
-            p = np.exp(log_p)
-
-            for m, name in enumerate(_VALUE_PARAMETERS):
-                _add_gradient(gradient, name, beta * dq[:, :, m], p, action, live)
-            _add_gradient(gradient, "alpha_k", beta_k * dk, p, action, live)
-            _add_gradient(gradient, "beta", q, p, action, live)
-            _add_gradient(gradient, "beta_k", k, p, action, live)
-            _add_gradient(gradient, "plus_bias", seqs.plus, p, action, live)
+            per_step = _step_gradient(beta, beta_k, q, k, dq, dk, seqs.plus, p, action)
+            gradient += per_step[live].sum(axis=0)
         chosen = arms[None, :] == action[:, None]
         delta = reward - q[rows, action]
         better = delta > 0

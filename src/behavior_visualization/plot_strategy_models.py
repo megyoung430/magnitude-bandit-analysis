@@ -46,13 +46,17 @@ MODEL_LABELS = {
     sm.HEURISTIC_PLUS: "Heuristic+",
     sm.Q_LEARNER: "Q-Learner",
     sm.WSLS_GRADED: "WSLS (Graded)",
+    sm.KERNEL_Q: "Q-Learner (Kernel + Forgetting)",
+    sm.WSLS_HABIT: "WSLS (Habit)",
 }
-# Okabe-Ito blue, vermillion, green and reddish purple for the four models.
+# Okabe-Ito blue, vermillion, green, reddish purple, orange and sky blue for the models.
 MODEL_COLORS = {
     sm.WSLS_MAGNITUDE: "#0072B2",
     sm.HEURISTIC_PLUS: "#D55E00",
     sm.Q_LEARNER: "#009E73",
     sm.WSLS_GRADED: "#CC79A7",
+    sm.KERNEL_Q: "#E69F00",
+    sm.WSLS_HABIT: "#56B4E9",
 }
 PARAMETER_LABELS = {
     "v": "Believed-Value Weight (v)",
@@ -76,10 +80,17 @@ RECOVERED = (
     (sm.HEURISTIC_PLUS, "u"),
     (sm.Q_LEARNER, "learning_rate"),
     (sm.WSLS_GRADED, "p_recent"),
+    (sm.KERNEL_Q, "alpha_pos"),
+    (sm.KERNEL_Q, "alpha_neg"),
+    (sm.KERNEL_Q, "zeta"),
+    (sm.KERNEL_Q, "alpha_k"),
+    (sm.KERNEL_Q, "beta"),
+    (sm.KERNEL_Q, "beta_k"),
+    (sm.WSLS_HABIT, "w_h"),
 )
 
 
-def _check_sources(sources: Mapping) -> None:
+def check_sources(sources: Mapping) -> None:
     if not sources:
         raise ValueError("no sources to plot")
     empty = [name for name, s in sources.items() if s.nats.empty]
@@ -167,7 +178,7 @@ def recovery_statement(recovery) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _source_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
+def source_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
     """Per-mouse colors for the first source, gray (unnamed) for mice of other sources."""
     names = [list(s.nats["mouse"].unique()) for s in sources.values()]
     colors = mouse_color_map(sorted(names[0]))
@@ -175,7 +186,7 @@ def _source_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
     return {**colors, **dict.fromkeys(others, OTHER_MICE_COLOR)}, others
 
 
-def _ticks(sources: Mapping) -> list[str]:
+def source_ticks(sources: Mapping) -> list[str]:
     return [
         f"{name}\nn={s.nats['mouse'].nunique()}"
         + (f" ({len(s.skipped)} skipped)" if s.skipped else "")
@@ -183,7 +194,7 @@ def _ticks(sources: Mapping) -> list[str]:
     ]
 
 
-def _skipped_lines(sources: Mapping) -> list[str]:
+def skipped_lines(sources: Mapping) -> list[str]:
     return [
         f"Skipped, {name}: " + "; ".join(f"{m} ({reason})" for m, reason in s.skipped.items()) + "."
         for name, s in sources.items()
@@ -216,7 +227,9 @@ def _mouse_lines(sources: Mapping) -> list[str]:
             f"{row.source}, {row.mouse}: held-out nats per choice {nats}; winner "
             f"{MODEL_LABELS[row.winner]}; v={row.v:.2f}, u={row.u:.2f}, Q learning rate "
             f"{row.q_learning_rate:.3f}, Q beta {row.q_beta:.2f}, graded w_m={row.graded_w_m:.2f}, "
-            f"p_recent={row.p_recent:.2f}"
+            f"p_recent={row.p_recent:.2f}; kernel Q alpha+ {row.kq_alpha_pos:.2f}, alpha- "
+            f"{row.kq_alpha_neg:.2f}, zeta {row.kq_zeta:.2f}, alpha_k {row.kq_alpha_k:.2f}, "
+            f"beta {row.kq_beta:.2f}, beta_k {row.kq_beta_k:.2f}"
             + (f"; choice logit {row.choice_logit:.4f}" if np.isfinite(row.choice_logit) else "")
             + "."
         )
@@ -238,7 +251,7 @@ def _wins_panel(ax, sources: Mapping, ticks: list[str]) -> None:
     despine(ax)
 
 
-def _draw_panel(ax, sources, column, source_column, colors, unnamed, rng, ticks, ylabel, title):
+def draw_panel(ax, sources, column, source_column, colors, unnamed, rng, ticks, ylabel, title):
     """One dot-per-mouse panel across sources; *source_column* picks each source's values."""
     labeled, counts, errors, means = set(unnamed), [], [], {}
     for x, (name, s) in enumerate(sources.items()):
@@ -259,7 +272,7 @@ def _draw_panel(ax, sources, column, source_column, colors, unnamed, rng, ticks,
 def plot_strategy_model_comparison(
     sources: Mapping, save_path: str | Path | None = None, recovery=None
 ) -> None:
-    """Held-out paired differences of the four models, wins per model and fitted parameters.
+    """Held-out paired differences of the models, wins per model and fitted parameters.
 
     Top row: held-out nats per choice of the first model minus the second (negative: the first
     predicts held-out choices better) per mouse, and the mice won by each model. Bottom row: the
@@ -275,9 +288,9 @@ def plot_strategy_model_comparison(
     Raises:
         ValueError: If there are no sources or a source has no mice.
     """
-    _check_sources(sources)
-    colors, unnamed = _source_colors(sources)
-    ticks, table = _ticks(sources), pipe.per_mouse_table(sources)
+    check_sources(sources)
+    colors, unnamed = source_colors(sources)
+    ticks, table = source_ticks(sources), pipe.per_mouse_table(sources)
     verdict = (
         recovery_statement(recovery)
         if recovery is not None
@@ -294,16 +307,23 @@ def plot_strategy_model_comparison(
         "so Heuristic+ nests WSLS (Magnitude) and a difference is attributable to v and u. "
         "WSLS (Graded): staying grows with the last payout (intercept w0 and slope w_m), and a "
         "switch goes to the more recently chosen of the two alternatives with probability "
-        "p_recent, otherwise to the other (it does not nest WSLS (Magnitude)).",
-        "Scored: every choice with a previous choice in its segment, for all four models; the "
-        "Q-learner still learns from the segment starts. The choice logit's held-out nats (listed "
+        "p_recent, otherwise to the other (it does not nest WSLS (Magnitude)). "
+        "Q-Learner (Kernel + Forgetting) (kernel_q_agent, after Aloor et al., bioRxiv "
+        "2026.10.31.763226): separate learning rates for outcomes better and worse than "
+        "expected, forgetting of the unchosen values, a multi-trial choice kernel and the "
+        "plus-port bias; values carry across sessions of a problem and the kernel resets at a "
+        "session start (the paper resets both). WSLS (Habit): WSLS (Magnitude) whose stay logit "
+        "also grows with the chosen arm's choice kernel (rate chosen from a grid on the training "
+        "problems).",
+        "Scored: every choice with a previous choice in its segment, for every model; the "
+        "Q-learners still learn from the segment starts. The choice logit's held-out nats (listed "
         "per mouse below) is a descriptive reference, scored on all trials.",
         "Differences: first model minus second, nats per choice pooled over the mouse's held-out "
         "problems; negative: the first model fits better. A source with fewer than "
         f"{ext.MIN_TEST_MICE} mice shows its mice only: no mean, error bar or test.",
         "Dots: mice, colored per mouse; gray: simulated mice not fitted to a mouse. Black bars: "
         "mean ± se across mice, with the mean written at the top of the panel.",
-        *_skipped_lines(sources),
+        *skipped_lines(sources),
         *_summary_lines(sources),
         *_mouse_lines(sources),
     )
@@ -330,12 +350,12 @@ def plot_strategy_model_comparison(
             ylabel = (
                 "Held-Out Nats per Choice, First Minus Second" if i % PANEL_COLUMNS == 0 else ""
             )
-            _draw_panel(flat[i], sources, sm.comparison_name(first, second), differences,
+            draw_panel(flat[i], sources, sm.comparison_name(first, second), differences,
                         colors, unnamed, rng, ticks, ylabel,
                         _comparison_title(first, second))  # fmt: skip
         _wins_panel(flat[wins_at], sources, ticks)
         for i, name in zip(slots[len(pairs) :], PARAMETER_LABELS, strict=True):
-            _draw_panel(flat[i], sources, name, parameter, colors, unnamed, rng, ticks,
+            draw_panel(flat[i], sources, name, parameter, colors, unnamed, rng, ticks,
                         "Fitted Value", PARAMETER_LABELS[name])  # fmt: skip
         for ax in flat[n_panels:]:
             ax.set_visible(False)
@@ -380,7 +400,7 @@ def _parameter_panel(ax, recovery, model, parameter, colors, labeled) -> None:
 
 
 def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) -> None:
-    """Confusion matrix of model recovery, and recovery of v, u, the Q rate and p_recent.
+    """Confusion matrix of model recovery, and recovery of the ``RECOVERED`` parameters.
 
     Args:
         recovery (Recovery): :func:`src.pipelines.strategy_comparison.recover_models`.
@@ -395,7 +415,7 @@ def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) 
     n_mice = recovery.won["mouse"].nunique()
     caption = (
         f"Each of {n_mice} mice's fitted models played that mouse's own problems "
-        f"({recovery.replicates} simulated mouse per model and mouse), and the four models "
+        f"({recovery.replicates} simulated mouse per model and mouse), and the models "
         "were compared on those simulated mice by the identical held-out procedure. Left: "
         "fraction of each generating model's simulated mice won by each model (diagonal: "
         "recovered), with counts. Other panels: parameter fitted to the simulated mouse against "
@@ -403,17 +423,21 @@ def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) 
         "in the color of the real mouse it was fitted to.",
         *recovery_statement(recovery),
     )
-    with new_figure(nrows=1, ncols=1 + len(RECOVERED), figsize=(20.0, 4.6), squeeze=False) as (
-        fig,
-        axs,
-    ):
-        _confusion_panel(axs[0, 0], recovery)
+    n_panels = 1 + len(RECOVERED)
+    n_rows = -(-n_panels // PANEL_COLUMNS)
+    with new_figure(
+        nrows=n_rows, ncols=PANEL_COLUMNS, figsize=(17.0, 4.6 * n_rows), squeeze=False
+    ) as (fig, axs):
+        flat = axs.ravel()
+        _confusion_panel(flat[0], recovery)
         stats = f"n={recovery.won.shape[0]} simulated mice"
-        set_title(axs[0, 0], Title("Model Recovery", stats), fontsize=12)
+        set_title(flat[0], Title("Model Recovery", stats), fontsize=12)
         labeled: set = set()
-        for ax, (model, parameter) in zip(axs[0, 1:], RECOVERED, strict=True):
+        for ax, (model, parameter) in zip(flat[1:n_panels], RECOVERED, strict=True):
             _parameter_panel(ax, recovery, model, parameter, colors, labeled)
-        handles, names = axs[0, 1].get_legend_handles_labels()  # the mice, named once
+        for ax in flat[n_panels:]:
+            ax.set_visible(False)
+        handles, names = flat[1].get_legend_handles_labels()  # the mice, named once
         axs[0, -1].legend(handles, names, loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False,
                          fontsize=9)  # fmt: skip
         finish_figure(fig, Title(STRATEGY_MODEL_RECOVERY, None, caption))
