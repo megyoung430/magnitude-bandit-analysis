@@ -101,11 +101,39 @@ fourth null agent (WSLS (Graded)), and leave-one-problem-out scoring of every nu
   Nothing else pairs trial counts across sources.
 
 ## Cost (notebook)
-Synthetic section 2.10: about 4 minutes uncached (second best on 4 sources of 10 mice with 20
-calibration replicates; comparison on 3 mice per source and recovery on 2, one Q start). Real data per
-mouse: the comparison costs about 1.5 minutes per mouse and the recovery about three times that, with
-5 starts (cached per mouse, `STRATEGY_JOBS` workers); second-best calibration about 1 minute per mouse
-at 100 replicates for two agents; power check under 1 minute per mouse. Meg runs cohorts 1, 3 and 4.
+Synthetic section 2.10: about 150 s cold (second best on 5 sources of 10 mice with 20 calibration
+replicates; comparison on 3 mice per source and recovery on 2, one Q start); the synthetic notebook
+about 11 minutes. Cohorts 1 and 3 (14 mice, 4 workers, cold caches): cell 3.6 47 minutes (most of it
+the recovery), the fitted Q-learners 12 minutes, the power check 5 minutes (about 6 s per mouse and
+50 replicates), the notebook 107 minutes. Cohort 4 (11 mice): 7 minutes with warm caches for the
+shared parts. Meg runs cohorts 1, 3 and 4.
+
+## Results (run from the cached trial tables; not committed)
+- **Recovery** (mice's own schedules, 1 replicate per model): cohorts 1 and 3 (14 mice) recover the
+  Q-learner 14 of 14 and WSLS (Graded) 13 of 14, but WSLS (Magnitude) 79% and Heuristic+ 64% (the nested
+  pair, 36% of Heuristic+ mice are won by WSLS (Magnitude)): poor. Parameters: v 0.94, Q learning rate
+  0.98, p_recent 0.95, u 0.67 (poor). Cohort 4 (8 compared mice): Q 7 of 7, Graded 86%, WSLS
+  (Magnitude) 50%, Heuristic+ 25% (poor); p_recent correlation 0.52 (poor).
+- **Second best** (cohorts 1 and 3): mice 0.459 +- 0.018 against 0.480 to 0.501 for the WSLS agents, 0.540 for
+  the fitted Q-learner and 0.582 for the synthetic Q-learners; calibrated z against WSLS (Magnitude) is
+  -0.89 +- 0.45 (p 0.12): not above the mice's own nulls. Cohort 4 (8 mice): 0.385 +- 0.035, z -1.57 +- 0.57
+  (p 0.039); believed-better and truly better after non-zero z about -2.2 to -2.5 (p 0.002, all 10 mice
+  negative): cohort 4 mice go to the worse alternative more often than their nulls do. Leave-best after
+  zero is empty.
+- **Model comparison** (14 mice): no clear winner (wins WSLS (Magnitude) 5, Heuristic+ 4, Q 4, Graded 1);
+  mean differences at most 0.01 nats; WSLS (Graded) fits worse than WSLS (Magnitude) in 13 of 14
+  (+0.0101 +- 0.0033, p 0.013). Cohort 4 (8 mice): Q-learner 5, others 1 each; the only
+  difference with p < 0.05 is WSLS (Graded) minus WSLS (Magnitude), +0.0151 +- 0.0052 (p 0.023).
+- **Fitted Q-learner**: no parameter at a bound; learning rates 0.004 to 0.011 for MY_175_L,
+  MY_174_LR and MY_66_LR (no learning), 0.18 to 0.73 otherwise. Power check: for 11 of 13 evaluable mice at
+  least 86% of replicates exceed the mouse's believed-value weight after non-zero; the exceptions
+  (MY_175_L, MY_66_LR) are the two non-learning fits. MY_66_LL gives no replicate with enough
+  switches at its own length. Cohort 4: three of four evaluable mice at 1.0, RT_64_R at 0.06.
+- **Skip lists** with `CONTROL_LENGTH_FACTOR` 2: cohorts 1 and 3, no mouse skipped. Cohort 4: the
+  comparison skips RT_177_LR (17 unrewarded pairs in a training fold), RT_65_N (21 informative
+  switches) and RT_65_LR (one problem); the switch regression analyzes five mice. The calibration
+  nulls at the mouse's own length lose replicates for MY_175_N, MY_66_LL, MY_66_LR and, in cohort
+  4, RT_176_LR and RT_176_N.
 
 ## Results change
 None for the existing figures' data except one deliberate change: the null agents' negative log
