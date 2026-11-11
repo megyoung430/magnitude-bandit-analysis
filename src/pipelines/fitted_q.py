@@ -38,6 +38,7 @@ from src.behavior_analysis import choice_logit as cl
 from src.behavior_analysis import strategy_models as sm
 from src.behavior_analysis import switch_regression as sr
 from src.behavior_analysis.drifting_trial_table import drifting_trial_table
+from src.pipelines import null_agents as null_pipe
 from src.pipelines import switch_regression as switch_pipe
 from src.pipelines.choice_logit_values import SyntheticCohort
 
@@ -135,13 +136,15 @@ def _check(trial_table: pd.DataFrame, params_by_mouse: Mapping) -> None:
         raise ValueError(f"mice {missing} are not in the trial table")
 
 
-def _simulate_mouse(trials: pd.DataFrame, params, rules: sim.TaskRules, seed: int) -> dict:
+def _simulate_mouse(
+    trials: pd.DataFrame, params, rules: sim.TaskRules, seed: int, length_factor: float = 1.0
+) -> dict:
     """``{problem: {mouse: sessions}}`` of one fitted Q-learner playing one mouse's problems."""
     mouse = trials["mouse"].iloc[0]
     rng = np.random.default_rng([seed, zlib.crc32(str(mouse).encode()), _STREAM])
     return sim.simulate_policy_mouse(
         lambda layout: sm.SPECS[sm.Q_LEARNER].policy(params, layout),
-        sim.mouse_layouts(trials),
+        null_pipe.lengthen_layouts(sim.mouse_layouts(trials), length_factor),
         rules,
         rng,
         mouse,
@@ -153,6 +156,7 @@ def simulate_fitted_q_cohort(
     params_by_mouse: Mapping[str, Sequence[float]],
     seed: int,
     rules: sim.TaskRules | Mapping | None = None,
+    length_factor: float = 1.0,
 ) -> SyntheticCohort:
     """One fitted Q-learner per mouse, each playing that mouse's own problems.
 
@@ -168,6 +172,9 @@ def simulate_fitted_q_cohort(
         rules (sim.TaskRules | Mapping | None): The simulated task: one set for every mouse, or
             ``{cohort: TaskRules}``. Default ``None``: measured within each cohort of
             *trial_table*.
+        length_factor (float): Schedule length relative to the mouse's own, as
+            :func:`src.pipelines.null_agents.lengthen_layouts`. Default 1.0; above 1 for comparison
+            columns only, never for the power check or a calibration.
 
     Returns:
         SyntheticCohort: The simulated trials, the parameters, the sessions and
@@ -182,7 +189,7 @@ def simulate_fitted_q_cohort(
     problems: dict = {}
     for mouse in mice:
         mine = trial_table[trial_table["mouse"] == mouse]
-        played = _simulate_mouse(mine, params_by_mouse[mouse], rules_of[mouse], seed)
+        played = _simulate_mouse(mine, params_by_mouse[mouse], rules_of[mouse], seed, length_factor)
         for problem, animals in played.items():
             problems.setdefault(problem, {}).update(animals)
     parameters = pd.DataFrame(

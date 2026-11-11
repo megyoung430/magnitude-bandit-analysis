@@ -234,12 +234,43 @@ def _check_parameters(trial_table: pd.DataFrame, params_by_mouse: dict, agent: s
         raise ValueError(f"mice {missing} are not in the trial table")
 
 
+def lengthen_layouts(layouts: Mapping, length_factor: float) -> dict:
+    """Each problem's sessions repeated cyclically until there are *length_factor* times as many.
+
+    The towers, initiation port and starting magnitudes of every problem are unchanged; only
+    the number of sessions grows (rounded, at least one), by cycling through the problem's own
+    session lengths. Factor 1 returns the layouts as they are. A longer schedule gives an agent
+    more switches to analyze without changing the task it plays.
+
+    Args:
+        layouts (Mapping): ``{problem: MouseLayout}``, e.g. ``drifting_simulation.mouse_layouts``.
+        length_factor (float): Multiplier of the sessions per problem; positive.
+
+    Returns:
+        dict: ``{problem: MouseLayout}`` with the lengthened session lists.
+
+    Raises:
+        ValueError: If *length_factor* is not positive.
+    """
+    if not length_factor > 0:
+        raise ValueError(f"length_factor must be positive, got {length_factor}")
+    lengthened = {}
+    for problem, layout in layouts.items():
+        lengths = list(layout.session_lengths)
+        n_sessions = max(1, round(len(lengths) * length_factor))
+        lengthened[problem] = layout._replace(
+            session_lengths=[lengths[i % len(lengths)] for i in range(n_sessions)]
+        )
+    return lengthened
+
+
 def simulate_null_cohort(
     trial_table: pd.DataFrame,
     params_by_mouse: dict,
     agent: str,
     seed: int,
     rules: sim.TaskRules | dict | None = None,
+    length_factor: float = 1.0,
 ) -> SyntheticCohort:
     """One null agent per mouse, each playing that mouse's own problems.
 
@@ -256,6 +287,10 @@ def simulate_null_cohort(
         rules (sim.TaskRules | dict | None): The simulated task: one set for every mouse, or
             ``{cohort: TaskRules}``. Default ``None``: measured within each cohort of
             *trial_table* (:func:`task_rules_by_cohort`).
+        length_factor (float): Schedule length relative to the mouse's own
+            (:func:`lengthen_layouts`). Default 1.0: the agent plays the mouse's own number of
+            sessions, as the null calibration needs. A factor above 1 is for comparison columns
+            only (more switches, less noise); it is never used for a calibration null.
 
     Returns:
         SyntheticCohort: The simulated trials, the agents' parameters
@@ -273,7 +308,9 @@ def simulate_null_cohort(
     for mouse in mice:
         params = params_by_mouse[mouse]
         rng = np.random.default_rng([seed, zlib.crc32(str(mouse).encode()), na.KINDS.index(agent)])
-        layouts = sim.mouse_layouts(trial_table[trial_table["mouse"] == mouse])
+        layouts = lengthen_layouts(
+            sim.mouse_layouts(trial_table[trial_table["mouse"] == mouse]), length_factor
+        )
         played = sim.simulate_policy_mouse(
             lambda layout, params=params: na.NullPolicy(params),
             layouts,
