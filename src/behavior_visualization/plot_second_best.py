@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 
 from src.behavior_analysis import choice_logit_extensions as ext
 from src.behavior_analysis import second_best as sb
@@ -63,7 +64,6 @@ CONDITION_LABELS = {
 }
 # A point of a graded curve from fewer used switches than this is not drawn.
 MIN_BIN_USED = 10
-# Line styles of the sources other than the first in the graded curves.
 # Line styles of the sources after the first (the legend names them), one per source.
 SOURCE_STYLES = (
     "--",
@@ -132,6 +132,16 @@ def _mouse_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
     colors = colors_of(tables[:1])
     others = frozenset(m for t in tables[1:] for m in t["mouse"]) - set(colors)
     return {**colors, **dict.fromkeys(others, OTHER_MICE_COLOR)}, others
+
+
+def _mice_legend(ax, colors: Mapping[str, str], unnamed: frozenset[str]) -> None:
+    """One frameless legend of the named mice outside *ax* (every panel uses the same colors)."""
+    handles = [
+        Line2D([], [], marker="o", ls="", color=colors[m], label=m) for m in sorted(colors)
+        if m not in unnamed
+    ]  # fmt: skip
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False,
+              fontsize=9)  # fmt: skip
 
 
 def _ticks(sources: Mapping) -> list[str]:
@@ -289,7 +299,7 @@ def plot_second_best_choices(
         rng = jitter_rng()
         for row, measure in enumerate(sb.MEASURES):
             for col, condition in enumerate(conditions):
-                ax, labeled, counts, errors = axs[row, col], set(unnamed), [], []
+                ax, labeled, counts, errors = axs[row, col], set(colors), [], []
                 means = {}
                 for x, (name, s) in enumerate(sources.items()):
                     mine = s.proportions.query("measure == @measure and condition == @condition")
@@ -308,8 +318,7 @@ def plot_second_best_choices(
                 title = f"{MEASURE_LABELS[measure]}, {CONDITION_LABELS[condition]}"
                 stats = source_stats_line(counts, errors) if counts else None
                 set_title(ax, Title(title, stats), fontsize=12)
-                if ax.get_legend_handles_labels()[1]:  # a panel of gray mice only has none
-                    ax.legend(fontsize=9)
+        _mice_legend(axs[0, -1], colors, unnamed)  # once: panels differ in which mice they draw
         _add_headroom(axs[0, 0])  # once: every panel shares the y axis
         finish_figure(fig, Title(SECOND_BEST_CHOICES, None, caption))
     save_or_show(fig, save_path or None)

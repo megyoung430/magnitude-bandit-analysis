@@ -88,6 +88,18 @@ def _panels(seen, name):
 # ---------------------------------------------------------------------------
 
 
+def test_each_mouse_is_named_once_when_panels_draw_different_mice(tmp_path, saved_figures):  # noqa: F811
+    mice = fake_source(6)
+    left_out = mice.proportions.query(
+        "not (mouse == 'm1' and measure == @sb.BELIEVED_BETTER and condition == @sr.AFTER_ZERO)"
+    )  # m1 is missing from one panel, so the panels draw different mice
+    sources = {"Mice": mice._replace(proportions=left_out), "WSLS": fake_source(6, 1)}
+    base = tmp_path / "Second Best Choices"
+    plots.plot_second_best_choices(sources, base)
+    _, _, legend = _panels(saved_figures, base.name)
+    assert sorted(legend) == sorted(set(legend)) and {"m1", "m6"} <= set(legend)
+
+
 def test_choices_figure_has_a_panel_per_measure_and_condition(tmp_path, saved_figures):  # noqa: F811
     sources = {"Mice": fake_source(6), "WSLS": fake_source(6, 1)}
     base = tmp_path / "Second Best Choices"
