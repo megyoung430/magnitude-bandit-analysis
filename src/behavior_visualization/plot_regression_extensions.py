@@ -74,6 +74,35 @@ def colors_of(tables: Sequence[pd.DataFrame]) -> dict[str, str]:
     return mouse_color_map(sorted({m for t in tables for m in t["mouse"]}))
 
 
+# Color of the mice that are not in the first source (e.g. simulated Q-learners).
+OTHER_MICE_COLOR = "0.55"
+
+
+def source_colors(tables: Sequence[pd.DataFrame]) -> tuple[dict[str, str], frozenset[str]]:
+    """Colors of every mouse, and the mice left out of the legend.
+
+    The mice of the first table (the real mice when there are any) get the per-mouse palette; a
+    mouse that is not in the first table (a simulated Q-learner, say) is gray and unnamed, so the
+    legend lists the mice only. Null agents fitted to a mouse share its name and its color.
+
+    Args:
+        tables (Sequence[pd.DataFrame]): One table per source with a ``mouse`` column, the mice
+            first.
+
+    Returns:
+        tuple[dict[str, str], frozenset[str]]: ``{mouse: color}`` and the gray mice.
+    """
+    colors = colors_of(tables[:1])
+    others = frozenset(m for t in tables[1:] for m in t["mouse"]) - set(colors)
+    return {**colors, **dict.fromkeys(others, OTHER_MICE_COLOR)}, others
+
+
+def legend_if_named(ax: plt.Axes) -> None:
+    """Draw the panel's legend when it names anyone (a panel of gray mice names no one)."""
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(fontsize=9)
+
+
 def draw_column(
     ax: plt.Axes,
     x: float,
@@ -178,7 +207,7 @@ def plot_believed_value(
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = colors_of(list(sources.values()))
+    colors, unnamed = source_colors(list(sources.values()))
     caption = (
         "Believed value: the magnitude (pulses) an arm last paid when the mouse chose it in the "
         "current problem; 0 before the arm's first visit, where the never-visited indicator is 1, "
@@ -188,21 +217,22 @@ def plot_believed_value(
         "Gains are held-out (leave-one-problem-out) nats per choice of the full model minus that "
         "of the model named; positive is better than the full model. Instead of reward lags: "
         "choice history, tower bias and believed value, without the reward lags.",
-        "Dots: mice; black bars: mean ± se across mice.",
+        "Dots: mice (simulated agents not fitted to a mouse in gray); black bars: mean ± se "
+        "across mice.",
         counts_caption(sources),
     )
     counts = [len(t) for t in sources.values()]
     with new_figure(nrows=2, ncols=2, figsize=(11, 8.6)) as (fig, axs):
         rng = jitter_rng()
         for ax, (column, heading, ylabel) in zip(axs.ravel(), BELIEVED_PANELS, strict=True):
-            labeled: set = set()
+            labeled: set = set(unnamed)
             errors = [
                 draw_column(ax, x, t.set_index("mouse")[column], colors, rng, labeled)
                 for x, t in enumerate(sources.values())
             ]
             style_source_axis(ax, source_ticks(sources), ylabel)
             set_title(ax, Title(heading, source_stats_line(counts, errors)), fontsize=12)
-            ax.legend(fontsize=9)
+            legend_if_named(ax)
         finish_figure(fig, Title("Believed Value in the Choice Logit", None, caption))
     save_or_show(fig, save_path or None)
 
@@ -248,7 +278,7 @@ def plot_binary_vs_pulse(
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = colors_of(list(sources.values()))
+    colors, unnamed = source_colors(list(sources.values()))
     counts = [len(t) for t in sources.values()]
     decays = ""
     if tail_decays:
@@ -271,14 +301,15 @@ def plot_binary_vs_pulse(
         "weight up to four times larger on the binary lags and is shrunk more: the comparison "
         "slightly favors the pulse coding. The columns are not standardized, to leave the "
         "standard model unchanged.",
-        "Dots: mice; black bars: mean ± se across mice.",
+        "Dots: mice (simulated agents not fitted to a mouse in gray); black bars: mean ± se "
+        "across mice.",
         counts_caption(sources),
         *_binary_caption_lines(sources),
     )
     with new_figure(ncols=2, figsize=(13.5, 5.2), sharey=True) as (fig, axs):
         rng = jitter_rng()
         for ax, (column, heading) in zip(axs, BINARY_PANELS, strict=True):
-            labeled: set = set()
+            labeled: set = set(unnamed)
             errors = [
                 draw_column(ax, x, t.set_index("mouse")[column], colors, rng, labeled)
                 for x, t in enumerate(sources.values())
@@ -289,7 +320,7 @@ def plot_binary_vs_pulse(
                 "Held-Out Gain over Pulse (Nats per Choice)" if ax is axs[0] else "",
             )
             set_title(ax, Title(heading, source_stats_line(counts, errors)), fontsize=12)
-            ax.legend(fontsize=9)
+            legend_if_named(ax)
         finish_figure(fig, Title("Binary and Pulse Reward Coding", None, caption))
     save_or_show(fig, save_path or None)
 
@@ -315,7 +346,7 @@ def plot_variance_partition(
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = colors_of(list(sources.values()))
+    colors, unnamed = source_colors(list(sources.values()))
     labels = [label for _, label in PARTITION_COLUMNS]
     caption = (
         "Held-out (leave-one-problem-out) nats per choice. Unique tower, reward and choice: the "
@@ -326,7 +357,8 @@ def plot_variance_partition(
         "beyond the tower bias minus what both explain together: positive when they explain the "
         "same choices, negative when they complement each other. Unique reward + unique "
         "choice + shared = the full model's gain over the tower only model.",
-        "Dots: mice; black bars: mean ± se across mice.",
+        "Dots: mice (simulated agents not fitted to a mouse in gray); black bars: mean ± se "
+        "across mice.",
         counts_caption(sources),
     )
     width = max(5.5, 3.6 * len(sources))
@@ -336,14 +368,14 @@ def plot_variance_partition(
     ):
         rng = jitter_rng()
         for ax, (name, table) in zip(axs[0], sources.items(), strict=True):
-            labeled: set = set()
+            labeled: set = set(unnamed)
             errors = [
                 draw_column(ax, x, table.set_index("mouse")[column], colors, rng, labeled)
                 for x, (column, _) in enumerate(PARTITION_COLUMNS)
             ]
             style_source_axis(ax, labels, "Held-Out Gain (Nats per Choice)")
             set_title(ax, Title(name, source_stats_line([len(table)], errors)), fontsize=12)
-            ax.legend(fontsize=9)
+            legend_if_named(ax)
         finish_figure(fig, Title("Unique and Shared Variance of Regressor Groups", None, caption))
     save_or_show(fig, save_path or None)
 

@@ -21,9 +21,10 @@ from src.behavior_analysis import choice_logit_extensions as ext
 from src.behavior_analysis import switch_regression as sr
 from src.behavior_visualization.plot_helpers import Title, jitter_rng, save_or_show, set_title
 from src.behavior_visualization.plot_regression_extensions import (
-    colors_of,
+    OTHER_MICE_COLOR,  # noqa: F401  (re-exported: the gray of the unnamed mice)
     counts_caption,
     draw_column,
+    source_colors,
     source_stats_line,
     style_source_axis,
 )
@@ -98,7 +99,6 @@ def _check_sources(sources: Mapping) -> None:
 
 # Dots of mice that are not in the first source (e.g. the simulated Q-learners next to the real
 # mice) are drawn in this gray and left out of the legend.
-OTHER_MICE_COLOR = "0.55"
 
 
 def _mouse_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
@@ -114,10 +114,7 @@ def _mouse_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
     Returns:
         tuple[dict[str, str], frozenset[str]]: ``{mouse: color}`` and the gray mice.
     """
-    tables = list(_mice_tables(sources).values())
-    colors = colors_of(tables[:1])
-    others = frozenset(m for t in tables[1:] for m in t["mouse"]) - set(colors)
-    return {**colors, **dict.fromkeys(others, OTHER_MICE_COLOR)}, others
+    return source_colors(list(_mice_tables(sources).values()))
 
 
 # Headroom added above the data, as a fraction of the y range, for the mean labels.

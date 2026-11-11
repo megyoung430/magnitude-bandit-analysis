@@ -302,3 +302,33 @@ def test_plot_extensions_writes_every_figure_into_the_folder(tmp_path):
     for name in expected:
         for suffix in ("pdf", "png", "svg", "caption.txt"):
             assert (folder / f"{name}.{suffix}").exists(), (name, suffix)
+
+
+def test_source_colors_keep_the_palette_for_the_first_source_only():
+    sim = partition_table(3, 1).assign(mouse=mice_of(3, "sim"))
+    colors, unnamed = plots.source_colors([partition_table(3), sim])
+    assert unnamed == {"sim1", "sim2", "sim3"}
+    assert {colors[m] for m in unnamed} == {plots.OTHER_MICE_COLOR}
+    assert len({colors[m] for m in mice_of(3)}) == 3
+
+
+def test_source_colors_name_no_one_gray_when_a_mouse_is_in_the_first_source():
+    colors, unnamed = plots.source_colors([partition_table(3), partition_table(2, 1)])
+    assert unnamed == frozenset()
+    assert plots.OTHER_MICE_COLOR not in colors.values()
+
+
+@pytest.mark.parametrize(
+    ("plot", "table"),
+    [
+        (plots.plot_variance_partition, partition_table),
+        (plots.plot_believed_value, believed_table),
+        (plots.plot_binary_vs_pulse, binary_table),
+    ],
+)
+def test_simulated_mice_are_gray_and_left_out_of_the_legend(tmp_path, saved_figures, plot, table):
+    sim = table(6, seed=2).assign(mouse=mice_of(6, "sim"))
+    sources = {"Mice": table(6), "Q-Learner": sim, "WSLS": table(6, seed=1)}
+    plot(sources, tmp_path / "figure")
+    _, _, legend, _ = saved_figures["figure"]
+    assert "m1" in legend and not any(t.startswith("sim") for t in legend)
