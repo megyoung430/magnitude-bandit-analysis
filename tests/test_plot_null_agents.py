@@ -15,7 +15,7 @@ from src.behavior_visualization import plot_null_agents as plots  # noqa: E402
 from tests.test_plot_choice_logit import check_files, weights_table  # noqa: E402
 
 STATS_LINE = re.compile(r"mean ± se across mice, n=\d+ mice")
-MODELS = ("wsls", "wsls_recency", "wsls_magnitude", "choice_logit")
+MODELS = ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded", "choice_logit")
 
 
 def legends_over_panels(fig) -> list[str]:
@@ -89,7 +89,7 @@ def test_fit_figure_has_two_panels_with_statistics_and_a_caption(tmp_path, figur
     assert len(panels) == 2
     assert all(STATS_LINE.search(p.split("\n")[-1]) for p in panels), panels
     caption = base.with_name("Null Agent Fits.caption.txt").read_text()
-    assert "in-sample" in caption.lower() and "held out" in caption.lower()
+    assert "leave-one-problem-out" in caption.lower() and "same folds" in caption.lower()
     assert "WSLS (Magnitude)" in legend and "Observed" in legend
 
 
@@ -97,6 +97,7 @@ def test_fit_figure_labels_are_title_case(tmp_path):
     assert plots.MODEL_LABELS["wsls"] == "WSLS"
     assert plots.MODEL_LABELS["wsls_recency"] == "WSLS (Recency)"
     assert plots.MODEL_LABELS["wsls_magnitude"] == "WSLS (Magnitude)"
+    assert plots.MODEL_LABELS["wsls_graded"] == "WSLS (Graded)"
     assert plots.MODEL_LABELS["choice_logit"] == "Choice Logit (Held-Out)"
 
 

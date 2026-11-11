@@ -38,6 +38,7 @@ MODEL_LABELS = {
     "wsls": "WSLS",
     "wsls_recency": "WSLS (Recency)",
     "wsls_magnitude": "WSLS (Magnitude)",
+    "wsls_graded": "WSLS (Graded)",
     "choice_logit": "Choice Logit (Held-Out)",
 }
 # Okabe-Ito, black first (the mice or the reference), yellow last (poor contrast on white).
@@ -73,7 +74,9 @@ def _plot_score_panel(scores: pd.DataFrame, ax: plt.Axes) -> None:
     ax.axhline(np.log(3), color="0.5", lw=0.8, ls=":")
     ax.set_xticks(x, [_label(m) for m in nats.columns], rotation=20, ha="right")
     ax.set_ylabel("Negative Log Likelihood (Nats per Choice)", fontsize=12)
-    set_title(ax, Title("Fit to Each Mouse's Choices", mice_stats(len(nats), se)), fontsize=12)
+    set_title(
+        ax, Title("Held-Out Fit to Each Mouse's Choices", mice_stats(len(nats), se)), fontsize=12
+    )
     despine(ax)
 
 
@@ -128,10 +131,11 @@ def plot_null_agent_fits(
     if scores.empty:
         raise ValueError("no scores to plot")
     caption = (
-        "Left: negative log likelihood per choice of each agent on the choices it was fitted to "
-        "(in-sample; two to four parameters against thousands of choices, so not held out), "
-        "thin lines: each mouse; the Choice Logit (Held-Out) column, if present, is its "
-        "leave-one-problem-out score. The dotted line is chance, log(3) nats per choice.",
+        "Left: leave-one-problem-out negative log likelihood per trial of each agent (fitted on "
+        "all but one problem of the mouse and scored on the held-out one, the folds of the "
+        "choice logit), "
+        "thin lines: each mouse; the Choice Logit (Held-Out) column, if present, is the logit's "
+        "score on the same folds. The dotted line is chance, log(3) nats per choice.",
         "Right: observed P(stay) after a choice that paid each number of pulses (pairs of "
         "consecutive trials within a session), thin lines: each mouse; dashed: the mean "
         "probability each fitted agent implies. WSLS and WSLS (Recency) cannot depend on the "
@@ -237,13 +241,19 @@ def plot_comparison(comparison, out_dir: str | Path) -> None:
         PsychometricRow(label, curves, value_labels("Model Value", "Logit"), baselines)
         for label, (curves, baselines) in comparison.psychometrics.items()
     ]
+    extras = list(comparison.extra_cohorts or {})
+    positive = (
+        f" and of {', '.join(extras)} (a positive control: a value learner fitted to each mouse)"
+        if extras
+        else ""
+    )
     plot_psychometric_rows(
         rows,
         "Psychometric Curves: Negative Controls",
         (
             f"Rows: the model value (held-out logit) of {reference} and of the win-stay/"
-            "lose-shift agents fitted to the same mice, each ranking the arms in per-mouse "
-            "quantile bins.",
+            f"lose-shift agents fitted to the same mice{positive}, each ranking the arms in "
+            "per-mouse quantile bins.",
         ),
         out_dir / "Psychometric Curves",
         comparison.min_mice,

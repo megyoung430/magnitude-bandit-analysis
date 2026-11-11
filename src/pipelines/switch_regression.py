@@ -314,8 +314,9 @@ def per_mouse_table(sources: Mapping[str, SourceSwitchRegression]) -> pd.DataFra
 # ---------------------------------------------------------------------------
 
 # Null agents each mouse is calibrated against: the realistic one (magnitude-graded staying,
-# recency switches) first, then plain recency switches.
-NULL_AGENTS = ("wsls_magnitude", "wsls_recency")
+# recency switches) first, whose band is the one drawn; then plain recency switches; then the
+# graded agent (linear stay logit, switches to the most recent alternative).
+NULL_AGENTS = ("wsls_magnitude", "wsls_recency", "wsls_graded")
 DEFAULT_REPLICATES = 100
 CALIBRATION_SEED = 0
 # The calibrated variants. The model value is left out: each replicate would need its own
@@ -384,7 +385,7 @@ def simulate_mouse_null(
     return _MouseNull(values, failed, tuple(dict.fromkeys(str(w.message) for w in caught)))
 
 
-def _rules_by_mouse(trial_table: pd.DataFrame, mice: Sequence[str], rules) -> dict:
+def rules_by_mouse(trial_table: pd.DataFrame, mice: Sequence[str], rules) -> dict:
     """``{mouse: TaskRules}`` from one rule set, ``{cohort: rules}`` or ``None`` (measured)."""
     if rules is None:
         rules = null_pipe.task_rules_by_cohort(trial_table)
@@ -480,7 +481,7 @@ def calibrate_source(
     missing = [(a, m) for a in agents for m in mice if m not in fits.get(a, {})]
     if missing:
         raise ValueError(f"no fitted null agent for (agent, mouse) {missing}")
-    rules_of = _rules_by_mouse(trial_table, mice, rules)
+    rules_of = rules_by_mouse(trial_table, mice, rules)
     settings = (source.n_lags, source.trace_grid, source.l2, source.recency_cap,
                 source.min_switches, source.firth)  # fmt: skip
     by_mouse = {m: rows.reset_index(drop=True) for m, rows in trial_table.groupby("mouse")}

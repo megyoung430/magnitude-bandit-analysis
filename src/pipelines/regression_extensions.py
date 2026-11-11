@@ -398,12 +398,15 @@ def comparison_inputs(
             cohorts are reused, not simulated again.
 
     Returns:
-        dict: The reference first, then the agents in ``null_agents.KINDS`` order.
+        dict: The reference first, then the agents in ``null_agents.KINDS`` order, then the
+        comparison's extra cohorts (e.g. the fitted Q-learner).
     """
     inputs = {reference_label: (trial_table, comparison.analyses[reference_label])}
     for kind in na.KINDS:
         label = AGENT_LABELS[kind]
         inputs[label] = (comparison.controls.cohorts[kind].trials, comparison.analyses[label])
+    for label, cohort in (comparison.extra_cohorts or {}).items():
+        inputs[label] = (cohort.trials, comparison.analyses[label])
     return inputs
 
 

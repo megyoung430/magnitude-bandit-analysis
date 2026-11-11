@@ -27,7 +27,9 @@ lags) therefore shows above-baseline switch targets with no value guidance at al
 (:func:`switch_target_excess`); a fast trace that fits in five lags does not.
 """
 
+import warnings
 import zlib
+from collections.abc import Mapping
 from dataclasses import fields
 from typing import NamedTuple
 
@@ -38,6 +40,7 @@ from scipy.special import expit
 from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
 from src.behavior_analysis import model_value_psychometrics as mvp
+from src.behavior_analysis import strategy_models as sm
 from src.behavior_analysis.drifting_trial_table import drifting_trial_table
 from src.pipelines.agent_baselines import measure_task_rules
 from src.pipelines.choice_logit_values import (
@@ -53,6 +56,7 @@ AGENT_LABELS = {
     "wsls": "WSLS",
     "wsls_recency": "WSLS (Recency)",
     "wsls_magnitude": "WSLS (Magnitude)",
+    "wsls_graded": "WSLS (Graded)",
 }
 
 
@@ -76,10 +80,67 @@ def parameters_table(params_by_mouse: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+class HeldOut(NamedTuple):
+    """Leave-one-problem-out scores of the null agents.
+
+    Attributes:
+        folds (pd.DataFrame): ``strategy_models`` fold scores, one row per mouse, held-out
+            problem and agent: ``mouse, problem, model, n_choices, n_segment_starts,
+            held_out_log_likelihood``.
+        table (pd.DataFrame): ``mouse, model, n_choices, log_likelihood, nats_per_choice``: held-out
+            nats per trial pooled over the mouse's folds (segment starts at ``log(1/3)``, so the
+            denominator is every trial, as the choice logit's).
+        skipped (dict[str, str]): Mice that cannot be cross-validated and why.
+    """
+
+    folds: pd.DataFrame
+    table: pd.DataFrame
+    skipped: dict
+
+
+def heldout_scores(trial_table: pd.DataFrame, models=sm.NULL_MODELS) -> HeldOut:
+    """Fit every null agent on all but one problem of each mouse and score the held-out one.
+
+    The folds, the fits and the scoring are those of the strategy comparison
+    (:func:`src.behavior_analysis.strategy_models.cross_validate`), and the folds are the choice
+    logit's: one per problem, in order of first appearance.
+
+    Args:
+        trial_table (pd.DataFrame): A drifting trial table.
+        models (Sequence[str]): The agents to score. Default ``strategy_models.NULL_MODELS``.
+
+    Returns:
+        HeldOut: Scores per fold, nats per trial per mouse and agent, and the skipped mice.
+
+    Raises:
+        ValueError: If no mouse can be cross-validated.
+        RuntimeError: If a fit does not converge.
+
+    Warns:
+        UserWarning: For each mouse that cannot be cross-validated (fewer than two problems, or
+            a training set an agent cannot be fitted to), which is then left out.
+    """
+    folds, skipped = [], {}
+    for mouse, rows in sorted(trial_table.groupby("mouse"), key=lambda item: item[0]):
+        rows = rows.reset_index(drop=True)
+        if reason := sm.skip_reason(rows, min_trials=0):
+            skipped[mouse] = reason
+            warnings.warn(f"mouse {mouse} skipped: {reason}", stacklevel=2)
+            continue
+        folds.append(sm.cross_validate(rows, models=models).scores)
+    if not folds:
+        raise ValueError(
+            "no mouse can be cross-validated: " + "; ".join(f"{m}: {r}" for m, r in skipped.items())
+        )
+    folds = pd.concat(folds, ignore_index=True)
+    return HeldOut(folds, sm.heldout_nats_per_trial(folds), skipped)
+
+
 def scores_table(trial_table: pd.DataFrame, fits_by_kind: dict) -> pd.DataFrame:
     """In-sample negative log likelihood of each fitted agent on each mouse's choices.
 
-    Two to four fitted parameters against thousands of choices, so the score is not held out.
+    Fitted and scored on the same trials, so not comparable with a held-out score (see
+    :func:`heldout_scores`); the optimism is small for two to four parameters.
 
     Args:
         trial_table (pd.DataFrame): The trial table the agents were fitted to.
@@ -233,12 +294,43 @@ def _check_parameters(trial_table: pd.DataFrame, params_by_mouse: dict, agent: s
         raise ValueError(f"mice {missing} are not in the trial table")
 
 
+def lengthen_layouts(layouts: Mapping, length_factor: float) -> dict:
+    """Each problem's sessions repeated cyclically until there are *length_factor* times as many.
+
+    The towers, initiation port and starting magnitudes of every problem are unchanged; only
+    the number of sessions grows (rounded, at least one), by cycling through the problem's own
+    session lengths. Factor 1 returns the layouts as they are. A longer schedule gives an agent
+    more switches to analyze without changing the task it plays.
+
+    Args:
+        layouts (Mapping): ``{problem: MouseLayout}``, e.g. ``drifting_simulation.mouse_layouts``.
+        length_factor (float): Multiplier of the sessions per problem; positive.
+
+    Returns:
+        dict: ``{problem: MouseLayout}`` with the lengthened session lists.
+
+    Raises:
+        ValueError: If *length_factor* is not positive.
+    """
+    if not length_factor > 0:
+        raise ValueError(f"length_factor must be positive, got {length_factor}")
+    lengthened = {}
+    for problem, layout in layouts.items():
+        lengths = list(layout.session_lengths)
+        n_sessions = max(1, round(len(lengths) * length_factor))
+        lengthened[problem] = layout._replace(
+            session_lengths=[lengths[i % len(lengths)] for i in range(n_sessions)]
+        )
+    return lengthened
+
+
 def simulate_null_cohort(
     trial_table: pd.DataFrame,
     params_by_mouse: dict,
     agent: str,
     seed: int,
     rules: sim.TaskRules | dict | None = None,
+    length_factor: float = 1.0,
 ) -> SyntheticCohort:
     """One null agent per mouse, each playing that mouse's own problems.
 
@@ -255,6 +347,10 @@ def simulate_null_cohort(
         rules (sim.TaskRules | dict | None): The simulated task: one set for every mouse, or
             ``{cohort: TaskRules}``. Default ``None``: measured within each cohort of
             *trial_table* (:func:`task_rules_by_cohort`).
+        length_factor (float): Schedule length relative to the mouse's own
+            (:func:`lengthen_layouts`). Default 1.0: the agent plays the mouse's own number of
+            sessions, as the null calibration needs. A factor above 1 is for comparison columns
+            only (more switches, less noise); it is never used for a calibration null.
 
     Returns:
         SyntheticCohort: The simulated trials, the agents' parameters
@@ -272,7 +368,9 @@ def simulate_null_cohort(
     for mouse in mice:
         params = params_by_mouse[mouse]
         rng = np.random.default_rng([seed, zlib.crc32(str(mouse).encode()), na.KINDS.index(agent)])
-        layouts = sim.mouse_layouts(trial_table[trial_table["mouse"] == mouse])
+        layouts = lengthen_layouts(
+            sim.mouse_layouts(trial_table[trial_table["mouse"] == mouse]), length_factor
+        )
         played = sim.simulate_policy_mouse(
             lambda layout, params=params: na.NullPolicy(params),
             layouts,
@@ -315,6 +413,7 @@ def null_controls(
     l2: float,
     decay: float = na.DEFAULT_DECAY,
     rules: sim.TaskRules | dict | None = None,
+    length_factor: float = 1.0,
 ) -> NullControls:
     """Fit all of ``null_agents.KINDS`` to *trial_table*, simulate them and run the choice logit.
 
@@ -331,6 +430,8 @@ def null_controls(
         decay (float): Decay of the agents' history trace. Default ``DEFAULT_DECAY``.
         rules (sim.TaskRules | dict | None): The simulated task, see
             :func:`simulate_null_cohort`; measured once per cohort if ``None``.
+        length_factor (float): Schedule length of the simulated agents relative to the mouse's
+            own, see :func:`simulate_null_cohort`. Default 1.0. Keyword-only.
 
     Returns:
         NullControls: Fits, simulated cohorts and their logit analyses, keyed by agent kind.
@@ -338,7 +439,8 @@ def null_controls(
     rules = task_rules_by_cohort(trial_table) if rules is None else rules
     fits = {kind: na.fit_null_agents(trial_table, kind, decay) for kind in na.KINDS}
     cohorts = {
-        kind: simulate_null_cohort(trial_table, fits[kind], kind, seed, rules) for kind in na.KINDS
+        kind: simulate_null_cohort(trial_table, fits[kind], kind, seed, rules, length_factor)
+        for kind in na.KINDS
     }
     analyses: dict[str, LogitAnalysis] = {
         kind: analyse_trial_table(cohort.trials, n_lags=n_lags, tail_decay=tail_decay, l2=l2)
@@ -392,8 +494,9 @@ class NullComparison(NamedTuple):
         controls (NullControls): The fitted, simulated and analyzed agents.
         analyses (dict): ``{label: LogitAnalysis}``, the reference first, then the agents (labels
             ``AGENT_LABELS``).
-        scores (pd.DataFrame): ``mouse, model, nats_per_choice``: each agent in-sample, and the
-            reference logit's held-out ``choice_logit`` rows.
+        scores (pd.DataFrame): ``mouse, model, nats_per_choice``: each agent's leave-one-problem-
+            out nats per trial (:func:`heldout_scores`), and the reference logit's held-out
+            ``choice_logit`` rows, on the same folds.
         observed_stay (pd.DataFrame): :func:`stay_by_magnitude` of the reference's mice.
         implied_stay (pd.DataFrame): :func:`implied_stay_curves` of the fits.
         psychometrics (dict): ``{label: (curves, baselines)}`` of the model value.
@@ -405,6 +508,11 @@ class NullComparison(NamedTuple):
             ``source`` column.
         n_bins (int): Bins used. min_mice (int): Minimum mice per mean. pool_trials (bool): Pairs
             pooled within a mouse.
+        extra_cohorts (dict | None): ``{label: SyntheticCohort}`` of further simulated sources
+            analyzed like the agents and listed after them (e.g. the fitted Q-learner, a positive
+            control), or ``None``.
+        in_sample (pd.DataFrame | None): :func:`scores_table`, the agents scored on the trials
+            they were fitted to (labeled in-sample; not comparable with ``scores``).
     """
 
     controls: NullControls
@@ -420,6 +528,8 @@ class NullComparison(NamedTuple):
     n_bins: int
     min_mice: int
     pool_trials: bool
+    extra_cohorts: dict | None = None
+    in_sample: pd.DataFrame | None = None
 
 
 def compare_with_controls(
@@ -433,6 +543,8 @@ def compare_with_controls(
     pool_trials: bool = True,
     decay: float = na.DEFAULT_DECAY,
     rules: sim.TaskRules | dict | None = None,
+    extra_cohorts: Mapping[str, SyntheticCohort] | None = None,
+    length_factor: float = 1.0,
 ) -> NullComparison:
     """Fit, simulate and analyze the null agents of the mice behind *reference*, and tabulate.
 
@@ -452,10 +564,22 @@ def compare_with_controls(
         decay (float): Decay of the agents' history trace. Keyword-only.
         rules (sim.TaskRules | dict | None): The simulated task, see
             :func:`simulate_null_cohort`. Keyword-only.
+        extra_cohorts (Mapping[str, SyntheticCohort] | None): Further simulated sources, e.g.
+            ``{"Q-Learner (Fitted)": fitted_q.simulate_fitted_q_cohort(...)}``, run through the
+            reference's logit and every table and figure after the agents. Keyword-only.
+        length_factor (float): Schedule length of the simulated agents relative to the mouse's
+            own, see :func:`simulate_null_cohort`. Default 1.0. Keyword-only.
 
     Returns:
         NullComparison: All tables of the comparison.
+
+    Raises:
+        ValueError: If an extra label is also the label of the reference or an agent.
     """
+    extra_cohorts = dict(extra_cohorts or {})
+    taken = {reference_label, *AGENT_LABELS.values()}
+    if clash := sorted(taken & set(extra_cohorts)):
+        raise ValueError(f"extra cohort labels {clash} are already sources of the comparison")
     table = trial_table[trial_table["mouse"].isin(sorted(reference.designs))]
     controls = null_controls(
         table,
@@ -465,14 +589,23 @@ def compare_with_controls(
         l2=reference.l2,
         decay=decay,
         rules=rules,
+        length_factor=length_factor,
     )
-    analyses = {reference_label: reference} | {
-        AGENT_LABELS[kind]: controls.analyses[kind] for kind in na.KINDS
-    }
+    analyses = (
+        {reference_label: reference}
+        | {AGENT_LABELS[kind]: controls.analyses[kind] for kind in na.KINDS}
+        | {
+            label: analyse_trial_table(
+                cohort.trials, n_lags=reference.n_lags, tail_decay=reference.tail_decay,
+                l2=reference.l2,
+            )
+            for label, cohort in extra_cohorts.items()
+        }
+    )  # fmt: skip
     logit = reference.comparison.query("model == 'full'").assign(model="choice_logit")
+    held_out = heldout_scores(table)
     scores = pd.concat(
-        [scores_table(table, controls.fits), logit[["mouse", "model", "nats_per_choice"]]],
-        ignore_index=True,
+        [held_out.table, logit[["mouse", "model", "nats_per_choice"]]], ignore_index=True
     )
     psychometrics, effects, stay_switch, switch_targets, excess = {}, [], {}, {}, []
     for label, analysis in analyses.items():
@@ -511,4 +644,6 @@ def compare_with_controls(
         n_bins=n_bins,
         min_mice=min_mice,
         pool_trials=pool_trials,
+        extra_cohorts=extra_cohorts or None,
+        in_sample=scores_table(table, controls.fits),
     )

@@ -314,7 +314,7 @@ def comparison(real_like):
 
 
 def test_comparison_tabulates_the_reference_and_every_agent(comparison, real_like):
-    labels = ["Q-Learner", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)"]
+    labels = ["Q-Learner", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "WSLS (Graded)"]
     assert list(comparison.analyses) == labels
     assert list(comparison.psychometrics) == labels
     assert list(comparison.stay_switch) == labels
@@ -322,12 +322,88 @@ def test_comparison_tabulates_the_reference_and_every_agent(comparison, real_lik
     assert list(comparison.effects["source"]) == labels
     assert set(comparison.switch_excess["source"]) == set(labels)
     mice = real_like["mouse"].nunique()
-    # three in-sample agents plus the logit's held-out score, one row per mouse
+    # four held-out agents plus the logit's held-out score, one row per mouse
     assert set(comparison.scores["model"]) == {*na.KINDS, "choice_logit"}
-    assert len(comparison.scores) == 4 * mice
+    assert len(comparison.scores) == 5 * mice
     assert comparison.analyses["WSLS"].tail_decay == 0.9  # the reference's logit settings
     assert comparison.analyses["WSLS"].n_lags == 3
     assert comparison.observed_stay["mouse"].nunique() == mice
+
+
+@pytest.fixture(scope="module")
+def comparison_with_fitted_q(real_like):
+    """The same comparison with a fitted Q-learner (a positive control) as an extra source."""
+    from src.pipelines import fitted_q
+
+    fitted = {m: (0.3, 1.2, 0.5, 0.3) for m in sorted(real_like["mouse"].unique())}
+    cohort = fitted_q.simulate_fitted_q_cohort(real_like, fitted, seed=2, rules=RULES)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "the problems of")
+        reference = logit_pipe.analyse_trial_table(real_like, n_lags=3, tail_decay=0.9)
+        return pipe.compare_with_controls(
+            real_like, reference, "Mice", seed=1, n_bins=4, min_mice=1, rules=RULES,
+            extra_cohorts={fitted_q.LABEL: cohort},
+        )  # fmt: skip
+
+
+def test_an_extra_cohort_is_analyzed_like_the_agents_and_listed_after_them(
+    comparison_with_fitted_q,
+):
+    labels = [
+        "Mice",
+        "WSLS",
+        "WSLS (Recency)",
+        "WSLS (Magnitude)",
+        "WSLS (Graded)",
+        "Q-Learner (Fitted)",
+    ]
+    result = comparison_with_fitted_q
+    assert list(result.analyses) == labels
+    assert list(result.psychometrics) == labels and list(result.effects["source"]) == labels
+    assert set(result.stay_switch) == set(result.switch_targets) == set(labels)
+    assert set(result.switch_excess["source"]) == set(labels)
+    fitted = result.analyses["Q-Learner (Fitted)"]
+    assert fitted.n_lags == 3 and fitted.tail_decay == 0.9  # the reference's logit settings
+    assert sorted(fitted.designs) == sorted(result.analyses["Mice"].designs)  # the mice's names
+    assert set(result.scores["model"]) == {*na.KINDS, "choice_logit"}
+
+
+def test_an_extra_label_may_not_repeat_a_source(real_like, comparison_with_fitted_q):
+    cohort = comparison_with_fitted_q.extra_cohorts["Q-Learner (Fitted)"]
+    reference = comparison_with_fitted_q.analyses["Mice"]
+    with pytest.raises(ValueError, match="already sources"):
+        pipe.compare_with_controls(
+            real_like, reference, "Mice", seed=1, rules=RULES, extra_cohorts={"WSLS": cohort}
+        )
+
+
+def test_the_fitted_q_learner_appears_in_the_figures_with_its_label_and_a_mouse_color(
+    comparison_with_fitted_q, tmp_path, monkeypatch
+):
+    from src.behavior_visualization import plot_helpers
+    from src.behavior_visualization import plot_null_agents as plots
+
+    legends = {}
+    real = plot_helpers._write_figure_files
+
+    def spy(fig, base, formats, dpi):
+        result = real(fig, base, formats, dpi)
+        found = [*fig.legends, *(ax.get_legend() for ax in fig.axes if ax.get_legend())]
+        texts = [t.get_text() for legend in found for t in legend.get_texts()]
+        legends[str(base).rsplit("/", 1)[-1]] = texts
+        return result
+
+    monkeypatch.setattr(plot_helpers, "_write_figure_files", spy)
+    plots.plot_comparison(comparison_with_fitted_q, tmp_path)
+    assert any("Q-Learner (Fitted)" in t for t in legends["Kernels by Source"])
+    for kind in ("Stay-Switch Curves", "Switch Target Curves"):
+        for extension in ("pdf", "png", "svg", "caption.txt"):
+            assert (tmp_path / f"Q-Learner (Fitted) {kind}.{extension}").exists()
+    caption = (tmp_path / "Psychometric Curves.caption.txt").read_text()
+    assert "positive control" in caption and "Q-Learner (Fitted)" in caption
+    # its simulated mice carry the real mice's names, so the mouse-colored figures use their colors
+    names = set(comparison_with_fitted_q.extra_cohorts["Q-Learner (Fitted)"].trials["mouse"])
+    assert names == set(comparison_with_fitted_q.analyses["Mice"].designs)
 
 
 def test_comparison_plots_write_every_figure_with_a_caption(comparison, tmp_path):
@@ -337,13 +413,13 @@ def test_comparison_plots_write_every_figure_with_a_caption(comparison, tmp_path
     names = {p.name for p in tmp_path.iterdir()}
     expected = ["Null Agent Fits", "Kernels by Source", "Psychometric Curves"] + [
         f"{label} {kind}"
-        for label in ("WSLS", "WSLS (Recency)", "WSLS (Magnitude)")
+        for label in ("WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "WSLS (Graded)")
         for kind in ("Stay-Switch Curves", "Switch Target Curves")
     ]
     for name in expected:
         for extension in ("pdf", "png", "svg", "caption.txt"):
             assert f"{name}.{extension}" in names, (name, extension)
-    assert "in-sample" in (tmp_path / "Null Agent Fits.caption.txt").read_text().lower()
+    assert "leave-one-problem-out" in (tmp_path / "Null Agent Fits.caption.txt").read_text().lower()
 
 
 def test_magnitude_agents_excess_comes_from_the_recency_trace_not_from_graded_staying(

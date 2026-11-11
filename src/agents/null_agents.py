@@ -16,6 +16,13 @@ analyses of the choice logit is what outcome-dependent staying alone produces.
   sigmoid(``a_win`` + ``b`` * (m - 1)), so magnitude grades staying (``b`` = 0 is plain WSLS);
   after none sigmoid(``a_lose``). Switches follow the recency rule. Magnitude acts through the
   agent's own last outcome only, never through the other arms' values.
+- ``"wsls_graded"`` (:class:`WslsGradedParams`): P(stay) = sigmoid(``w0`` + ``w_m`` * m), one linear
+  term in the pulses ``m`` the previous choice paid (0 when unrewarded, so ``w0`` is the stay
+  logit after none; ``w0`` = 0 fixes P(stay) after none to 1/2). A switch goes with probability
+  ``p_recent`` to whichever of the two other arms was chosen most recently in the *problem* (the
+  memory runs on across sessions and resets at a problem start, as the switch regression's
+  trials-since-chosen does) and otherwise to the other one, the third arm; if neither was chosen
+  yet in the problem it is 50/50. It keeps no decaying trace.
 
 **History trace.** ``h_a(t)`` is the exponentially decaying count of past choices of arm ``a``,
 ``h_a(t) = sum_k decay**(k-1) * [arm chosen on trial t-k = a]``. A count (rather than "trials
@@ -47,7 +54,7 @@ from scipy.signal import lfilter
 from scipy.special import expit, log_expit
 
 N_ARMS = 3
-KINDS = ("wsls", "wsls_recency", "wsls_magnitude")
+KINDS = ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded")
 DEFAULT_DECAY = 0.9
 # Stay fractions are clipped to [CLIP, 1 - CLIP] before the logit, so a mouse that never (or
 # always) stays gets a finite, large logit (about 5.3) instead of an infinite one.
@@ -165,10 +172,50 @@ class WslsMagnitudeParams:
         return np.where(magnitude > 0, self.a_win + self.b * (magnitude - 1), self.a_lose)
 
 
+@dataclass(frozen=True)
+class WslsGradedParams:
+    """Soft WSLS with one stay logit linear in the magnitude; switches to the recent arm.
+
+    Attributes:
+        w0 (float): Stay logit after no reward (the intercept).
+        w_m (float): Change of the stay logit per pulse just received.
+        p_recent (float): Probability that a switch goes to the more recently chosen of the two
+            other arms (in [0, 1]); 1 - p_recent to the other. 50/50 if neither was chosen yet.
+    """
+
+    w0: float
+    w_m: float
+    p_recent: float
+
+    def __post_init__(self):
+        _check_parameters(self, DEFAULT_DECAY)
+        if not 0 <= self.p_recent <= 1:
+            raise ValueError(f"p_recent must be in [0, 1], got {self.p_recent}")
+
+    @property
+    def decay(self) -> float:
+        """Decay of the history trace (unused here: the agent keeps no trace)."""
+        return DEFAULT_DECAY
+
+    def stay_logit(self, magnitude) -> np.ndarray:
+        return self.w0 + self.w_m * np.asarray(magnitude, dtype=float)
+
+    def to_first(self, recent) -> np.ndarray:
+        """Probability that a switch goes to the first other arm, given who is more recent.
+
+        Args:
+            recent: ``+1`` (the first other arm was chosen more recently), ``-1`` (the second)
+                or ``0`` (neither was chosen yet in the problem); scalar or array.
+        """
+        recent = np.asarray(recent)
+        return np.where(recent == 0, 0.5, np.where(recent > 0, self.p_recent, 1 - self.p_recent))
+
+
 AGENT_PARAMS = {
     "wsls": WslsParams,
     "wsls_recency": WslsRecencyParams,
     "wsls_magnitude": WslsMagnitudeParams,
+    "wsls_graded": WslsGradedParams,
 }
 
 
@@ -177,15 +224,21 @@ AGENT_PARAMS = {
 # ---------------------------------------------------------------------------
 
 
-def choice_probabilities(params, previous: int | None, magnitude: float, h: np.ndarray):
+def choice_probabilities(
+    params, previous: int | None, magnitude: float, h: np.ndarray, recent: int = 0
+):
     """The agent's probability of each arm on one trial.
 
     Args:
-        params (WslsParams | WslsRecencyParams | WslsMagnitudeParams): The agent.
+        params (WslsParams | WslsRecencyParams | WslsMagnitudeParams | WslsGradedParams): The
+            agent.
         previous (int | None): Arm chosen on the previous trial of the segment; ``None`` at a
             segment's first trial.
         magnitude (float): Pulses the previous choice paid.
         h (np.ndarray): ``(3,)`` history trace before this trial.
+        recent (int): For the graded agent: ``+1`` if the first other arm was chosen more
+            recently in the problem than the second, ``-1`` if the second, ``0`` if neither was
+            chosen yet. Ignored by the other agents. Default 0.
 
     Returns:
         np.ndarray: ``(3,)`` probabilities.
@@ -194,7 +247,10 @@ def choice_probabilities(params, previous: int | None, magnitude: float, h: np.n
         return np.full(N_ARMS, 1 / N_ARMS)
     first, second = OTHERS[previous]
     stay = float(expit(params.stay_logit(magnitude)))
-    to_first = float(expit(params.switch_weight * (h[first] - h[second])))
+    if isinstance(params, WslsGradedParams):
+        to_first = float(params.to_first(recent))
+    else:
+        to_first = float(expit(params.switch_weight * (h[first] - h[second])))
     p = np.zeros(N_ARMS)
     p[previous] = stay
     p[first] = (1 - stay) * to_first
@@ -206,14 +262,19 @@ class NullPolicy:
     """A null agent as a :class:`src.agents.drifting_simulation.Policy`.
 
     Nothing carries over between sessions (the agent has no values); the previous choice and
-    the trace are cleared at each session start.
+    the trace are cleared at each session start. The one exception is the graded agent's record
+    of when each arm was last chosen: it runs on across sessions and lasts as long as the policy,
+    which plays one problem.
 
     Args:
-        params (WslsParams | WslsRecencyParams | WslsMagnitudeParams): The agent.
+        params (WslsParams | WslsRecencyParams | WslsMagnitudeParams | WslsGradedParams): The
+            agent.
     """
 
     def __init__(self, params):
         self.params = params
+        self.last_chosen = np.full(N_ARMS, -1)  # trial index in the problem, -1: never
+        self.n_trials = 0
         self.start_session()
 
     def start_session(self) -> None:
@@ -221,13 +282,23 @@ class NullPolicy:
         self.magnitude = 0.0
         self.trace = np.zeros(N_ARMS)
 
+    def _recent(self) -> int:
+        if self.previous is None:
+            return 0
+        first, second = OTHERS[self.previous]
+        return int(np.sign(self.last_chosen[first] - self.last_chosen[second]))
+
     def probabilities(self) -> np.ndarray:
-        return choice_probabilities(self.params, self.previous, self.magnitude, self.trace)
+        return choice_probabilities(
+            self.params, self.previous, self.magnitude, self.trace, self._recent()
+        )
 
     def update(self, action: int, magnitude: float) -> None:
         self.trace = self.params.decay * self.trace
         self.trace[action] += 1.0
         self.previous, self.magnitude = action, magnitude
+        self.last_chosen[action] = self.n_trials
+        self.n_trials += 1
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +318,10 @@ class Decisions(NamedTuple):
         delta_h (np.ndarray): On a switch, the trace of the first other arm minus the second's
             (NaN elsewhere).
         chose_first (np.ndarray): Bool; on a switch, the first other arm was chosen.
+        recent (np.ndarray): Int; at every pair, ``+1`` if the first other arm was chosen more
+            recently in the problem than the second, ``-1`` if the second, ``0`` if neither has
+            been chosen yet (0 at starts). The record runs across sessions and gaps and resets at
+            a problem start, as ``switch_regression.trials_since_chosen`` does.
     """
 
     start: np.ndarray
@@ -255,6 +330,7 @@ class Decisions(NamedTuple):
     prev_magnitude: np.ndarray
     delta_h: np.ndarray
     chose_first: np.ndarray
+    recent: np.ndarray
 
 
 def _problem_ports(rows: pd.DataFrame) -> list[str]:
@@ -279,6 +355,20 @@ def _traces(chosen: np.ndarray, start: np.ndarray, decay: float) -> np.ndarray:
     return h
 
 
+def _recent_alternative(chosen: np.ndarray, first: np.ndarray, second: np.ndarray) -> np.ndarray:
+    """``+1``/``-1``/``0``: which of two arms per row was chosen more recently before it.
+
+    Rows are the trials of one problem in order. The last trial an arm was chosen strictly
+    before each row (-1: never) is compared between the *first* and *second* arm of the row.
+    """
+    position = np.arange(len(chosen))
+    picked = np.zeros((len(chosen), N_ARMS), dtype=bool)
+    picked[position, chosen] = True
+    last = np.maximum.accumulate(np.where(picked, position[:, None], -1), axis=0)
+    before = np.vstack([np.full((1, N_ARMS), -1), last[:-1]])
+    return np.sign(before[position, first] - before[position, second])
+
+
 def _problem_decisions(rows: pd.DataFrame, decay: float) -> Decisions:
     ports = _problem_ports(rows)
     chosen = np.array([ports.index(c) for c in rows["choice"]], dtype=int)
@@ -298,6 +388,7 @@ def _problem_decisions(rows: pd.DataFrame, decay: float) -> Decisions:
         prev_magnitude=np.where(start, np.nan, np.roll(reward, 1)),
         delta_h=np.where(switched, h[rows_index, first] - h[rows_index, second], np.nan),
         chose_first=switched & (chosen == first),
+        recent=np.where(start, 0, _recent_alternative(chosen, first, second)),
     )
 
 
@@ -339,7 +430,8 @@ def log_likelihood(trials: pd.DataFrame, params) -> float:
 
     Args:
         trials (pd.DataFrame): One mouse's rows of the drifting trial table.
-        params (WslsParams | WslsRecencyParams | WslsMagnitudeParams): The agent.
+        params (WslsParams | WslsRecencyParams | WslsMagnitudeParams | WslsGradedParams): The
+            agent.
 
     Returns:
         float: Natural-log likelihood (nats) of every choice.
@@ -347,8 +439,13 @@ def log_likelihood(trials: pd.DataFrame, params) -> float:
     d = decisions(trials, params.decay)
     pairs = ~d.start
     stay_logit = params.stay_logit(np.nan_to_num(d.prev_magnitude))
-    sign = np.where(d.chose_first, 1.0, -1.0)
-    switch_term = log_expit(sign * params.switch_weight * np.nan_to_num(d.delta_h))
+    if isinstance(params, WslsGradedParams):
+        to_first = params.to_first(d.recent)
+        with np.errstate(divide="ignore"):  # p_recent of 0 or 1 gives -inf, as it should
+            switch_term = np.log(np.where(d.chose_first, to_first, 1 - to_first))
+    else:
+        sign = np.where(d.chose_first, 1.0, -1.0)
+        switch_term = log_expit(sign * params.switch_weight * np.nan_to_num(d.delta_h))
     per_pair = np.where(d.stayed, log_expit(stay_logit), log_expit(-stay_logit) + switch_term)
     return float(d.start.sum() * np.log(1 / N_ARMS) + per_pair[pairs].sum())
 
@@ -368,6 +465,17 @@ def _clipped_logit(n_stay: int, n_pairs: int) -> float:
     return float(np.log(fraction / (1 - fraction)))
 
 
+def _require_pairs(d: Decisions, min_pairs: int) -> tuple[np.ndarray, np.ndarray]:
+    """Masks of the rewarded and unrewarded pairs; raises if either has fewer than *min_pairs*."""
+    pairs = ~d.start
+    rewarded = pairs & (np.nan_to_num(d.prev_magnitude) > 0)
+    unrewarded = pairs & ~rewarded
+    for name, mask in (("rewarded", rewarded), ("unrewarded", unrewarded)):
+        if mask.sum() < min_pairs:
+            raise ValueError(f"{mask.sum()} {name} pairs; at least {min_pairs} are needed")
+    return rewarded, unrewarded
+
+
 def win_lose_logits(d: Decisions, min_pairs: int = MIN_PAIRS) -> tuple[float, float]:
     """``(a_win, a_lose)``: logits of the stay fractions after rewarded and unrewarded choices.
 
@@ -377,12 +485,7 @@ def win_lose_logits(d: Decisions, min_pairs: int = MIN_PAIRS) -> tuple[float, fl
     Raises:
         ValueError: If there are fewer than *min_pairs* rewarded or unrewarded pairs.
     """
-    pairs = ~d.start
-    rewarded = pairs & (np.nan_to_num(d.prev_magnitude) > 0)
-    unrewarded = pairs & ~rewarded
-    for name, mask in (("rewarded", rewarded), ("unrewarded", unrewarded)):
-        if mask.sum() < min_pairs:
-            raise ValueError(f"{mask.sum()} {name} pairs; at least {min_pairs} are needed")
+    rewarded, unrewarded = _require_pairs(d, min_pairs)
     return (
         _clipped_logit(d.stayed[rewarded].sum(), rewarded.sum()),
         _clipped_logit(d.stayed[unrewarded].sum(), unrewarded.sum()),
@@ -411,7 +514,17 @@ def fit_win_curve(magnitudes: np.ndarray, stayed: np.ndarray) -> tuple[float, fl
             f"{len(np.unique(magnitudes))} distinct rewarded magnitudes; at least 2 are needed "
             "to fit a slope"
         )
-    x = magnitudes - 1.0
+    return _fit_stay_logistic(magnitudes - 1.0, stayed, True, "win-curve")
+
+
+def _fit_stay_logistic(
+    x: np.ndarray, stayed: np.ndarray, free_intercept: bool, label: str
+) -> tuple[float, float]:
+    """``(intercept, slope)`` of P(stay) = sigmoid(intercept + slope * x) by maximum likelihood.
+
+    With ``free_intercept=False`` the intercept is held at 0. Raises ``RuntimeError`` if the
+    optimizer does not converge or a free parameter ends at ``LOGIT_BOUND``.
+    """
 
     def nll(theta):
         z = theta[0] + theta[1] * x
@@ -421,14 +534,65 @@ def fit_win_curve(magnitudes: np.ndarray, stayed: np.ndarray) -> tuple[float, fl
             [gradient.sum(), (gradient * x).sum()]
         )
 
-    result = minimize(
-        nll, np.zeros(2), jac=True, method="L-BFGS-B", bounds=[(-LOGIT_BOUND, LOGIT_BOUND)] * 2
-    )
+    bounds = [(-LOGIT_BOUND, LOGIT_BOUND) if free_intercept else (0.0, 0.0)]
+    bounds.append((-LOGIT_BOUND, LOGIT_BOUND))
+    result = minimize(nll, np.zeros(2), jac=True, method="L-BFGS-B", bounds=bounds)
     if not result.success:
-        raise RuntimeError(f"the win-curve fit did not converge: {result.message}")
+        raise RuntimeError(f"the {label} fit did not converge: {result.message}")
     if np.any(np.abs(result.x) > LOGIT_BOUND - 1e-2):
-        raise RuntimeError(f"the win-curve fit ended at the bound {LOGIT_BOUND}: {result.x}")
+        raise RuntimeError(f"the {label} fit ended at the bound {LOGIT_BOUND}: {result.x}")
     return float(result.x[0]), float(result.x[1])
+
+
+def fit_stay_line(
+    magnitudes: np.ndarray, stayed: np.ndarray, fix_intercept: bool = False
+) -> tuple[float, float]:
+    """``(w0, w_m)`` of P(stay) = sigmoid(w0 + w_m * m) by maximum likelihood.
+
+    Args:
+        magnitudes (np.ndarray): Pulses paid by the previous choice (0 when unrewarded).
+        stayed (np.ndarray): Whether the next trial repeated the choice.
+        fix_intercept (bool): Hold ``w0`` at 0 (P(stay) = 1/2 after none). Default False.
+
+    Raises:
+        ValueError: If fewer than two distinct magnitudes occur.
+        RuntimeError: If the optimizer does not converge or a free parameter ends at
+            ``LOGIT_BOUND``.
+    """
+    magnitudes = np.asarray(magnitudes, dtype=float)
+    if len(np.unique(magnitudes)) < 2:
+        raise ValueError("fewer than two distinct magnitudes; a slope needs two")
+    return _fit_stay_logistic(
+        magnitudes, np.asarray(stayed, dtype=float), not fix_intercept, "stay-line"
+    )
+
+
+def recent_fraction(
+    recent: np.ndarray, chose_first: np.ndarray, min_switches: int = MIN_SWITCHES
+) -> float:
+    """``p_recent``: the fraction of informative switches that went to the more recent arm.
+
+    A switch is informative if one of the two other arms was chosen more recently in the problem
+    (``recent`` is not 0). This is the maximum-likelihood fit; it is clipped to
+    ``[CLIP, 1 - CLIP]``.
+
+    Args:
+        recent (np.ndarray): ``Decisions.recent`` on each switch.
+        chose_first (np.ndarray): Whether the first other arm was chosen on each switch.
+        min_switches (int): Informative switches needed. Default ``MIN_SWITCHES``.
+
+    Raises:
+        ValueError: If there are fewer than *min_switches* informative switches.
+    """
+    recent, chose_first = np.asarray(recent), np.asarray(chose_first, dtype=bool)
+    informative = recent != 0
+    if informative.sum() < min_switches:
+        raise ValueError(
+            f"{informative.sum()} informative switches (one alternative chosen more recently); "
+            f"at least {min_switches} are needed"
+        )
+    to_recent = chose_first[informative] == (recent[informative] > 0)
+    return float(np.clip(to_recent.mean(), CLIP, 1 - CLIP))
 
 
 def fit_switch_weight(
@@ -493,7 +657,22 @@ def _fit_magnitude(d: Decisions, decay: float, min_pairs: int, min_switches: int
     return WslsMagnitudeParams(a_win, a_lose, b, w, decay)
 
 
-_FITS = {"wsls": _fit_wsls, "wsls_recency": _fit_recency, "wsls_magnitude": _fit_magnitude}
+def _fit_graded(
+    d: Decisions, decay: float, min_pairs: int, min_switches: int, fix_intercept: bool = False
+) -> WslsGradedParams:
+    _require_pairs(d, min_pairs)  # the same minimums as the other agents
+    pairs = ~d.start
+    w0, w_m = fit_stay_line(np.nan_to_num(d.prev_magnitude)[pairs], d.stayed[pairs], fix_intercept)
+    p_recent = recent_fraction(d.recent[d.switched], d.chose_first[d.switched], min_switches)
+    return WslsGradedParams(w0, w_m, p_recent)
+
+
+_FITS = {
+    "wsls": _fit_wsls,
+    "wsls_recency": _fit_recency,
+    "wsls_magnitude": _fit_magnitude,
+    "wsls_graded": _fit_graded,
+}
 
 
 def fit_null_agents(
@@ -502,6 +681,7 @@ def fit_null_agents(
     decay: float = DEFAULT_DECAY,
     min_pairs: int = MIN_PAIRS,
     min_switches: int = MIN_SWITCHES,
+    fix_intercept: bool = False,
 ) -> dict:
     """The null agent *kind* fitted to every mouse of *trial_table* by maximum likelihood.
 
@@ -515,7 +695,9 @@ def fit_null_agents(
             ``DEFAULT_DECAY``.
         min_pairs (int): Rewarded and unrewarded pairs each mouse needs. Default ``MIN_PAIRS``.
         min_switches (int): Switches with a trace difference each mouse needs (recency and
-            magnitude agents). Default ``MIN_SWITCHES``.
+            magnitude agents), or informative switches (graded agent). Default ``MIN_SWITCHES``.
+        fix_intercept (bool): For ``"wsls_graded"``: hold the stay intercept ``w0`` at 0, so
+            P(stay) after no reward is 1/2. Default False (free). Ignored by the other agents.
 
     Returns:
         dict: ``{mouse: params}``, mice in sorted order.
@@ -532,7 +714,11 @@ def fit_null_agents(
     fits = {}
     for mouse, rows in sorted(trial_table.groupby("mouse"), key=lambda item: item[0]):
         try:
-            fits[mouse] = _FITS[kind](decisions(rows, decay), decay, min_pairs, min_switches)
+            d = decisions(rows, decay)
+            if kind == "wsls_graded":
+                fits[mouse] = _fit_graded(d, decay, min_pairs, min_switches, fix_intercept)
+            else:
+                fits[mouse] = _FITS[kind](d, decay, min_pairs, min_switches)
         except (ValueError, RuntimeError) as error:
             raise type(error)(f"mouse {mouse}: {error}") from error
     return fits
