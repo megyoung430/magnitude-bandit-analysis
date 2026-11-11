@@ -23,6 +23,10 @@ class DegenerateOutcomeError(ValueError):
     """The outcome has a single class, so the logistic cannot be fitted."""
 
 
+class TooFewGroupsError(ValueError):
+    """Cross-validation needs at least two groups (problems) and has fewer."""
+
+
 class LogitFit(NamedTuple):
     """A fitted logistic regression.
 
@@ -155,11 +159,12 @@ def cross_validate(
         HeldOut: Summed held-out log likelihood and the number of trials scored.
 
     Raises:
-        ValueError: With fewer than two groups, or as :func:`fit_logit`.
+        TooFewGroupsError: With fewer than two groups.
+        ValueError: As :func:`fit_logit`.
     """
     labels = np.unique(groups)
     if len(labels) < 2:
-        raise ValueError("cross-validation needs at least two groups")
+        raise TooFewGroupsError("cross-validation needs at least two groups")
     total = 0.0
     for label in labels:
         test = groups == label

@@ -44,7 +44,7 @@ def _step_nats(table: pd.DataFrame) -> float:
     total = 0.0
     labels = np.unique(problem)
     if len(labels) < 2:
-        raise ValueError("cross-validation needs at least two groups")
+        raise rl.TooFewGroupsError("cross-validation needs at least two groups")
     for label in labels:
         test = problem == label
         for side in (0, 1):

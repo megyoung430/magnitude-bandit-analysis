@@ -9,6 +9,10 @@ step at a believed crossing is abrupt. A lapse (*epsilon*) makes a uniformly ran
 that probability, so the agent is not deterministic. Before every arm has been visited it
 visits the unvisited ones.
 
+``infer_blocks`` gives the agent what the block-change test looks for: it goes to the arm it
+believes worth 0 when the arm it is on pays 0. In the task a block change zeroes the arm chosen
+most and gives its value to the arm that was at zero, so that arm is the new best.
+
 It is the contrast to a softmax value learner (:class:`src.agents.drifting_simulation.ValuePolicy`
 with learning rate 1 is the value learner of the same believed values), whose stay probability
 falls smoothly with both alternatives' values.
@@ -27,15 +31,21 @@ class RankPolicy:
     Args:
         layout (sim.MouseLayout): Gives the ports (the agent needs only how many).
         epsilon (float): Probability of a uniformly random choice, in [0, 1).
+        infer_blocks (bool): Go to the arm believed worth 0 when the current arm pays 0.
 
     Raises:
         ValueError: If *epsilon* is outside [0, 1).
     """
 
-    def __init__(self, layout: "sim.MouseLayout", epsilon: float = DEFAULT_EPSILON):
+    def __init__(
+        self,
+        layout: "sim.MouseLayout",
+        epsilon: float = DEFAULT_EPSILON,
+        infer_blocks: bool = False,
+    ):
         if not 0 <= epsilon < 1:
             raise ValueError(f"epsilon must be in [0, 1), got {epsilon}")
-        self.epsilon = epsilon
+        self.epsilon, self.infer_blocks = epsilon, infer_blocks
         self.believed = np.full(len(layout.ports), np.nan)
         self.current: int | None = None
 
@@ -52,7 +62,10 @@ class RankPolicy:
         target = best if self.current is None else self.current
         others = [a for a in range(n) if a != target]
         best_other = max(others, key=lambda a: self.believed[a])
-        if self.believed[target] < self.believed[best_other]:
+        worst_other = min(others, key=lambda a: self.believed[a])
+        if self.infer_blocks and self.believed[target] == 0 == self.believed[worst_other]:
+            target = worst_other
+        elif self.believed[target] < self.believed[best_other]:
             target = best_other
         probabilities = np.zeros(n)
         probabilities[target] = 1.0

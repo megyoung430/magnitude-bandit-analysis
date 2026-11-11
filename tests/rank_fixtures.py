@@ -33,3 +33,8 @@ def softmax_mouse(seed=0, mouse="softmax", **size) -> pd.DataFrame:
     return simulate(
         lambda layout: sim.ValuePolicy(SOFTMAX, "magnitude", layout), seed, mouse, **size
     )
+
+
+def inferring_rank_mouse(seed=0, mouse="infer", **size) -> pd.DataFrame:
+    """A rank agent that goes to the arm believed worth 0 when its arm pays 0 (block inference)."""
+    return simulate(lambda layout: RankPolicy(layout, infer_blocks=True), seed, mouse, **size)
