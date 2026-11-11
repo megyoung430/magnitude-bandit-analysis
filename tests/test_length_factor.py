@@ -138,6 +138,15 @@ def test_the_power_check_ignores_the_factor(mice, factors):
     assert factors and set(factors) == {1.0}
 
 
+def test_null_controls_pass_the_factor_to_every_agent(mice):
+    controls = nulls.null_controls(
+        mice, 1, n_lags=3, tail_decay=0.9, l2=1.0, rules=RULES, length_factor=2.0
+    )
+    for kind in na.KINDS:
+        assert (_counts(controls.cohorts[kind].trials) == 2 * _counts(mice)).all()
+    assert set(controls.fits["wsls_magnitude"]) == {"m1", "m2"}  # fitted on the mice's own data
+
+
 def test_the_replicates_of_a_calibration_have_the_mouses_trial_count(mice, wsls):
     simulated = nulls.simulate_null_cohort(
         mice, {"m1": wsls["m1"]}, "wsls_magnitude", 1, RULES

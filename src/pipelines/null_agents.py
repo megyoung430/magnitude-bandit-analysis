@@ -353,6 +353,7 @@ def null_controls(
     l2: float,
     decay: float = na.DEFAULT_DECAY,
     rules: sim.TaskRules | dict | None = None,
+    length_factor: float = 1.0,
 ) -> NullControls:
     """Fit all of ``null_agents.KINDS`` to *trial_table*, simulate them and run the choice logit.
 
@@ -369,6 +370,8 @@ def null_controls(
         decay (float): Decay of the agents' history trace. Default ``DEFAULT_DECAY``.
         rules (sim.TaskRules | dict | None): The simulated task, see
             :func:`simulate_null_cohort`; measured once per cohort if ``None``.
+        length_factor (float): Schedule length of the simulated agents relative to the mouse's
+            own, see :func:`simulate_null_cohort`. Default 1.0. Keyword-only.
 
     Returns:
         NullControls: Fits, simulated cohorts and their logit analyses, keyed by agent kind.
@@ -376,7 +379,8 @@ def null_controls(
     rules = task_rules_by_cohort(trial_table) if rules is None else rules
     fits = {kind: na.fit_null_agents(trial_table, kind, decay) for kind in na.KINDS}
     cohorts = {
-        kind: simulate_null_cohort(trial_table, fits[kind], kind, seed, rules) for kind in na.KINDS
+        kind: simulate_null_cohort(trial_table, fits[kind], kind, seed, rules, length_factor)
+        for kind in na.KINDS
     }
     analyses: dict[str, LogitAnalysis] = {
         kind: analyse_trial_table(cohort.trials, n_lags=n_lags, tail_decay=tail_decay, l2=l2)
@@ -476,6 +480,7 @@ def compare_with_controls(
     decay: float = na.DEFAULT_DECAY,
     rules: sim.TaskRules | dict | None = None,
     extra_cohorts: Mapping[str, SyntheticCohort] | None = None,
+    length_factor: float = 1.0,
 ) -> NullComparison:
     """Fit, simulate and analyze the null agents of the mice behind *reference*, and tabulate.
 
@@ -498,6 +503,8 @@ def compare_with_controls(
         extra_cohorts (Mapping[str, SyntheticCohort] | None): Further simulated sources, e.g.
             ``{"Q-Learner (Fitted)": fitted_q.simulate_fitted_q_cohort(...)}``, run through the
             reference's logit and every table and figure after the agents. Keyword-only.
+        length_factor (float): Schedule length of the simulated agents relative to the mouse's
+            own, see :func:`simulate_null_cohort`. Default 1.0. Keyword-only.
 
     Returns:
         NullComparison: All tables of the comparison.
@@ -518,6 +525,7 @@ def compare_with_controls(
         l2=reference.l2,
         decay=decay,
         rules=rules,
+        length_factor=length_factor,
     )
     analyses = (
         {reference_label: reference}
