@@ -221,3 +221,59 @@ def test_trace_weights_of_mixed_decays_get_no_mean(tmp_path, monkeypatch):
     # five features; the mixed-decay source loses the trace's mean bar in both conditions
     assert seen["bars"] == [4, 5, 4, 5]
     assert "not on one scale" in (tmp_path / "h.caption.txt").read_text()
+
+
+def _renamed(source, prefix):
+    """*source* with its mice renamed ``<prefix>1`` ... (e.g. simulated mice next to real ones)."""
+    rename = {m: f"{prefix}{m[1:]}" for m in source.decays["mouse"]}
+    return source._replace(
+        **{
+            field: getattr(source, field).replace({"mouse": rename})
+            for field in ("values", "history", "counts", "decays")
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "plot", [plots.plot_value_weights, plots.plot_model_comparison, plots.plot_history_weights]
+)
+def test_mice_of_other_sources_are_gray_and_not_in_the_legend(tmp_path, saved_figures, plot):  # noqa: F811
+    sim = _renamed(fake_source(6, 2), "sim")
+    sources = {"Mice": fake_source(6), "Q-Learner": sim, "WSLS": fake_source(6, 1)}
+    base = tmp_path / "figure"
+    plot(sources, base)
+    _, _, legend = _panels(saved_figures, base.name)
+    assert "m1" in legend and not any(t.startswith("sim") for t in legend)
+
+
+def test_mouse_colors_keep_the_palette_for_the_first_source_only():
+    sim = _renamed(fake_source(3, 2), "sim")
+    colors, unnamed = plots._mouse_colors({"Mice": fake_source(3), "Q-Learner": sim})
+    assert unnamed == {"sim1", "sim2", "sim3"}
+    assert {colors[m] for m in unnamed} == {plots.OTHER_MICE_COLOR}
+    assert len({colors[m] for m in ("m1", "m2", "m3")}) == 3
+
+
+def test_each_bar_has_its_mean_written_above_it(tmp_path, monkeypatch):
+    seen = []
+    real_text = matplotlib.axes.Axes.text
+
+    def spy(self, x, y, s, *args, **kwargs):
+        seen.append(s)
+        return real_text(self, x, y, s, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.axes.Axes, "text", spy)
+    mice, few = fake_source(6), fake_source(5, 1)
+    plots.plot_value_weights({"Mice": mice, "WSLS": few}, tmp_path / "v")
+    first = mice.values.query("value == 'true' and condition == @sr.AFTER_ZERO")["beta"].mean()
+    assert f"{first:.2g}" in seen
+    # 6 panels with one bar each: the source with 5 mice has no bar and no number
+    assert sum(_is_number(t) for t in seen) == 6
+
+
+def _is_number(text):
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True

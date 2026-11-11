@@ -4,9 +4,11 @@ Drawing only: the numbers come from :mod:`src.pipelines.switch_regression` (one
 ``SourceSwitchRegression`` per source, and optionally a ``NullCalibration`` per source). Each
 ``plot_*`` function builds a figure, then saves it (pdf, png, svg and a caption file) or shows it.
 Every figure puts the mice next to the controls (simulated Q-learner, null agents), one dot per
-mouse and black bars for the mean ± se across mice; a source with fewer than
+mouse (colored for the mice of the first source, gray and not in the legend for other mice such
+as the simulated Q-learners) and black bars for the mean ± se across mice; a source with fewer than
 ``choice_logit_extensions.MIN_TEST_MICE`` mice shows its mice only, with no mean, error bar or
-test. A calibrated mouse has a gray band behind its dot: the middle 95% of its own null.
+test. A calibrated mouse has a gray band behind its dot: the middle 95% of its own null. Each
+column's mean is also written at the top of its panel, because the panels are narrow.
 """
 
 from collections.abc import Mapping
@@ -15,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.behavior_analysis import choice_logit_extensions as ext
 from src.behavior_analysis import switch_regression as sr
 from src.behavior_visualization.plot_helpers import Title, jitter_rng, save_or_show, set_title
 from src.behavior_visualization.plot_regression_extensions import (
@@ -74,7 +77,9 @@ MODEL_CAPTION = (
     "is weak even for the simulated Q-learner and cannot separate it from the null agents at these "
     "switch counts. Read a mouse against its own null (gray band, calibrated z and p) rather than "
     "against 0: a value-blind agent's raw weight is not reliably 0 at a mouse's switch counts.",
-    "Dots: mice; black bars: mean ± se across mice.",
+    "Dots: mice, colored per mouse; a null agent fitted to a mouse has that mouse's color, and "
+    "simulated mice not fitted to a mouse (the Q-learners next to the real mice) are gray. Black "
+    "bars: mean ± se across mice, with the mean written at the top of the panel.",
 )
 
 
@@ -89,6 +94,60 @@ def _check_sources(sources: Mapping) -> None:
     empty = [name for name, s in sources.items() if s.values.empty]
     if empty:
         raise ValueError(f"no mice in {empty}")
+
+
+# Dots of mice that are not in the first source (e.g. the simulated Q-learners next to the real
+# mice) are drawn in this gray and left out of the legend.
+OTHER_MICE_COLOR = "0.55"
+
+
+def _mouse_colors(sources: Mapping) -> tuple[dict[str, str], frozenset[str]]:
+    """Colors of every mouse, and the mice left out of the legend.
+
+    The mice of the first source (the real mice when there are any) get the per-mouse palette;
+    a mouse that is not in the first source (a simulated Q-learner, say) is gray and unnamed, so
+    the legend lists the mice only. Null agents fitted to a mouse share its name and its color.
+
+    Args:
+        sources (Mapping): ``{source label: SourceSwitchRegression}``, the mice first.
+
+    Returns:
+        tuple[dict[str, str], frozenset[str]]: ``{mouse: color}`` and the gray mice.
+    """
+    tables = list(_mice_tables(sources).values())
+    colors = colors_of(tables[:1])
+    others = frozenset(m for t in tables[1:] for m in t["mouse"]) - set(colors)
+    return {**colors, **dict.fromkeys(others, OTHER_MICE_COLOR)}, others
+
+
+# Headroom added above the data, as a fraction of the y range, for the mean labels.
+LABEL_HEADROOM = 0.15
+
+
+def _column_mean(values: pd.Series, summary: bool = True) -> float:
+    """The mean that :func:`draw_column` draws as a bar, NaN when it draws none."""
+    values = values.dropna()
+    if not summary or len(values) < ext.MIN_TEST_MICE:
+        return np.nan
+    return float(values.mean())
+
+
+def _label_means(ax, means: Mapping[float, float]) -> None:
+    """Write each column's mean (``{x: mean}``) at the top of the panel, above its bar.
+
+    The panels are narrow, so the number is easier to read than the bar's height. Columns
+    without a bar (too few mice) get no number.
+    """
+    for x, mean in means.items():
+        if np.isfinite(mean):
+            ax.text(x, 0.98, f"{mean:.2g}", transform=ax.get_xaxis_transform(), ha="center",
+                    va="top", fontsize=8)  # fmt: skip
+
+
+def _add_headroom(ax) -> None:
+    """Raise the top of *ax*'s y range (shared axes follow) so the mean labels clear the data."""
+    low, high = ax.get_ylim()
+    ax.set_ylim(low, high + LABEL_HEADROOM * (high - low))
 
 
 def _mice_tables(sources: Mapping) -> dict:
@@ -239,7 +298,7 @@ def _value_grid(
 ):
     """One panel per value variant (rows) and condition (columns), x = sources."""
     values = _present_values(sources)
-    colors = colors_of(list(_mice_tables(sources).values()))
+    colors, unnamed = _mouse_colors(sources)
     ticks = _ticks(sources)
     width = max(9.0, 2 * (1.2 * len(sources) + 1.5))
     with new_figure(
@@ -249,7 +308,8 @@ def _value_grid(
         rng = jitter_rng()
         for row, value in enumerate(values):
             for col, condition in enumerate(sr.CONDITIONS):
-                ax, labeled, counts, errors = axs[row, col], set(), [], []
+                ax, labeled, counts, errors = axs[row, col], set(unnamed), [], []
+                means = {}
                 for x, (name, s) in enumerate(sources.items()):
                     mine = s.values.query("value == @value and condition == @condition")
                     if mine.empty:  # e.g. no model value for a source without a logit analysis
@@ -258,14 +318,16 @@ def _value_grid(
                         continue
                     counts.append(len(mine))
                     bands = _bands(calibrations.get(name), value, condition, column)
-                    errors.append(
-                        draw_column(ax, x, mine.set_index("mouse")[column], colors, rng, labeled,
-                                    bands=bands)
-                    )  # fmt: skip
+                    per_mouse = mine.set_index("mouse")[column]
+                    errors.append(draw_column(ax, x, per_mouse, colors, rng, labeled, bands=bands))
+                    means[x] = _column_mean(per_mouse)
+                _label_means(ax, means)
                 style_source_axis(ax, ticks, ylabel(value) if col == 0 else "")
                 title = f"{VALUE_LABELS[value]}, {CONDITION_LABELS[condition]}"
                 set_title(ax, Title(title, source_stats_line(counts, errors)), fontsize=12)
-                ax.legend(fontsize=9)
+                if ax.get_legend_handles_labels()[1]:  # a panel of gray mice only has none
+                    ax.legend(fontsize=9)
+            _add_headroom(axs[row, 0])  # once per row: the row shares its y axis
         finish_figure(fig, Title(heading, None, caption))
     save_or_show(fig, save_path or None)
 
@@ -360,7 +422,7 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
         ValueError: If there are no sources or a source has no mice.
     """
     _check_sources(sources)
-    colors = colors_of(list(_mice_tables(sources).values()))
+    colors, unnamed = _mouse_colors(sources)
     features = list(dict.fromkeys(f for s in sources.values() for f in s.history["feature"]))
     labels = [_feature_label(f) for f in features]
     caption = (
@@ -387,20 +449,27 @@ def plot_history_weights(sources: Mapping, save_path: str | Path | None = None) 
         rng = jitter_rng()
         for row, condition in enumerate(sr.CONDITIONS):
             for col, (name, s) in enumerate(sources.items()):
-                ax, labeled = axs[row, col], set()
+                ax, labeled = axs[row, col], set(unnamed)
                 mine = s.history.query("condition == @condition")
                 wide = mine.pivot(index="mouse", columns="feature", values="weight")
                 empty = pd.Series(np.nan, index=wide.index)  # a feature the source lacks
                 one_decay = s.decays["trace_decay"].nunique() == 1
+                summaries = [one_decay or f != sr.TRACE for f in features]
+                columns = [wide.get(f, empty) for f in features]
                 errors = [
-                    draw_column(ax, x, wide.get(f, empty), colors, rng, labeled,
-                                summary=one_decay or f != sr.TRACE)
-                    for x, f in enumerate(features)
+                    draw_column(ax, x, c, colors, rng, labeled, summary=summary)
+                    for x, (c, summary) in enumerate(zip(columns, summaries, strict=True))
                 ]  # fmt: skip
+                _label_means(ax, {
+                    x: _column_mean(c, summary)
+                    for x, (c, summary) in enumerate(zip(columns, summaries, strict=True))
+                })  # fmt: skip
                 style_source_axis(ax, labels, "Weight (Logit)" if col == 0 else "")
                 heading = f"{name}, {CONDITION_LABELS[condition]}"
                 set_title(ax, Title(heading, source_stats_line([len(wide)], errors)), fontsize=12)
-                ax.legend(fontsize=9)
+                if ax.get_legend_handles_labels()[1]:  # a panel of gray mice only has none
+                    ax.legend(fontsize=9)
+        _add_headroom(axs[0, 0])  # once: every panel shares the y axis
         finish_figure(fig, Title(HISTORY_WEIGHTS, None, caption))
     save_or_show(fig, save_path or None)
 
