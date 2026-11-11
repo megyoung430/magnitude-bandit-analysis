@@ -28,6 +28,7 @@ lags) therefore shows above-baseline switch targets with no value guidance at al
 """
 
 import zlib
+from collections.abc import Mapping
 from dataclasses import fields
 from typing import NamedTuple
 
@@ -405,6 +406,9 @@ class NullComparison(NamedTuple):
             ``source`` column.
         n_bins (int): Bins used. min_mice (int): Minimum mice per mean. pool_trials (bool): Pairs
             pooled within a mouse.
+        extra_cohorts (dict | None): ``{label: SyntheticCohort}`` of further simulated sources
+            analyzed like the agents and listed after them (e.g. the fitted Q-learner, a positive
+            control), or ``None``.
     """
 
     controls: NullControls
@@ -420,6 +424,7 @@ class NullComparison(NamedTuple):
     n_bins: int
     min_mice: int
     pool_trials: bool
+    extra_cohorts: dict | None = None
 
 
 def compare_with_controls(
@@ -433,6 +438,7 @@ def compare_with_controls(
     pool_trials: bool = True,
     decay: float = na.DEFAULT_DECAY,
     rules: sim.TaskRules | dict | None = None,
+    extra_cohorts: Mapping[str, SyntheticCohort] | None = None,
 ) -> NullComparison:
     """Fit, simulate and analyze the null agents of the mice behind *reference*, and tabulate.
 
@@ -452,10 +458,20 @@ def compare_with_controls(
         decay (float): Decay of the agents' history trace. Keyword-only.
         rules (sim.TaskRules | dict | None): The simulated task, see
             :func:`simulate_null_cohort`. Keyword-only.
+        extra_cohorts (Mapping[str, SyntheticCohort] | None): Further simulated sources, e.g.
+            ``{"Q-Learner (Fitted)": fitted_q.simulate_fitted_q_cohort(...)}``, run through the
+            reference's logit and every table and figure after the agents. Keyword-only.
 
     Returns:
         NullComparison: All tables of the comparison.
+
+    Raises:
+        ValueError: If an extra label is also the label of the reference or an agent.
     """
+    extra_cohorts = dict(extra_cohorts or {})
+    taken = {reference_label, *AGENT_LABELS.values()}
+    if clash := sorted(taken & set(extra_cohorts)):
+        raise ValueError(f"extra cohort labels {clash} are already sources of the comparison")
     table = trial_table[trial_table["mouse"].isin(sorted(reference.designs))]
     controls = null_controls(
         table,
@@ -466,9 +482,17 @@ def compare_with_controls(
         decay=decay,
         rules=rules,
     )
-    analyses = {reference_label: reference} | {
-        AGENT_LABELS[kind]: controls.analyses[kind] for kind in na.KINDS
-    }
+    analyses = (
+        {reference_label: reference}
+        | {AGENT_LABELS[kind]: controls.analyses[kind] for kind in na.KINDS}
+        | {
+            label: analyse_trial_table(
+                cohort.trials, n_lags=reference.n_lags, tail_decay=reference.tail_decay,
+                l2=reference.l2,
+            )
+            for label, cohort in extra_cohorts.items()
+        }
+    )  # fmt: skip
     logit = reference.comparison.query("model == 'full'").assign(model="choice_logit")
     scores = pd.concat(
         [scores_table(table, controls.fits), logit[["mouse", "model", "nats_per_choice"]]],
@@ -511,4 +535,5 @@ def compare_with_controls(
         n_bins=n_bins,
         min_mice=min_mice,
         pool_trials=pool_trials,
+        extra_cohorts=extra_cohorts or None,
     )

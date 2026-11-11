@@ -237,13 +237,19 @@ def plot_comparison(comparison, out_dir: str | Path) -> None:
         PsychometricRow(label, curves, value_labels("Model Value", "Logit"), baselines)
         for label, (curves, baselines) in comparison.psychometrics.items()
     ]
+    extras = list(comparison.extra_cohorts or {})
+    positive = (
+        f" and of {', '.join(extras)} (a positive control: a value learner fitted to each mouse)"
+        if extras
+        else ""
+    )
     plot_psychometric_rows(
         rows,
         "Psychometric Curves: Negative Controls",
         (
             f"Rows: the model value (held-out logit) of {reference} and of the win-stay/"
-            "lose-shift agents fitted to the same mice, each ranking the arms in per-mouse "
-            "quantile bins.",
+            f"lose-shift agents fitted to the same mice{positive}, each ranking the arms in "
+            "per-mouse quantile bins.",
         ),
         out_dir / "Psychometric Curves",
         comparison.min_mice,

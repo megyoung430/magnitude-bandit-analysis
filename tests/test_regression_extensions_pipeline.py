@@ -219,11 +219,27 @@ def test_comparison_inputs_list_the_reference_then_each_null_agent(cohort):
             label: analysis_stub()
             for label in ("Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)")
         },
+        extra_cohorts=None,
     )
     inputs = rx.comparison_inputs("Mice", cohort, comparison)
     assert list(inputs) == ["Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)"]
     assert inputs["Mice"][0] is cohort
     assert inputs["WSLS"][1] is comparison.analyses["WSLS"]
+
+
+def test_comparison_inputs_end_with_the_extra_cohorts(cohort):
+    kinds = ("wsls", "wsls_recency", "wsls_magnitude")
+    labels = ("Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "Q-Learner (Fitted)")
+    fitted = SimpleNamespace(trials=cohort.iloc[:10])
+    comparison = SimpleNamespace(
+        controls=SimpleNamespace(cohorts={k: SimpleNamespace(trials=cohort) for k in kinds}),
+        analyses={label: analysis_stub() for label in labels},
+        extra_cohorts={"Q-Learner (Fitted)": fitted},
+    )
+    inputs = rx.comparison_inputs("Mice", cohort, comparison)
+    assert list(inputs) == list(labels)
+    assert inputs["Q-Learner (Fitted)"][0] is fitted.trials
+    assert inputs["Q-Learner (Fitted)"][1] is comparison.analyses["Q-Learner (Fitted)"]
 
 
 def test_analyse_sources_uses_each_sources_logit_settings(cohort):
