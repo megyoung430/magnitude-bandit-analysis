@@ -62,6 +62,8 @@ PARAMETER_LABELS = {
     "graded_w_m": "WSLS (Graded) Magnitude Weight (w_m)",
     "p_recent": "WSLS (Graded) p_recent",
 }
+# Panels per row of the comparison figure (differences, wins, then fitted parameters).
+PANEL_COLUMNS = 4
 # Parameters whose short name is shown as written rather than title-cased.
 AS_WRITTEN = ("p_recent",)
 # Fraction of simulated mice of a model that must be won by that model to call it recovered, and
@@ -314,20 +316,29 @@ def plot_strategy_model_comparison(
         rows = table[table["source"] == name]
         return rows.set_index("mouse")[column]
 
-    with new_figure(nrows=2, ncols=len(pairs) + 1, figsize=(20.0, 8.6), squeeze=False) as (
-        fig,
-        axs,
-    ):
+    n_panels = len(pairs) + 1 + len(PARAMETER_LABELS)
+    n_rows = -(-n_panels // PANEL_COLUMNS)
+    with new_figure(
+        nrows=n_rows, ncols=PANEL_COLUMNS, figsize=(17.0, 4.3 * n_rows), squeeze=False
+    ) as (fig, axs):
         rng = jitter_rng()
-        for col, (first, second) in enumerate(pairs):
-            _draw_panel(axs[0, col], sources, sm.comparison_name(first, second), differences,
-                        colors, unnamed, rng, ticks,
-                        "Held-Out Nats per Choice, First Minus Second" if col == 0 else "",
+        flat = axs.ravel()
+        # The wins panel ends the first row, so its legend sits at the figure's right edge.
+        wins_at = PANEL_COLUMNS - 1
+        slots = [i for i in range(n_panels) if i != wins_at]
+        for i, (first, second) in zip(slots, pairs, strict=False):
+            ylabel = (
+                "Held-Out Nats per Choice, First Minus Second" if i % PANEL_COLUMNS == 0 else ""
+            )
+            _draw_panel(flat[i], sources, sm.comparison_name(first, second), differences,
+                        colors, unnamed, rng, ticks, ylabel,
                         _comparison_title(first, second))  # fmt: skip
-        _wins_panel(axs[0, len(pairs)], sources, ticks)
-        for col, name in enumerate(PARAMETER_LABELS):
-            _draw_panel(axs[1, col], sources, name, parameter, colors, unnamed, rng, ticks,
+        _wins_panel(flat[wins_at], sources, ticks)
+        for i, name in zip(slots[len(pairs) :], PARAMETER_LABELS, strict=True):
+            _draw_panel(flat[i], sources, name, parameter, colors, unnamed, rng, ticks,
                         "Fitted Value", PARAMETER_LABELS[name])  # fmt: skip
+        for ax in flat[n_panels:]:
+            ax.set_visible(False)
         finish_figure(fig, Title(STRATEGY_MODEL_COMPARISON, None, caption))
     save_or_show(fig, save_path or None)
 
