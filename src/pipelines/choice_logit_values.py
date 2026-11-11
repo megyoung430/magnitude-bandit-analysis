@@ -121,11 +121,17 @@ class SyntheticCohort(NamedTuple):
         trials (pd.DataFrame): Their trial table.
         parameters (pd.DataFrame): ``mouse`` and the generating ``value_agent`` parameters.
         problems (dict): ``{problem: {mouse: sessions}}``, for the analyses that take sessions.
+        kind (str): The agent that played: ``"value"`` for the value learner of
+            :mod:`src.agents.value_agent`, the agent kind for null agents
+            (:mod:`src.agents.null_agents`). Only ``"value"`` cohorts have the generating
+            values and choice rule of :func:`generating_values` and :func:`reference_weights`.
+            Default ``"value"``.
     """
 
     trials: pd.DataFrame
     parameters: pd.DataFrame
     problems: dict
+    kind: str = "value"
 
 
 def _layouts(
@@ -417,7 +423,12 @@ def believed_values(analysis: LogitAnalysis) -> np.ndarray:
 
 
 def generating_values(analysis: LogitAnalysis, synthetic: SyntheticCohort) -> np.ndarray:
-    """The agents' own Q-values before each choice, rows aligned with ``analysis.meta``."""
+    """The agents' own Q-values before each choice, rows aligned with ``analysis.meta``.
+
+    Raises:
+        ValueError: If *synthetic* is not a cohort of value learners.
+    """
+    _require_value_agents(synthetic)
     return np.concatenate(
         [
             true_utilities(
@@ -482,6 +493,15 @@ def value_pairs(analysis: LogitAnalysis, values: np.ndarray | None = None) -> pd
 # ---------------------------------------------------------------------------
 
 
+def _require_value_agents(synthetic: SyntheticCohort) -> None:
+    """Raise unless *synthetic* was played by the value learner (the only agent with a Q)."""
+    if synthetic.kind != "value":
+        raise ValueError(
+            f"a cohort of {synthetic.kind!r} agents has no value learner's generating values or "
+            "choice rule; this summary is for cohorts from simulate_cohort"
+        )
+
+
 def _agent_parameters(synthetic: SyntheticCohort, mouse: str) -> tuple:
     row = synthetic.parameters.set_index("mouse").loc[mouse]
     return tuple(float(x) for x in row)
@@ -527,7 +547,11 @@ def reference_weights(analysis: LogitAnalysis, synthetic: SyntheticCohort) -> pd
 
     Same layout as ``analysis.weights`` (see
     :func:`~src.agents.choice_logit_truth.generating_weights` for what these weights are).
+
+    Raises:
+        ValueError: If *synthetic* is not a cohort of value learners.
     """
+    _require_value_agents(synthetic)
     tables = []
     for mouse, design in analysis.designs.items():
         trials = synthetic.trials[synthetic.trials["mouse"] == mouse]

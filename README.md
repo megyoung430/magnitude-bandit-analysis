@@ -21,6 +21,10 @@ reward magnitude at each arm drifts over time and periodically reverses.
   history) whose held-out reward part gives model values for the psychometrics, stay/switch and
   switch-target curves (each with a choice-history baseline), shown on simulated Q-learning mice
   and on the data
+- Negative controls in the same notebook: soft win-stay/lose-shift agents (magnitude ignored,
+  recency-guided switches, and magnitude-graded staying) fitted to each mouse, played on that
+  mouse's own problems and run through the same pipeline (`src/agents/null_agents.py`,
+  `src/pipelines/null_agents.py`)
 
 ## Project organisation
 
