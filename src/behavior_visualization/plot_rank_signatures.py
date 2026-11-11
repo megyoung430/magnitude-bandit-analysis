@@ -40,8 +40,9 @@ THIRD_OPTION = "Third Option"
 RANK_VS_VALUE = "Rank vs Value"
 TRANSFER = "Transfer Across Problems"
 BLOCK_CHANGE = "Block Change Inference"
+WORST_SPLIT = "Worst Alternative Weight Split"
 FIGURE_NAMES = (STAY_WEIGHTS, CROSSING_STEP, CROSSING_ALIGNED, THIRD_OPTION, RANK_VS_VALUE,
-                TRANSFER, BLOCK_CHANGE)  # fmt: skip
+                TRANSFER, BLOCK_CHANGE, WORST_SPLIT)  # fmt: skip
 
 SOURCE_LABELS = {
     sm.WSLS_MAGNITUDE: "WSLS (Magnitude)",
@@ -61,6 +62,14 @@ READOUT_LABELS = {
     "q_w_best": "Best Alternative, Q Values",
     "q_w_worst": "Worst Alternative, Q Values",
     "q_w_diff": "Worst Minus Best, Q Values",
+    "ws_w_worst_ages": "Worst Weight, With Ages",
+    "ws_w_worst_flag": "Worst Weight, With Stale Flag",
+    "ws_w_flag": "Stale Flag Weight",
+    "ws_w_worst_noridge": "Worst Weight, No Ridge",
+    "ws_w_worst_nz": "Worst Weight, Own Paid",
+    "ws_w_worst_z": "Worst Weight, Own Zero",
+    "ws_stay_ok_nz": "P(Stay), Own Paid, Consistent",
+    "ws_stay_stale_nz": "P(Stay), Own Paid, Stale",
     "step_weight": "Step Weight at D < 0",
     "gain_step_vs_smooth": "Step Gain Over Smooth (Nats)",
     "gain_indicator": "Indicator Gain (Nats)",
@@ -176,16 +185,25 @@ def scalar_panel(ax, readout: str, data: FigureData, colors: dict, rng) -> list[
     return errors
 
 
-def _scalar_figure(name: str, readouts: Sequence[str], data: FigureData, caption, save_path):
+def _scalar_figure(
+    name: str, readouts: Sequence[str], data: FigureData, caption, save_path, n_columns=None
+):
+    """One dot panel per readout, in rows of *n_columns* (default: one row)."""
     colors, rng = _colors(data), jitter_rng()
     n = len(_mice(data))
-    with new_figure(nrows=1, ncols=len(readouts), figsize=(4.1 * len(readouts) + 1.5, 4.6),
+    n_columns = n_columns or len(readouts)
+    n_rows = -(-len(readouts) // n_columns)
+    with new_figure(nrows=n_rows, ncols=n_columns,
+                    figsize=(4.1 * n_columns + 1.5, 4.6 * n_rows),
                     squeeze=False) as (fig, axs):  # fmt: skip
-        for ax, readout in zip(axs[0], readouts, strict=True):
+        for ax, readout in zip(axs.flat, readouts, strict=False):
             errors = scalar_panel(ax, readout, data, colors, rng)
             stats = source_stats_line([n], [errors[0]])
             set_title(ax, Title(READOUT_LABELS[readout], stats), fontsize=11)
-        axs[0, 0].set_ylabel("Readout")
+        for ax in axs.flat[len(readouts) :]:
+            ax.set_visible(False)
+        for ax in axs[:, 0]:
+            ax.set_ylabel("Readout")
         _mice_legend(axs[0, -1], colors)
         finish_figure(fig, Title(name, None, caption))
     save_or_show(fig, save_path or None)
@@ -216,8 +234,13 @@ def _calibration_lines(data: FigureData, readouts: Sequence[str]) -> list[str]:
                 if np.isfinite(row.mean)
                 else "z not summarized (fewer than 6 mice)"
             )
-            passing = row.passing or "none"
-            lines.append(f"{label}: {stats}; passing ({row.n_pass}): {passing}.")
+            # a readout with no rank/softmax prediction has no direction to pass in
+            passing = (
+                f"; passing ({row.n_pass}): {row.passing or 'none'}"
+                if np.isfinite(row.predicted)
+                else ""
+            )
+            lines.append(f"{label}: {stats}{passing}.")
     return lines
 
 
@@ -475,6 +498,45 @@ def plot_transfer(data: FigureData, save_path=None) -> None:
     save_or_show(fig, save_path or None)
 
 
+WORST_SPLIT_READOUTS = (
+    "w_worst", "ws_w_worst_ages", "ws_w_worst_flag", "ws_w_flag",
+    "ws_w_worst_nz", "ws_w_worst_z", "ws_stay_ok_nz", "ws_stay_stale_nz",
+)  # fmt: skip
+
+
+def _artifact_line(data: FigureData) -> str:
+    """The mice's mean collinearity checks, for the caption."""
+    mean = data.source.readouts.mean(numeric_only=True)
+    return (
+        "Artifact checks (mean over mice): variance inflation of the worst alternative's value "
+        f"{mean['ws_vif_worst_base']:.2f} without and {mean['ws_vif_worst_full']:.2f} with the "
+        f"stale flag and ages (largest of any regressor {mean['ws_vif_max_full']:.2f}); "
+        "correlation of the worst alternative's value with the own payout "
+        f"{mean['ws_corr_worst_payout']:.2f}, the best alternative's value "
+        f"{mean['ws_corr_worst_best']:.2f}, the stale flag {mean['ws_corr_worst_flag']:.2f} and "
+        f"the log age of the worst alternative {mean['ws_corr_worst_age']:.2f}; the worst weight "
+        f"without the ridge {mean['ws_w_worst_noridge']:.3f} (with: {mean['ws_w_worst_ages']:.3f})."
+    )
+
+
+def plot_worst_split(data: FigureData, save_path=None) -> None:
+    """Where the worst alternative's positive stay weight lives (a probe of test 1)."""
+    readouts = WORST_SPLIT_READOUTS
+    caption = _common_caption(
+        data, (*readouts, "ws_w_worst_noridge"),
+        "Top row: the worst alternative's weight in the test-1 stay model (first panel), with the "
+        "trials since each alternative was last visited added (log scale), and with a stale-belief "
+        "flag added (the worst alternative is believed to pay), then the flag's own weight. The "
+        "task has exactly one zero arm at all times: after an own payout above 0 one alternative "
+        "must be the zero arm, so two alternatives believed to pay means one belief is stale. "
+        "Bottom row: the worst weight within own payouts above 0 and within own payouts of 0 "
+        "(ages included), and P(stay) after an own payout above 0 when the beliefs are consistent "
+        "with one zero arm or stale.",
+        _artifact_line(data),
+    )  # fmt: skip
+    _scalar_figure(WORST_SPLIT, readouts, data, caption, save_path, n_columns=4)
+
+
 def plot_all(data: FigureData, out_dir: str | Path) -> None:
     """Save every figure of the rank tests under *out_dir*.
 
@@ -491,5 +553,6 @@ def plot_all(data: FigureData, out_dir: str | Path) -> None:
         (RANK_VS_VALUE, plot_rank_vs_value),
         (TRANSFER, plot_transfer),
         (BLOCK_CHANGE, plot_block_change),
+        (WORST_SPLIT, plot_worst_split),
     ):
         plot(data, out_dir / name)

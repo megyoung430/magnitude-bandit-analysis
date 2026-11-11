@@ -42,7 +42,7 @@ def replays(cohort, fits):
 
 def test_every_mouse_has_every_readout_and_curves(mice):
     assert list(mice.readouts["mouse"]) == ["m1", "m2"] and not mice.skipped
-    assert {"w_diff", "step_weight", "q_w_diff", "worst_slope", "slope_p100"} <= set(
+    assert {"w_diff", "step_weight", "q_w_diff", "worst_slope", "slope_p100", "ws_w_flag"} <= set(
         mice.readouts.columns
     )
     assert set(mice.curves["mouse"]) == {"m1", "m2"}

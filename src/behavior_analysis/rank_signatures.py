@@ -28,6 +28,7 @@ from src.behavior_analysis import rank_stay as st
 from src.behavior_analysis import rank_switch as rw
 from src.behavior_analysis import rank_third as r3
 from src.behavior_analysis import rank_transfer as rt
+from src.behavior_analysis import rank_worst_split as wsp
 from src.behavior_analysis import switch_regression as sr
 from src.behavior_analysis.rank_result import RankResult, merge
 
@@ -37,6 +38,8 @@ MIN_DECISIONS = 200  # stay/leave decisions a mouse needs for the stay models
 # (-1) a softmax value learner. Readouts not listed are context (counts, errors, nats).
 TESTS = {
     1: ("w_diff", "w_best", "w_worst", "q_w_diff", "q_w_best", "q_w_worst"),
+    # the probe of the worst alternative's weight (rank_worst_split): no rank/softmax prediction
+    6: tuple(wsp.READOUTS),
     2: ("step_weight", "gain_indicator", "gain_step_vs_smooth", "cross_leave_1", "cross_adopt_1",
         "cross_t50", "true_best_next_1", "true_best_t50", "true_second_next_1",
         "true_second_t50"),
@@ -47,7 +50,7 @@ TESTS = {
         "block_inherit_below"),
 }  # fmt: skip
 PREDICTED = {
-    "w_diff": +1, "q_w_diff": +1, "w_worst": +1, "q_w_worst": +1,
+    "w_diff": +1, "q_w_diff": +1, "w_worst": +1, "q_w_worst": +1, "w_best": -1, "q_w_best": -1,
     "step_weight": +1, "gain_indicator": +1, "gain_step_vs_smooth": +1,
     "cross_leave_1": +1, "cross_adopt_1": +1, "cross_t50": -1,
     "worst_slope": +1,
@@ -93,6 +96,7 @@ def analyze_mouse(trials, kq_params=None) -> RankResult:
     try:
         parts = [
             st.stay_weights(decisions),
+            wsp.worst_weight_split(wsp.with_ages(state, decisions)),
             st.value_or_rank(decisions),
             st.scale_invariance(decisions),
             rc.crossing_step(decisions),

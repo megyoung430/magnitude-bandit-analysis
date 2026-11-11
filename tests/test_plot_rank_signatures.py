@@ -153,3 +153,20 @@ def test_a_missing_curve_raises():
     with pytest.raises(ValueError, match="no curve"):
         plots.plot_third_option(broken, None)
     plt.close("all")
+
+
+def test_the_worst_split_caption_reports_the_artifact_checks(saved):
+    _, out, _ = saved
+    text = caption_path(out / plots.WORST_SPLIT).read_text()
+    assert (
+        "Artifact checks" in text and "variance inflation" in text and "without the ridge" in text
+    )
+
+
+def test_a_readout_without_a_prediction_lists_no_passing_mice(saved):
+    _, out, _ = saved
+    lines = caption_path(out / plots.WORST_SPLIT).read_text().splitlines()
+    split = [line for line in lines if line.startswith("Stale Flag Weight vs")]
+    stay = [line for line in lines if line.startswith("Weight of Worst Alternative vs")]
+    assert split and all("passing" not in line for line in split)
+    assert stay and all("passing" in line for line in stay)

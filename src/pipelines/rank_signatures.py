@@ -43,6 +43,7 @@ from src.behavior_analysis import (
     rank_switch,
     rank_third,
     rank_transfer,
+    rank_worst_split,
 )
 from src.behavior_analysis import rank_signatures as sg
 from src.behavior_analysis import rank_state as rs
@@ -66,7 +67,7 @@ REPLAY_SEED = 0
 def code_version() -> str:
     """A cache version that changes with ``CACHE_VERSION`` and the source of the analysis."""
     modules = (rs, sg, rank_crossings, rank_decisions, rank_logit, rank_stay, rank_switch,
-               rank_third, rank_transfer, sm, sim)  # fmt: skip
+               rank_third, rank_transfer, rank_worst_split, sm, sim)  # fmt: skip
     digest = hashlib.sha256(
         "\n".join([str(CACHE_VERSION), *(inspect.getsource(m) for m in modules)]).encode()
     )

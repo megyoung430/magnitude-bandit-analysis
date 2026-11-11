@@ -92,13 +92,17 @@ cohort-1 numbers from before this change should rerun on the selected table.
   `rank_switch.py` (rank against value in the switch regression), `rank_signatures.py`
   (`analyze_mouse`, `TESTS`, `PREDICTED`; raises `UnanalyzableError` below 200 decisions),
   `rank_calibration.py` (z, p, passes, summaries), `rank_result.py`.
+- `src/behavior_analysis/rank_worst_split.py`: the probe (trials since each alternative was last
+  visited, the stale-belief flag, cells by own payout and by consistency with one zero arm, the
+  unpenalized refit, variance inflation and correlations); its readouts are test 6 in
+  `rank_signatures.TESTS` and have no rank/softmax direction.
 - `src/agents/rank_agent.py`: the toy rank agent (for tests and the notebook's synthetic section).
 - `src/pipelines/rank_signatures.py`: mice, replays through `sim.simulate_policy_mouse` (replays that
   are too short are counted as failed, never silently dropped), calibration, joblib caching keyed on
   the data and a hash of the code.
-- `src/behavior_visualization/plot_rank_signatures.py`: seven figures, each saved as pdf, png, svg and
+- `src/behavior_visualization/plot_rank_signatures.py`: eight figures, each saved as pdf, png, svg and
   `.caption.txt` (Stay Comparison Weights, Rank Crossing Step, Rank Crossing Aligned, Third Option,
-  Rank vs Value, Transfer Across Problems, Block Change Inference). The y-axis of a dot panel is fitted
+  Rank vs Value, Transfer Across Problems, Block Change Inference, Worst Alternative Weight Split). The y-axis of a dot panel is fitted
   to the dots, because an agent's replay bar can be far wider than the mice differ.
 - `scripts/rank_signatures.ipynb` (outputs cleared): parameters (`COHORTS`, `MAX_PROBLEM_BY_COHORT`,
   `OUTPUT_DIR = results/figures/rank-tests`), simulated agents first, the selection, the baseline check,
@@ -109,11 +113,47 @@ Against the kernel Q-learner fitted to each mouse (z, Wilcoxon p across mice; th
 
 | Test | Mice | Kernel Q-learner | z, p | Pass | Verdict |
 |---|---|---|---|---|---|
-| 1 `w_diff` | +0.199 | +0.048 | +1.19, 0.003 | 3 of 14 | rank-like (modest) |
+| 1 `w_best` | -0.023 | -0.021 | -0.15, 0.72 | 1 of 14 | softmax-like (no stronger than the learner) |
+| 1 `w_worst` (`w_diff` +0.199, z +1.19, p 0.003) | +0.176 | +0.027 | +1.46, 0.004 | 5 of 14 | not rank-like as predicted; unexpected positive worst-alternative weight |
 | 2 `step_weight` | +0.161 | +0.177 | -0.08, 1.0 | 0 of 14 | softmax-like (graded; `cross_t50` censored, not testable) |
 | 3 `worst_slope` | -0.065 | -0.149 | +0.70, 0.078 | 1 of 14 | not distinguishable (leans rank) |
 | 4 `scale_slope_first` | 0.146 | 0.385 | -2.51, < 0.001 | 10 of 14 | rank-like on scale; held-out nats tie |
 | 5 `slope_p100` / `block_inherit` | +0.010 / 0.560 | +0.005 / 0.514 | +0.04 (0.95) / +0.56 (0.24) | 1 / 2 of 14 | softmax-like |
+
+## Probe of test 1: the positive worst-alternative weight
+The mice's `w_best` equals the kernel Q-learner's, and `w_diff` is positive only because the worst
+alternative's weight is clearly positive: the better the worst alternative is believed to be, the
+more the mice stay. Neither account predicts that (rank: best negative and worst about 0; softmax:
+both negative). Hypothesis: the task has exactly one zero arm at all times, so after a payout above
+0 two alternatives believed to pay means one belief is stale, which could make leaving less attractive
+(structural inference, not a comparison of values). `rank_worst_split.py` tests it (readouts
+`ws_*`, same replays of the three agents):
+
+| | Mice | Kernel Q-learner | z, p vs kernel Q |
+|---|---|---|---|
+| `w_worst` (test 1) | +0.176 | +0.027 | +1.46, 0.004 |
+| with log ages of both alternatives | +0.180 | +0.025 | +1.47, 0.002 |
+| with the stale-belief flag (worst alternative believed to pay) | +0.113 | -0.048 | +0.94, 0.009 |
+| the flag's own weight | +0.175 | +0.169 | +0.12, 0.76 |
+| within own payouts above 0 | +0.140 | -0.090 | +1.32, 0.0006 |
+| within own payouts of 0 | +0.022 | -0.060 | +0.35, 0.81 |
+| unpenalized refit | +0.197 | +0.026 | +1.56, 0.001 |
+
+- The flag explains about a third of the gap (z from +1.46 to +0.94) and its effect is a schedule
+  feature the fitted Q-learner reproduces (+0.169 against +0.175), so it is not mouse-specific.
+- Within own payouts above 0 (85% of decisions are consistent with one zero arm) stale beliefs do not
+  change staying (P(stay) 0.774 consistent, 0.781 stale; kernel Q-learner 0.763, 0.760) and the flag
+  has no weight (-0.045): the positive weight there is on the value, +0.15 per pulse.
+- After a payout of 0, stale beliefs raise staying (0.505 against 0.363; kernel Q-learner 0.617
+  against 0.463; 38% of those decisions): shared with the agents.
+- Artifacts: not a ridge artifact (unpenalized +0.197, ridge +0.180); not collinearity (the worst
+  value's variance inflation is 1.6, 5.0 once the flag it defines is in the model, the largest of any
+  regressor 8.7; correlation with the own payout -0.40 and with the best alternative +0.34, the same in
+  the kernel Q-learner's replays).
+- Verdict: the one-zero-arm structure explains part of the weight, through stale beliefs, in a way the
+  softmax learner shares; the remainder (+0.11 after the flag, +0.14 within paid decisions) is
+  unexplained and is not produced by any of the three fitted agents. Figure `Worst Alternative Weight
+  Split`.
 
 ## Limitations
 - The toy rank and softmax agents show the readouts separate the two accounts when they differ
