@@ -19,6 +19,10 @@ MAX_ITERATIONS = 100
 TOLERANCE = 1e-9
 
 
+class DegenerateOutcomeError(ValueError):
+    """The outcome has a single class, so the logistic cannot be fitted."""
+
+
 class LogitFit(NamedTuple):
     """A fitted logistic regression.
 
@@ -71,7 +75,7 @@ def _check(X: np.ndarray, y: np.ndarray, names: Sequence[str]) -> None:
     if not np.isin(y, (0, 1)).all():
         raise ValueError("the outcome must be 0 or 1")
     if y.min() == y.max():
-        raise ValueError("the outcome has only one class")
+        raise DegenerateOutcomeError("the outcome has only one class")
 
 
 def log_likelihood(X: np.ndarray, y: np.ndarray, beta: np.ndarray) -> float:
