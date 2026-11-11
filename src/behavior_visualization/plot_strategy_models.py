@@ -113,7 +113,12 @@ def recovery_statement(recovery) -> list[str]:
         else f"Model recovery is good: each model wins at least {POOR_RECOVERY:.0%} of its own "
         "simulated mice."
     )
-    lines = [verdict]
+    lines = [
+        verdict,
+        "Heuristic+ nests WSLS (Magnitude): when WSLS (Magnitude) generated the choices the two "
+        "differ by about 0.001 nats per choice or less, so either can win by chance and a win "
+        "by that margin is not evidence for the extra weights.",
+    ]
     for m in sm.MODELS:
         row = recovery.fractions.loc[m]
         lines.append(
