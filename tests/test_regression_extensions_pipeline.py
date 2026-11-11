@@ -212,24 +212,31 @@ def analysis_stub(n_lags=2, tail_decay=None, l2=1.0):
 
 
 def test_comparison_inputs_list_the_reference_then_each_null_agent(cohort):
-    kinds = ("wsls", "wsls_recency", "wsls_magnitude")
+    kinds = ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded")
     comparison = SimpleNamespace(
         controls=SimpleNamespace(cohorts={k: SimpleNamespace(trials=cohort) for k in kinds}),
         analyses={
             label: analysis_stub()
-            for label in ("Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)")
+            for label in ("Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "WSLS (Graded)")
         },
         extra_cohorts=None,
     )
     inputs = rx.comparison_inputs("Mice", cohort, comparison)
-    assert list(inputs) == ["Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)"]
+    assert list(inputs) == ["Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "WSLS (Graded)"]
     assert inputs["Mice"][0] is cohort
     assert inputs["WSLS"][1] is comparison.analyses["WSLS"]
 
 
 def test_comparison_inputs_end_with_the_extra_cohorts(cohort):
-    kinds = ("wsls", "wsls_recency", "wsls_magnitude")
-    labels = ("Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "Q-Learner (Fitted)")
+    kinds = ("wsls", "wsls_recency", "wsls_magnitude", "wsls_graded")
+    labels = (
+        "Mice",
+        "WSLS",
+        "WSLS (Recency)",
+        "WSLS (Magnitude)",
+        "WSLS (Graded)",
+        "Q-Learner (Fitted)",
+    )
     fitted = SimpleNamespace(trials=cohort.iloc[:10])
     comparison = SimpleNamespace(
         controls=SimpleNamespace(cohorts={k: SimpleNamespace(trials=cohort) for k in kinds}),

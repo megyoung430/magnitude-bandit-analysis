@@ -7,7 +7,9 @@ from scipy.special import expit
 
 from src.agents import null_agents as na
 from src.behavior_analysis import switch_regression as sr
-from tests.test_null_agents import hand_table, simulated_table
+from src.pipelines import null_agents as nulls
+from src.pipelines import switch_regression as switch_pipe
+from tests.test_null_agents import RULES, hand_table, simulated_table
 
 GRADED = na.WslsGradedParams(w0=-0.6, w_m=0.5, p_recent=0.8)
 ZERO_INTERCEPT = na.WslsGradedParams(w0=0.0, w_m=0.5, p_recent=0.8)
@@ -218,3 +220,23 @@ def test_the_fit_dispatches_by_kind_and_is_per_mouse(played):
     fits = na.fit_null_agents(pd.concat([table, other], ignore_index=True), "wsls_graded")
     assert list(fits) == ["m", "n"] and fits["m"] == fits["n"]
     assert isinstance(fits["m"], na.WslsGradedParams)
+
+
+# ---------------------------------------------------------------------------
+# In the pipelines
+# ---------------------------------------------------------------------------
+
+
+def test_the_graded_agent_is_simulated_like_the_others_and_lengthens_with_the_factor(played):
+    table, _ = played
+    short = nulls.simulate_null_cohort(table, {"m": GRADED}, "wsls_graded", 1, RULES)
+    long = nulls.simulate_null_cohort(
+        table, {"m": GRADED}, "wsls_graded", 1, RULES, length_factor=2.0
+    )
+    assert short.kind == "wsls_graded" and len(short.trials) == len(table)
+    assert len(long.trials) == 2 * len(table)
+    assert nulls.AGENT_LABELS["wsls_graded"] == "WSLS (Graded)"
+
+
+def test_the_graded_agent_is_the_third_calibration_null_after_the_one_whose_band_is_drawn():
+    assert switch_pipe.NULL_AGENTS == ("wsls_magnitude", "wsls_recency", "wsls_graded")

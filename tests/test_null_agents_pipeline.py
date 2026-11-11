@@ -314,7 +314,7 @@ def comparison(real_like):
 
 
 def test_comparison_tabulates_the_reference_and_every_agent(comparison, real_like):
-    labels = ["Q-Learner", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)"]
+    labels = ["Q-Learner", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "WSLS (Graded)"]
     assert list(comparison.analyses) == labels
     assert list(comparison.psychometrics) == labels
     assert list(comparison.stay_switch) == labels
@@ -322,9 +322,9 @@ def test_comparison_tabulates_the_reference_and_every_agent(comparison, real_lik
     assert list(comparison.effects["source"]) == labels
     assert set(comparison.switch_excess["source"]) == set(labels)
     mice = real_like["mouse"].nunique()
-    # three in-sample agents plus the logit's held-out score, one row per mouse
+    # four in-sample agents plus the logit's held-out score, one row per mouse
     assert set(comparison.scores["model"]) == {*na.KINDS, "choice_logit"}
-    assert len(comparison.scores) == 4 * mice
+    assert len(comparison.scores) == 5 * mice
     assert comparison.analyses["WSLS"].tail_decay == 0.9  # the reference's logit settings
     assert comparison.analyses["WSLS"].n_lags == 3
     assert comparison.observed_stay["mouse"].nunique() == mice
@@ -349,7 +349,14 @@ def comparison_with_fitted_q(real_like):
 def test_an_extra_cohort_is_analyzed_like_the_agents_and_listed_after_them(
     comparison_with_fitted_q,
 ):
-    labels = ["Mice", "WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "Q-Learner (Fitted)"]
+    labels = [
+        "Mice",
+        "WSLS",
+        "WSLS (Recency)",
+        "WSLS (Magnitude)",
+        "WSLS (Graded)",
+        "Q-Learner (Fitted)",
+    ]
     result = comparison_with_fitted_q
     assert list(result.analyses) == labels
     assert list(result.psychometrics) == labels and list(result.effects["source"]) == labels
@@ -406,7 +413,7 @@ def test_comparison_plots_write_every_figure_with_a_caption(comparison, tmp_path
     names = {p.name for p in tmp_path.iterdir()}
     expected = ["Null Agent Fits", "Kernels by Source", "Psychometric Curves"] + [
         f"{label} {kind}"
-        for label in ("WSLS", "WSLS (Recency)", "WSLS (Magnitude)")
+        for label in ("WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "WSLS (Graded)")
         for kind in ("Stay-Switch Curves", "Switch Target Curves")
     ]
     for name in expected:
