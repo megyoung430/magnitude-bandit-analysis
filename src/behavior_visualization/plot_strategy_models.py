@@ -133,11 +133,16 @@ def recovery_statement(recovery) -> list[str]:
             lines.append(f"{name}: not simulated.")
             continue
         r = rows.iloc[0]
-        quality = "recovered" if r["correlation"] >= POOR_CORRELATION else "poorly recovered"
+        if np.isfinite(r["correlation"]):
+            quality = "recovered" if r["correlation"] >= POOR_CORRELATION else "poorly recovered"
+            head = f"{name} is {quality}: correlation of estimate with truth {r['correlation']:.2f}"
+        else:
+            head = (
+                f"{name} cannot be judged by correlation (it needs three simulated mice and "
+                "spread in the truth)"
+            )
         lines.append(
-            f"{name} is {quality}: correlation of estimate with truth "
-            f"{r['correlation']:.2f}, bias {r['bias']:.2f}, rmse {r['rmse']:.2f} "
-            f"(n={int(r['n'])} simulated mice)."
+            f"{head}, bias {r['bias']:.2f}, rmse {r['rmse']:.2f} (n={int(r['n'])} simulated mice)."
         )
     return lines
 

@@ -206,3 +206,9 @@ def test_both_figures_are_saved_into_a_folder(tmp_path):
     plots.plot_strategy_models({"Mice": fake_source(6)}, tmp_path / "out", fake_recovery())
     for name in plots.FIGURE_NAMES:
         check_files(tmp_path / "out" / name)
+
+
+def test_a_correlation_that_cannot_be_computed_is_not_called_poor():
+    lines = plots.recovery_statement(fake_recovery(1.0, n_mice=1))
+    text = " ".join(lines)
+    assert "cannot be judged by correlation" in text and "poorly recovered" not in text
