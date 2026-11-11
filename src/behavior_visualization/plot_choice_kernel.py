@@ -137,6 +137,7 @@ def _recovery_panel(ax: plt.Axes, recovery: pd.DataFrame) -> None:
             rows["lag"], rows["true"], "--", color=color, lw=1.5, label=f"Alpha K {alpha_k:g}, True"
         )
     ax.axhline(0, color="0.7", lw=0.8)
+    ax.set_xticks(sorted(recovery["lag"].unique()))  # lags are whole trials
     ax.set_xlabel("Lag (Trials Back)", fontsize=12)
     ax.set_ylabel("Choice Weight (Logit)", fontsize=12)
     n_mice = int(recovery["n_mice"].max())
