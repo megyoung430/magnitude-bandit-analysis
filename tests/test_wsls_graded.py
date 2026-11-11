@@ -239,4 +239,13 @@ def test_the_graded_agent_is_simulated_like_the_others_and_lengthens_with_the_fa
 
 
 def test_the_graded_agent_is_the_third_calibration_null_after_the_one_whose_band_is_drawn():
-    assert switch_pipe.NULL_AGENTS == ("wsls_magnitude", "wsls_recency", "wsls_graded")
+    assert switch_pipe.NULL_AGENTS[:3] == ("wsls_magnitude", "wsls_recency", "wsls_graded")
+
+
+def test_the_habit_agent_is_the_last_calibration_null_and_the_drawn_band_stays_magnitude():
+    # a habit agent revisits its usual arms, which may be the arms that last paid more: it asks
+    # whether the mice still beat a null with a slow choice kernel
+    assert switch_pipe.NULL_AGENTS == (
+        "wsls_magnitude", "wsls_recency", "wsls_graded", "wsls_habit",
+    )  # fmt: skip
+    assert switch_pipe.NULL_AGENTS[0] == "wsls_magnitude"
