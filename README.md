@@ -25,6 +25,11 @@ reward magnitude at each arm drifts over time and periodically reverses.
   recency-guided switches, and magnitude-graded staying) fitted to each mouse, played on that
   mouse's own problems and run through the same pipeline (`src/agents/null_agents.py`,
   `src/pipelines/null_agents.py`)
+- Regression extensions of the choice logit in the same notebook, for the mice, a simulated
+  Q-learner and the null agents: a believed-value regressor with a never-visited indicator,
+  binary against pulse reward coding, unique and shared variance of the regressor groups, and
+  calibration plots with the observed choice fraction on the y axis
+  (`src/behavior_analysis/choice_logit_extensions.py`, `src/pipelines/regression_extensions.py`)
 
 ## Project organisation
 

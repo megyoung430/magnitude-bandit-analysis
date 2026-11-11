@@ -15,6 +15,7 @@ never comes from weights that were fitted to the trials it describes.
 Everything here is pure: designs in, arrays and tables out.
 """
 
+from collections.abc import Sequence
 from typing import NamedTuple
 
 import numpy as np
@@ -99,14 +100,16 @@ def cross_validate_mouse(design: cl.LogitDesign, l2: float = cl.DEFAULT_L2) -> M
     return MouseCV(pd.DataFrame(rows), values, baseline)
 
 
-def model_comparison(scores: pd.DataFrame) -> pd.DataFrame:
+def model_comparison(scores: pd.DataFrame, models: Sequence[str] | None = None) -> pd.DataFrame:
     """Held-out log likelihood per choice of each model and mouse.
 
     Args:
         scores (pd.DataFrame): ``MouseCV.scores`` of one or more mice, concatenated.
+        models (Sequence[str] | None): Model names in the order to list them, for scores of
+            models other than ``MODELS``. Default ``None``: the order of ``MODELS``.
 
     Returns:
-        pd.DataFrame: One row per mouse and model (models in the order of ``MODELS``) with
+        pd.DataFrame: One row per mouse and model (models in the order of *models*) with
         ``mouse, model, n_trials, nats_per_choice`` (negative mean log likelihood over all the
         mouse's held-out trials, lower is better) and ``gain_over_chance``
         (``log(3) - nats_per_choice``; positive: better than choosing at random).
@@ -117,7 +120,7 @@ def model_comparison(scores: pd.DataFrame) -> pd.DataFrame:
     total["nats_per_choice"] = -total["log_likelihood"] / total["n_trials"]
     total["gain_over_chance"] = np.log(cl.N_ARMS) - total["nats_per_choice"]
     table = total.drop(columns="log_likelihood").reset_index()
-    order = {name: i for i, name in enumerate(MODELS)}
+    order = {name: i for i, name in enumerate(MODELS if models is None else models)}
     return table.sort_values(
         ["mouse", "model"], key=lambda s: s.map(order) if s.name == "model" else s, kind="stable"
     ).reset_index(drop=True)
