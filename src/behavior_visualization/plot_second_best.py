@@ -64,7 +64,16 @@ CONDITION_LABELS = {
 # A point of a graded curve from fewer used switches than this is not drawn.
 MIN_BIN_USED = 10
 # Line styles of the sources other than the first in the graded curves.
-SOURCE_STYLES = ("--", ":", "-.")
+# Line styles of the sources after the first (the legend names them), one per source.
+SOURCE_STYLES = (
+    "--",
+    ":",
+    "-.",
+    (0, (5, 1, 1, 1, 1, 1)),
+    (0, (1, 3)),
+    (0, (8, 3)),
+    (0, (3, 1, 1, 3)),
+)
 
 DEFINITIONS = (
     "Switch trials: consecutive trials of one segment (a segment starts at a problem's start, a "
@@ -349,6 +358,8 @@ def plot_better_alternative_curves(sources: Mapping, save_path: str | Path | Non
     """
     _check_sources(sources)
     mice_label, *others = list(sources)
+    if len(others) > len(SOURCE_STYLES):
+        raise ValueError(f"{len(others)} sources after the first but {len(SOURCE_STYLES)} styles")
     colors = colors_of(list(_mice_tables({mice_label: sources[mice_label]}).values()))
     conditions, measures = sr.CONDITIONS, tuple(CURVE_LABELS)
     caption = (
@@ -359,7 +370,7 @@ def plot_better_alternative_curves(sources: Mapping, save_path: str | Path | Non
         f"A point from fewer than {MIN_BIN_USED} used switches is not drawn. A source with fewer "
         f"than {ext.MIN_TEST_MICE} mice shows its mice only: no mean, error bar or test.",
         "Thin colored lines: the mice of the first source; thick black line: its mean ± se across "
-        "mice; other sources: their mean across mice (dashed, dotted, dash-dotted).",
+        "mice; other sources: their mean across mice (one line style each, named in the legend).",
         "0.5 is for orientation only: it is not the null (see Second Best Choices).",
         counts_caption(_mice_tables(sources)),
         *_skipped_lines(sources),
@@ -378,9 +389,9 @@ def plot_better_alternative_curves(sources: Mapping, save_path: str | Path | Non
                             lw=1.0, alpha=0.7, label=mouse)  # fmt: skip
                 mean, se = _mean_se(matrix)
                 ax.errorbar(x, mean, yerr=se, color="black", lw=2.2, capsize=3, label=mice_label)
-                for style, name in zip(SOURCE_STYLES, others, strict=False):
+                for style, name in zip(SOURCE_STYLES, others, strict=False):  # fewer is fine
                     other, _ = _mean_se(_curve_matrix(sources[name].graded, measure, condition))
-                    ax.plot(x, other, style, color="black", lw=1.6, label=name)
+                    ax.plot(x, other, ls=style, color="black", lw=1.6, label=name)
                 ax.axhline(0.5, color="0.6", lw=0.8, ls=":", zorder=1)
                 ax.set(xlim=(0.6, 4.4), ylim=(0, 1), xticks=sb.DIFFERENCES)
                 ax.set_xlabel("Magnitude Difference of the Alternatives (Pulses)", fontsize=12)

@@ -212,6 +212,21 @@ def test_curves_figure_has_a_panel_per_value_and_condition(tmp_path, saved_figur
     assert "fewer than 10 used switches" in caption
 
 
+def test_every_further_source_gets_a_line_and_a_legend_entry(tmp_path, saved_figures):  # noqa: F811
+    names = ["WSLS", "WSLS (Recency)", "WSLS (Magnitude)", "WSLS (Graded)", "Q-Learner (Fitted)"]
+    sources = {"Mice": fake_source(6), **{n: fake_source(6, i) for i, n in enumerate(names)}}
+    base = tmp_path / "Better Alternative Curves"
+    plots.plot_better_alternative_curves(sources, base)
+    _, _, legend = _panels(saved_figures, base.name)
+    assert all(n in legend for n in names)
+
+
+def test_more_sources_than_line_styles_raise(tmp_path):
+    sources = {f"s{i}": fake_source(6, i) for i in range(len(plots.SOURCE_STYLES) + 2)}
+    with pytest.raises(ValueError, match="styles"):
+        plots.plot_better_alternative_curves(sources, tmp_path / "g")
+
+
 def test_curve_points_with_few_switches_are_not_drawn(tmp_path, monkeypatch):
     seen = {}
     real = plots.save_or_show
