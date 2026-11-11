@@ -155,3 +155,18 @@ def test_all_three_figures_are_saved_into_a_folder(tmp_path):
 
 def test_kernel_parameter_names_match_the_agent():
     assert set(plots.PARAMETER_LABELS) == set(kq.PARAMETER_NAMES) - {"plus_bias"}
+
+
+@pytest.mark.parametrize("draw", ["plot_kernel_q_parameters", "plot_kernel_q_ablations"])
+def test_unnamed_simulated_mice_have_no_legend(tmp_path, monkeypatch, draw):
+    seen = {}
+    real = plots.save_or_show
+
+    def spy(fig, path):
+        seen["legends"] = [ax.get_legend() for ax in fig.axes]
+        return real(fig, path)
+
+    monkeypatch.setattr(plots, "save_or_show", spy)
+    sources = {"Synthetic": kernel_source(6, 1, prefix="sim")}
+    getattr(plots, draw)(sources, tmp_path / "p", mice_named=False)
+    assert all(legend is None for legend in seen["legends"])

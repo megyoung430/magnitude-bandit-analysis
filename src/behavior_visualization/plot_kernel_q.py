@@ -66,6 +66,14 @@ ABLATION_TEXT = {
 }
 
 
+def _colors(sources: Mapping, mice_named: bool) -> tuple[dict[str, str], frozenset[str]]:
+    """Per-mouse colors, or all gray and out of the legend for simulated mice fitted to no mouse."""
+    colors, unnamed = source_colors(sources)
+    if mice_named:
+        return colors, unnamed
+    return dict.fromkeys(colors, OTHER_MICE_COLOR), frozenset(colors)
+
+
 def _ablation_lines(sources: Mapping) -> list[str]:
     lines = []
     for row in pipe.ablation_summaries(sources).itertuples():
@@ -79,7 +87,9 @@ def _ablation_lines(sources: Mapping) -> list[str]:
     return lines
 
 
-def plot_kernel_q_ablations(sources: Mapping, save_path: str | Path | None = None) -> None:
+def plot_kernel_q_ablations(
+    sources: Mapping, save_path: str | Path | None = None, mice_named: bool = True
+) -> None:
     """Held-out nats of each ablation minus the full kernel Q-learner, per mouse.
 
     Positive: removing that piece makes held-out choices less predictable (the piece helps).
@@ -87,12 +97,14 @@ def plot_kernel_q_ablations(sources: Mapping, save_path: str | Path | None = Non
     Args:
         sources (Mapping): ``{source label: SourceComparison}``, the mice first.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        mice_named (bool): Color the mice individually; ``False`` for simulated mice fitted to
+            no mouse (gray, out of the legend). Default True.
 
     Raises:
         ValueError: If there are no sources, a source has no mice or no ablation scores.
     """
     check_sources(sources)
-    colors, unnamed = source_colors(sources)
+    colors, unnamed = _colors(sources, mice_named)
     ticks = source_ticks(sources)
     tables = {name: pipe.ablation_table(s).set_index("mouse") for name, s in sources.items()}
     ablations = sm.ABLATIONS
@@ -136,18 +148,21 @@ def _parameter_lines(sources: Mapping, tables: Mapping) -> list[str]:
     return lines
 
 
-def plot_kernel_q_parameters(sources: Mapping, save_path: str | Path | None = None) -> None:
+def plot_kernel_q_parameters(
+    sources: Mapping, save_path: str | Path | None = None, mice_named: bool = True
+) -> None:
     """The fitted parameters of the kernel Q-learner, one dot per mouse.
 
     Args:
         sources (Mapping): ``{source label: SourceComparison}``, the mice first.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        mice_named (bool): As :func:`plot_kernel_q_ablations`. Default True.
 
     Raises:
         ValueError: If there are no sources or a source has no mice.
     """
     check_sources(sources)
-    colors, unnamed = source_colors(sources)
+    colors, unnamed = _colors(sources, mice_named)
     ticks = source_ticks(sources)
     tables = {name: pipe.kernel_parameters_table(s) for name, s in sources.items()}
     indexed = {name: t.set_index("mouse") for name, t in tables.items()}
@@ -321,8 +336,8 @@ def plot_kernel_q_figures(
         mice_named (bool): As :func:`plot_choice_kernel_decay`. Default True.
     """
     out_dir = Path(out_dir)
-    plot_kernel_q_ablations(sources, out_dir / KERNEL_Q_ABLATIONS)
-    plot_kernel_q_parameters(sources, out_dir / KERNEL_Q_PARAMETERS)
+    plot_kernel_q_ablations(sources, out_dir / KERNEL_Q_ABLATIONS, mice_named)
+    plot_kernel_q_parameters(sources, out_dir / KERNEL_Q_PARAMETERS, mice_named)
     plot_choice_kernel_decay(profile, timescales, out_dir / CHOICE_KERNEL_DECAY,
                              mice_named=mice_named)  # fmt: skip
 
