@@ -49,6 +49,9 @@ MODEL_LABELS = {
     sm.KERNEL_Q: "Q-Learner (Kernel + Forgetting)",
     sm.WSLS_HABIT: "WSLS (Habit)",
 }
+# Panel titles and tick labels, where the full name of the kernel Q-learner would run into its
+# neighbours (the legend and captions give the full name).
+SHORT_LABELS = {**MODEL_LABELS, sm.KERNEL_Q: "Kernel Q-Learner"}
 # Okabe-Ito blue, vermillion, green, reddish purple, orange and sky blue for the models.
 MODEL_COLORS = {
     sm.WSLS_MAGNITUDE: "#0072B2",
@@ -69,7 +72,7 @@ PARAMETER_LABELS = {
 # Panels per row of the comparison figure (differences, wins, then fitted parameters).
 PANEL_COLUMNS = 4
 # Parameters whose short name is shown as written rather than title-cased.
-AS_WRITTEN = ("p_recent",)
+AS_WRITTEN = ("p_recent", "w_h")
 # Fraction of simulated mice of a model that must be won by that model to call it recovered, and
 # the correlation of a recovered parameter with its generating value to call it recovered.
 POOR_RECOVERY = 0.8
@@ -203,7 +206,7 @@ def skipped_lines(sources: Mapping) -> list[str]:
 
 
 def _comparison_title(first: str, second: str) -> str:
-    return f"{MODEL_LABELS[first]} Minus {MODEL_LABELS[second]}"
+    return f"{SHORT_LABELS[first]} Minus {SHORT_LABELS[second]}"
 
 
 def _summary_lines(sources: Mapping) -> list[str]:
@@ -308,7 +311,8 @@ def plot_strategy_model_comparison(
         "WSLS (Graded): staying grows with the last payout (intercept w0 and slope w_m), and a "
         "switch goes to the more recently chosen of the two alternatives with probability "
         "p_recent, otherwise to the other (it does not nest WSLS (Magnitude)). "
-        "Q-Learner (Kernel + Forgetting) (kernel_q_agent, after Aloor et al., bioRxiv "
+        "Q-Learner (Kernel + Forgetting), written Kernel Q-Learner in panel titles and tick labels "
+        "(kernel_q_agent, after Aloor et al., bioRxiv "
         "2026.10.31.763226): separate learning rates for outcomes better and worse than "
         "expected, forgetting of the unchosen values, a multi-trial choice kernel and the "
         "plus-port bias; values carry across sessions of a problem and the kernel resets at a "
@@ -339,7 +343,7 @@ def plot_strategy_model_comparison(
     n_panels = len(pairs) + 1 + len(PARAMETER_LABELS)
     n_rows = -(-n_panels // PANEL_COLUMNS)
     with new_figure(
-        nrows=n_rows, ncols=PANEL_COLUMNS, figsize=(17.0, 4.3 * n_rows), squeeze=False
+        nrows=n_rows, ncols=PANEL_COLUMNS, figsize=(20.0, 4.3 * n_rows), squeeze=False
     ) as (fig, axs):
         rng = jitter_rng()
         flat = axs.ravel()
@@ -377,7 +381,7 @@ def _confusion_panel(ax, recovery) -> None:
                 ax.text(j, i, f"{fraction:.0%}\n{recovery.counts.loc[generator, winner]}",
                         ha="center", va="center", fontsize=11,
                         color="white" if fraction > 0.5 else "black")  # fmt: skip
-    labels = [MODEL_LABELS[m] for m in sm.MODELS]
+    labels = [SHORT_LABELS[m] for m in sm.MODELS]
     ax.set_xticks(range(len(labels)), labels, rotation=20, ha="right")
     ax.set_yticks(range(len(labels)), labels)
     ax.set_xlabel("Winning Model (Held-Out)", fontsize=12)
@@ -395,7 +399,7 @@ def _parameter_panel(ax, recovery, model, parameter, colors, labeled) -> None:
     ax.set_xlabel(f"Generating {_parameter_name(parameter)}", fontsize=12)
     ax.set_ylabel(f"Recovered {_parameter_name(parameter)}", fontsize=12)
     stats = f"per simulated mouse, n={rows['mouse'].nunique()} mice"
-    set_title(ax, Title(f"{MODEL_LABELS[model]} {_parameter_name(parameter)}", stats), fontsize=12)
+    set_title(ax, Title(f"{SHORT_LABELS[model]} {_parameter_name(parameter)}", stats), fontsize=12)
     despine(ax)
 
 
@@ -420,7 +424,8 @@ def plot_strategy_model_recovery(recovery, save_path: str | Path | None = None) 
         "fraction of each generating model's simulated mice won by each model (diagonal: "
         "recovered), with counts. Other panels: parameter fitted to the simulated mouse against "
         "the parameter that generated it (dotted line: identity), one dot per simulated mouse "
-        "in the color of the real mouse it was fitted to.",
+        "in the color of the real mouse it was fitted to. Kernel Q-Learner is the Q-Learner "
+        "(Kernel + Forgetting).",
         *recovery_statement(recovery),
     )
     n_panels = 1 + len(RECOVERED)

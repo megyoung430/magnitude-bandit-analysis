@@ -184,7 +184,7 @@ def plot_kernel_q_parameters(
 
     n_rows = -(-len(PARAMETER_LABELS) // PANEL_COLUMNS)
     with new_figure(
-        nrows=n_rows, ncols=PANEL_COLUMNS, figsize=(13.0, 4.3 * n_rows), squeeze=False
+        nrows=n_rows, ncols=PANEL_COLUMNS, figsize=(16.0, 4.3 * n_rows), squeeze=False
     ) as (fig, axs):
         rng = jitter_rng()
         for k, (ax, (name, label)) in enumerate(
@@ -201,7 +201,7 @@ def plot_kernel_q_parameters(
 # ---------------------------------------------------------------------------
 
 DECAY_LABELS = {
-    "kq_decay": "Q-Learner (Kernel + Forgetting)\n1 − Alpha K",
+    "kq_decay": "Kernel Q-Learner\n1 − Alpha K",
     "habit_decay": "WSLS (Habit)\n1 − Alpha K",
     "long_decay": "Choice Logit\nGeometric Decay",
 }
@@ -280,10 +280,11 @@ def plot_choice_kernel_decay(
         "Right: the decay per trial of a mouse's choice kernel from three estimates: "
         "1 - alpha_k of the Q-learner (Kernel + Forgetting), 1 - alpha_k of WSLS (Habit), and the "
         "geometric decay fitted to the choice logit's long-lag weights. Black bars: mean ± se "
-        f"across mice (from {ext.MIN_TEST_MICE} mice).",
+        f"across mice (from {ext.MIN_TEST_MICE} mice). The dotted line is the decay of 0.9 of the "
+        "WSLS trace in the strategy comparison.",
         *_decay_lines(profile, timescales),
     )
-    with new_figure(ncols=2, figsize=(11.5, 4.6), gridspec_kw={"width_ratios": [1.1, 1]}) as (
+    with new_figure(ncols=2, figsize=(12.5, 4.8), gridspec_kw={"width_ratios": [1.1, 1]}) as (
         fig,
         axs,
     ):

@@ -197,10 +197,10 @@ def test_recovery_figure(tmp_path, saved_figures):  # noqa: F811
     assert suptitle == "Strategy Model Recovery"
     assert [p.split("\n")[0] for p in panels] == [
         "Model Recovery", "Heuristic+ v", "Heuristic+ u", "Q-Learner Learning Rate",
-        "WSLS (Graded) p_recent", "Q-Learner (Kernel + Forgetting) Alpha Pos",
-        "Q-Learner (Kernel + Forgetting) Alpha Neg", "Q-Learner (Kernel + Forgetting) Zeta",
-        "Q-Learner (Kernel + Forgetting) Alpha K", "Q-Learner (Kernel + Forgetting) Beta",
-        "Q-Learner (Kernel + Forgetting) Beta K", "WSLS (Habit) W H",
+        "WSLS (Graded) p_recent", "Kernel Q-Learner Alpha Pos",
+        "Kernel Q-Learner Alpha Neg", "Kernel Q-Learner Zeta",
+        "Kernel Q-Learner Alpha K", "Kernel Q-Learner Beta",
+        "Kernel Q-Learner Beta K", "WSLS (Habit) w_h",
     ]  # fmt: skip
     assert "m1" in legend and over == []
     assert "Model recovery is good" in caption_of(base)
