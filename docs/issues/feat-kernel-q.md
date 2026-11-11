@@ -152,6 +152,25 @@ P(stay) by run length: the slope per bin step is 0.083 (non-zero) and 0.055 (zer
 fitted Q-learner, and 0.078 and 0.064 for the kernel Q-learner control, 0.068 and 0.095 for WSLS (Habit).
 The rise of P(stay) with run length needs a slowly built kernel.
 
+## Habit as a null (switch regression and second best)
+`switch_regression.NULL_AGENTS` gained `wsls_habit` as its fourth agent (the drawn band stays WSLS
+(Magnitude), the first), so the switch-regression and second-best calibrations also run each mouse's
+fitted WSLS (Habit) on the mouse's own task (100 replicates). A habit agent revisits its usual arms,
+which may also be the arms that paid more, so habit alone could produce a value weight. Result
+(cohorts 1 and 3, 14 mice): it does not. The habit source's raw weights are about 0 (believed 0.021 ±
+0.013 after zero, 0.003 ± 0.010 after non-zero; true 0.008 ± 0.014, -0.005 ± 0.010; mice 0.088, 0.087,
+0.016, 0.048). Calibrated z of the mice against the habit null, mean ± se (Wilcoxon p): believed after
+non-zero 2.30 ± 0.52 (0.0006; against WSLS (Magnitude) 2.20 ± 0.50), believed after zero 1.21 ± 0.36
+(0.013), true after non-zero 1.37 ± 0.46 (0.020), true after zero 0.24 ± 0.37 (0.58). Second best
+against the habit null: second best -0.005 ± 0.454, believed-better 1.12 ± 0.54 (after zero) and 0.84 ±
+0.80 (after non-zero), truly better 0.45 ± 0.42 and 0.11 ± 0.58, none different from 0. Mice that beat
+the habit null on believed value after non-zero (empirical p < 0.05): MY_66_LL, MY_71_N, MY_71_R,
+MY_72_L, MY_72_N, MY_72_R; on true value after non-zero: MY_66_LL, MY_71_R, MY_72_N, MY_72_R. The kernel
++ forgetting Q-learner source (a positive comparison, not a null) has raw weights between the habit and
+the first fitted Q-learner's: believed 0.068 ± 0.020 / 0.056 ± 0.017, true 0.038 ± 0.023 / 0.038 ±
+0.012 (after zero / after non-zero). The per-mouse z against that source is not computed; the power
+check of 3.6 gives each mouse's rank among its replicates.
+
 ## Limits
 - alpha_neg is at its bound for 9 of 14 mice; the asymmetry is poorly identified in this regime.
 - The kernel Q-learner and WSLS (Habit) cannot be told apart by held-out fit.
