@@ -5,10 +5,45 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from src.code_map.assemble import Overviews, overviews_from_toml, parse_descriptions
 from src.code_map.extract import ModuleRecord, NotebookRecord, module_record, notebook_record
 
 SOURCE_FOLDERS = ("src", "scripts")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class NotionSettings(BaseSettings):
+    """The Notion token, read from ``NOTION_TOKEN`` in the environment or the repo's ``.env``.
+
+    Attributes:
+        notion_token (SecretStr): The integration token; empty when unset. SecretStr keeps it out
+            of printed settings and tracebacks.
+    """
+
+    model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", extra="ignore")
+
+    notion_token: SecretStr = SecretStr("")
+
+
+def notion_token() -> str:
+    """The Notion integration token ("" when it is not set)."""
+    return NotionSettings().notion_token.get_secret_value()
+
+
+def load_notion_database(path: Path) -> str:
+    """The code-map database id from ``notion.toml``.
+
+    Raises:
+        ValueError: If the file has no ``database_id``.
+    """
+    with open(path, "rb") as f:
+        config = tomllib.load(f)
+    if not config.get("database_id"):
+        raise ValueError(f"{path} needs a database_id")
+    return config["database_id"]
 
 
 def skipped(path: Path, root: Path) -> bool:

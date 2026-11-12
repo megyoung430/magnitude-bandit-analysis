@@ -27,5 +27,23 @@ The script prints definitions with neither a docstring nor a description, and TS
 definition in the checkout (renamed, removed, or on a branch that is not checked out); `--strict` exits
 with an error when anything is undescribed. Nested functions need no description.
 
+## Notion
+`--notion` also syncs the "magnitude-bandit-analysis Code Map" database (Value, Schema, MRN >
+Methods & Docs > Behavior > Data Analysis; its id is in `docs/code_map/notion.toml`). One row per
+file (folder, type, summary, lines, definitions); each row's page has the summary and one toggle
+per function or class with its description, inputs, output, errors and nested definitions.
+
+- `src/code_map/notion_blocks.py` builds the API JSON (rich text chunked at 2000 characters,
+  toggles with flat children, at most 100 blocks / 900 nested blocks per request).
+- `src/code_map/notion_sync.py` compares each row's "Source Hash" with the file's content and
+  creates, replaces (new row written and fingerprinted first, then the old one trashed) or trashes
+  rows; unchanged files cost nothing. A changed file gets a new row, so links to its old row break.
+- `src/code_map/notion_api.py` is a standard-library client with retries on rate limits.
+
+Setup: create an internal integration at notion.so/profile/integrations, add it to the Methods &
+Docs page (••• > Connections), and set `NOTION_TOKEN` in `.env`. `--notion --dry-run` lists the
+changes without writing. Edits made in Notion are overwritten by the next sync: change the
+docstrings or `docs/code_map/` instead.
+
 ## Results change
 None: documentation only.

@@ -237,6 +237,8 @@ A searchable map of every file and function (inputs, outputs, what it does) is b
 `uv run python scripts/build_code_map.py` into `results/code_map/`. Descriptions come from docstrings;
 the few definitions without one, and the folder and notebook summaries, live in `docs/code_map/`.
 The script lists anything undescribed (`--strict` makes that an error).
+With `--notion` it also syncs the Code Map database in the lab Notion (Methods & Docs); this
+needs a Notion integration token as `NOTION_TOKEN` in `.env` (see `docs/issues/docs-code-map.md`).
 
 ## Getting started
 

@@ -72,3 +72,13 @@ def test_git_meta_names_branch_commit_and_date(tmp_path):
 def test_git_meta_outside_a_repository_fails_loudly(tmp_path):
     with pytest.raises(RuntimeError, match="git"):
         git_meta(tmp_path)
+
+
+def test_the_notion_database_id_is_read_from_its_config(tmp_path):
+    from src.code_map.files import load_notion_database
+
+    (tmp_path / "notion.toml").write_text('database_id = "abc123"\n')
+    assert load_notion_database(tmp_path / "notion.toml") == "abc123"
+    (tmp_path / "empty.toml").write_text("")
+    with pytest.raises(ValueError, match="database_id"):
+        load_notion_database(tmp_path / "empty.toml")
