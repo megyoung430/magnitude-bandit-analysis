@@ -256,6 +256,8 @@ folder without any bump. Finished results always stay readable in the old folder
 A searchable map of every file and function (inputs, outputs, what it does) is built with
 `uv run python scripts/build_code_map.py` into `results/code_map/`. Descriptions come from docstrings;
 the few definitions without one, and the folder and notebook summaries, live in `docs/code_map/`.
+`docs/code_map/explanations.md` adds "In plain words" dropdowns for readers new to the methods: a
+primer on each analysis file and explanations of its main functions.
 The script lists anything undescribed (`--strict` makes that an error).
 On every push to main, `.github/workflows/code-map.yml` rebuilds the page and publishes it at
 <https://megyoung430.github.io/magnitude-bandit-analysis/>, which the lab Notion embeds (Methods & Docs).
