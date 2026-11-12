@@ -27,6 +27,13 @@ The script prints definitions with neither a docstring nor a description, and TS
 definition in the checkout (renamed, removed, or on a branch that is not checked out); `--strict` exits
 with an error when anything is undescribed. Nested functions need no description.
 
+## Published page
+`.github/workflows/code-map.yml` rebuilds the page on every push to main and deploys it with GitHub
+Pages (<https://megyoung430.github.io/magnitude-bandit-analysis/>); the Methods & Docs page in the lab
+Notion embeds it, so the embedded map always matches main. The build needs only the standard library
+and pydantic-settings, so it skips installing the analysis environment. Pages must be enabled once in
+the repository settings (Settings > Pages > Source: GitHub Actions).
+
 ## Notion
 `--notion` also syncs the "magnitude-bandit-analysis Code Map" database (Value, Schema, MRN >
 Methods & Docs > Behavior > Data Analysis; its id is in `docs/code_map/notion.toml`). One row per
