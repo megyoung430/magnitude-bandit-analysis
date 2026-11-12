@@ -52,6 +52,11 @@ class NotionClient:
     """
 
     def __init__(self, token: str, send: Send = urllib_send, sleep: Callable = time.sleep):
+        """Keep the request headers and the injected HTTP and sleep calls.
+
+        Raises:
+            NotionError: If *token* is empty.
+        """
         if not token:
             raise NotionError("no Notion token: set NOTION_TOKEN in .env (see .env.example)")
         self._headers = {
