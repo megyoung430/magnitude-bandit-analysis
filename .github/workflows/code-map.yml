@@ -1,0 +1,47 @@
+name: code map
+
+# Rebuilds the searchable code map (scripts/build_code_map.py) on every push to main and
+# publishes it with GitHub Pages: https://megyoung430.github.io/magnitude-bandit-analysis/
+# The lab Notion embeds that page, so it always matches main.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deployment at a time; a newer push replaces a queued one
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      # the build reads source files with the standard library; only the settings
+      # package is needed, so skip installing the full analysis environment
+      - run: >
+          uv run --no-project --with pydantic-settings
+          python scripts/build_code_map.py --out _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

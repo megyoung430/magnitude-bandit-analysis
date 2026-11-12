@@ -376,14 +376,11 @@ src/behavior_visualization/plot_single_session.py::_style_spines	Hides the top/r
 src/behavior_visualization/plot_stay_switch.py::_curves_caption	Caption lines for the stay/switch curves.
 src/behavior_visualization/plot_stay_switch.py::_finish_panel	Sets the labels and 0–1 y limits and despines a panel.
 src/behavior_visualization/plot_stay_switch.py::_weighting_caption	Caption text on how trials were weighted across mice.
-src/behavior_visualization/plot_strategy_models.py::_check_sources	Fails loudly if there are no sources or a source has no mice.
 src/behavior_visualization/plot_strategy_models.py::_comparison_title	"<model A> Minus <model B>".
 src/behavior_visualization/plot_strategy_models.py::_confusion_panel	Draws the model-recovery confusion matrix.
 src/behavior_visualization/plot_strategy_models.py::_mouse_lines	Caption lines with each mouse's held-out nats per model.
 src/behavior_visualization/plot_strategy_models.py::_parameter_panel	Draws recovered vs true values of one parameter of one model.
-src/behavior_visualization/plot_strategy_models.py::_skipped_lines	Caption lines for skipped mice per source.
 src/behavior_visualization/plot_strategy_models.py::_summary_lines	Caption lines with each paired model comparison's mean ± se and test.
-src/behavior_visualization/plot_strategy_models.py::_ticks	x tick labels per source with n and skipped counts.
 src/behavior_visualization/plot_strategy_models.py::check_sources	Fails loudly if there are no sources or a source has no mice.
 src/behavior_visualization/plot_strategy_models.py::skipped_lines	Caption lines for skipped mice per source.
 src/behavior_visualization/plot_strategy_models.py::source_ticks	x tick labels per source with n and skipped counts.
