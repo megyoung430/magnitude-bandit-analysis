@@ -253,6 +253,13 @@ folder without any bump. Finished results always stay readable in the old folder
 | `scripts/full_pipelines/` | Entry points for full cohort runs (`run_cohorts.py` calls `src/pipelines/cohort_analysis.py`; `run_all_drifting_problems.py` calls `src/pipelines/all_cohorts_drifting.py`; `run_open_field_analysis.py` calls `src/pipelines/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
 | `scripts/to_integrate/` | Exploratory notebooks not yet folded into `src/`. |
 
+A searchable map of every file and function (inputs, outputs, what it does) is built with
+`uv run python scripts/build_code_map.py` into `results/code_map/`. Descriptions come from docstrings;
+the few definitions without one, and the folder and notebook summaries, live in `docs/code_map/`.
+The script lists anything undescribed (`--strict` makes that an error).
+With `--notion` it also syncs the Code Map database in the lab Notion (Methods & Docs); this
+needs a Notion integration token as `NOTION_TOKEN` in `.env` (see `docs/issues/docs-code-map.md`).
+
 ## Getting started
 
 1. Complete the [Setup](#setup) steps above.
