@@ -1,0 +1,112 @@
+# Hand-written text for the code map (scripts/build_code_map.py). HTML is allowed in values.
+# [package] order is the page's folder order; [module] overrides a file's docstring summary.
+
+intro = "Analysis code for the 3×3 drifting-magnitude bandit: mice choose among three of nine towers, each paying 0–4 reward pulses, with magnitudes that drift and one arm always at zero. The repo turns raw pyControl logs into trial tables, runs behavioral analyses and model fits on them, makes the figures, and also holds the mini2p imaging and fiber-photometry pipelines. The layout follows the Good Research Code Handbook: an importable library in <code>src/</code>, thin entry points in <code>scripts/</code>, tests in <code>tests/</code>."
+
+[[section]]
+name = "src/"
+text = "The library. Everything an analysis does lives here as importable functions, split into import (reading files), analysis (pure computations on tables), visualization (figures) and pipelines (the glue that runs a whole analysis and writes its outputs). Agents, task simulators, imaging, photometry and clock sync have their own packages."
+
+[[section]]
+name = "scripts/"
+text = "Entry points that call <code>src/</code>: the analysis notebooks (choice logit, rank tests, GLM-HMM, tutorial, imaging, photometry), command-line pipelines in <code>full_pipelines/</code>, one-figure scripts in <code>individual_analyses/</code>, and older exploratory notebooks in <code>to_integrate/</code> that have not yet been folded into <code>src/</code>."
+
+[[section]]
+name = "tests/"
+text = "About 290 pytest files, one or more per module, using synthetic fixtures (shared ones in <code>*_fixtures.py</code>). The GitHub Actions workflow <code>.github/workflows/tests.yml</code> runs <code>uv sync --locked --all-extras</code> and <code>uv run pytest -q</code> on Python 3.13 for every push. <code>tests/test_no_private_cross_imports.py</code> enforces that modules never import each other's private (underscore) names."
+
+[[section]]
+name = "docs/"
+text = "<code>docs/issues/</code> holds one Markdown spec per merged work item (about 77: feat-, fix-, refactor-, infra-), each saying what changed, why, the decisions taken and whether results changed. <code>docs/published_model_alignment.md</code> records how the RL/RNN models line up with the published Eckstein et al. code."
+
+[[section]]
+name = "data/"
+text = "Small local sample data (a blocked-reward bandit example). The real dataset lives on ceph (<code>/ceph/behrens/meg/3x3_field_value_bandit</code>, NeuroBlueprint layout with a cohort level) and is located through <code>BANDIT_DATA_ROOT</code>."
+
+[[section]]
+name = "results/"
+text = "Not tracked: figures and tables written by the pipelines, under <code>results/figures/&lt;task&gt;/&lt;cohort&gt;/...</code> and <code>results/tables/</code>; the newer notebooks write to <code>results/figures/rank-tests/</code> and <code>results/figures/glm-hmm/</code>."
+
+[[section]]
+name = "pyproject.toml / uv.lock"
+text = "The environment: Python 3.13, numpy, pandas (&lt;3), scipy, matplotlib, pydantic-settings, joblib, scikit-learn; a <code>notebooks</code> extra (ipykernel, ipywidgets, statsmodels, networkx). Set up with <code>uv sync --all-extras</code>. Machine-specific paths (data root, cache dir) come from the environment or a local <code>.env</code> via <code>src/settings.py</code>."
+
+[[section]]
+name = "README.md"
+text = "Setup, data organisation, the import cache, resumable runs, the code map, how to run cohorts 1–4, pooling drifting problems, port-finding summary, agent baselines, figure conventions and how reversals at session boundaries are handled."
+
+[package]
+"src (top level)" = "<code>settings.py</code> reads machine-specific configuration (data root, cache folder) from the environment or <code>.env</code>, and fails loudly if a required setting is missing."
+"src/behavior_import" = "Reading the raw data. Parses pyControl <code>.tsv</code> event logs into nested subject → session dicts (<code>import_data</code>), extracts one value per trial (<code>extract_trials</code>), orders sessions, numbers problems, classifies sessions as blocked or drifting, reconciles reversal counters across restarted recordings, and caches imports on disk so analyses can run when the share is unreachable (<code>load_trials</code>, <code>cache_*</code>)."
+"src/behavior_analysis" = "Pure computations on the imported data: no plotting and no file writing. Groups: reversal windows and choice probabilities around good reversals; rank proportions; block and task statistics; poke and port-finding analyses; value psychometrics and stay/switch curves; the choice logit and its extensions; the switch regression and second-best test; strategy-model comparison; the rank-signature tests (<code>rank_*</code>); the GLM-HMM (<code>glm_hmm*</code>); review/diagnostic tables."
+"src/agents" = "Simulated and fitted decision makers. Q-learners (plain, kernel + forgetting, Best RL), WSLS-family null agents, a heuristic agent, a toy rank agent, the GLM-HMM switching agent, neural (RNN) bandit models and the published-code fitting protocol, plus per-mouse fitting with cross-validation, parameter recovery, and the simulator that replays agents on each mouse's own schedules."
+"src/behavior_visualization" = "One plotting module per analysis. Shared style (Arial, Okabe–Ito mouse colors) is in <code>plot_style.py</code>; <code>plot_helpers.py</code> holds the shared save step (pdf+png+svg, caption file, title + stats line) and <code>plot_legends.py</code> tidies legends when a figure is saved."
+"src/pipelines" = "Glue: each module runs one analysis end to end for a cohort or a pooled table (load → analyze → plot → write figures and tables), with caching. <code>cohort_analysis</code> runs the full open-field suite; <code>choice_logit_values</code>, <code>rank_signatures</code> and <code>glm_hmm</code> back the three analysis notebooks."
+"src/tasks" = "Task simulators: the drifting bandit used by the original agents, Gaussian-process and Markov-chain reward schedules, and plots comparing them."
+"src/funcimg_import" = "mini2p imaging inputs: matching each imaging run to its DAQ (frame clock, rsync) and pyControl files."
+"src/funcimg_analysis" = "Imaging analyses on pyControl time: frame times, reward-aligned responses, background and shared-signal checks, residual ΔF/F, transients, motion and flash checks, reward-responsive cells, and a reproduction of the Zong et al. 2022 pipeline. Pure modules plus <code>collect_*</code> I/O wrappers."
+"src/funcimg_visualization" = "Figures for the imaging analyses."
+"src/photometry_import" = "Finding cohort photometry sessions and loading pyPhotometry <code>.ppd</code> recordings on pyControl time."
+"src/photometry_analysis" = "Event-aligned photometry windows and splitting them by reward pulses."
+"src/sync" = "Clock alignment: converting timestamps between recording systems from shared random-interval rsync pulses, and referencing photometry/video to pyControl time."
+"src/code_map" = "Builds this page: reads every Python file and notebook, parses signatures and Google-style docstrings, joins them with <code>docs/code_map/descriptions.tsv</code> and <code>overviews.toml</code>, and renders one searchable HTML file (<code>scripts/build_code_map.py</code>)."
+"scripts (top level)" = "Analysis notebooks run by Meg (choice logit, rank tests, GLM-HMM, the tutorial, the session/funcimg summary) and two small maintenance scripts."
+"scripts/full_pipelines" = "Command-line runners and cohort notebooks: run the whole open-field suite for cohorts 1–4, pool drifting problems across cohorts, fit agent baselines, manage the import cache."
+"scripts/individual_analyses" = "One-figure scripts and small notebooks (thin wrappers around src/)."
+"scripts/funcimg" = "Imaging notebooks."
+"scripts/photometry" = "The cohort-04 photometry preprocessing and QC notebook."
+"scripts/to_integrate" = "Older exploratory notebooks, kept for reference until their logic is in src/."
+
+[module]
+"scripts/full_pipelines/run_grid_maze_analysis.py" = "Script (no functions) that runs the grid-maze (blocked task) analysis: loads trials by problem, fixes cohort 2's problem numbering, finds good reversals, and plots choice probabilities around them (with early/late and best-change splits), first leave after good reversals, rank proportions with p-values and reversal counts."
+"scripts/individual_analyses/plot_choice_probs_around_good_reversals.py" = "Script: loads trials by problem and plots the choice-probability curves around good reversals in all variants (plain, early/late, skipping trials after the reversal, moving average, by best-arm change)."
+"scripts/individual_analyses/plot_first_leave_after_good_reversals.py" = "Script: plots where mice go on the first leave from the previous best arm after a good reversal (new best vs third), with a paired t-test."
+"scripts/individual_analyses/plot_num_reversals.py" = "Script: plots the number of reversals per session and per mouse."
+"scripts/individual_analyses/plot_rank_proportions.py" = "Script: plots best/second/third choice proportions around good reversals with paired t-tests."
+"scripts/individual_analyses/plot_single_sessions.py" = "Script: makes the single-session summary figure for every session."
+"scripts/individual_analyses/plot_task_statistics.py" = "Script: plots block-length statistics."
+"src/__init__.py" = "Empty package marker."
+"src/agents/mouse_agents.py" = "The original simulated mice: an abstract <code>BaseMouse</code> interface and a simple <code>QLearningMouse</code> (softmax over Q with stickiness), used with <code>tasks/drifting_bandit.py</code>."
+"src/behavior_analysis/get_believed_value.py" = "Believed values (last payout seen at each arm) and their ranks, tie categories, and how a choice is shared across tied ranks; used by the value psychometrics and rank proportions."
+"src/behavior_analysis/get_choice_probs_by_value.py" = "Choice probabilities of the best and second-best arm as a function of their (true or believed) values: accumulates per-mouse count matrices, handles ties (exclude or split), and averages across mice for the value heatmaps and psychometrics."
+"src/behavior_import/fix_grid_maze_cohort_02_problems.py" = "Corrects the problem numbering of two grid-maze cohort 2 mice (MY_04_R, MY_05_R) by shifting their later problems down."
+"src/tasks/drifting_bandit.py" = "A simple simulated drifting bandit (arm values drift; the zero arm swaps at block changes) used with the original agents in <code>mouse_agents.py</code>."
+"src/funcimg_analysis/__init__.py" = "Empty package marker."
+"src/funcimg_import/__init__.py" = "Empty package marker."
+"src/funcimg_visualization/__init__.py" = "Empty package marker."
+"src/photometry_analysis/__init__.py" = "Empty package marker."
+"src/photometry_import/__init__.py" = "Empty package marker."
+"src/pipelines/__init__.py" = "Empty package marker."
+"src/sync/__init__.py" = "Empty package marker."
+
+[notebook]
+"scripts/bandit_behavior_tutorial.ipynb" = "A teaching notebook for new lab members: from a raw pyControl file through <code>import_data</code> and <code>extract_trials</code> to rebuilding the single-session figure and the true/believed rank proportions as exercises."
+"scripts/choice_logit_values.ipynb" = "The main modeling notebook: the choice logit as a source of value estimates, first on synthetic Q-learning mice (where the answer is known), then on the mice. Covers psychometrics on model values, stay/switch curves, WSLS negative controls and fitted-Q positive controls, regression extensions, the switch regression, the strategy tests and the kernel Q-learner / flat kernel."
+"scripts/rank_signatures.ipynb" = "Behavioral tests of the ranked value algorithm: synthetic agents first (softmax vs toy rank agent), then the data selection (cohort 1 drifting problems ≤ 7, all of cohort 3), a baseline check, and the rank tests on the mice calibrated against fitted-agent replays."
+"scripts/glm_hmm.ipynb" = "Do the mice switch between strategy states?: GLM-HMM on simulated switching and no-switching agents, then on the mice's problems, then on the mice, with model selection, state weights, occupancy, recovery and the choice kernel by state."
+"scripts/session_behav_funcimg_trial_summary.ipynb" = "Audits every session folder for behavior and imaging data and summarizes the imaging sessions: trials by session/day/problem signature, single-session plots and true/believed rank proportions by imaging problem."
+"scripts/full_pipelines/cohort-1-analysis.ipynb" = "Cohort 1 trial/block summaries, the problem 2 trial cap and reversals over completed trials."
+"scripts/full_pipelines/cohort-1-vs-cohort-3.ipynb" = "Side-by-side comparison of cohorts 1 and 3."
+"scripts/full_pipelines/cohort-3-analysis.ipynb" = "Cohort 3 behavior analysis and trial/block summaries."
+"scripts/full_pipelines/cohort-analysis.ipynb" = "Runs the full open-field suite for cohorts 1–4 from a notebook."
+"scripts/full_pipelines/fiber photometry behavior analysis.ipynb" = "The open-field analyses restricted to photometry sessions."
+"scripts/funcimg/reward_responses.ipynb" = "Imaging: frame times, reward-aligned responses by pulse count, background and shared-signal checks, background-corrected ΔF/F, top cells, cross-validated reward cells, motion and flash checks."
+"scripts/funcimg/zong2022_pipeline.ipynb" = "Reproduces the Zong et al. 2022 activity pipeline on the mini2p data (masks, ΔF/F and transients, SNR, motion/z drift, responses, responsive cells)."
+"scripts/individual_analyses/MY_71_R_sessions_216-231_port_rankings.ipynb" = "One-off: MY_71_R's second- and third-best ports when each port was best, sessions 216–231."
+"scripts/individual_analyses/plot_maze_schematics.ipynb" = "Draws the maze schematic for a problem (by cohort lookup or by listing the choice towers)."
+"scripts/photometry/cohort_photometry_preprocessing.ipynb" = "Cohort-04 NE photometry: sync checks, two preprocessing pipelines (Simpson et al. primer and the nLightG2 authors' code) with synthetic checks, a QC suite, and outcome-aligned responses per mouse."
+"scripts/to_integrate/RL model.ipynb" = "RL architectures and fitting protocols aligned to the published Eckstein et al. code: synthetic recovery, cohort 1 leave-one-problem-out fits, Best RL, released CogMod, population fitting and parameter comparisons."
+"scripts/to_integrate/RNN model.ipynb" = "Neural bandit models aligned to the published code: untrained simulations, synthetic training, population fitting of four architectures, held-out metrics, reward probes and an interactive trajectory viewer."
+"scripts/to_integrate/across_problem_analysis.ipynb" = "Across-problem plots: sessions, reversals and block lengths per problem, and distributions of trials and reversals per session."
+"scripts/to_integrate/debug_problem_signatures.ipynb" = "Debugging view of each session's tower signature and assigned problem number."
+"scripts/to_integrate/fixing_old_analyses_problem1.ipynb" = "No markdown. Re-imports problem 1 and rebuilds the long-poke-per-session plots (old version of the poke analysis)."
+"scripts/to_integrate/fixing_old_analyses_problem2.ipynb" = "No markdown. The same long-poke rebuild for problem 2, with cohort 2's problem fix and relative sessions."
+"scripts/to_integrate/for_kris.ipynb" = "No markdown. Exports trial data as JSON/CSV and makes the rank-proportion plot with p-values, for a collaborator."
+"scripts/to_integrate/generate_problem_signatures.ipynb" = "No markdown. Generates balanced sets of problem layouts (which three towers are offered) with valid schedules."
+"scripts/to_integrate/perf_indep_choice_probs_around_good_reversals.ipynb" = "Choice probabilities around good reversals averaged across problems above a cutoff, with a corrected fraction-removed axis."
+"scripts/to_integrate/perf_indep_first_leave_after_good_reversals.ipynb" = "First leave after good reversals averaged across problems above a cutoff."
+"scripts/to_integrate/perf_indep_rank_proportions.ipynb" = "Rank proportions around good reversals averaged across problems above a cutoff."
+"scripts/to_integrate/task_simulations.ipynb" = "No markdown headings beyond 'Gaussian Process' and 'Markov!'. Sweeps GP and Markov schedule parameters and plots heatmaps, example sessions and run statistics."
+"scripts/to_integrate/testing_code.ipynb" = "No markdown. Scratch tests of the early pipeline: rank proportions, first leave, bad reversals, GLM inputs with statsmodels."
+"scripts/to_integrate/value_bandit_analysis.ipynb" = "No markdown. Early value heatmaps and psychometrics of P(best)/P(second) on believed values."
+"scripts/to_integrate/value_bandit_analysis_2.ipynb" = "No markdown. A later version of the value heatmaps that filters files by task name first."

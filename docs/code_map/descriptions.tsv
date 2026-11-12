@@ -1,0 +1,517 @@
+# Descriptions of definitions that have no docstring: path::qualname<TAB>text.
+# A docstring, once written, takes precedence; scripts/build_code_map.py lists stale lines.
+scripts/audit_session_reversals.py::audit	Walks every .tsv under a data root, parses subject/session from the path, and collects run and run-boundary records for the reversal audit.
+scripts/audit_session_reversals.py::compare	Compares two session-state dicts field by field and returns the fields whose values differ (before, after).
+scripts/audit_session_reversals.py::state	Pulls the reversal-related fields out of one session dict, resolving each field's protocol-version aliases (first alias present wins).
+scripts/full_pipelines/import_cache.py::ListingProgress.__call__	Prints a single overwriting "listing <label>: N files..." progress line to stderr.
+scripts/full_pipelines/import_cache.py::ListingProgress.__init__	Stores the label shown while files are being listed.
+scripts/full_pipelines/import_cache.py::ListingProgress.end	Ends the progress line with a newline if one was shown.
+scripts/full_pipelines/import_cache.py::main	Entry point: parses arguments, dispatches to check / refresh / prune, and maps errors (e.g. the server being unreachable) to exit codes.
+scripts/full_pipelines/import_cache.py::parse_args	Builds the command-line parser (check / refresh / prune subcommands, cohort ids and flags) and parses argv.
+scripts/full_pipelines/import_cache.py::run_check	Checks, per cohort, whether the cached import is up to date with the raw data; prints a report (or JSON) and returns an exit code (up to date / not up to date).
+scripts/full_pipelines/import_cache.py::run_prune	Removes stale cache entries for the given cohorts (or all), optionally as a dry run; returns the exit code.
+scripts/full_pipelines/import_cache.py::run_refresh	Re-imports each requested cohort into the cache (optionally keeping the old entries) and returns the exit code.
+scripts/full_pipelines/run_agent_baselines.py::main	Entry point: runs run_agent_baselines for the requested cohorts and writes/prints its results.
+scripts/full_pipelines/run_agent_baselines.py::parse_args	Parses --cohorts, the number of optimizer starts and other fitting options for the agent-baseline run.
+scripts/full_pipelines/run_all_drifting_problems.py::main	Entry point: runs the across-all-drifting-problems pipeline for the requested cohorts (cache first).
+scripts/full_pipelines/run_all_drifting_problems.py::parse_args	Parses --cohorts and the cache options for the all-drifting-problems run.
+scripts/full_pipelines/run_cohorts.py::main	Entry point: runs the full cohort analysis pipeline for each requested cohort.
+scripts/full_pipelines/run_cohorts.py::parse_args	Parses the cohorts to run (default COHORT_IDS), continue-on-error and cache flags.
+scripts/full_pipelines/run_open_field_analysis.py::main	Entry point: prints the open-field task settings and runs the open-field analysis pipeline for the configured cohort.
+scripts/individual_analyses/plot_value_change_diagnostic.py::main	Entry point: parses --cohorts / --no-cache and plots the value-change diagnostic figures.
+src/agents/best_rl.py::BestRLMouse.__init__	Validates and stores the parameters of the best-fitting RL agent (learning rate, inverse temperature, perseveration kappa, bias, forgetting, initial Q).
+src/agents/best_rl.py::BestRLMouse.choose_action	Samples an arm from a softmax over Q values plus a perseveration bonus on the previous choice.
+src/agents/best_rl.py::BestRLMouse.update_q_values	Delta-rule update of the chosen arm (plus bias), then forgets all arms toward q_init.
+src/agents/cohort_fitting.py::_FoldResult	One cross-validation fold of one mouse: the result row, per-session details, and whether it was loaded from disk and converged.
+src/agents/cohort_fitting.py::_fold_key	Returns a short stable hash for a (mouse, held-out fold) pair, used as a cache key.
+src/agents/drifting_simulation.py::KernelQPolicy.__init__	Sets up a kernel + forgetting Q-learner policy: parameters, reward kind, plus ports, zero Q values and zero choice kernel.
+src/agents/drifting_simulation.py::KernelQPolicy.probabilities	Returns the kernel Q-learner's choice probabilities from Q, the kernel and the plus-port bias.
+src/agents/drifting_simulation.py::KernelQPolicy.start_session	Resets the choice kernel at session start (Q carries across sessions).
+src/agents/drifting_simulation.py::KernelQPolicy.update	Updates Q and the kernel after a choice with kernel_q_agent.update_state.
+src/agents/drifting_simulation.py::Policy.probabilities	Interface: returns the choice probabilities over arms for the next trial.
+src/agents/drifting_simulation.py::Policy.start_session	Interface: resets per-session state at the start of a session (implemented by subclasses).
+src/agents/drifting_simulation.py::Policy.update	Interface: updates the policy's state after a choice and its payout.
+src/agents/drifting_simulation.py::ValuePolicy.__init__	Sets up a Q-learner policy for simulation: parameters, reward kind, plus-port indicator from the layout, zero Q values.
+src/agents/drifting_simulation.py::ValuePolicy.probabilities	Returns the Q-learner's choice probabilities given Q, the previous choice and the plus-port bias.
+src/agents/drifting_simulation.py::ValuePolicy.start_session	Clears the previous choice at session start (Q values carry over).
+src/agents/drifting_simulation.py::ValuePolicy.update	Converts the payout to a reward, applies the delta-rule update to the chosen arm and records the choice.
+src/agents/drifting_simulation.py::_rank	Returns the rank name (best / second / third) of a port given the current magnitudes.
+src/agents/glm_hmm_agent.py::FeaturePolicy.__init__	Sets up a state-switching agent from GLM-HMM weights, transition matrix and initial distribution, with a feature tracker and an RNG.
+src/agents/glm_hmm_agent.py::FeaturePolicy.probabilities	Returns the softmax of the current state's weights applied to the current features.
+src/agents/glm_hmm_agent.py::FeaturePolicy.start_session	Resets the session's features and draws the starting hidden state from the initial distribution.
+src/agents/glm_hmm_agent.py::FeaturePolicy.update	Records the features and true state, updates the tracker with the choice and payout, then samples the next hidden state.
+src/agents/glm_hmm_agent.py::FeatureTracker.__init__	Stores the kernel-Q parameters, plus-port vector and trace decay and starts with zero Q, ready to compute the GLM-HMM agent signals trial by trial.
+src/agents/heuristic_agent.py::HeuristicPlusParams.__post_init__	Validates that all heuristic-agent parameters are finite and the trace decay lies in (0, 1).
+src/agents/heuristic_agent.py::HeuristicPolicy.__init__	Sets up the heuristic agent with zero believed values and no visited arms.
+src/agents/heuristic_agent.py::HeuristicPolicy.probabilities	Returns the heuristic agent's choice probabilities from its stay/switch rule, trace and believed values.
+src/agents/heuristic_agent.py::HeuristicPolicy.start_session	Resets the previous choice, last payout and choice trace at session start.
+src/agents/heuristic_agent.py::HeuristicPolicy.update	Decays the trace, adds the chosen arm, stores the payout as that arm's believed value and records the choice.
+src/agents/kernel_q_agent.py::_check_parameters	Checks that a kernel-Q parameter vector has the seven expected entries and returns it as a float array.
+src/agents/kernel_q_agent.py::_variant	Builds a nested-model Variant (which parameters are free, fixed to a value or tied to another) for the ablations.
+src/agents/mouse_agents.py::BaseMouse.__init__	Base class for the original simulated mice; sets the opto flag off.
+src/agents/mouse_agents.py::BaseMouse.choose_action	Interface: choose an arm given the previous action.
+src/agents/mouse_agents.py::BaseMouse.infer_state	Interface: infer the task's hidden state from the choice and reward.
+src/agents/mouse_agents.py::BaseMouse.update_q_states	Interface: update latent-state values after a choice and reward.
+src/agents/mouse_agents.py::BaseMouse.update_q_values	Interface: update values after a choice and reward.
+src/agents/mouse_agents.py::QLearningMouse.__init__	Stores Q-learner parameters (learning rate, inverse temperature, stickiness alpha) and zero Q values.
+src/agents/mouse_agents.py::QLearningMouse.choose_action	Samples an arm from a softmax over beta-scaled Q values plus stickiness on the previous action.
+src/agents/mouse_agents.py::QLearningMouse.update_q_values	Delta-rule update of the chosen arm's Q value.
+src/agents/neural_bandit.py::NeuralBanditMouse.__init__	Wraps a fitted neural (RNN-style) bandit model as a simulated mouse: stores parameters, seeds an RNG, jit-compiles the observe step and resets state.
+src/agents/neural_bandit.py::NeuralBanditMouse._refresh_values	Updates q_values from the model state (logits for the vanilla RNN, the q entry otherwise).
+src/agents/neural_bandit.py::NeuralBanditMouse.choose_action	Samples an arm from the softmax of the model's current choice logits.
+src/agents/neural_bandit.py::NeuralBanditMouse.reset	Re-initializes the model's hidden state and refreshes the exposed values.
+src/agents/neural_bandit.py::NeuralBanditMouse.update_q_values	Feeds the action and reward through the model's observe step and refreshes the values.
+src/agents/null_agents.py::NullPolicy.__init__	Sets up a simulated WSLS-family agent: parameters, last-chosen trial per arm, trial counter, fresh session state.
+src/agents/null_agents.py::NullPolicy._recent	Returns +1/−1/0 for which of the two unchosen arms was visited more recently.
+src/agents/null_agents.py::NullPolicy.probabilities	Returns the null agent's choice probabilities from its stay rule, trace, recency and kernel.
+src/agents/null_agents.py::NullPolicy.start_session	Resets the previous choice, last payout, choice trace and habit kernel at session start.
+src/agents/null_agents.py::NullPolicy.update	Decays the trace and adds the chosen arm, updates the habit kernel (WSLS Habit), and records the choice, payout and trial.
+src/agents/null_agents.py::WslsGradedParams.__post_init__	Validates the WSLS (Graded) parameters, including p_recent in [0, 1].
+src/agents/null_agents.py::WslsGradedParams.stay_logit	Stay logit w0 + w_m·magnitude (graded in the payout, no separate zero intercept).
+src/agents/null_agents.py::WslsHabitParams.__post_init__	Validates the WSLS (Habit) parameters, including the habit rate alpha_k in (0, 1].
+src/agents/null_agents.py::WslsHabitParams.switch_weight	Returns the trace weight used to pick the switch target.
+src/agents/null_agents.py::WslsMagnitudeParams.__post_init__	Validates the WSLS (Magnitude) parameters on construction.
+src/agents/null_agents.py::WslsMagnitudeParams.stay_logit	Stay logit a_win + b·(magnitude − 1) after a win, a_lose after a zero.
+src/agents/null_agents.py::WslsMagnitudeParams.switch_weight	Returns the trace weight used to pick the switch target.
+src/agents/null_agents.py::WslsParams.__post_init__	Validates the WSLS parameters on construction.
+src/agents/null_agents.py::WslsRecencyParams.__post_init__	Validates the WSLS (Recency) parameters on construction.
+src/agents/null_agents.py::WslsRecencyParams.stay_logit	Returns the stay logit (win or lose intercept) for the given payout(s).
+src/agents/null_agents.py::WslsRecencyParams.switch_weight	Returns the weight on the recency trace used to pick the switch target.
+src/agents/null_agents.py::_check_parameters	Validates that every field of a null-agent parameter set is a finite number and the decay is valid.
+src/agents/null_agents.py::_clipped_logit	Logit of a stay fraction, clipped away from 0 and 1.
+src/agents/null_agents.py::_fit_graded	Fits WSLS (Graded): a stay logit linear in the payout (optionally with a fixed intercept) and the recent-target probability.
+src/agents/null_agents.py::_fit_magnitude	Fits WSLS (Magnitude): lose logit, win curve over payout size, and the switch-target trace weight.
+src/agents/null_agents.py::_fit_recency	Fits WSLS (Recency): win/lose logits plus the switch-target weight on the recency trace.
+src/agents/null_agents.py::_fit_wsls	Fits plain WSLS: the win and lose stay logits.
+src/agents/null_agents.py::_problem_decisions	Converts one problem's trial rows into a Decisions record (chosen index, rewards, stays, traces, session starts) for fitting the null agents.
+src/agents/null_agents.py::_problem_kernel	Computes the habit choice kernel of the current arm on each trial (NaN at session starts and after gaps).
+src/agents/null_agents.py::_problem_ports	Returns the problem's three ports, failing loudly if the offered ports change within the problem.
+src/agents/paper_rl_fitting.py::_FitConfig.n_train_sessions	Number of training sessions in the fit configuration.
+src/agents/paper_rl_fitting.py::_hidden_units	Returns the setting's number of hidden units (default 16).
+src/agents/paper_rl_fitting.py::_make_objective	Builds the training loss (mean negative log likelihood per session) for the published-model RL fits.
+src/agents/paper_rl_fitting.py::_make_trainer	Builds a training function that runs AdamW (with weight decay) on one hyperparameter setting.
+src/agents/paper_rl_fitting.py::_run_record	Packs one completed run (model, setting, repeat, batch size, best parameters, metadata) into a record dict.
+src/agents/paper_rl_fitting.py::_save_checkpoint	Saves the current and best parameters, optimizer state, RNG key and metadata to a checkpoint file.
+src/agents/paper_rl_fitting.py::_sweep_result	Packs a hyperparameter sweep's records, completeness, selected setting and splits into a result dict.
+src/agents/parameter_recovery.py::_progress_line	Formats a "saved/total, remaining minutes" progress line.
+src/agents/rank_agent.py::RankPolicy.__init__	Sets up the toy rank agent (believed values, lapse epsilon, optional block-change inference) for a mouse layout.
+src/agents/rank_agent.py::RankPolicy.probabilities	Mixes the rank rule's target arm with a uniform lapse of size epsilon.
+src/agents/rank_agent.py::RankPolicy.start_session	Clears the current arm at session start.
+src/agents/rank_agent.py::RankPolicy.update	Stores the payout as the chosen arm's believed value and makes it the current arm.
+src/agents/trajectory_viewer.py::_TrajectoryViewer.__init__	Sets up the interactive trajectory viewer: eligible sessions, subject/session/metric/window widgets and output area.
+src/agents/trajectory_viewer.py::_TrajectoryViewer._show_selected_session	Loads (or reuses) the traces for the selected session and plots them.
+src/agents/trajectory_viewer.py::_TrajectoryViewer.change_session	Widget callback: redraws when the session changes.
+src/agents/trajectory_viewer.py::_TrajectoryViewer.change_subject	Widget callback: refills the session dropdown for the newly selected subject.
+src/agents/trajectory_viewer.py::_TrajectoryViewer.draw	Redraws the plot for the current widget values.
+src/agents/trajectory_viewer.py::_import_ipywidgets	Imports ipywidgets, failing with an install hint if missing.
+src/behavior_analysis/cumulative_reversal_removal.py::_check_fraction	Fails loudly if any cumulative fraction removed exceeds 1.
+src/behavior_analysis/diagnostic_tables.py::_with_problem	Adds an overall-problem column to a diagnostic table using the problem map.
+src/behavior_analysis/drifting_task_rules.py::_zero_arm	Returns the single arm paying 0, failing loudly if there isn't exactly one.
+src/behavior_analysis/drifting_trial_table.py::_is_missing	True if a value is None or NaN.
+src/behavior_analysis/get_bad_reversal_info.py::_SubjectSeries.from_merged	Builds a subject's bad-reversal series from the merged across-session dict.
+src/behavior_analysis/get_choice_probs_by_value.py::MouseCounts.empty	Returns zeroed count matrices for one mouse.
+src/behavior_analysis/get_good_reversal_info.py::_SubjectSeries.from_merged	Builds a subject's good-reversal series from the merged across-session dict.
+src/behavior_analysis/get_good_reversal_info.py::_Where.text	Formats a location (subject, session or merged trial, run) for error messages.
+src/behavior_analysis/glm_hmm.py::Params.__post_init__	Validates the shapes and normalization of the GLM-HMM weights, transition matrix and initial distribution.
+src/behavior_analysis/glm_hmm.py::Params.n_states	Number of hidden states.
+src/behavior_analysis/glm_hmm.py::Prior.__post_init__	Validates the GLM-HMM prior (non-negative ridge, Dirichlet concentrations ≥ 1).
+src/behavior_analysis/glm_hmm.py::_e_step	EM E-step: forward-backward posteriors under the current parameters.
+src/behavior_analysis/glm_hmm.py::_flat_live	Flattens the live (unpadded) trials' features and choices across sessions.
+src/behavior_analysis/glm_hmm.py::_initial_from_counts	MAP initial-state distribution from expected session-start counts and the Dirichlet prior.
+src/behavior_analysis/glm_hmm.py::_log_prior	Log prior of the parameters: sticky Dirichlet on transitions, Dirichlet on the initial state, and the ridge on weights.
+src/behavior_analysis/glm_hmm.py::_m_step	EM M-step: refits each state's weighted ridge conditional logit and the transition/initial distributions in closed form.
+src/behavior_analysis/glm_hmm.py::_sticky_start	Builds starting parameters from given weights with a sticky transition matrix and uniform initial distribution.
+src/behavior_analysis/glm_hmm_features.py::_problem_ports	Returns the problem's sorted ports, failing loudly if they change within the problem.
+src/behavior_analysis/glm_hmm_kernel.py::_check_alignment	Fails loudly unless the choice-logit design rows line up with the GLM-HMM session data trials.
+src/behavior_analysis/glm_hmm_kernel.py::_lag_weights	Fits the choice logit on the selected rows and returns the choice-lag weights (NaN if too few trials).
+src/behavior_analysis/glm_hmm_selection.py::_check_folds	Validates the session fold labels (one per session, covering the requested state counts).
+src/behavior_analysis/glm_utils.py::_arm_labels	Builds the design-matrix column labels for an arm-coded choice GLM with n lags.
+src/behavior_analysis/glm_utils.py::_rank_labels	Builds the column labels for a rank-coded choice GLM with n lags.
+src/behavior_analysis/glm_utils.py::_tower_set_text	Formats a set of towers for messages.
+src/behavior_analysis/long_pokes_by_session.py::_finite_values	Collects the finite long-poke values of the given mice for one session.
+src/behavior_analysis/long_pokes_by_session.py::_is_finite_number	True if a value is not None and finite.
+src/behavior_analysis/long_pokes_by_session.py::_mouse_ids	Sorted mouse ids in the long-poke summary (excluding the average key), failing if empty.
+src/behavior_analysis/long_pokes_by_session.py::_pooled_mean	Mean of the pooled values across arrays (NaN if none).
+src/behavior_analysis/long_pokes_by_session.py::_series_for_mouse	One mouse's long-poke values aligned to a list of sessions (NaN where missing).
+src/behavior_analysis/no_second_best.py::_magnitudes_at	The magnitudes of every tower at one trial.
+src/behavior_analysis/no_second_best.py::_mouse_problem_rows	Builds one mouse's per-block rows for the no-second-best analysis from its merged sessions.
+src/behavior_analysis/no_trial_sessions.py::_file_names	Joins the file names of skipped sessions with ";" (None if none).
+src/behavior_analysis/no_trial_sessions.py::_order	Sort key for no-trial-session rows (mouse, session, ...).
+src/behavior_analysis/poke_counts.py::_after_choice_sequences	The poke sequences after the choice for the kept trials with a window.
+src/behavior_analysis/poke_counts.py::_after_initiation_sequences	The long-poke sequences after initiation for the kept trials.
+src/behavior_analysis/poke_counts.py::_counts_or_skip	Session poke counts, or an "unparsed" placeholder with a warning if the session's pokes can't be parsed.
+src/behavior_analysis/poke_events.py::_RecordingState.__init__	Holds the running state while one recording's raw events are parsed into trials (initiation tower, current state, pokes, window, trials).
+src/behavior_analysis/poke_events.py::_RecordingState.close_window	Closes the previous trial's post-choice window (or drops the trial if it had none).
+src/behavior_analysis/poke_events.py::_RecordingState.enter_iti	Handles entry into the ITI: opens the post-choice poke window, failing on a second ITI before the next initiation.
+src/behavior_analysis/poke_events.py::_RecordingState.enter_state	Handles a pyControl state transition (e.g. records the hold port, initiation, ITI) while parsing pokes.
+src/behavior_analysis/poke_events.py::_RecordingState.fail	Builds a PokeParseError prefixed with the session label.
+src/behavior_analysis/poke_events.py::_RecordingState.initiate	Marks the trial as initiated, failing loudly if the initiating poke was not at the initiation tower.
+src/behavior_analysis/poke_events.py::_RecordingState.poke_in	Records a poke-in at a port, adding it to the open window if any.
+src/behavior_analysis/poke_events.py::_RecordingState.reset_trial	Clears the initiation flag and long-poke list for a new trial.
+src/behavior_analysis/poke_events.py::_Trial	One trial while the event log is parsed: chosen port, printed summary, long pokes, post-choice window and any reason it was dropped.
+src/behavior_analysis/poke_events.py::_Trial.dropped	Marks a trial as dropped with a reason and clears its pokes.
+src/behavior_analysis/poke_events.py::_check_against_session_choices	Checks that the parsed trials match the session's printed choices one for one, raising PokeAlignmentError otherwise.
+src/behavior_analysis/poke_events.py::_recordings	Returns a session's raw event-log DataFrames, failing if the session holds no raw 'df'.
+src/behavior_analysis/poke_events.py::_warn_about_dropped	Warns once per session with a count of dropped trials by reason.
+src/behavior_analysis/port_finding_check.py::_carried_in	True if the carried-in port-finding counts are non-empty and non-zero.
+src/behavior_analysis/port_finding_check.py::_counts_text	Formats port counts as "port=n;..." for tables.
+src/behavior_analysis/port_finding_check.py::_frames	A session's raw event-log frame(s) as a list.
+src/behavior_analysis/port_finding_check.py::_has_task_trials	True if any recording in the session has task-trial rows.
+src/behavior_analysis/port_finding_check.py::_n_port_finding_prints	Counts the port-finding print lines across a session's recordings.
+src/behavior_analysis/port_finding_sessions.py::_initiation	The session's initiation tower (default B2).
+src/behavior_analysis/port_finding_sessions.py::_towers_text	Formats a set of towers as a sorted comma list (or "none").
+src/behavior_analysis/port_finding_summary.py::_initiation	The session's initiation tower (default B2).
+src/behavior_analysis/port_finding_summary.py::_window_reason	Explains why a port-finding summary window could not be filled (unreadable session or incomplete block).
+src/behavior_analysis/port_preference.py::_is_missing	True if a value is None or NaN.
+src/behavior_analysis/port_preference.py::_session_recordings	A session's per-recording trial variables, checked for consistent lengths.
+src/behavior_analysis/problem_selection.py::_check_cutoffs	Fails loudly if a cohort in the data has no entry in max_problem_by_cohort.
+src/behavior_analysis/problem_selection.py::_cohort_of	The cohort of a (cohort, problem) key, failing loudly on a malformed key.
+src/behavior_analysis/rank_calibration.py::_one	One calibration row: observed readout vs its null draws, giving z and the empirical p.
+src/behavior_analysis/rank_crossings.py::_leave_nats	Held-out (leave-one-problem-out) nats per trial of a leave logistic on the given columns.
+src/behavior_analysis/rank_crossings.py::_p_at	The event-aligned probability for one role at offset k.
+src/behavior_analysis/rank_logit.py::_check	Fails loudly unless X, y and the names have matching shapes and no NaNs.
+src/behavior_analysis/rank_state.py::_problem_arrays	Converts one problem's rows into arrays (ports, chosen, payouts, session starts) for computing believed values and ranks.
+src/behavior_analysis/rank_state.py::_problem_index	The problem number from a (cohort, n) key or a plain number.
+src/behavior_analysis/rank_stay.py::_nats	Held-out nats per trial of the stay model with the given terms.
+src/behavior_analysis/rank_stay.py::_scale_curves	P(stay) vs absolute payout at a fixed rank (best, second), for the scale-invariance test.
+src/behavior_analysis/rank_switch.py::_nats	Held-out nats per switch from the fold results.
+src/behavior_analysis/rank_third.py::_fit_columns	Fits a logistic (with intercept) of the outcome on the given columns.
+src/behavior_analysis/rank_transfer.py::_slope	Linear slope of y over problem index (NaN if too few problems).
+src/behavior_analysis/rank_worst_split.py::_by_consistency	Stay rates split by whether beliefs are consistent with exactly one zero arm, after paid and after zero trials.
+src/behavior_analysis/rank_worst_split.py::_by_own_payout	The split of the worst weight by whether the own payout was non-zero or zero.
+src/behavior_analysis/rank_worst_split.py::_cell	Worst-alternative weight with and without the flag within one subset, labeled.
+src/behavior_analysis/rank_worst_split.py::_checks	Collinearity checks for the worst-alternative weight: variance inflation, correlations.
+src/behavior_analysis/rank_worst_split.py::_correlation	Pearson correlation of two series (NaN if either is constant).
+src/behavior_analysis/rank_worst_split.py::_pooled	Worst-alternative weight with and without the stale-belief flag on all trials.
+src/behavior_analysis/rank_worst_split.py::_r_squared	R² of one regressor on the others (for the variance inflation check).
+src/behavior_analysis/rank_worst_split.py::_stay_in	Stay probability within a mask (NaN if empty).
+src/behavior_analysis/rank_worst_split.py::_weight	A named weight from a logit fit, or NaN if missing.
+src/behavior_analysis/reversal_aligned_arms.py::_across_subjects	Mean and se across subjects of each role's curve.
+src/behavior_analysis/reversal_aligned_arms.py::_check_series_cover_windows	Fails if a subject's magnitude series end before the last trial of a reversal window.
+src/behavior_analysis/reversal_aligned_arms.py::_check_subject_has_sessions	Fails if a subject has reversal windows but no sessions to read magnitudes from.
+src/behavior_analysis/reversal_aligned_arms.py::_check_sum_to_one	Checks role probabilities sum to 1 at every finite bin.
+src/behavior_analysis/reversal_aligned_arms.py::_check_window_lengths	Checks the pre/post window lengths equal the expected (clipped) lengths.
+src/behavior_analysis/reversal_aligned_arms.py::_magnitude_curves	Reversal-aligned magnitude curves per role, averaged across subjects.
+src/behavior_analysis/reversal_aligned_arms.py::_magnitude_windows	Cuts each tower's magnitudes into pre/post windows around one reversal.
+src/behavior_analysis/reversal_aligned_arms.py::_nan_curves	All-NaN curves for when there are no subjects.
+src/behavior_analysis/reversal_arm_ranks.py::_check_scheme	Fails loudly on an unknown labeling scheme.
+src/behavior_analysis/reversal_arm_ranks.py::_check_selectable	Checks the scheme fits the reversal type and that no first-block record is passed as a block change.
+src/behavior_analysis/reversal_format.py::_has_trials	True if a session has any trials.
+src/behavior_analysis/reversals_by_session.py::_count_frame	Builds the reversal count table from rows, renaming columns and adding missing optional ones as NaN.
+src/behavior_analysis/reversals_by_session.py::_pad_with_last_finite	Pads a curve to a length, carrying the last finite value forward.
+src/behavior_analysis/review_context.py::_columns	The task-type / problem-in-type / overall-problem columns as a dict.
+src/behavior_analysis/second_best.py::_condition_masks	Trial masks for after zero, after non-zero and pooled.
+src/behavior_analysis/second_best.py::_graded_rows	Rows of the graded second-best measures per condition for one mouse.
+src/behavior_analysis/second_best.py::_proportion	Success fraction (NaN if no trials).
+src/behavior_analysis/second_best.py::_proportion_rows	Rows of second-best proportions per measure and condition for one mouse.
+src/behavior_analysis/sessions_per_problem.py::_check_table	Fails loudly if the sessions-per-problem table lacks required columns.
+src/behavior_analysis/sessions_per_problem.py::_problem_row	One row of the sessions-per-problem table for a mouse and problem (sessions, completion, port finding).
+src/behavior_analysis/starting_magnitudes.py::_has_gap	True if an empty session falls between two sessions.
+src/behavior_analysis/starting_magnitudes.py::_is_reset	True if the magnitudes reset to the initial values at a boundary.
+src/behavior_analysis/starting_magnitudes.py::_row	One row of the starting-magnitudes table (before/after magnitudes, deltas, cause).
+src/behavior_analysis/starting_magnitudes.py::_total_deltas	The non-missing total magnitude changes at a session boundary.
+src/behavior_analysis/stay_by_run_length.py::_problem_run_lengths	The run length (consecutive same-arm choices) before each trial within one problem, reset at session starts and gaps.
+src/behavior_analysis/stay_switch_psychometrics.py::_check_tie_mode	Fails loudly on an unknown tie mode.
+src/behavior_analysis/stay_switch_psychometrics.py::_curve	A psychometric curve (per-mouse and mean ± se) of an outcome against an axis.
+src/behavior_analysis/strategy_models.py::_fields	A dataclass's fields as a name → float dict.
+src/behavior_analysis/strategy_models.py::_fit_heuristic	Fits the heuristic agent.
+src/behavior_analysis/strategy_models.py::_fit_kernel_q	Returns a fit function for one kernel-Q variant (full or ablation).
+src/behavior_analysis/strategy_models.py::_fit_null	Returns a fit function for one WSLS-family null agent kind.
+src/behavior_analysis/strategy_models.py::_fit_q	Fits the Q-learner and returns its parameters.
+src/behavior_analysis/strategy_models.py::_kernel_q_spec	The ModelSpec (fit, score, label) for one kernel-Q variant.
+src/behavior_analysis/strategy_models.py::_n_starts	Number of session-start trials (which no model scores).
+src/behavior_analysis/strategy_models.py::_null_spec	The ModelSpec (fit, score, label) for one null agent kind.
+src/behavior_analysis/strategy_models.py::_score_heuristic	Held-out log likelihood of the heuristic agent, excluding session starts.
+src/behavior_analysis/strategy_models.py::_score_kernel_q	Held-out log likelihood of the kernel Q-learner on non-start trials.
+src/behavior_analysis/strategy_models.py::_score_q	Held-out log likelihood of the Q-learner on non-start trials.
+src/behavior_analysis/strategy_models.py::_score_wsls	Held-out log likelihood of a WSLS-family agent, excluding session starts.
+src/behavior_analysis/suspect_sessions.py::_change_rows	Rows describing the variable changes between two recordings of a session.
+src/behavior_analysis/suspect_sessions.py::_file_name	The i-th file name, or None.
+src/behavior_analysis/suspect_sessions.py::_flag_rows	Rows describing each suspect-session flag.
+src/behavior_analysis/suspect_sessions.py::_is_port_finding	True if a change is the expected found_ports False → True transition.
+src/behavior_analysis/suspect_sessions.py::_text	Formats a value for a table (JSON for dicts and lists).
+src/behavior_analysis/switch_regression.py::_check_counts	Raises TooFewSwitchesError if a condition has fewer switches than required.
+src/behavior_analysis/switch_regression.py::_check_model_values	Checks model values line up with the design's trials and returns them.
+src/behavior_analysis/switch_regression.py::_one_hot	One-hot encodes chosen arm indices.
+src/behavior_analysis/switch_regression.py::_switch_parts	Builds the switch-regression pieces (design, features, conditions) from trials, lags, the recency cap and optional model values.
+src/behavior_analysis/switch_regression.py::_with_decay	Applies a trace decay to the switch features and returns the design.
+src/behavior_analysis/value_change_mouse_curves.py::_check_mouse_weighted	Fails unless the curves were averaged per mouse (weighting='subject').
+src/behavior_analysis/value_change_windows.py::ValueChangeConfig.label	A "rank/direction/filter" label for the configuration.
+src/behavior_analysis/value_change_windows.py::ValueChangeWindows.labels	The labels from the configuration.
+src/behavior_analysis/value_change_windows.py::_SessionTrials	One session's per-trial magnitudes, choices, blocks and third-arm labels.
+src/behavior_analysis/value_change_windows.py::_check_same_arms	Fails if the set of arms changes between consecutive trials.
+src/behavior_analysis/value_change_windows.py::_moved	True if the value moved in the given direction.
+src/behavior_analysis/value_change_windows.py::_tracked_value	The magnitude at a given rank.
+src/behavior_analysis/value_change_windows.py::_truncate_event	Cuts an event's post window at the next rank swap.
+src/behavior_import/cache_diff.py::_change	Classifies a file as new, removed, changed or unreadable between the cache and the server (None if unchanged).
+src/behavior_import/cache_diff.py::_file_line	Formats one file change as a report line.
+src/behavior_import/cache_diff.py::_labels	Subject and session labels from a path (with placeholders).
+src/behavior_import/cache_diff.py::_time	Formats a nanosecond mtime as a date-time.
+src/behavior_import/cache_prune.py::_Scope.has_root	True if a data root is within the prune scope.
+src/behavior_import/cache_prune.py::_Scope.has_slug	True if a cohort slug is within the prune scope.
+src/behavior_import/cache_prune.py::_Scope.whole_cache	True if the scope is the whole cache.
+src/behavior_import/cache_prune.py::_check_inside	Refuses to remove any path outside the cache folder.
+src/behavior_import/cache_prune.py::_megabytes	Formats bytes as MB.
+src/behavior_import/cache_prune.py::_referenced_files	The (cohort, file key) pairs referenced by the kept snapshots.
+src/behavior_import/cache_prune.py::_size	Size in bytes of a file or a folder tree.
+src/behavior_import/cache_prune.py::_time	Formats an epoch time as a date-time.
+src/behavior_import/cache_store.py::CachedParser._parse	Parses one file and records its warnings, retrying once on an OS error.
+src/behavior_import/cache_store.py::Manifest.__post_init__	Normalizes the manifest's file lists into sorted ServerFile tuples.
+src/behavior_import/cache_store.py::_line_range	The source file and line range of a function (to attribute warnings).
+src/behavior_import/cache_store.py::_read_manifest	Reads a snapshot's manifest, returning None (with a warning) if unreadable.
+src/behavior_import/cache_store.py::_show	Re-emits caught warnings, attributed to the registered parsing functions.
+src/behavior_import/cache_store.py::_snapshot_name	A unique snapshot folder name (cohort, classified flag, time, random suffix).
+src/behavior_import/import_data.py::_file_skip	A SkipRecord for a file that could not be imported.
+src/behavior_import/import_data.py::_session_facts	Bundles a session's tower layout, port-finding evidence and task type.
+src/behavior_import/load_trials.py::_cached_load	Wraps _load in a joblib Memory cache in the given folder.
+src/behavior_import/load_trials.py::_describe_cached	Lists the cached imports (root, classification flag, time) for messages.
+src/behavior_import/load_trials.py::_load	Imports and extracts trials from a data root (the joblib-cached function).
+src/behavior_import/load_trials.py::_load_legacy	Loads a legacy joblib cache entry, warning if stale.
+src/behavior_import/load_trials.py::_no_cache_error	A FileNotFoundError for a missing cache when the raw data is unreachable.
+src/behavior_import/load_trials.py::_snapshot_source	Describes where a cached snapshot came from (root, time, whether the code version matches).
+src/behavior_import/load_trials.py::_unusable	A CachedImportError explaining why a cache can't be used.
+src/behavior_import/reconcile_reversals.py::_first_value	The first non-None value in a sequence.
+src/behavior_import/reconcile_reversals.py::_last_magnitudes	The magnitudes at the last trial of a run.
+src/behavior_import/reconcile_reversals.py::_run_variables	The trial variables of one run within a session ({} if absent).
+src/behavior_import/reconcile_reversals.py::_same_problem	True if two recordings belong to the same problem (same arms and continuous magnitudes).
+src/behavior_import/reconcile_reversals.py::_session_frames	A session's raw data frame(s) as a list.
+src/behavior_import/reconcile_reversals.py::_snapshots	The run_start and run_end variable snapshots of a recording.
+src/behavior_import/reconcile_reversals.py::_state	Reads reversal counters (good, bad, ...) from a raw variable snapshot, resolving aliases.
+src/behavior_import/reconcile_reversals.py::_unmatched_reason	Explains why a reversal counted by pyControl at a session end had no match at the next session start.
+src/behavior_import/task_types.py::_map_row	One problem-map row (subject, task type, problem numbers, first session's layout and date).
+src/behavior_visualization/plot_choice_kernel.py::_check	Fails loudly if there are no sources or a source has no data.
+src/behavior_visualization/plot_choice_kernel.py::_frameless_legend	Draws a frameless legend outside the axes at the upper right.
+src/behavior_visualization/plot_choice_kernel.py::_recovery_panel	Draws the known-kernel recovery panel (fitted vs true lag weights for each simulated alpha_k).
+src/behavior_visualization/plot_choice_kernel.py::_slope_lines	Caption lines giving each source's run-length slope.
+src/behavior_visualization/plot_choice_kernel.py::_stay_matrix	A mouse × run-length-bin table of P(stay) for one payout type.
+src/behavior_visualization/plot_choice_logit.py::_stay_switch_caption	Caption lines for the stay/switch-by-value figure (weighting, baseline, minimum mice).
+src/behavior_visualization/plot_choice_logit.py::_stay_switch_panels	Panel titles and axis labels for the stay/switch-by-value figure.
+src/behavior_visualization/plot_choice_probs_around_good_reversals.py::_broken_axis_figure	The reversal-aligned choice figure with a broken x axis skipping the first trials after the reversal.
+src/behavior_visualization/plot_choice_probs_around_good_reversals.py::_full_xlim	x limits spanning the finite display positions.
+src/behavior_visualization/plot_choice_probs_around_good_reversals.py::_plain_figure	The reversal-aligned choice figure with a continuous x axis.
+src/behavior_visualization/plot_choice_probs_around_good_reversals.py::_style_broken_axes	Hides the inner spines and draws break marks for a broken x axis.
+src/behavior_visualization/plot_choice_probs_around_good_reversals.py::_title	The figure title with the mice/reversals count line.
+src/behavior_visualization/plot_cohort_comparison.py::_annotate_means	Writes the mean ± se above each category.
+src/behavior_visualization/plot_cohort_comparison.py::_distributions_figure	Figure of trials-per-unit distributions by cohort and problem.
+src/behavior_visualization/plot_cohort_comparison.py::_over_time_figure	Figure of trials per unit over time by cohort and problem.
+src/behavior_visualization/plot_cohort_comparison.py::_problem_rows	The rows of one problem.
+src/behavior_visualization/plot_first_leave_after_good_reversals.py::_style_axes	Styles the first-leave bar chart (ticks, labels, n).
+src/behavior_visualization/plot_glm_hmm.py::_calibration_lines	Caption lines summarizing the gain z vs replays (mean ± se, Wilcoxon p, passing mice).
+src/behavior_visualization/plot_glm_hmm.py::_colors	The per-mouse colors (given, or Okabe–Ito by mouse).
+src/behavior_visualization/plot_glm_hmm.py::_flatness_panel	Draws kernel flatness (lags 3–5 / lag 1) for mice and agents, overall and per state.
+src/behavior_visualization/plot_glm_hmm.py::_identity_scatter	Scatter of recovered vs true values per mouse with an identity line.
+src/behavior_visualization/plot_glm_hmm.py::_kernel_panel	Draws the choice kernel overall and per state (mean ± se across mice).
+src/behavior_visualization/plot_glm_hmm.py::_line_stats	"mean ± se across mice, n=N mice" if error bands are drawn, else "per mouse".
+src/behavior_visualization/plot_glm_hmm.py::_mice_legend	Frameless per-mouse dot legend outside the axes.
+src/behavior_visualization/plot_glm_hmm.py::_mouse_line	A caption line with one mouse's held-out gains per state count and the static models' nats.
+src/behavior_visualization/plot_glm_hmm.py::_occupancy_panel	Draws per-state occupancy or dwell time per mouse with mean ± se.
+src/behavior_visualization/plot_glm_hmm.py::_per_mouse	"per mouse, n=N mice".
+src/behavior_visualization/plot_glm_hmm.py::_recovery_columns	The simulated scenarios present, in display order.
+src/behavior_visualization/plot_glm_hmm.py::_se	Standard error ignoring NaNs (NaN if fewer than two values).
+src/behavior_visualization/plot_glm_hmm.py::_selected_panel	Draws the selected state count per mouse as stacked dots.
+src/behavior_visualization/plot_glm_hmm.py::_selection_panel	Draws held-out gain vs number of states per mouse with the null band and static-model columns.
+src/behavior_visualization/plot_glm_hmm.py::_state_legend	Frameless state-color line legend outside the axes.
+src/behavior_visualization/plot_glm_hmm.py::_stats	The "mean ± se / per mouse, n=..." line for a multi-column panel.
+src/behavior_visualization/plot_glm_hmm.py::_z_panel	Draws each mouse's gain z against its replays.
+src/behavior_visualization/plot_kernel_q.py::_ablation_lines	Caption lines with each kernel-Q ablation's held-out cost.
+src/behavior_visualization/plot_kernel_q.py::_decay_lines	Caption lines comparing the best trace decay with the fitted 1 − alpha_k per mouse.
+src/behavior_visualization/plot_kernel_q.py::_interpolate	Linear interpolation of a profile at a decay value.
+src/behavior_visualization/plot_kernel_q.py::_parameter_lines	Caption lines with the fitted kernel-Q parameters per source.
+src/behavior_visualization/plot_legends.py::_clear_of	True if a box overlaps none of the others.
+src/behavior_visualization/plot_legends.py::_labels	A legend's text labels.
+src/behavior_visualization/plot_legends.py::_mouse_of	The mouse id at the start of a legend label, if any.
+src/behavior_visualization/plot_legends.py::_panels	The visible data axes of a figure (excluding colorbars).
+src/behavior_visualization/plot_legends.py::_place	Creates a figure legend at a candidate anchor.
+src/behavior_visualization/plot_legends.py::_union	The union of bounding boxes.
+src/behavior_visualization/plot_maze_heatmaps.py::_add_colorbar	Adds a colorbar for the heatmap.
+src/behavior_visualization/plot_maze_heatmaps.py::_check_ports	Fails loudly on ports outside the 3×3 grid.
+src/behavior_visualization/plot_maze_heatmaps.py::_draw_port	Draws one octagonal tower colored by its count, with optional rings.
+src/behavior_visualization/plot_maze_schematic.py::_draw_platform	Draws the gray platform joining the towers.
+src/behavior_visualization/plot_maze_schematic.py::_draw_tower	Draws one octagonal tower with a fill color.
+src/behavior_visualization/plot_null_agents.py::_label	The display label of a model.
+src/behavior_visualization/plot_null_agents.py::_plot_score_panel	Draws held-out nats per choice for each null agent and mouse.
+src/behavior_visualization/plot_null_agents.py::_plot_source_kernel	Draws one group of choice-kernel weights for mice and agents.
+src/behavior_visualization/plot_null_agents.py::_plot_stay_panel	Draws observed P(stay) by payout with each agent's implied curve.
+src/behavior_visualization/plot_num_long_pokes.py::_style_axes	Styles the long-pokes-per-session axes (ticks, labels, title, counts).
+src/behavior_visualization/plot_num_reversals.py::_by_mouse_figure	Figure of reversal counts per session, one panel per mouse.
+src/behavior_visualization/plot_num_reversals.py::_kinds_title	"Good and Bad" or "Total" for the title.
+src/behavior_visualization/plot_num_reversals.py::_mouse_grid	A two-column grid of axes, one per mouse.
+src/behavior_visualization/plot_num_reversals.py::_print_subject_totals	Prints each subject's total reversals.
+src/behavior_visualization/plot_num_reversals.py::_session_span	"Sessions per mouse: min–max".
+src/behavior_visualization/plot_num_reversals.py::_sessions_per_mouse	"Sessions per mouse: <mouse n, ...>".
+src/behavior_visualization/plot_port_preference.py::_add_log2_colorbar	Adds the log2 ratio colorbar.
+src/behavior_visualization/plot_port_preference.py::_draw_ratio_cell	Draws one tower colored by its preference ratio with its trial count.
+src/behavior_visualization/plot_port_preference.py::_face_color	The color of a preference ratio on a log2 diverging scale (gray if undefined).
+src/behavior_visualization/plot_problem_summary.py::_default_length_title	"<ylabel> per Problem".
+src/behavior_visualization/plot_problem_summary.py::_draw_bars	Draws mean ± se bars per block.
+src/behavior_visualization/plot_problem_summary.py::_label_histogram_figure	Adds the suptitle and shared axis labels to the block-length histograms.
+src/behavior_visualization/plot_rank_proportions.py::_block_legend_label	Legend label for a subject, with its trial count.
+src/behavior_visualization/plot_rank_proportions.py::_draw_bars	Draws the rank-proportion bars with error bars.
+src/behavior_visualization/plot_rank_proportions.py::_style_axis	Styles a rank-proportion panel (title, ticks, labels).
+src/behavior_visualization/plot_rank_signatures.py::_colors	Per-mouse colors.
+src/behavior_visualization/plot_rank_signatures.py::_common_caption	The shared caption text for the rank-test figures (definitions, dots/bars, calibration).
+src/behavior_visualization/plot_rank_signatures.py::_failed_line	A caption line counting replays left out for too little data.
+src/behavior_visualization/plot_rank_signatures.py::_line_stats	"mean ± se across mice" or "per mouse", with n.
+src/behavior_visualization/plot_rank_signatures.py::_mice	The sorted mice in the rank-test readouts.
+src/behavior_visualization/plot_rank_signatures.py::_mice_legend	Frameless per-mouse dot legend.
+src/behavior_visualization/plot_rank_signatures.py::_models	The replayed agents present.
+src/behavior_visualization/plot_rank_signatures.py::_skipped_line	Caption lines for skipped mice.
+src/behavior_visualization/plot_rank_signatures.py::_source_legend	Legend for mice vs each agent's line style.
+src/behavior_visualization/plot_rank_signatures.py::_tick_labels	x tick labels: "Mice" then each agent, with n.
+src/behavior_visualization/plot_regression_extensions.py::_binary_caption_lines	Caption lines for the binary-regressor extension (which sources are too small to test).
+src/behavior_visualization/plot_regression_extensions.py::_calibration_caption	Caption for the calibration panel (held-out nats, number of bins).
+src/behavior_visualization/plot_regression_extensions.py::_check_sources	Fails loudly if there are no sources or a source is empty.
+src/behavior_visualization/plot_reversal_aligned_arms.py::_draw_choice_curves	Draws each role's reversal-aligned choice probability with se bands.
+src/behavior_visualization/plot_reversal_aligned_arms.py::_draw_magnitude_curves	Draws each role's reversal-aligned magnitude on a second axis.
+src/behavior_visualization/plot_reversal_aligned_arms.py::_magnitude_ylim	y limits for the magnitude axis.
+src/behavior_visualization/plot_second_best.py::_check_sources	Fails loudly if there are no sources or a source has no mice.
+src/behavior_visualization/plot_second_best.py::_curve_stats_line	The stats line for a curve panel.
+src/behavior_visualization/plot_second_best.py::_skipped_lines	Caption lines for skipped mice per source.
+src/behavior_visualization/plot_sessions_per_problem.py::_cohort_label	A cohort's legend label with its mouse count.
+src/behavior_visualization/plot_sessions_per_problem.py::_count_phrase	Which sessions are counted (bandit only, or with port finding).
+src/behavior_visualization/plot_sessions_per_problem.py::_legend_handles	Legend handles (mice and summary markers).
+src/behavior_visualization/plot_sessions_per_problem.py::_mice_phrase	"1 mouse" / "N mice".
+src/behavior_visualization/plot_sessions_per_problem.py::_style_axes	Styles the sessions-per-problem axes.
+src/behavior_visualization/plot_single_session.py::_style_spines	Hides the top/right spines on the given axes.
+src/behavior_visualization/plot_stay_switch.py::_curves_caption	Caption lines for the stay/switch curves.
+src/behavior_visualization/plot_stay_switch.py::_finish_panel	Sets the labels and 0–1 y limits and despines a panel.
+src/behavior_visualization/plot_stay_switch.py::_weighting_caption	Caption text on how trials were weighted across mice.
+src/behavior_visualization/plot_strategy_models.py::_check_sources	Fails loudly if there are no sources or a source has no mice.
+src/behavior_visualization/plot_strategy_models.py::_comparison_title	"<model A> Minus <model B>".
+src/behavior_visualization/plot_strategy_models.py::_confusion_panel	Draws the model-recovery confusion matrix.
+src/behavior_visualization/plot_strategy_models.py::_mouse_lines	Caption lines with each mouse's held-out nats per model.
+src/behavior_visualization/plot_strategy_models.py::_parameter_panel	Draws recovered vs true values of one parameter of one model.
+src/behavior_visualization/plot_strategy_models.py::_skipped_lines	Caption lines for skipped mice per source.
+src/behavior_visualization/plot_strategy_models.py::_summary_lines	Caption lines with each paired model comparison's mean ± se and test.
+src/behavior_visualization/plot_strategy_models.py::_ticks	x tick labels per source with n and skipped counts.
+src/behavior_visualization/plot_strategy_models.py::check_sources	Fails loudly if there are no sources or a source has no mice.
+src/behavior_visualization/plot_strategy_models.py::skipped_lines	Caption lines for skipped mice per source.
+src/behavior_visualization/plot_strategy_models.py::source_ticks	x tick labels per source with n and skipped counts.
+src/behavior_visualization/plot_switch_regression.py::_check_sources	Fails loudly if there are no sources or a source has no mice.
+src/behavior_visualization/plot_switch_regression.py::_counts_lines	Caption lines with the switch counts per condition per mouse.
+src/behavior_visualization/plot_switch_regression.py::_decay_line	A caption line with the trace decay chosen per mouse.
+src/behavior_visualization/plot_switch_regression.py::_feature_label	Display label of a switch-regression feature.
+src/behavior_visualization/plot_switch_regression.py::_present_values	The value definitions present, in order.
+src/behavior_visualization/plot_switch_regression.py::_settings_line	A caption line with the regression settings (lags, cap).
+src/behavior_visualization/plot_switch_regression.py::_skipped_lines	Caption lines for skipped mice per source.
+src/behavior_visualization/plot_task_statistics.py::_annotate_medians	Writes the median above each bar.
+src/behavior_visualization/plot_task_statistics.py::_plot_median_bars	Draws median ± se bars.
+src/behavior_visualization/plot_task_statistics.py::_style_axes	Styles the task-statistics axes (ticks per block, labels, n).
+src/behavior_visualization/plot_trial_block_summary.py::_distribution_figure	Figure of the distribution of trials per session or block, optionally split by subject group.
+src/behavior_visualization/plot_trial_block_summary.py::_over_time_figure	Figure of trials per session or block over time.
+src/behavior_visualization/plot_trial_block_summary.py::_plot_daily_means	Plots each mouse's mean trials per day over dates.
+src/behavior_visualization/plot_trial_block_summary.py::_problem_figure	Figure of trials per unit by problem, per mouse and mean.
+src/behavior_visualization/plot_value_change_diagnostic.py::_legend_handles	Legend handles for the counted pre/post windows and line labels.
+src/funcimg_analysis/background.py::_crop_slice	A validated slice for a crop range inside the image.
+src/funcimg_analysis/background_io.py::_binary_path	Path of a channel's registered binary for a plane (via mini2p_preprocessing).
+src/funcimg_analysis/background_io.py::_cache_path	A cache file path keyed on the plane, files (size/mtime), margin and code version.
+src/funcimg_analysis/background_io.py::_mean_images	Each channel's mean image from ops, checked against the frame shape.
+src/funcimg_analysis/background_io.py::_open_movie	Memory-maps a registered int16 movie, checking its size matches the frame count and shape.
+src/funcimg_analysis/background_io.py::_ops_value	An ops.npy entry, raising BackgroundUnavailableError if missing.
+src/funcimg_analysis/background_io.py::_read_traces	Reads per-mask mean traces from each channel's movie in chunks, with optional progress reports.
+src/funcimg_analysis/collect.py::_missing	Why a run can't be collected (no frame times, no Cellpose extraction), or None.
+src/funcimg_analysis/collect_flash.py::_cache_dir	The flash-check cache folder (given, or under the configured cache dir).
+src/funcimg_analysis/collect_flash.py::_file_identity	(path, size, mtime) tuples identifying files for the cache key.
+src/funcimg_analysis/collect_residual.py::_examples	Example cells per channel for the residual dF/F figure.
+src/funcimg_analysis/flash_check.py::_flash_cell	Peri-flash traces and images for one ROI in both channels.
+src/funcimg_analysis/flash_check.py::_window_mean	Mean image over a frame window around a peak, within a box.
+src/funcimg_analysis/frame_times.py::FrameTimes	The pyControl time of every imaging frame, with frame indices, DAQ frame times, the frame period and the source files.
+src/funcimg_analysis/frame_times.py::VideoFrameTimes	The pyControl time of every behavior-video frame, with the source files and alignment quality.
+src/funcimg_analysis/frame_times.py::_check_variant_by_names	Checks a processed variant's TIFF names match the source TIFF, raising RunMismatchError otherwise.
+src/funcimg_analysis/motion_check.py::_correlation	Correlation of two traces over finite samples (NaN if undefined).
+src/funcimg_analysis/reward_cells.py::_trial_counts	Trial counts per pulse category within a mask.
+src/funcimg_analysis/shared_signal_run.py::_get	A required entry from a dict keyed by (run, channel), failing loudly if missing.
+src/funcimg_analysis/zong2022_io.py::_check_binary_length	Checks a registered binary's size matches nframes × Ly × Lx int16.
+src/funcimg_analysis/zong2022_motion.py::MotionSettings.__post_init__	Validates the motion-check settings.
+src/funcimg_analysis/zong2022_responses.py::ResponseSettings.__post_init__	Validates the response window spans the outcome (start < 0 < stop).
+src/funcimg_analysis/zong2022_responses.py::_check_mask	Fails unless the response window covers some but not all frames.
+src/funcimg_analysis/zong2022_responses.py::_contrast	(inside − outside) / (inside + outside), NaN where the total is 0.
+src/funcimg_analysis/zong2022_run.py::report_to	The given progress reporter, or a no-op.
+src/funcimg_analysis/zong2022_signal.py::Zong2022Settings.__post_init__	Validates the Zong 2022 signal settings (neuropil coefficient, tau, percentiles, thresholds).
+src/funcimg_analysis/zong2022_signal.py::_baseline_traces	Running baseline and its SD for each cell's corrected fluorescence.
+src/funcimg_analysis/zong2022_signal.py::_cell_transients	Transient threshold SD, transient mask and SNR for each cell.
+src/funcimg_analysis/zong2022_signal.py::_check_window	Fails if the running-baseline window is longer than the trace.
+src/funcimg_analysis/zong2022_signal.py::_mad_sd	Robust SD from the median absolute deviation.
+src/funcimg_analysis/zong2022_signal.py::_passes	Which cells pass the SNR (and optional minimum event) criteria.
+src/funcimg_import/runs.py::_pycontrol_pulses	The pyControl sync-pulse times from a .tsv, or None if it has none.
+src/funcimg_visualization/plot_funcimg_background.py::_share_ylim	Gives two axes the same y limits.
+src/funcimg_visualization/plot_funcimg_flash.py::_image	Draws an image with an ROI outline and title, no ticks.
+src/funcimg_visualization/plot_funcimg_flash.py::_outline	Draws an ROI outline contour.
+src/funcimg_visualization/plot_funcimg_flash.py::_peri	Draws the peri-flash traces of both channels for one cell.
+src/funcimg_visualization/plot_funcimg_motion.py::_offsets	Plots the rigid (and non-rigid) registration offsets over time.
+src/funcimg_visualization/plot_funcimg_motion.py::_registration_quality	Plots registration correlation (corrXY) over time with bad frames marked.
+src/funcimg_visualization/plot_funcimg_motion.py::_shared_signal	Plots the median z-scored signal of the red (no indicator) and green channels with the threshold.
+src/funcimg_visualization/plot_funcimg_responses.py::_ordinal	Formats a number as an ordinal (1st, 2nd, ...).
+src/funcimg_visualization/plot_funcimg_reward_cells.py::_index_meaning	Caption text explaining the reward index for the chosen contrast.
+src/funcimg_visualization/plot_funcimg_reward_cells.py::_panel_title	A reward-cell panel title (ROI, index, p).
+src/funcimg_visualization/plot_funcimg_reward_cells.py::_summary	Caption text summarizing reward-cell counts against the null.
+src/funcimg_visualization/plot_funcimg_shared.py::_color	The color for the i-th run.
+src/funcimg_visualization/plot_funcimg_shared.py::_median	Median ignoring NaNs (NaN if none finite).
+src/funcimg_visualization/plot_funcimg_shared.py::_panel_title	A panel title from channel and measure.
+src/funcimg_visualization/plot_funcimg_shared.py::_run_label	A short run label (session date and run).
+src/funcimg_visualization/plot_funcimg_transients.py::_pooled	A measure pooled across runs for one channel, finite values only.
+src/funcimg_visualization/plot_funcimg_zong2022.py::_axis	The given axis, or a new figure and axis.
+src/funcimg_visualization/plot_funcimg_zong2022.py::_fov	Draws the field-of-view mean image with the selected ROIs outlined and labeled.
+src/photometry_import/recordings.py::_build_recording	Assembles a PhotometryRecording from the session, file paths, data, sample times and quality metrics.
+src/photometry_import/sessions.py::_parse_session	The session label and date from a "ses-NN_date-YYYYMMDD" folder name.
+src/photometry_import/sessions.py::_parse_subject	The mouse id from a "sub-XX_id-<mouse>" folder name.
+src/photometry_import/sessions.py::_sorted_files	Sorted files matching a pattern in a folder (empty if the folder is missing).
+src/pipelines/all_cohorts_drifting.py::_mice	"1 mouse" / "N mice".
+src/pipelines/cache_provenance.py::_date	Formats an epoch time as a date.
+src/pipelines/cache_provenance.py::_source_line	A provenance line saying which cache a cohort's data came from and whether its import code is current.
+src/pipelines/choice_kernel_long.py::_beta_of	A mouse's kernel weight (per-mouse mapping or a single value).
+src/pipelines/choice_logit_values.py::_agent_parameters	A simulated mouse's agent parameters as a tuple.
+src/pipelines/choice_logit_values.py::_values_to_use	The analysis's values unless others are given.
+src/pipelines/cohort_analysis.py::_figures_dir	The figures folder for a cohort.
+src/pipelines/cohort_analysis.py::_tables_dir	The tables folder for a cohort.
+src/pipelines/fitted_q.py::_MouseReplicates	One mouse's fitted-Q replicate readouts, failure count and warnings.
+src/pipelines/fitted_q.py::_check	Fails if there are no mice to simulate or some are not in the trial table.
+src/pipelines/fitted_q.py::_control	The fitted positive control for a model name, failing loudly if unknown.
+src/pipelines/glm_hmm.py::Config.__post_init__	Validates the GLM-HMM run settings (state counts include 1, replay states within n_states, ...).
+src/pipelines/glm_hmm.py::Config.fit_kwargs	The EM settings (iterations, screening, restarts kept) as keyword arguments.
+src/pipelines/glm_hmm.py::_fit	Fits a K-state GLM-HMM with restarts.
+src/pipelines/glm_hmm.py::_fit_agents_cached	Cached fit of the agents (kernel Q, WSLS) that supply the GLM-HMM signals and nulls.
+src/pipelines/glm_hmm.py::_memoized	Wraps a function in a joblib cache if a cache folder is given.
+src/pipelines/glm_hmm.py::_session_keys	"problem|session_index" keys identifying sessions.
+src/pipelines/glm_hmm.py::_static_policy	The simulation policy factory for a no-switching control scenario (static kernel Q, WSLS Habit or blend).
+src/pipelines/incremental.py::_iso	Formats a YYYYMMDD integer as an ISO date.
+src/pipelines/incremental.py::_sessions_by_mouse	Lists session keys grouped by mouse.
+src/pipelines/null_agents.py::_check_parameters	Validates the agent name and that each mouse has parameters and is in the table.
+src/pipelines/null_agents.py::_cohort_name	"the table" or "cohort N" for messages.
+src/pipelines/open_field.py::_drop_after_bad	Removes trials after bad reversals from the windows.
+src/pipelines/open_field.py::_run_best_change	Runs and saves the choice probabilities around good reversals split by the best-arm change.
+src/pipelines/open_field.py::_windows_and_indices	Good-reversal windows and the good/bad/unclassified reversal indices.
+src/pipelines/poke_analysis.py::_panel_titles	Panel titles with the number of trials per session.
+src/pipelines/poke_analysis.py::_previous_ports	The previous problem's ports per mouse (or None).
+src/pipelines/poke_analysis.py::_warn_on_disagreement	Warns where the long-poke count disagrees with the session's own count.
+src/pipelines/poke_analysis.py::_warn_on_flagged_port_finding	Warns for each mouse whose port-finding check is flagged.
+src/pipelines/port_finding_summary.py::_excluded_lines	Text lines listing the mice left out and why.
+src/pipelines/port_finding_summary.py::_heatmap_row	One HeatmapRow (label, layout, summaries) for the port-finding figure.
+src/pipelines/port_finding_summary.py::_layout_name	A layout name ("<ports> After <previous ports>", with initiation if not B2).
+src/pipelines/port_finding_summary.py::_left_out_text	The full "left out" text file contents.
+src/pipelines/port_finding_summary.py::_ports	Ports joined with spaces (or "None").
+src/pipelines/port_finding_summary.py::_write_left_out	Writes the "left out" text file.
+src/pipelines/rank_baseline.py::_one_mouse	One mouse's baseline strategy comparison, reusing the shared cache if available.
+src/pipelines/rank_signatures.py::_agent_first	Moves the agent column first.
+src/pipelines/rank_signatures.py::_memoized	Wraps a function in a joblib cache if a cache folder is given.
+src/pipelines/regression_extensions.py::_needs_binary	True if the binary-regressor group is requested.
+src/pipelines/reversal_aligned_arms.py::_check_choices	Validates the label schemes, reversal types and moving-average settings.
+src/pipelines/reversal_aligned_arms.py::_counts_row	A counts row (scope, figure, numbers of mice and reversals).
+src/pipelines/reversal_aligned_arms.py::_problem_name	"problem-NN" for an integer problem, else its string.
+src/pipelines/second_best.py::_MouseNull	One mouse's null-agent replicate readouts, failure count and warnings.
+src/pipelines/second_best.py::_agent_first	Moves the agent column first.
+src/pipelines/second_best.py::_with_source_first	Moves the source column first.
+src/pipelines/strategy_comparison.py::_MouseRecovery	One mouse's model-recovery results: winners, held-out nats, recovered parameters and failures.
+src/pipelines/strategy_comparison.py::_logit_reference	The full choice-logit model's held-out nats for the given mice, as a reference.
+src/pipelines/strategy_comparison.py::_source_first	Moves the source column first.
+src/pipelines/switch_regression.py::_MouseNull	One mouse's null-agent replicate readouts, failure count and warnings.
+src/pipelines/switch_regression.py::_MouseResult	One mouse's switch-regression result and the warnings raised fitting it.
+src/pipelines/switch_regression.py::_agent_first	Moves the agent column first.
+src/pipelines/switch_regression.py::_model_values	A mouse's cross-validated model values aligned to its design.
+src/pipelines/value_change_analysis.py::_check_arguments	Validates the value-change analysis arguments (windows, modes, complete window).
+src/pipelines/value_change_analysis.py::_curve_summary	A summary dict (events, subjects, ...) of value-change curves.
+src/tasks/drifting_bandit.py::DriftingBanditTask.__init__	Sets up a simulated drifting bandit: arm values, drift rate, block lengths and how the zero arm is swapped.
+src/tasks/drifting_bandit.py::DriftingBanditTask.drift_arms	Drifts each non-zero arm's value by one step with the drift probability.
+src/tasks/drifting_bandit.py::DriftingBanditTask.get_reward	The current value of an arm.
+src/tasks/drifting_bandit.py::DriftingBanditTask.simulate	Runs an agent on the task for N trials and returns actions, rewards and Q values.
+src/tasks/markov_bandit.py::ChainSpec.__post_init__	Validates the Markov-chain spec (enough states for distinctness, valid stay probability).
