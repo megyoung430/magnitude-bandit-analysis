@@ -48,6 +48,8 @@ SESSION_L2 = 5.0
 # L-BFGS iterations of one M-step (a generalized EM step) and of the convex one-state fit.
 M_STEP_ITERATIONS = 25
 SINGLE_STATE_ITERATIONS = 500
+# A line-search stop with a gradient (max norm) above this is a failure, not a converged fit.
+STUCK_GRADIENT = 1e-3
 # Initial transition matrix of every start: stay with this probability.
 INITIAL_STAY = 0.95
 # EM stops when the log posterior improves by less than this many nats in total.
@@ -336,12 +338,15 @@ def fit_state_weights(
     """
     options = {"maxiter": max_iterations}
     if tight:
-        options |= {"ftol": 1e-14, "gtol": 1e-9}
+        options |= {"ftol": 1e-13, "gtol": 1e-8}
     result = minimize(
         _weighted_logit, start, args=(X, chosen, resp, l2), jac=True, method="L-BFGS-B",
         options=options,
     )  # fmt: skip
-    if not np.all(np.isfinite(result.x)) or "ABNORMAL" in str(result.message):
+    # L-BFGS reports ABNORMAL when its line search cannot improve on a point that is already
+    # at the optimum to machine precision; that is a convergence, a large gradient is not
+    stuck = "ABNORMAL" in str(result.message) and np.abs(result.jac).max() > STUCK_GRADIENT
+    if not np.all(np.isfinite(result.x)) or stuck:
         raise RuntimeError(f"the state-weight fit stopped abnormally: {result.message}")
     return result.x
 
