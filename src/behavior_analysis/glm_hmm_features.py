@@ -37,7 +37,7 @@ class SessionData(NamedTuple):
             *sequences*): ``mouse, problem, session_index, n_trials``.
         trials (pd.DataFrame): One row per trial, sessions in order: ``session, step`` (position in
             *sequences*) and the trial table's ``mouse, problem, session_index, trial,
-            trial_in_session``.
+            trial_in_session`` (and ``block`` when the table has it).
     """
 
     sequences: hmm.Sequences
@@ -103,6 +103,7 @@ def session_arrays(trials: pd.DataFrame, kq_params) -> SessionData:
         n = len(rows)
         X[s, :n], chosen[s, :n], mask[s, :n], scored[s, :n] = signals, picked, True, ~start
     meta_columns = ["mouse", "problem", "session_index", "trial", "trial_in_session"]
+    meta_columns += [c for c in ("block",) if c in trials.columns]
     trial_rows = pd.concat([b[0][meta_columns] for b in blocks], ignore_index=True)
     trial_rows.insert(0, "session", np.repeat(np.arange(n_sessions), mask.sum(axis=1)))
     trial_rows.insert(1, "step", np.concatenate([np.arange(len(b[0])) for b in blocks]))
