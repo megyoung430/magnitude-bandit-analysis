@@ -196,6 +196,7 @@ def build_map(
     overviews: Overviews,
     descriptions: Mapping[str, str],
     meta: str,
+    explanations: Mapping[str, str] | None = None,
 ) -> dict:
     """Everything the page shows, as JSON-ready data.
 
@@ -205,6 +206,7 @@ def build_map(
         overviews: The hand-written page text.
         descriptions: Written descriptions for definitions without a docstring.
         meta: Where the map was built from, e.g. "main @ 9868047, 2026-11-12".
+        explanations: Plain-language explanations keyed by path or ``path::qualname``.
 
     Returns:
         A dict with intro, sections, meta and pkgs (folders in overview order, then any folder
@@ -222,9 +224,38 @@ def build_map(
         pkgs[name]["mods"].append(notebook_entry(nb, overviews))
     for p in pkgs.values():
         p["mods"].sort(key=lambda e: (not e.get("nb"), e["p"]))
+    attach_explanations(pkgs.values(), explanations or {})
     return {
         "intro": overviews.intro,
         "sections": [list(s) for s in overviews.sections],
         "meta": meta,
         "pkgs": [p for p in pkgs.values() if p["mods"]],
     }
+
+
+def attach_explanation(entries: list[dict], path: str, explanations: Mapping[str, str]) -> None:
+    """Put each definition's plain-language explanation (key ``path::qualname``) in its "w"."""
+    for e in entries:
+        if text := explanations.get(f"{path}::{e['n']}"):
+            e["w"] = text
+        attach_explanation(e.get("c", []), path, explanations)
+
+
+def attach_explanations(pkgs: Iterable[dict], explanations: Mapping[str, str]) -> None:
+    """Add the explanations to the page data in place: a file's primer and its functions'."""
+    for pkg in pkgs:
+        for mod in pkg["mods"]:
+            if text := explanations.get(mod["p"]):
+                mod["w"] = text
+            attach_explanation(mod.get("fn", []), mod["p"], explanations)
+
+
+def stale_explanations(
+    modules: Iterable[ModuleRecord], notebooks: Iterable[NotebookRecord], keys: Iterable[str]
+) -> list[str]:
+    """Explanation keys that name no file, notebook or definition in this checkout."""
+    known = {nb.path for nb in notebooks}
+    for m in modules:
+        known.add(m.path)
+        known.update(f"{m.path}::{d.qualname}" for d in walk(m.defs))
+    return sorted(set(keys) - known)

@@ -27,6 +27,16 @@ The script prints definitions with neither a docstring nor a description, and TS
 definition in the checkout (renamed, removed, or on a branch that is not checked out); `--strict` exits
 with an error when anything is undescribed. Nested functions need no description.
 
+## In plain words
+`docs/code_map/explanations.md` holds plain-language text for readers new to the methods, keyed by
+file path (a primer: what question the file answers, the method from scratch, how to read its
+results) or `path::name` (one function). It covers every file of `behavior_analysis`, `agents`,
+`funcimg_analysis` and `photometry_analysis`, and the functions that the pipelines, scripts and
+notebooks call, except for small utilities whose one-line description says enough. The page shows
+each entry as a dropdown (open for a file's primer, closed for a function), and search includes it.
+The build lists entries that match no file or function; update an entry when the code it describes
+changes.
+
 ## Published page
 `.github/workflows/code-map.yml` rebuilds the page on every push to main and deploys it with GitHub
 Pages (<https://megyoung430.github.io/magnitude-bandit-analysis/>); the Methods & Docs page in the lab

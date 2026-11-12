@@ -6,6 +6,7 @@ import tomllib
 from pathlib import Path
 
 from src.code_map.assemble import Overviews, overviews_from_toml, parse_descriptions
+from src.code_map.explanations import parse_explanations
 from src.code_map.extract import ModuleRecord, NotebookRecord, module_record, notebook_record
 
 SOURCE_FOLDERS = ("src", "scripts")
@@ -49,6 +50,12 @@ def load_overviews(path: Path) -> Overviews:
 def load_descriptions(path: Path) -> dict[str, str]:
     """Written descriptions from ``descriptions.tsv``."""
     return parse_descriptions(Path(path).read_text(encoding="utf-8"))
+
+
+def load_explanations(path: Path) -> dict[str, str]:
+    """Plain-language explanations from ``explanations.md`` ({} if the file does not exist)."""
+    path = Path(path)
+    return parse_explanations(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def git_meta(root: Path) -> str:

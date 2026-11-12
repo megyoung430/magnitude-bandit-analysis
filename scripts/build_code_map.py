@@ -5,7 +5,9 @@
 
 Descriptions come from docstrings; definitions without one take theirs from
 docs/code_map/descriptions.tsv, and the folder, file and notebook summaries come from
-docs/code_map/overviews.toml. The script lists definitions that have neither, so they can be
+docs/code_map/overviews.toml. docs/code_map/explanations.md holds the "In plain words" text:
+primers on each analysis file's method and explanations of its main functions, for readers new
+to the methods. The script lists definitions that have neither, so they can be
 given a docstring (preferred) or a line in the TSV.
 """
 
@@ -16,10 +18,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.code_map.assemble import build_map, coverage, walk  # noqa: E402
+from src.code_map.assemble import build_map, coverage, stale_explanations, walk  # noqa: E402
 from src.code_map.files import (  # noqa: E402
     git_meta,
     load_descriptions,
+    load_explanations,
     load_overviews,
     read_records,
     write_page,
@@ -61,9 +64,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     modules, notebooks = read_records(REPO_ROOT)
     descriptions = load_descriptions(NOTES / "descriptions.tsv")
+    explanations = load_explanations(NOTES / "explanations.md")
     data = build_map(
         modules, notebooks, load_overviews(NOTES / "overviews.toml"), descriptions,
-        git_meta(REPO_ROOT),
+        git_meta(REPO_ROOT), explanations,
     )  # fmt: skip
     write_page(args.out, render_html(data, template_text()))
     n_defs = sum(1 for m in modules for _ in walk(m.defs))
@@ -72,6 +76,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     missing, stale = coverage(modules, descriptions)
     report(missing, stale)
+    if gone := stale_explanations(modules, notebooks, explanations):
+        print(f"{len(gone)} entries of explanations.md match nothing in this checkout:")
+        print("\n".join(f"  {key}" for key in gone[:LISTED]))
+    print(f"{len(explanations)} plain-language explanations.")
     return 1 if args.strict and missing else 0
 
 
