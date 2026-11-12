@@ -43,6 +43,13 @@ reward magnitude at each arm drifts over time and periodically reverses.
   (`src/behavior_analysis/second_best.py`, `src/behavior_analysis/strategy_models.py`,
   `src/pipelines/second_best.py`, `src/pipelines/strategy_comparison.py`,
   `src/pipelines/fitted_q.py`)
+- Kernel Q-learner and the flat choice kernel in the same notebook (sections 2.11 and 3.7): a Q-learner
+  with asymmetric learning rates, forgetting and a multi-trial choice kernel (after Aloor et al.,
+  bioRxiv 2026.10.31.763226) and four ablations, WSLS (Habit), the choice logit to lag 15 with a choice
+  tail, P(stay) by run length, and the held-out trace-decay profile of WSLS (Magnitude); see
+  `docs/issues/feat-kernel-q.md`
+  (`src/agents/kernel_q_agent.py`, `src/behavior_analysis/stay_by_run_length.py`,
+  `src/pipelines/choice_kernel_long.py`, `src/behavior_visualization/plot_kernel_q.py`)
 
 ## Project organisation
 

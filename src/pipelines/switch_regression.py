@@ -315,8 +315,10 @@ def per_mouse_table(sources: Mapping[str, SourceSwitchRegression]) -> pd.DataFra
 
 # Null agents each mouse is calibrated against: the realistic one (magnitude-graded staying,
 # recency switches) first, whose band is the one drawn; then plain recency switches; then the
-# graded agent (linear stay logit, switches to the most recent alternative).
-NULL_AGENTS = ("wsls_magnitude", "wsls_recency", "wsls_graded")
+# graded agent (linear stay logit, switches to the most recent alternative); then the habit agent
+# (WSLS (Magnitude) whose stay logit grows with a slowly built choice kernel): it revisits its usual
+# arms, which may also be the arms that paid more, so habit alone could produce a value weight.
+NULL_AGENTS = ("wsls_magnitude", "wsls_recency", "wsls_graded", "wsls_habit")
 DEFAULT_REPLICATES = 100
 CALIBRATION_SEED = 0
 # The calibrated variants. The model value is left out: each replicate would need its own

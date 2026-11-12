@@ -39,6 +39,7 @@ MODEL_LABELS = {
     "wsls_recency": "WSLS (Recency)",
     "wsls_magnitude": "WSLS (Magnitude)",
     "wsls_graded": "WSLS (Graded)",
+    "wsls_habit": "WSLS (Habit)",
     "choice_logit": "Choice Logit (Held-Out)",
 }
 # Okabe-Ito, black first (the mice or the reference), yellow last (poor contrast on white).

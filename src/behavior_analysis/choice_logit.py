@@ -29,7 +29,15 @@ standard columns and their order never change:
   (``believed_value``, 0 before the arm's first visit), and ``believed_unvisited``, 1 before the
   first visit. The indicator lets an unvisited arm differ from an arm that paid 0 instead of
   being treated as worth 0 or dropped. Believed values carry across sessions and dropped trials
-  like the reward history and start empty at a problem's start.
+  like the reward history and start empty at a problem's start;
+- ``CHOICE_TAIL``: one more choice regressor per port, ``choice_tail``: the exponentially weighted
+  choice indicator older than the ``n_lags`` choice lags,
+  ``sum_{j>K} g**(j-K-1) c_a(t-j)`` with decay ``g`` (``choice_tail_decay``), like the reward
+  tail and cleared at a session start like the choice lags. It lets a slow build-up of
+  perseveration (a habit) be one weight instead of many collinear lags that the L2 penalty
+  shares between. The decay is a parameter; a decay of 0.9 (half-life about 7 trials, the
+  default of the reward tail) puts its weight on the 6-30 trials before a choice, beyond the five
+  standard lags.
 
 History
 -------
@@ -64,8 +72,11 @@ from scipy.special import logsumexp
 N_ARMS = 3
 REWARD, CHOICE, TOWER = "reward", "choice", "tower"
 # Groups of the optional columns (see the module docstring).
-BINARY, BELIEVED = "binary", "believed"
+BINARY, BELIEVED, CHOICE_TAIL = "binary", "believed", "choice_tail"
 EXTRAS = (BINARY, BELIEVED)
+# ``CHOICE_TAIL`` is an extra too, but it needs a decay, so ``EXTRAS`` (the groups that take no
+# argument) leaves it out.
+ALL_EXTRAS = (*EXTRAS, CHOICE_TAIL)
 # Feature-name prefix of each feature group.
 GROUP_PREFIX = {
     REWARD: "reward_",
@@ -73,6 +84,7 @@ GROUP_PREFIX = {
     TOWER: "tower_",
     BINARY: "binary_",
     BELIEVED: "believed_",
+    CHOICE_TAIL: "choice_tail",
 }
 TAIL_FEATURE = "reward_tail"
 BINARY_TAIL_FEATURE = "binary_tail"
@@ -170,6 +182,15 @@ def _tail(older: np.ndarray, decay: float) -> np.ndarray:
     return lfilter([1.0], [1.0, -decay], older, axis=0)
 
 
+def _segment_tail(older: np.ndarray, segment: np.ndarray, decay: float) -> np.ndarray:
+    """:func:`_tail` restarted at every segment, so nothing carries over a segment start."""
+    out = np.zeros_like(older)
+    for label in np.unique(segment):
+        rows = segment == label
+        out[rows] = _tail(older[rows], decay)
+    return out
+
+
 def _believed_features(received: np.ndarray, picked: np.ndarray) -> list[np.ndarray]:
     """``[value, unvisited]``, each ``(n, 3)``: what each arm last paid before each trial.
 
@@ -192,6 +213,7 @@ def _problem_features(
     tail_decay,
     extras: tuple[str, ...],
     binary_tail_decay,
+    choice_tail_decay=None,
 ):
     """``(X, chosen, ports)`` of one problem; *rows* in trial order."""
     ports = _problem_ports(rows)
@@ -218,6 +240,9 @@ def _problem_features(
             extra_columns += [_lagged(rewarded, k) for k in range(1, n_lags + 1)]
             if tail_decay is not None:
                 extra_columns.append(_tail(_lagged(rewarded, n_lags + 1), binary_tail_decay))
+        elif extra == CHOICE_TAIL:
+            older = _lagged(picked, n_lags + 1) * _same_segment(segment, n_lags + 1)[:, None]
+            extra_columns.append(_segment_tail(older, segment, choice_tail_decay))
         else:
             extra_columns += _believed_features(received, picked)
     X = np.stack(reward_lags + choice_lags + tower_columns + extra_columns, axis=2)
@@ -245,6 +270,8 @@ def feature_names(
         if extra == BINARY:
             names += tuple(f"binary_lag{k}" for k in range(1, n_lags + 1))
             names += (BINARY_TAIL_FEATURE,) if tail else ()
+        elif extra == CHOICE_TAIL:
+            names += (CHOICE_TAIL,)
         else:
             names += BELIEVED_FEATURES
     return names
@@ -278,6 +305,7 @@ def design_matrix(
     tail_decay: float | None = None,
     extras: tuple[str, ...] = (),
     binary_tail_decay: float | None = None,
+    choice_tail_decay: float | None = None,
 ) -> LogitDesign:
     """The logit's features for one mouse's trials.
 
@@ -288,11 +316,14 @@ def design_matrix(
         n_lags (int): Number of reward lags and of choice lags. Default ``DEFAULT_LAGS``.
         tail_decay (float | None): Decay per trial of the reward tail, in (0, 1); ``None``
             (default) adds no tail feature.
-        extras (tuple[str, ...]): Optional column groups to append, some of ``EXTRAS``
-            (``BINARY``, ``BELIEVED``; see the module docstring), each at most once. Default none.
+        extras (tuple[str, ...]): Optional column groups to append, some of ``ALL_EXTRAS``
+            (``BINARY``, ``BELIEVED``, ``CHOICE_TAIL``; see the module docstring), each at most
+            once. Default none.
         binary_tail_decay (float | None): Decay of the ``binary_tail`` column, in (0, 1), so the
             binary coding can have the decay that suits it rather than the pulse tail's. Default
             ``None``: the same as *tail_decay*. Needs *tail_decay*.
+        choice_tail_decay (float | None): Decay per trial of the ``choice_tail`` column, in
+            (0, 1). Required with ``CHOICE_TAIL`` in *extras*, and only then.
 
     Returns:
         LogitDesign: Features (see the module docstring), chosen port and trial metadata. Rows
@@ -300,7 +331,8 @@ def design_matrix(
 
     Raises:
         ValueError: If ``n_lags < 1``, *tail_decay* or *binary_tail_decay* is not in (0, 1) (or
-            the latter is given without a tail), *extras* names an unknown or a repeated group,
+            the latter is given without a tail), *choice_tail_decay* is not in (0, 1) or does not
+            match ``CHOICE_TAIL`` in *extras*, *extras* names an unknown or a repeated group,
             *trials* hold more than one mouse or none, or a problem does not offer the
             same three ports on every trial.
 
@@ -311,9 +343,11 @@ def design_matrix(
         raise ValueError(f"n_lags must be at least 1, got {n_lags}")
     if tail_decay is not None and not 0 < tail_decay < 1:
         raise ValueError(f"tail_decay must be in (0, 1), got {tail_decay}")
-    unknown = [e for e in extras if e not in EXTRAS]
+    unknown = [e for e in extras if e not in ALL_EXTRAS]
     if unknown:
-        raise ValueError(f"unknown extra column group {unknown}; expected some of {list(EXTRAS)}")
+        raise ValueError(
+            f"unknown extra column group {unknown}; expected some of {list(ALL_EXTRAS)}"
+        )
     if len(set(extras)) != len(extras):
         raise ValueError(f"duplicate extra column groups in {list(extras)}")
     if binary_tail_decay is not None and (tail_decay is None or not 0 < binary_tail_decay < 1):
@@ -323,6 +357,13 @@ def design_matrix(
         )
     if binary_tail_decay is None:
         binary_tail_decay = tail_decay
+    if (CHOICE_TAIL in extras) != (choice_tail_decay is not None) or (
+        choice_tail_decay is not None and not 0 < choice_tail_decay < 1
+    ):
+        raise ValueError(
+            "choice_tail_decay must be in (0, 1) and given exactly with CHOICE_TAIL in extras, "
+            f"got {choice_tail_decay} with extras {list(extras)}"
+        )
     if trials["mouse"].nunique() != 1:
         raise ValueError(
             f"design_matrix takes the trials of one mouse, got {trials['mouse'].nunique()} mice"
@@ -334,7 +375,15 @@ def design_matrix(
     for _, rows in trials.groupby("problem", sort=False):
         rows = rows.sort_values("trial")
         parts.append(
-            _problem_features(rows, n_lags, non_reference, tail_decay, extras, binary_tail_decay)
+            _problem_features(
+                rows,
+                n_lags,
+                non_reference,
+                tail_decay,
+                extras,
+                binary_tail_decay,
+                choice_tail_decay,
+            )
         )
         metas.append(rows[list(META_COLUMNS)])
     X, chosen, ports = (np.concatenate(part) for part in zip(*parts, strict=True))
@@ -350,8 +399,8 @@ def design_matrix(
 def select_features(design: LogitDesign, groups: tuple[str, ...]) -> LogitDesign:
     """*design* with only the columns of the feature *groups*.
 
-    The groups are ``REWARD``, ``CHOICE``, ``TOWER`` and, if the design has them, ``BINARY`` and
-    ``BELIEVED``; a group the design lacks selects nothing.
+    The groups are ``REWARD``, ``CHOICE``, ``TOWER`` and, if the design has them, ``BINARY``,
+    ``BELIEVED`` and ``CHOICE_TAIL``; a group the design lacks selects nothing.
 
     Raises:
         ValueError: For an unknown group.

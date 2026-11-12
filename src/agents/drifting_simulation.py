@@ -44,7 +44,7 @@ from typing import NamedTuple, Protocol
 import numpy as np
 import pandas as pd
 
-from src.agents import value_agent
+from src.agents import kernel_q_agent, value_agent
 from src.behavior_analysis.port_preference import port_category
 from src.behavior_import.extract_trials import extract_session_trials
 from src.behavior_import.reconcile_reversals import reconcile_reversals
@@ -429,6 +429,37 @@ class ValuePolicy:
         reward = agent_rewards([magnitude], self.kind)[0]
         self.q[action] += self.parameters[0] * (reward - self.q[action])
         self.previous = action
+
+
+class KernelQPolicy:
+    """The Q-learner with kernel and forgetting of :mod:`src.agents.kernel_q_agent` as a Policy.
+
+    Values start at 0 for a problem and carry over its sessions, as :class:`ValuePolicy`'s; the
+    choice kernel is cleared at each session start.
+
+    Args:
+        parameters (Sequence[float]): In ``kernel_q_agent.PARAMETER_NAMES`` order.
+        kind (str): One of ``AGENT_KINDS``; what the agent learns from.
+        layout (MouseLayout): Gives the ports and the initiation port (for the plus ports).
+    """
+
+    def __init__(self, parameters, kind: str, layout: "MouseLayout"):
+        self.parameters, self.kind = parameters, kind
+        self.plus = plus_ports(list(layout.ports), layout.initiation)
+        self.q = np.zeros(len(layout.ports))
+        self.k = np.zeros(len(layout.ports))
+
+    def start_session(self) -> None:
+        self.k = np.zeros_like(self.k)
+
+    def probabilities(self) -> np.ndarray:
+        return kernel_q_agent.choice_probabilities(self.q, self.k, self.plus, self.parameters)
+
+    def update(self, action: int, magnitude: float) -> None:
+        reward = agent_rewards([magnitude], self.kind)[0]
+        self.q, self.k = kernel_q_agent.update_state(
+            self.q, self.k, action, reward, self.parameters
+        )
 
 
 def play_problem(

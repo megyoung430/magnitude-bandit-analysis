@@ -10,6 +10,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
+from src.agents import kernel_q_agent as kq  # noqa: E402
 from src.behavior_analysis import strategy_models as sm  # noqa: E402
 from src.behavior_visualization import plot_strategy_models as plots  # noqa: E402
 from src.pipelines.strategy_comparison import Recovery, SourceComparison  # noqa: E402
@@ -26,7 +27,7 @@ def fake_source(n, seed=0, prefix="m", skipped=None):
     rows, parameters = [], []
     for mouse in mice:
         base = rng.uniform(0.9, 1.1)
-        for k, model in enumerate(sm.MODELS):
+        for k, model in enumerate(sm.COMPARED):
             rows.append(dict(mouse=mouse, model=model, n_choices=900,
                              nats_per_choice=base + 0.02 * k * rng.uniform(0.5, 1.5)
                              - 0.03 * (model == sm.HEURISTIC_PLUS)))  # fmt: skip
@@ -37,6 +38,7 @@ def fake_source(n, seed=0, prefix="m", skipped=None):
             (sm.Q_LEARNER, "beta", rng.uniform(1, 3)),
             (sm.WSLS_GRADED, "w_m", rng.normal(0.5, 0.1)),
             (sm.WSLS_GRADED, "p_recent", rng.uniform(0.5, 0.9)),
+            *[(sm.KERNEL_Q, name, rng.uniform(0.1, 0.9)) for name in kq.PARAMETER_NAMES],
         ):
             parameters.append(dict(mouse=mouse, model=model, parameter=parameter, value=value,
                                    at_bound=False))  # fmt: skip
@@ -112,7 +114,7 @@ def test_good_recovery_is_called_good():
 def test_poor_recovery_is_said_plainly():
     lines = plots.recovery_statement(fake_recovery(0.4, correlation=0.1))
     assert lines[0].startswith("Model recovery is poor for")
-    assert "Heuristic+ v is poorly recovered" in " ".join(lines)
+    assert "Q-Learner Learning Rate is poorly recovered" in " ".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +197,10 @@ def test_recovery_figure(tmp_path, saved_figures):  # noqa: F811
     assert suptitle == "Strategy Model Recovery"
     assert [p.split("\n")[0] for p in panels] == [
         "Model Recovery", "Heuristic+ v", "Heuristic+ u", "Q-Learner Learning Rate",
-        "WSLS (Graded) p_recent",
+        "WSLS (Graded) p_recent", "Kernel Q-Learner Alpha Pos",
+        "Kernel Q-Learner Alpha Neg", "Kernel Q-Learner Zeta",
+        "Kernel Q-Learner Alpha K", "Kernel Q-Learner Beta",
+        "Kernel Q-Learner Beta K", "WSLS (Habit) w_h",
     ]  # fmt: skip
     assert "m1" in legend and over == []
     assert "Model recovery is good" in caption_of(base)

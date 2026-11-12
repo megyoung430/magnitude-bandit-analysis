@@ -27,7 +27,7 @@ import hashlib
 import inspect
 import warnings
 import zlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -37,8 +37,10 @@ from joblib import Memory, Parallel, delayed
 
 from src.agents import drifting_simulation as sim
 from src.agents import heuristic_agent as ha
+from src.agents import kernel_q_agent as kq
 from src.agents import null_agents as na
 from src.agents import value_agent as va
+from src.behavior_analysis import choice_kernel_timescale as kts
 from src.behavior_analysis import choice_logit as cl
 from src.behavior_analysis import strategy_models as sm
 from src.behavior_analysis import switch_regression as sr
@@ -56,6 +58,7 @@ PARAMETER_COLUMNS = {
     "q_beta": (sm.Q_LEARNER, "beta"),
     "graded_w_m": (sm.WSLS_GRADED, "w_m"),
     "p_recent": (sm.WSLS_GRADED, "p_recent"),
+    **{f"kq_{name}": (sm.KERNEL_Q, name) for name in kq.PARAMETER_NAMES},
 }
 
 
@@ -66,7 +69,7 @@ def code_version() -> str:
     argument, so editing a model, the design matrix or the simulation invalidates every cached
     mouse.
     """
-    modules = (cl, na, sr, ha, va, sm, sim)
+    modules = (cl, na, sr, ha, va, kq, sm, sim)
     digest = hashlib.sha256(
         "\n".join([str(CACHE_VERSION), *(inspect.getsource(m) for m in modules)]).encode()
     )
@@ -111,7 +114,7 @@ def compare_mouse(trials: pd.DataFrame, n_starts: int, seed: int, version: str):
         seed (int): Seed of the starts.
         version (str): ``code_version()``; only part of the cache key.
     """
-    return sm.cross_validate(trials, n_starts, seed)
+    return sm.cross_validate(trials, n_starts, seed, sm.COMPARED)
 
 
 def mouse_comparer(cache_dir: Path | None):
@@ -192,6 +195,134 @@ def analyze_comparison_source(
     )
 
 
+def ablation_table(source: SourceComparison) -> pd.DataFrame:
+    """Per mouse, each ablation's held-out nats per choice minus the full kernel Q-learner's.
+
+    Positive: removing that piece makes held-out choices less predictable.
+
+    Raises:
+        ValueError: If *source* has no scores for the ablations.
+    """
+    missing = sorted(set(sm.ABLATIONS) - set(source.nats["model"]))
+    if missing:
+        raise ValueError(f"the source has no held-out scores for the ablations {missing}")
+    return sm.difference_table(source.nats, sm.ABLATION_COMPARISONS)
+
+
+def ablation_summaries(sources: Mapping[str, SourceComparison]) -> pd.DataFrame:
+    """``strategy_models.difference_summary`` of every source's ablations, ``source`` first."""
+    tables = [
+        sm.difference_summary(ablation_table(s), comparisons=sm.ABLATION_COMPARISONS).assign(
+            source=label
+        )
+        for label, s in sources.items()
+    ]
+    return _source_first(pd.concat(tables, ignore_index=True))
+
+
+def kernel_parameters_table(source: SourceComparison) -> pd.DataFrame:
+    """One row per mouse: the kernel Q-learner's fitted parameters and the kernel's decay.
+
+    Returns:
+        pd.DataFrame: ``mouse``, the parameters in ``kernel_q_agent.PARAMETER_NAMES`` order,
+        ``decay`` (``1 - alpha_k``: the per-trial decay of the equivalent choice trace, to compare
+        with the WSLS trace decay) and ``at_bounds`` (names of the parameters at a fitting bound,
+        comma-separated; empty if none).
+    """
+    rows = [
+        {
+            "mouse": mouse,
+            **dict(zip(kq.PARAMETER_NAMES, fits[sm.KERNEL_Q], strict=True)),
+            "decay": 1.0 - fits[sm.KERNEL_Q][kq.INDEX["alpha_k"]],
+            "at_bounds": ",".join(kq.parameters_at_bounds(fits[sm.KERNEL_Q])),
+        }
+        for mouse, fits in sorted(source.fits.items())
+    ]
+    return pd.DataFrame(rows)
+
+
+def timescale_table(
+    source: SourceComparison, long_weights: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Per mouse, the timescale of the fitted choice kernels, next to the model-free one.
+
+    Args:
+        source (SourceComparison): The comparison whose full-data fits hold the kernel
+            Q-learner and the WSLS (Habit) agent of each mouse.
+        long_weights (pd.DataFrame | None): ``choice_kernel_long.LongKernel.weights`` of the same
+            mice; the geometric decay of their choice-lag weights is listed as ``long_decay`` and
+            ``long_tau``. Default ``None``: NaN.
+
+    Returns:
+        pd.DataFrame: ``mouse``, the kernel Q-learner's ``kq_alpha_k`` and ``kq_decay``
+        (``1 - alpha_k``), the habit agent's ``habit_alpha_k`` and ``habit_decay``, and
+        ``long_decay``, ``long_tau`` (trials), NaN where a mouse has none.
+    """
+    rows = [
+        {
+            "mouse": mouse,
+            "kq_alpha_k": fits[sm.KERNEL_Q][kq.INDEX["alpha_k"]],
+            "kq_decay": 1.0 - fits[sm.KERNEL_Q][kq.INDEX["alpha_k"]],
+            "habit_alpha_k": fits[sm.WSLS_HABIT].alpha_k,
+            "habit_decay": 1.0 - fits[sm.WSLS_HABIT].alpha_k,
+        }
+        for mouse, fits in sorted(source.fits.items())
+    ]
+    table = pd.DataFrame(rows)
+    table[["long_decay", "long_tau"]] = np.nan
+    if long_weights is not None:
+        fitted = kts.fit_decay(long_weights).set_index("mouse")
+        table["long_decay"] = table["mouse"].map(fitted["decay"])
+        table["long_tau"] = table["mouse"].map(fitted["tau"])
+    return table
+
+
+def profile_mouse(trials: pd.DataFrame, decays: tuple, version: str) -> pd.DataFrame:
+    """:func:`strategy_models.decay_profile` of one mouse; *version* is part of the cache key."""
+    return sm.decay_profile(trials, decays)
+
+
+def mouse_profiler(cache_dir: Path | None):
+    """:func:`profile_mouse`, cached under *cache_dir* if one is given."""
+    return profile_mouse if cache_dir is None else Memory(cache_dir, verbose=0).cache(profile_mouse)
+
+
+def decay_profile_table(
+    trial_table: pd.DataFrame,
+    mice: Sequence[str] | None = None,
+    *,
+    decays: Sequence[float] = sm.DECAY_GRID,
+    n_jobs: int = 1,
+    cache_dir: Path | None = None,
+) -> pd.DataFrame:
+    """The held-out trace-decay profile of WSLS (Magnitude) for each of *mice*.
+
+    Args:
+        trial_table (pd.DataFrame): A drifting trial table.
+        mice (Sequence[str] | None): The mice to profile, e.g. those of a source comparison.
+            Default ``None``: every mouse of *trial_table*.
+        decays (Sequence[float]): Trace decays. Default ``strategy_models.DECAY_GRID``.
+        n_jobs (int): Parallel workers over mice (joblib). Default 1.
+        cache_dir (Path | None): Cache each mouse's profile here. Default ``None``.
+
+    Returns:
+        pd.DataFrame: ``strategy_models.decay_profile`` of every mouse, concatenated.
+
+    Raises:
+        ValueError: If a mouse is not in *trial_table* or there is no mouse.
+    """
+    by_mouse = {m: rows.reset_index(drop=True) for m, rows in trial_table.groupby("mouse")}
+    mice = sorted(by_mouse) if mice is None else list(mice)
+    unknown = sorted(set(mice) - set(by_mouse))
+    if unknown or not mice:
+        raise ValueError(f"no trials for mice {unknown}" if unknown else "no mice to profile")
+    profile, version = mouse_profiler(cache_dir), code_version()
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(profile)(by_mouse[m], tuple(decays), version) for m in mice
+    )
+    return pd.concat(results, ignore_index=True)
+
+
 def _source_first(table: pd.DataFrame) -> pd.DataFrame:
     return table[["source", *[c for c in table.columns if c != "source"]]]
 
@@ -218,14 +349,16 @@ def per_mouse_table(sources: Mapping[str, SourceComparison]) -> pd.DataFrame:
 
     Returns:
         pd.DataFrame: ``source, mouse``, one column of nats per choice per model (named by the
-        model), the paired differences (``<first>_minus_<second>``), ``winner``, the fitted
-        ``v``, ``u``, ``q_learning_rate`` and ``q_beta``, and ``choice_logit`` (nats per choice
-        of the logit's full model on all trials, NaN without a logit analysis).
+        model, the kernel Q-learner's ablations included), the paired differences
+        (``<first>_minus_<second>``), ``winner``, the fitted ``v``, ``u``, ``q_learning_rate``,
+        ``q_beta``, ``graded_w_m``, ``p_recent`` and the kernel Q-learner's parameters
+        (``kq_<name>``), and ``choice_logit`` (nats per choice of the logit's full model on all
+        trials, NaN without a logit analysis).
     """
     frames = []
     for label, s in sources.items():
         wide = s.nats.pivot(index="mouse", columns="model", values="nats_per_choice")
-        wide = wide[list(sm.MODELS)].reset_index()
+        wide = wide[[m for m in sm.ALL_MODELS if m in wide.columns]].reset_index()
         table = wide.merge(s.differences, on="mouse").merge(s.winners, on="mouse")
         values = s.parameters.set_index(["model", "parameter", "mouse"])["value"].sort_index()
         for column, (model, parameter) in PARAMETER_COLUMNS.items():

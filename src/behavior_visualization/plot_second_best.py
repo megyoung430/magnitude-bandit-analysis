@@ -73,6 +73,8 @@ SOURCE_STYLES = (
     (0, (1, 3)),
     (0, (8, 3)),
     (0, (3, 1, 1, 3)),
+    (0, (6, 2, 1, 2)),
+    (0, (2, 1)),
 )
 
 DEFINITIONS = (
@@ -217,7 +219,8 @@ def _calibration_lines(calibrations: Mapping) -> list[str]:
             + ", ".join(AGENT_LABELS.get(a, a) for a in agents)
             + f") played on its own task, {calibration.replicates} replicates each, through the "
             "identical analysis; gray band: 2.5th-97.5th percentile of the "
-            f"{first} null. z = (observed - null mean) / null sd; p: two-sided empirical."
+            f"{first} null only (one band is drawn; every agent's z and p are listed). "
+            "z = (observed - null mean) / null sd; p: two-sided empirical."
         )
         for (mouse, measure, condition), group in table.groupby(
             ["mouse", "measure", "condition"], sort=False
