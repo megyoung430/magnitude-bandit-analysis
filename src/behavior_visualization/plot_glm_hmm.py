@@ -16,6 +16,7 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
+from matplotlib.ticker import NullFormatter
 
 from src.agents import glm_hmm_agent as gha
 from src.behavior_analysis import choice_logit as cl
@@ -582,6 +583,8 @@ def plot_simulated_recovery(data: FigureData, save_path=None) -> None:
         )
         _identity_scatter(axs[1, 1], dwell, colors, "Dwell (Trials)")
         axs[1, 1].set(xscale="log", yscale="log")
+        for axis in (axs[1, 1].xaxis, axs[1, 1].yaxis):
+            axis.set_minor_formatter(NullFormatter())  # overlapping minor labels
         set_title(axs[1, 1], Title("Dwell Times, 3-State Fit", _per_mouse(n)), fontsize=11)
         axs[1, 2].set_visible(False)
         _mice_legend(axs[1, 1], colors, {r.mouse for r in data.recovery})
@@ -654,7 +657,12 @@ def _flatness_panel(ax, mice: Mapping, replays: Mapping, colors: dict, rng) -> t
     ax.axhline(1.0, color="0.8", lw=0.8, zorder=0)
     ax.axhline(0.0, color="0.8", lw=0.8, zorder=0)
     ax.set_xticks(positions, ticks, rotation=30, ha="right", fontsize=8)
-    ax.set(ylabel="Kernel Flatness (Lags 3-5 / Lag 1)")
+    # A ratio explodes when the lag-1 weight is near zero, so a symmetric log axis (linear
+    # within +-1) keeps the typical values readable next to the outliers.
+    ax.set(ylabel="Kernel Flatness (Lags 3-5 / Lag 1)", yscale="symlog")
+    ax.set_yscale("symlog", linthresh=1.0)
+    ax.set_yticks([0, 1, 10], ["0", "1", "10"])
+    ax.set_ylim(bottom=-0.5)
     despine(ax)
     return counts, errors
 

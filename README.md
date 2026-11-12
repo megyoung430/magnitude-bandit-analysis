@@ -57,6 +57,12 @@ reward magnitude at each arm drifts over time and periodically reverses.
   1 to 7 of cohort 1 and all of cohort 3; see `docs/issues/feat-rank-signatures.md`
   (`src/behavior_analysis/rank_*.py`, `src/pipelines/rank_signatures.py`,
   `src/behavior_visualization/plot_rank_signatures.py`)
+- GLM-HMM (`scripts/glm_hmm.ipynb`): do the mice switch between strategy states? Hidden states with
+  sticky transitions, each a conditional logit on value, WSLS and habit signals, scored on held-out
+  sessions and calibrated against replays of the fitted static Q-learner, first on simulated agents with
+  known switching; see `docs/issues/feat-glm-hmm.md` (`src/behavior_analysis/glm_hmm*.py`,
+  `src/agents/glm_hmm_agent.py`, `src/pipelines/glm_hmm.py`,
+  `src/behavior_visualization/plot_glm_hmm.py`)
 
 ## Project organisation
 
