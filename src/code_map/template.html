@@ -73,6 +73,11 @@ details.mod[open]>summary{border-bottom:1px solid var(--line)}
 .fn .desc{margin:7px 0 0;max-width:80ch}
 .fn .body{margin:4px 0 0;color:var(--muted);font-size:13.5px;max-width:80ch}
 .fn .inf{display:inline-block;font-size:11px;color:var(--flag);background:var(--flag-soft);border-radius:3px;padding:0 5px;margin-left:6px;vertical-align:1px}
+details.plain{margin:8px 0 2px;max-width:80ch;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 4px 4px 0}
+details.plain>summary{cursor:pointer;padding:5px 10px;font:600 12px/1.4 var(--f-head);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+details.plain .pw{padding:0 12px 8px;font-size:14px}
+details.plain .pw p{margin:6px 0} details.plain .pw ul{margin:6px 0;padding-left:20px}
+.legend-pw{display:inline-block;font:600 10.5px/1.6 var(--f-head);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);border-radius:3px;padding:0 5px}
 .io{display:grid;grid-template-columns:72px minmax(0,1fr);gap:4px 10px;margin-top:8px;font-size:13.5px}
 .io>.lab{font:600 10.5px/1.9 var(--f-head);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .io table{border-collapse:collapse;width:100%}
@@ -107,7 +112,7 @@ details.mod[open]>summary{border-bottom:1px solid var(--line)}
     <div class="search">
       <label for="q" hidden>Search</label>
       <input id="q" type="search" placeholder="Search functions, classes and descriptions, e.g. believed value, fit_restarts, rank" autocomplete="off">
-      <div class="hint">Files open when you click them. Descriptions come from the code's docstrings; entries marked <span class="inf" style="margin:0">from code</span> had no docstring and were written from reading the function.</div>
+      <div class="hint">Files open when you click them. Descriptions come from the code's docstrings; entries marked <span class="inf" style="margin:0">from code</span> had no docstring and were written from reading the function. <span class="legend-pw">In plain words</span> sections explain an analysis file's method, and its main functions, for readers new to them.</div>
     </div>
     <div id="results" aria-live="polite"></div>
     <section class="block" id="layout"><h2>How the repo is laid out</h2><dl class="secgrid" id="secgrid"></dl></section>
@@ -121,6 +126,12 @@ details.mod[open]>summary{border-bottom:1px solid var(--line)}
 const D = JSON.parse(document.getElementById("data").textContent);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const rich = s => esc(s).replace(/``([^`]+)``/g, "<code>$1</code>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s.,;:)]|$)/g, "$1<i>$2</i>");
+const prose = s => String(s || "").split(/\n\s*\n/).map(block => {
+  const lines = block.split("\n");
+  if (lines.every(l => /^\s*- /.test(l))) return "<ul>" + lines.map(l => `<li>${rich(l.replace(/^\s*- /, ""))}</li>`).join("") + "</ul>";
+  return `<p>${rich(lines.join(" "))}</p>`;
+}).join("");
+const plain = (s, open) => s ? `<details class="plain"${open ? " open" : ""}><summary>In plain words</summary><div class="pw">${prose(s)}</div></details>` : "";
 const slug = p => "f-" + p.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const kinds = {f:"function", c:"class", m:"method", n:"inner"};
 
@@ -166,6 +177,7 @@ function fnHtml(e){
   let h = `<div class="fn" id="${slugFn(e)}"><div class="sig"><span class="kind">${k}</span>${sig}</div>`;
   h += `<p class="desc">${e.d ? rich(e.d) : "<i>No description.</i>"}${e.u ? '<span class="inf">from code</span>' : ""}</p>`;
   if (e.b) h += `<p class="body">${rich(e.b)}</p>`;
+  h += plain(e.w);
   let io = "";
   if (e.i && e.i.length) io += `<div class="lab">Inputs</div><div class="tbl"><table>${e.i.map(([n, t, d]) =>
     `<tr><td class="pn">${esc(n)}</td><td class="pt">${esc(t)}</td><td>${d ? rich(d) : ""}</td></tr>`).join("")}</table></div>`;
@@ -189,8 +201,9 @@ function render(det){
   if (body.dataset.done) return;
   const m = modByPath.get(det.id); curMod = m.p;
   let h = "";
-  if (m.nb) h = nbHtml(m);
+  if (m.nb) h = plain(m.w, true) + nbHtml(m);
   else {
+    h += plain(m.w, true);
     if (m.x) h += `<p class="x">${rich(m.x)}</p>`;
     if (m.K) h += `<div class="consts">Constants: <span class="mono">${m.K.map(esc).join(", ")}</span></div>`;
     h += m.fn.length ? m.fn.map(fnHtml).join("") : `<p class="x">No functions: the file runs top to bottom as a script, or only re-exports.</p>`;
@@ -212,7 +225,7 @@ window.addEventListener("hashchange", fromHash); fromHash();
 
 // Search
 const q = document.getElementById("q"), res = document.getElementById("results");
-const index = all.map(({e, mod}) => ({e, mod, hay: (e.n + " " + (e.d || "") + " " + mod.p).toLowerCase()}));
+const index = all.map(({e, mod}) => ({e, mod, hay: (e.n + " " + (e.d || "") + " " + (e.w || "") + " " + mod.p).toLowerCase()}));
 for (const p of D.pkgs) for (const m of p.mods) if (m.nb) for (const b of m.blocks) index.push({nb: b, mod: m, hay: (b.h + " " + b.t + " " + m.p).toLowerCase()});
 let timer;
 q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(search, 120); });
