@@ -259,8 +259,6 @@ the few definitions without one, and the folder and notebook summaries, live in 
 The script lists anything undescribed (`--strict` makes that an error).
 On every push to main, `.github/workflows/code-map.yml` rebuilds the page and publishes it at
 <https://megyoung430.github.io/magnitude-bandit-analysis/>, which the lab Notion embeds (Methods & Docs).
-With `--notion` it also syncs the Code Map database in the lab Notion (Methods & Docs); this
-needs a Notion integration token as `NOTION_TOKEN` in `.env` (see `docs/issues/docs-code-map.md`).
 
 ## Getting started
 

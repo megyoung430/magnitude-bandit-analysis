@@ -1,3 +1,0 @@
-# Where scripts/build_code_map.py --notion writes: the "magnitude-bandit-analysis Code Map"
-# database in Value, Schema, MRN > Methods & Docs. Not a secret; the token is (NOTION_TOKEN).
-database_id = "4469be00cff14550a0cabef36760c6d6"
