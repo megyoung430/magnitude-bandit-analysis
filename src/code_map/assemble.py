@@ -11,10 +11,6 @@ from typing import NamedTuple
 from src.code_map.docstrings import one_line, structure
 from src.code_map.extract import Definition, ModuleRecord, NotebookRecord
 
-MAX_BODY = 4000
-MAX_RETURNS = 4000
-MAX_RAISES = 1500
-MAX_MODULE_MORE = 4000
 MAX_CONSTANTS = 30
 MAX_BLOCK_TEXT = 420
 MAX_BLOCK_CALLS = 14
@@ -109,7 +105,7 @@ def inputs(d: Definition) -> list[list[str]]:
 def output(d: Definition) -> str:
     """The documented return value, else the return annotation ("None" means a side effect)."""
     if d.doc.returns:
-        return clip(d.doc.returns, MAX_RETURNS)
+        return d.doc.returns
     return SIDE_EFFECT if d.returns_annotation == "None" else d.returns_annotation
 
 
@@ -126,7 +122,7 @@ def definition_entry(d: Definition, path: str, descriptions: Mapping[str, str]) 
     if not d.doc.summary and written:
         entry["u"] = 1
     if d.doc.body:
-        entry["b"] = clip(d.doc.body, MAX_BODY)
+        entry["b"] = d.doc.body
     if d.kind == "class":
         if d.fields:
             entry["f"] = list(d.fields)
@@ -136,7 +132,7 @@ def definition_entry(d: Definition, path: str, descriptions: Mapping[str, str]) 
         if out := output(d):
             entry["o"] = out
         if d.doc.raises:
-            entry["r"] = clip(d.doc.raises, MAX_RAISES)
+            entry["r"] = d.doc.raises
     if d.children:
         entry["c"] = [definition_entry(c, path, descriptions) for c in d.children]
     return entry
@@ -179,7 +175,7 @@ def module_entry(m: ModuleRecord, overviews: Overviews, descriptions: Mapping[st
     entry = {
         "p": m.path,
         "a": overviews.modules.get(m.path) or one_line(first),
-        "x": clip(structure(rest.splitlines()), MAX_MODULE_MORE),
+        "x": structure(rest.splitlines()),
         "L": m.n_lines,
         "fn": [definition_entry(d, m.path, descriptions) for d in m.defs],
     }
