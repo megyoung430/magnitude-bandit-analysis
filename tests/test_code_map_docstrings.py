@@ -53,3 +53,65 @@ def test_a_one_line_docstring_is_only_a_summary():
 def test_yields_counts_as_the_output():
     doc = parse_docstring("Walk the sessions.\n\nYields:\n    dict: One session.\n")
     assert doc.returns == "dict: One session."
+
+
+PPD_STYLE = """Import a recording. The low_pass argument sets the
+filter cutoff in Hz.  Returns a dictionary with the
+following items:
+    'filename'  - Data filename
+    'mode'      - Acquisition mode
+    For each analog signal:
+        'analog_x'      - Raw signal (volts)
+        'analog_x_filt' - Filtered signal
+    For each digital signal:
+        'digital_y' - Digital signal
+"""
+
+
+def test_a_returns_sentence_without_a_section_becomes_the_output_with_its_list():
+    doc = parse_docstring(PPD_STYLE)
+    assert doc.summary == "Import a recording."
+    assert doc.body == "The low_pass argument sets the filter cutoff in Hz."
+    assert doc.returns == (
+        "Returns a dictionary with the following items:\n"
+        "- 'filename' - Data filename\n"
+        "- 'mode' - Acquisition mode\n"
+        "- For each analog signal:\n"
+        "  - 'analog_x' - Raw signal (volts)\n"
+        "  - 'analog_x_filt' - Filtered signal\n"
+        "- For each digital signal:\n"
+        "  - 'digital_y' - Digital signal"
+    )
+
+
+def test_paragraphs_stay_separate_and_wrapped_lines_are_joined():
+    doc = parse_docstring("Do a thing.\n\nFirst paragraph\nwraps here.\n\nSecond one.\n")
+    assert doc.body == "First paragraph wraps here.\n\nSecond one."
+
+
+def test_bullets_keep_their_lines_and_wrapped_bullets_are_joined():
+    text = "Summary.\n\nSteps:\n\n- load the data\n  from disk\n- fit it\n1. numbered\n"
+    assert parse_docstring(text).body == (
+        "Steps:\n\n- load the data from disk\n- fit it\n- numbered"
+    )
+
+
+def test_a_returns_section_keeps_its_list():
+    text = (
+        "Summary.\n\nReturns:\n    DataFrame with columns:\n"
+        "        mouse: The id.\n        p: The value.\n"
+    )
+    assert (
+        parse_docstring(text).returns
+        == "DataFrame with columns:\n- mouse: The id.\n- p: The value."
+    )
+
+
+def test_wrapped_lines_of_a_returns_section_are_joined():
+    text = "Summary.\n\nReturns:\n    dict: The fit, with every\n        parameter.\n"
+    assert parse_docstring(text).returns == "dict: The fit, with every parameter."
+
+
+def test_a_short_first_paragraph_is_the_whole_summary():
+    doc = parse_docstring("Fit the model. Uses several starts.\n\nMore.\n")
+    assert doc.summary == "Fit the model. Uses several starts." and doc.body == "More."

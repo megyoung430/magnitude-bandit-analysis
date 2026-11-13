@@ -8,12 +8,9 @@ say the text was written from the code rather than by its author.
 from collections.abc import Iterable, Mapping
 from typing import NamedTuple
 
+from src.code_map.docstrings import one_line, structure
 from src.code_map.extract import Definition, ModuleRecord, NotebookRecord
 
-MAX_BODY = 900
-MAX_RETURNS = 700
-MAX_RAISES = 400
-MAX_MODULE_MORE = 1400
 MAX_CONSTANTS = 30
 MAX_BLOCK_TEXT = 420
 MAX_BLOCK_CALLS = 14
@@ -77,9 +74,17 @@ def parse_descriptions(text: str) -> dict[str, str]:
 
 
 def clip(text: str, limit: int) -> str:
-    """*text* cut at a word boundary to at most *limit* characters, with an ellipsis if cut."""
+    """*text* cut to at most *limit* characters, with an ellipsis if cut.
+
+    Multi-line text (paragraphs and list items) is cut at a line break so a list item is never
+    split; single-line text at a word boundary.
+    """
     text = text.strip()
-    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " …"
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    cut = head.rsplit("\n", 1)[0] if "\n" in head else head.rsplit(" ", 1)[0]
+    return cut.rstrip() + " …"
 
 
 def inputs(d: Definition) -> list[list[str]]:
@@ -100,7 +105,7 @@ def inputs(d: Definition) -> list[list[str]]:
 def output(d: Definition) -> str:
     """The documented return value, else the return annotation ("None" means a side effect)."""
     if d.doc.returns:
-        return clip(d.doc.returns, MAX_RETURNS)
+        return d.doc.returns
     return SIDE_EFFECT if d.returns_annotation == "None" else d.returns_annotation
 
 
@@ -117,7 +122,7 @@ def definition_entry(d: Definition, path: str, descriptions: Mapping[str, str]) 
     if not d.doc.summary and written:
         entry["u"] = 1
     if d.doc.body:
-        entry["b"] = clip(d.doc.body, MAX_BODY)
+        entry["b"] = d.doc.body
     if d.kind == "class":
         if d.fields:
             entry["f"] = list(d.fields)
@@ -127,7 +132,7 @@ def definition_entry(d: Definition, path: str, descriptions: Mapping[str, str]) 
         if out := output(d):
             entry["o"] = out
         if d.doc.raises:
-            entry["r"] = clip(d.doc.raises, MAX_RAISES)
+            entry["r"] = d.doc.raises
     if d.children:
         entry["c"] = [definition_entry(c, path, descriptions) for c in d.children]
     return entry
@@ -166,11 +171,11 @@ def package_of(path: str) -> str:
 
 def module_entry(m: ModuleRecord, overviews: Overviews, descriptions: Mapping[str, str]) -> dict:
     """The page entry of one Python file."""
-    paragraphs = [" ".join(p.split()) for p in m.doc.split("\n\n")]
+    first, _, rest = m.doc.strip().partition("\n\n")
     entry = {
         "p": m.path,
-        "a": overviews.modules.get(m.path) or (paragraphs[0] if m.doc else ""),
-        "x": clip(" ".join(paragraphs[1:]), MAX_MODULE_MORE),
+        "a": overviews.modules.get(m.path) or one_line(first),
+        "x": structure(rest.splitlines()),
         "L": m.n_lines,
         "fn": [definition_entry(d, m.path, descriptions) for d in m.defs],
     }
