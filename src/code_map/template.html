@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Magnitude Bandit Code Map</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -72,6 +77,8 @@ details.mod[open]>summary{border-bottom:1px solid var(--line)}
 .fn .kind{font:600 10.5px/1 var(--f-head);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-right:6px}
 .fn .desc{margin:7px 0 0;max-width:80ch}
 .fn .body{margin:4px 0 0;color:var(--muted);font-size:13.5px;max-width:80ch}
+.fn .body p,.modbody .x p,.io .txt p{margin:0 0 6px} .io .txt p:last-child{margin-bottom:0}
+ul.pl{margin:2px 0 8px;padding-left:18px} ul.pl li{margin-top:1px} .io .txt ul.pl:last-child{margin-bottom:0}
 .fn .inf{display:inline-block;font-size:11px;color:var(--flag);background:var(--flag-soft);border-radius:3px;padding:0 5px;margin-left:6px;vertical-align:1px}
 details.plain{margin:8px 0 2px;max-width:80ch;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 4px 4px 0}
 details.plain>summary{cursor:pointer;padding:5px 10px;font:600 12px/1.4 var(--f-head);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
@@ -83,7 +90,8 @@ details.plain .pw p{margin:6px 0} details.plain .pw ul{margin:6px 0;padding-left
 .io table{border-collapse:collapse;width:100%}
 .io td{vertical-align:top;padding:2px 10px 2px 0;border-bottom:1px dotted var(--line)}
 .io td.pn{font-family:var(--f-mono);font-size:12.5px;white-space:nowrap}
-.io td.pt{font-family:var(--f-mono);font-size:12px;color:var(--muted);max-width:220px;overflow-wrap:anywhere}
+.io td.pt{font-family:var(--f-mono);font-size:12px;color:var(--muted);width:1%;min-width:90px;max-width:220px;overflow-wrap:anywhere}
+.io td.pn{width:1%}
 .tbl{overflow-x:auto}
 .kids{margin:10px 0 0 14px;padding-left:12px;border-left:2px solid var(--line)}
 .kids .fn{padding:8px 0}
@@ -100,6 +108,8 @@ details.plain .pw p{margin:6px 0} details.plain .pw ul{margin:6px 0;padding-left
   .secgrid{grid-template-columns:minmax(0,1fr)} .io{grid-template-columns:minmax(0,1fr)}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
+</head>
+<body>
 
 <div class="wrap">
   <nav id="nav" aria-label="Contents"></nav>
@@ -125,11 +135,19 @@ details.plain .pw p{margin:6px 0} details.plain .pw ul{margin:6px 0;padding-left
 (function(){
 const D = JSON.parse(document.getElementById("data").textContent);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const rich = s => esc(s).replace(/``([^`]+)``/g, "<code>$1</code>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s.,;:)]|$)/g, "$1<i>$2</i>");
+const rich = s => esc(String(s ?? "").replace(/:(?:py:)?(?:func|class|meth|mod|attr|data|obj|exc):`/g, "`")).replace(/``([^`]+)``/g, "<code>$1</code>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s.,;:)]|$)/g, "$1<i>$2</i>");
+// Light Markdown from the build: blank lines separate blocks; "- " lines are list items, two
+// leading spaces per nesting level; other lines are paragraphs.
 const prose = s => String(s || "").split(/\n\s*\n/).map(block => {
-  const lines = block.split("\n");
-  if (lines.every(l => /^\s*- /.test(l))) return "<ul>" + lines.map(l => `<li>${rich(l.replace(/^\s*- /, ""))}</li>`).join("") + "</ul>";
-  return `<p>${rich(lines.join(" "))}</p>`;
+  let html = "", items = [];
+  const flush = () => { if (items.length) { html += `<ul class="pl">${items.join("")}</ul>`; items = []; } };
+  for (const line of block.split("\n")) {
+    const m = line.match(/^(\s*)- (.*)$/);
+    if (m) items.push(`<li style="margin-left:${Math.floor(m[1].length / 2) * 18}px">${rich(m[2])}</li>`);
+    else { flush(); html += `<p>${rich(line)}</p>`; }
+  }
+  flush();
+  return html;
 }).join("");
 const plain = (s, open) => s ? `<details class="plain"${open ? " open" : ""}><summary>In plain words</summary><div class="pw">${prose(s)}</div></details>` : "";
 const slug = p => "f-" + p.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -176,14 +194,14 @@ function fnHtml(e){
   const sig = esc(e.s).replace(esc(name), `<span class="nm">${esc(name)}</span>`);
   let h = `<div class="fn" id="${slugFn(e)}"><div class="sig"><span class="kind">${k}</span>${sig}</div>`;
   h += `<p class="desc">${e.d ? rich(e.d) : "<i>No description.</i>"}${e.u ? '<span class="inf">from code</span>' : ""}</p>`;
-  if (e.b) h += `<p class="body">${rich(e.b)}</p>`;
+  if (e.b) h += `<div class="body">${prose(e.b)}</div>`;
   h += plain(e.w);
   let io = "";
   if (e.i && e.i.length) io += `<div class="lab">Inputs</div><div class="tbl"><table>${e.i.map(([n, t, d]) =>
     `<tr><td class="pn">${esc(n)}</td><td class="pt">${esc(t)}</td><td>${d ? rich(d) : ""}</td></tr>`).join("")}</table></div>`;
   if (e.f && e.f.length) io += `<div class="lab">Fields</div><div class="mono" style="font-size:12.5px">${e.f.map(esc).join("<br>")}</div>`;
-  if (e.o) io += `<div class="lab">Output</div><div>${rich(e.o)}</div>`;
-  if (e.r) io += `<div class="lab">Raises</div><div>${rich(e.r)}</div>`;
+  if (e.o) io += `<div class="lab">Output</div><div class="txt">${prose(e.o)}</div>`;
+  if (e.r) io += `<div class="lab">Raises</div><div class="txt">${prose(e.r)}</div>`;
   if (io) h += `<div class="io">${io}</div>`;
   if (e.c && e.c.length) h += `<div class="kids">${e.c.map(fnHtml).join("")}</div>`;
   return h + `</div>`;
@@ -204,7 +222,7 @@ function render(det){
   if (m.nb) h = plain(m.w, true) + nbHtml(m);
   else {
     h += plain(m.w, true);
-    if (m.x) h += `<p class="x">${rich(m.x)}</p>`;
+    if (m.x) h += `<div class="x">${prose(m.x)}</div>`;
     if (m.K) h += `<div class="consts">Constants: <span class="mono">${m.K.map(esc).join(", ")}</span></div>`;
     h += m.fn.length ? m.fn.map(fnHtml).join("") : `<p class="x">No functions: the file runs top to bottom as a script, or only re-exports.</p>`;
   }
@@ -250,3 +268,5 @@ function search(){
 res.addEventListener("click", ev => { const a = ev.target.closest("a[data-f]"); if (!a) return; ev.preventDefault(); openTo(a.dataset.f, a.dataset.fn); history.replaceState(null, "", "#" + a.dataset.f); });
 })();
 </script>
+</body>
+</html>

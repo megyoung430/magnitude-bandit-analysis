@@ -8,12 +8,13 @@ say the text was written from the code rather than by its author.
 from collections.abc import Iterable, Mapping
 from typing import NamedTuple
 
+from src.code_map.docstrings import one_line, structure
 from src.code_map.extract import Definition, ModuleRecord, NotebookRecord
 
-MAX_BODY = 900
-MAX_RETURNS = 700
-MAX_RAISES = 400
-MAX_MODULE_MORE = 1400
+MAX_BODY = 4000
+MAX_RETURNS = 4000
+MAX_RAISES = 1500
+MAX_MODULE_MORE = 4000
 MAX_CONSTANTS = 30
 MAX_BLOCK_TEXT = 420
 MAX_BLOCK_CALLS = 14
@@ -77,9 +78,17 @@ def parse_descriptions(text: str) -> dict[str, str]:
 
 
 def clip(text: str, limit: int) -> str:
-    """*text* cut at a word boundary to at most *limit* characters, with an ellipsis if cut."""
+    """*text* cut to at most *limit* characters, with an ellipsis if cut.
+
+    Multi-line text (paragraphs and list items) is cut at a line break so a list item is never
+    split; single-line text at a word boundary.
+    """
     text = text.strip()
-    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " …"
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    cut = head.rsplit("\n", 1)[0] if "\n" in head else head.rsplit(" ", 1)[0]
+    return cut.rstrip() + " …"
 
 
 def inputs(d: Definition) -> list[list[str]]:
@@ -166,11 +175,11 @@ def package_of(path: str) -> str:
 
 def module_entry(m: ModuleRecord, overviews: Overviews, descriptions: Mapping[str, str]) -> dict:
     """The page entry of one Python file."""
-    paragraphs = [" ".join(p.split()) for p in m.doc.split("\n\n")]
+    first, _, rest = m.doc.strip().partition("\n\n")
     entry = {
         "p": m.path,
-        "a": overviews.modules.get(m.path) or (paragraphs[0] if m.doc else ""),
-        "x": clip(" ".join(paragraphs[1:]), MAX_MODULE_MORE),
+        "a": overviews.modules.get(m.path) or one_line(first),
+        "x": clip(structure(rest.splitlines()), MAX_MODULE_MORE),
         "L": m.n_lines,
         "fn": [definition_entry(d, m.path, descriptions) for d in m.defs],
     }
