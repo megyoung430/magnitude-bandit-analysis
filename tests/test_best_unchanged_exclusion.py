@@ -2,10 +2,17 @@
 
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
-from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_good_reversal
-from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
-from src.behavior_analysis.split_good_reversals_by_best_change import (
+from src.behavior_analysis.rank_proportions.get_rank_counts_by_good_reversal import (
+    get_rank_counts_by_good_reversal,
+)
+from src.behavior_analysis.reversals.get_good_reversal_info import (
+    ReversalWarning,
+    get_good_reversal_info,
+)
+from src.behavior_analysis.reversals.split_early_late_good_reversals import (
+    split_good_reversals_early_late,
+)
+from src.behavior_analysis.reversals.split_good_reversals_by_best_change import (
     split_good_reversals_by_best_change,
 )
 

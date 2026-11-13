@@ -95,7 +95,7 @@ def test_main_passes_pooled_only_and_the_mice_to_run_cohorts(cli, monkeypatch):
 
 
 def test_a_bad_mouse_name_is_one_line_not_a_traceback(cli, monkeypatch, capsys):
-    from src.behavior_analysis.exclude_mice import ExcludedMiceError
+    from src.behavior_analysis.data.exclude_mice import ExcludedMiceError
 
     def fail(ids, **kw):
         raise ExcludedMiceError("cannot exclude MY_9_Z: not among the mice (MY_175_L)")

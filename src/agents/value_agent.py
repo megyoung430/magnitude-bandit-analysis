@@ -4,14 +4,15 @@ On each trial the agent chooses port ``j`` with probability
 ``softmax(beta * Q + kappa * s + plus_bias * c)_j``, where ``Q`` are its learned values, ``s`` is
 1 for the port chosen on the previous trial of the session (0 at a session start) and ``c`` is 1
 for a port in the same row or column as the initiation port (a "plus" port, see
-:func:`src.behavior_analysis.port_preference.port_category`). After the choice, the chosen
+:func:`src.behavior_analysis.pokes.port_preference.port_category`). After the choice, the chosen
 port's value moves toward the reward: ``Q_a <- Q_a + learning_rate * (r - Q_a)``. Values start
 at 0 at the start of each problem and carry over between its sessions.
 
 The parameters (``PARAMETER_NAMES``) are the learning rate, the inverse temperature ``beta``
 on values, the stickiness ``kappa`` and the spatial bias ``plus_bias``, the last two in logit
 units and directly comparable to the ``stay`` and ``plus_port`` weights of
-:mod:`src.behavior_analysis.choice_regression`. The spatial bias is needed: without it the
+:mod:`src.behavior_analysis.choice_logit.choice_regression`. The spatial bias is needed: without it
+the
 fitted learning rate tends toward 0, because slowly accumulated values are then the only way to
 express a fixed preference between ports. The likelihood can still have a slow (learning rate
 near 0) and a fast mode for some mice, so fit with several starts.

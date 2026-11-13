@@ -82,25 +82,25 @@ unchanged: the selection does not change the conclusions of the earlier analyses
 cohort-1 numbers from before this change should rerun on the selected table.
 
 ## Change
-- `src/behavior_analysis/problem_selection.py`: the selection and the table of dropped problems.
-- `src/pipelines/rank_baseline.py`: held-out nats of four models and paired comparisons on the
+- `src/behavior_analysis/data/problem_selection.py`: the selection and the table of dropped problems.
+- `src/pipelines/rank_tests/rank_baseline.py`: held-out nats of four models and paired comparisons on the
   selected table (shared strategy cache first, else `cross_validate` on the subset).
-- `src/behavior_analysis/rank_state.py` (believed values, defined states, average ranks),
+- `src/behavior_analysis/rank_tests/rank_state.py` (believed values, defined states, average ranks),
   `rank_decisions.py` (the decision table, the kernel Q-learner's values), `rank_logit.py` (ridge
   logistic with Laplace errors and leave-one-problem-out likelihood), `rank_stay.py` (tests 1, 4),
   `rank_crossings.py` (test 2), `rank_third.py` (test 3), `rank_transfer.py` (test 5),
   `rank_switch.py` (rank against value in the switch regression), `rank_signatures.py`
   (`analyze_mouse`, `TESTS`, `PREDICTED`; raises `UnanalyzableError` below 200 decisions),
   `rank_calibration.py` (z, p, passes, summaries), `rank_result.py`.
-- `src/behavior_analysis/rank_worst_split.py`: the probe (trials since each alternative was last
+- `src/behavior_analysis/rank_tests/rank_worst_split.py`: the probe (trials since each alternative was last
   visited, the stale-belief flag, cells by own payout and by consistency with one zero arm, the
   unpenalized refit, variance inflation and correlations); its readouts are test 6 in
   `rank_signatures.TESTS` and have no rank/softmax direction.
 - `src/agents/rank_agent.py`: the toy rank agent (for tests and the notebook's synthetic section).
-- `src/pipelines/rank_signatures.py`: mice, replays through `sim.simulate_policy_mouse` (replays that
+- `src/pipelines/rank_tests/rank_signatures.py`: mice, replays through `sim.simulate_policy_mouse` (replays that
   are too short are counted as failed, never silently dropped), calibration, joblib caching keyed on
   the data and a hash of the code.
-- `src/behavior_visualization/plot_rank_signatures.py`: eight figures, each saved as pdf, png, svg and
+- `src/behavior_visualization/rank_tests/plot_rank_signatures.py`: eight figures, each saved as pdf, png, svg and
   `.caption.txt` (Stay Comparison Weights, Rank Crossing Step, Rank Crossing Aligned, Third Option,
   Rank vs Value, Transfer Across Problems, Block Change Inference, Worst Alternative Weight Split). The y-axis of a dot panel is fitted
   to the dots, because an agent's replay bar can be far wider than the mice differ.

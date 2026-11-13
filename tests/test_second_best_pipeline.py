@@ -9,11 +9,11 @@ import pytest
 
 from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
-from src.behavior_analysis import second_best as sb
-from src.pipelines import choice_logit_values as logit_pipe
-from src.pipelines import null_agents as null_pipe
-from src.pipelines import second_best as pipe
-from src.pipelines import switch_regression as switch_pipe
+from src.behavior_analysis.switching import second_best as sb
+from src.pipelines.choice_logit import choice_logit_values as logit_pipe
+from src.pipelines.strategy_models import null_agents as null_pipe
+from src.pipelines.switching import second_best as pipe
+from src.pipelines.switching import switch_regression as switch_pipe
 from tests.second_best_fixtures import hand_mouse
 from tests.switch_regression_fixtures import simulate_switch_mouse
 

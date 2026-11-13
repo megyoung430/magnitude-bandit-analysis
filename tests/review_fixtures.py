@@ -10,7 +10,7 @@ import json
 
 import pandas as pd
 
-from src.behavior_analysis.review_context import ProblemIndex
+from src.behavior_analysis.review.review_context import ProblemIndex
 from src.behavior_import.task_types import (
     number_within_task_type,
     problem_map_table,

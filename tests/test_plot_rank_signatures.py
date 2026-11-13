@@ -11,12 +11,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import rank_calibration as rcal
-from src.behavior_analysis import rank_signatures as sg
-from src.behavior_analysis import strategy_models as sm
-from src.behavior_visualization import plot_rank_signatures as plots
-from src.behavior_visualization.plot_helpers import FIGURE_FORMATS, caption_path
-from src.pipelines import rank_signatures as pipe
+from src.behavior_analysis.rank_tests import rank_calibration as rcal
+from src.behavior_analysis.rank_tests import rank_signatures as sg
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.behavior_visualization.common.plot_helpers import FIGURE_FORMATS, caption_path
+from src.behavior_visualization.rank_tests import plot_rank_signatures as plots
+from src.pipelines.rank_tests import rank_signatures as pipe
 
 STATS = re.compile(r"^(mean ± se across mice|per mouse), n=\d+ mice$")
 READOUTS = sorted({name for names in sg.TESTS.values() for name in names})

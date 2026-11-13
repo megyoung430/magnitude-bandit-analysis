@@ -10,12 +10,12 @@ import warnings
 import pandas as pd
 import pytest
 
-import src.pipelines.cohort_analysis as cohort_analysis
+import src.pipelines.common.cohort_analysis as cohort_analysis
 from src.behavior_import import import_log
 from src.behavior_import.import_log import ImportLog, SessionFlag, SkipRecord
 from src.behavior_import.load_trials import ImportedTrials
 from src.behavior_import.warning_records import WarningRecord
-from src.pipelines.cohort_analysis import run_cohort
+from src.pipelines.common.cohort_analysis import run_cohort
 from tests.cohort_fixtures import blocked_then_two_drifting
 
 TABLE_FILES = {

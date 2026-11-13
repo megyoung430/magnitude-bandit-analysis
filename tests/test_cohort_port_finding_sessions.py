@@ -18,7 +18,7 @@ import pytest
 
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.task_types import BLOCKED, DRIFTING
-from src.pipelines.cohort_analysis import run_cohort, run_cohort_incremental
+from src.pipelines.common.cohort_analysis import run_cohort, run_cohort_incremental
 from tests.cohort_fixtures import PROBLEMS, blocked_then_two_drifting
 from tests.poke_fixtures import Recording
 from tests.test_cohort_runner_integration import (

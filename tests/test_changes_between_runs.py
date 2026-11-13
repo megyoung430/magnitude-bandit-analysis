@@ -10,10 +10,13 @@ import warnings
 
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
-from src.behavior_analysis.get_total_reversals import get_total_reversals
-from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
-from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
+from src.behavior_analysis.data.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.reversals.get_good_reversal_info import (
+    ReversalWarning,
+    get_good_reversal_info,
+)
+from src.behavior_analysis.reversals.get_total_reversals import get_total_reversals
+from src.behavior_analysis.review.suspect_reversals import count_suspect_good_reversals
 from src.behavior_import.extract_trials import extract_trials
 from src.behavior_import.reconcile_reversals import uncarried_counts
 from tests.boundary_fixtures import (

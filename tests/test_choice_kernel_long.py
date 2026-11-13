@@ -5,10 +5,10 @@ import pandas as pd
 import pytest
 
 from src.agents import drifting_simulation as sim
-from src.behavior_analysis import choice_kernel_timescale as ts
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
-from src.pipelines import choice_kernel_long as long
+from src.behavior_analysis.choice_logit import choice_kernel_timescale as ts
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
+from src.pipelines.choice_logit import choice_kernel_long as long
 from tests.strategy_fixtures import RULES, layouts
 
 

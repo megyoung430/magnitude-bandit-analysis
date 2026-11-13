@@ -34,7 +34,7 @@ from pydantic import ValidationError
 from src.behavior_import.cache_check import check_import_cache, check_to_dict, describe_check
 from src.behavior_import.cache_refresh import prune_import_cache, refresh_import_cache
 from src.behavior_import.cache_store import CacheLocationError, ShareReadError
-from src.pipelines.cohort_analysis import cohort_name, cohort_raw_dir
+from src.pipelines.common.cohort_analysis import cohort_name, cohort_raw_dir
 from src.settings import get_settings, get_unchecked_settings
 
 # Problems are numbered by task type in every cohort run (see cohort_analysis.load_cohort).

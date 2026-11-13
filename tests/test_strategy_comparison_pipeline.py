@@ -9,9 +9,9 @@ import pytest
 
 from src.agents import drifting_simulation as sim
 from src.agents import kernel_q_agent as kq
-from src.behavior_analysis import strategy_models as sm
-from src.pipelines import choice_logit_values as logit_pipe
-from src.pipelines import strategy_comparison as pipe
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.pipelines.choice_logit import choice_logit_values as logit_pipe
+from src.pipelines.strategy_models import strategy_comparison as pipe
 from tests.strategy_fixtures import RULES, simulate_mouse
 
 N_STARTS = 3

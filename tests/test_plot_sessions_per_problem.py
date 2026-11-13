@@ -8,9 +8,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.sessions_per_problem import summarize_sessions_per_problem
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_sessions_per_problem import (
+from src.behavior_analysis.task_statistics.sessions_per_problem import (
+    summarize_sessions_per_problem,
+)
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.task_statistics.plot_sessions_per_problem import (
     MEAN_LABEL,
     RUNNING_LABEL,
     plot_sessions_per_problem,

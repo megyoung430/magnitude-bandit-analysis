@@ -8,7 +8,7 @@ status: in review
 
 `total_removal_curves` only saw reversals that were anchors in the windows, and windows are built from good reversals (or, without counters, block changes), so bad reversals never cut a window and total < good + bad. PI decision: a window is cut by the next reversal of any kind, so total = good + bad (+ unclassified) at every offset.
 
-Related bugs in `src/behavior_analysis/cumulative_reversal_removal.py`:
+Related bugs in `src/behavior_analysis/reversals/cumulative_reversal_removal.py`:
 
 - with 0 anchors the curves reported 0% removed instead of "no data";
 - a subject absent from `good_idx` / `bad_idx` was silently treated as having no reversals.
@@ -20,7 +20,7 @@ A session that logs no good/bad counters (`has_good` and `has_bad` both false) c
 - `get_unclassified_reversal_indices` gives them per subject, decided per session (a subject can mix counters and blocks-only sessions), on the same merged-trial axis as `get_all_reversal_indices`. `get_reversal_indices_by_kind` bundles good, bad and unclassified.
 - Total mode counts them, so total = good + bad + unclassified at every offset.
 - Good/bad mode keeps `good_bad_removal_curves` returning good and bad only (anchors first cut by an unclassified reversal are in neither, so they are not mis-attributed to a later good or bad one). `removal_curves_by_kind` returns all three, and `cumulative_removal_series` adds an `"unclassified"` line (grey in the plot) whenever `unclassified_idx` holds any reversal, so they never silently vanish.
-- `unclassified_idx` / `all_unclassified_idx` are required keyword-only arguments (`{subject: []}` when every session logs counters), so a caller cannot forget them and read a flat 0 on blocks-only data. `plot_choice_probs_around_good_reversals` accepts `None` only when no cumulative axis is drawn; with one, `None` raises `ValueError`. `src/pipelines/open_field.py` and the two analysis scripts (`scripts/full_pipelines/run_grid_maze_analysis.py`, `scripts/individual_analyses/plot_choice_probs_around_good_reversals.py`) build the indices with `get_reversal_indices_by_kind` and pass them, so the grey unclassified line is reachable from them.
+- `unclassified_idx` / `all_unclassified_idx` are required keyword-only arguments (`{subject: []}` when every session logs counters), so a caller cannot forget them and read a flat 0 on blocks-only data. `plot_choice_probs_around_good_reversals` accepts `None` only when no cumulative axis is drawn; with one, `None` raises `ValueError`. `src/pipelines/common/open_field.py` and the two analysis scripts (`scripts/full_pipelines/run_grid_maze_analysis.py`, `scripts/individual_analyses/plot_choice_probs_around_good_reversals.py`) build the indices with `get_reversal_indices_by_kind` and pass them, so the grey unclassified line is reachable from them.
 - `get_unclassified_reversal_indices` checks every session first: `blocks` and `trial` must have the same length (missing counts as empty), otherwise it raises a `ValueError` naming subject and session.
 
 ## Acceptance criteria

@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis import choice_logit_extensions as ext
-from src.pipelines import choice_logit_values as pipe
-from src.pipelines import regression_extensions as rx
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.choice_logit import choice_logit_extensions as ext
+from src.pipelines.choice_logit import choice_logit_values as pipe
+from src.pipelines.choice_logit import regression_extensions as rx
 from tests.choice_logit_fixtures import simulate_logit_cohort, simulate_logit_trials
 
 SETTINGS = dict(n_lags=2, tail_decay=None, l2=1.0)

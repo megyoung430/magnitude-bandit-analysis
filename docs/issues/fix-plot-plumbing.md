@@ -18,7 +18,7 @@ The figure modules in `src/behavior_visualization/` each carried their own save/
 
 ## Design
 
-All in `src/behavior_visualization/plot_helpers.py`:
+All in `src/behavior_visualization/common/plot_helpers.py`:
 
 - `save_or_show(figures, save_path, *, formats, dpi, make_parent)`: the one function for single-figure wrappers. `figures` may also be `{suffix: figure}` for wrappers that save several figures under one base path (`plot_num_reversals*`, `plot_reversals_by_trial`); they are then shown together in one `plt.show()`. Always closes the figures, also when saving raises.
 - `write_outputs(outputs, directory, *, show)`: unchanged API, for the multi-output wrappers (`plot_cohort_comparison`, `plot_trial_block_summaries`). On any exception it closes every figure opened while consuming the lazy builders (the unfinished figure of a builder that raises is not reachable otherwise) and leaves figures that were open beforehand alone.

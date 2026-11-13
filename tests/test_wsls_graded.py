@@ -6,9 +6,9 @@ import pytest
 from scipy.special import expit
 
 from src.agents import null_agents as na
-from src.behavior_analysis import switch_regression as sr
-from src.pipelines import null_agents as nulls
-from src.pipelines import switch_regression as switch_pipe
+from src.behavior_analysis.switching import switch_regression as sr
+from src.pipelines.strategy_models import null_agents as nulls
+from src.pipelines.switching import switch_regression as switch_pipe
 from tests.test_null_agents import RULES, hand_table, simulated_table
 
 GRADED = na.WslsGradedParams(w0=-0.6, w_m=0.5, p_recent=0.8)

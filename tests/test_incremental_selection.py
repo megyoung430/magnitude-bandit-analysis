@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from src.pipelines.incremental import (
+from src.pipelines.common.incremental import (
     NoSessionsSelectedError,
     describe_plan,
     merge_diagnostic_tables,

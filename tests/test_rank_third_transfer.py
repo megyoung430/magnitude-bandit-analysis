@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis import rank_decisions as rd
-from src.behavior_analysis import rank_logit as rl
-from src.behavior_analysis import rank_state as rs
-from src.behavior_analysis import rank_third as r3
-from src.behavior_analysis import rank_transfer as rt
+from src.behavior_analysis.rank_tests import rank_decisions as rd
+from src.behavior_analysis.rank_tests import rank_logit as rl
+from src.behavior_analysis.rank_tests import rank_state as rs
+from src.behavior_analysis.rank_tests import rank_third as r3
+from src.behavior_analysis.rank_tests import rank_transfer as rt
 from tests.rank_fixtures import rank_mouse, softmax_mouse
 from tests.switch_regression_fixtures import table_from_rows
 

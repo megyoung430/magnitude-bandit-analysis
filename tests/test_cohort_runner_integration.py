@@ -17,19 +17,19 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-import src.behavior_analysis.poke_counts as poke_counts_module
-import src.pipelines.cohort_analysis as cohort_analysis
-import src.pipelines.open_field as pipeline
-from src.behavior_analysis.poke_events import PokeAlignmentError, PokeParseError
+import src.behavior_analysis.pokes.poke_counts as poke_counts_module
+import src.pipelines.common.cohort_analysis as cohort_analysis
+import src.pipelines.common.open_field as pipeline
+from src.behavior_analysis.pokes.poke_events import PokeAlignmentError, PokeParseError
 from src.behavior_import.task_types import BLOCKED, DRIFTING
-from src.behavior_visualization import plot_maze_heatmaps
-from src.pipelines.cohort_analysis import (
+from src.behavior_visualization.common import plot_maze_heatmaps
+from src.pipelines.common.cohort_analysis import (
     BLOCKED_SELECTION,
     DRIFTING_SELECTION,
     run_cohort,
     selection_for_task_type,
 )
-from src.pipelines.open_field import (
+from src.pipelines.common.open_field import (
     POOLED_DRIFTING_LABEL,
     AnalysisSelection,
     run_drifting_value_analyses,

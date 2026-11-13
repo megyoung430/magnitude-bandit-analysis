@@ -26,9 +26,9 @@ import src.behavior_import.load_trials as load_trials
 import src.settings as settings
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.load_trials import ImportedTrials, StaleCacheWarning
-from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
-from src.pipelines.cache_provenance import FROM_CACHE_FILE
-from src.pipelines.cohort_analysis import cohort_raw_dir, run_cohorts
+from src.pipelines.common.all_cohorts_drifting import run_all_cohorts_drifting
+from src.pipelines.common.cache_provenance import FROM_CACHE_FILE
+from src.pipelines.common.cohort_analysis import cohort_raw_dir, run_cohorts
 from tests.all_cohorts_fixtures import synthetic_cohort
 from tests.cohort_fixtures import blocked_then_two_drifting
 

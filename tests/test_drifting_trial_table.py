@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.behavior_analysis.drifting_trial_table import COLUMNS, drifting_trial_table
+from src.behavior_analysis.data.drifting_trial_table import COLUMNS, drifting_trial_table
 from tests.all_cohorts_fixtures import SESSIONS_PER_PROBLEM, TRIALS_PER_SESSION, synthetic_cohort
 
 

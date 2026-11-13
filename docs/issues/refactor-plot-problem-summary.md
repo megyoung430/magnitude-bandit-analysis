@@ -8,7 +8,7 @@ status: done
 
 # Split plot_problem_summary.py into analysis + ax panels
 
-Refactor the long functions in `src/behavior_visualization/plot_problem_summary.py` to follow the delab coding principles without changing behaviour.
+Refactor the long functions in `src/behavior_visualization/task_statistics/plot_problem_summary.py` to follow the delab coding principles without changing behaviour.
 
 Targets: plot_problem_lengths (103 lines), plot_rank_proportions_average_without_blocks (102), plot_metric_by_problem (95), plot_distributions_per_problem_all_mice (87), plot_distributions_per_mouse (84).
 
@@ -44,9 +44,9 @@ Behaviour-preserving refactor, test-first (principle 7):
 
 ## Review follow-up
 
-- The pure analysis helpers moved to `src/behavior_analysis/blocklen_distributions.py`
+- The pure analysis helpers moved to `src/behavior_analysis/task_statistics/blocklen_distributions.py`
   (`collect_blocklens`, `drop_last_problem_per_mouse_raw`, `pooled_blocklens`) and
-  `src/behavior_analysis/rank_proportions_summary.py` (`mean_rank_proportions_by_subject`,
+  `src/behavior_analysis/rank_proportions/rank_proportions_summary.py` (`mean_rank_proportions_by_subject`,
   `rank_mean_and_se`). `collect_blocklens` and `drop_last_problem_per_mouse_raw` are still
   importable from `plot_problem_summary`, which `scripts/to_integrate/testing_code.ipynb` uses.
 - Tests go through the public figure functions; the private helpers are not called directly.

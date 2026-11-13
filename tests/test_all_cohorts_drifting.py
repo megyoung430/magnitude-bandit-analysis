@@ -19,28 +19,28 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.get_choice_probs_by_value import count_choice_probs
-from src.behavior_analysis.poke_counts import session_choice_ports
+from src.behavior_analysis.pokes.poke_counts import session_choice_ports
+from src.behavior_analysis.value.get_choice_probs_by_value import count_choice_probs
 from src.behavior_import.import_log import ImportLog
-from src.pipelines import all_cohorts_drifting as pipeline
-from src.pipelines.all_cohorts_drifting import (
+from src.pipelines.common import all_cohorts_drifting as pipeline
+from src.pipelines.common.all_cohorts_drifting import (
     drifting_problems,
     pool_cohorts,
     pooled_scope_label,
     run_all_cohorts_drifting,
 )
-from src.pipelines.cohort_analysis import (
+from src.pipelines.common.cohort_analysis import (
     DRIFTING_SELECTION,
     plot_pooled_drifting_rank,
     pooled_drifting_rank_results,
 )
-from src.pipelines.open_field import (
+from src.pipelines.common.open_field import (
     POOLED_DRIFTING_LABEL,
     run_drifting_value_analyses,
 )
-from src.pipelines.port_preference import run_port_preference_analysis
-from src.pipelines.value_change_analysis import run_value_change_analysis
-from src.pipelines.value_psychometrics import run_value_psychometric_analysis
+from src.pipelines.pokes.port_preference import run_port_preference_analysis
+from src.pipelines.value.value_change_analysis import run_value_change_analysis
+from src.pipelines.value.value_psychometrics import run_value_psychometric_analysis
 from tests.all_cohorts_fixtures import DRIFTING_NAME, synthetic_cohort
 from tests.plot_capture import capture_figures
 from tests.poke_fixtures import Recording

@@ -16,10 +16,10 @@ matplotlib.use("Agg")
 import pandas as pd
 import pytest
 
-import src.pipelines.cohort_analysis as cohort_analysis
+import src.pipelines.common.cohort_analysis as cohort_analysis
 from src.behavior_import.task_types import BLOCKED, DRIFTING
-from src.pipelines.cohort_analysis import run_cohort, run_cohort_incremental, run_cohorts
-from src.pipelines.incremental import NoSessionsSelectedError
+from src.pipelines.common.cohort_analysis import run_cohort, run_cohort_incremental, run_cohorts
+from src.pipelines.common.incremental import NoSessionsSelectedError
 from tests.cohort_fixtures import blocked_then_two_drifting
 from tests.test_cohort_runner_integration import (
     STUB_RESULTS,

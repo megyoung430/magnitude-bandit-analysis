@@ -15,9 +15,9 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 
-from src.behavior_analysis import blocklen_distributions
-from src.behavior_visualization import plot_problem_summary as pps
-from src.behavior_visualization.plot_helpers import figure_caption
+from src.behavior_analysis.task_statistics import blocklen_distributions
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.task_statistics import plot_problem_summary as pps
 
 nan = float("nan")
 

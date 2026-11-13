@@ -11,9 +11,9 @@ import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
 from src.agents import kernel_q_agent as kq  # noqa: E402
-from src.behavior_analysis import strategy_models as sm  # noqa: E402
-from src.behavior_visualization import plot_strategy_models as plots  # noqa: E402
-from src.pipelines.strategy_comparison import Recovery, SourceComparison  # noqa: E402
+from src.behavior_analysis.strategy_models import strategy_models as sm  # noqa: E402
+from src.behavior_visualization.strategy_models import plot_strategy_models as plots  # noqa: E402
+from src.pipelines.strategy_models.strategy_comparison import Recovery, SourceComparison  # noqa: E402
 from tests.test_plot_choice_logit import check_files  # noqa: E402
 from tests.test_plot_regression_extensions import saved_figures  # noqa: E402, F401
 

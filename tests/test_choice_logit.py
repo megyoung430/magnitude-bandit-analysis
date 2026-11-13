@@ -7,9 +7,12 @@ from scipy.optimize import approx_fprime
 from scipy.special import logsumexp
 
 from src.agents import drifting_simulation as sim
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis.choice_logit_cv import cross_validate_mouse, model_comparison
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.choice_logit.choice_logit_cv import (
+    cross_validate_mouse,
+    model_comparison,
+)
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
 
 PORTS = ["A1", "B3", "C2"]
 

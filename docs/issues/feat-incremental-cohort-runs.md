@@ -13,7 +13,7 @@ among them.
 
 ## Acceptance criteria
 
-- `select_recent_sessions` (`src/pipelines/incremental.py`, pure) returns the `(task_type, k)`
+- `select_recent_sessions` (`src/pipelines/common/incremental.py`, pure) returns the `(task_type, k)`
   problems containing a selected session and the selected `(mouse, session)` pairs, for each
   mouse's last N sessions or the sessions dated on or after a day. N below 1, a date that is not
   `YYYY-MM-DD`, both or neither option, and a selection matching no session raise `ValueError`

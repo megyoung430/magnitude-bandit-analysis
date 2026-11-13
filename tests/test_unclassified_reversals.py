@@ -4,16 +4,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_choice_probs_around_good_reversals import (
+from src.behavior_analysis.reversals.get_choice_probs_around_good_reversals import (
     get_choice_probs_around_good_reversals,
 )
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.get_total_reversals import (
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.get_total_reversals import (
     get_all_reversal_indices,
     get_reversal_indices_by_kind,
     get_unclassified_reversal_indices,
 )
-from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
+from src.behavior_visualization.reversals.plot_choice_probs_around_good_reversals import (
     plot_choice_probs_around_good_reversals,
 )
 

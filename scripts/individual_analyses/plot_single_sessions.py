@@ -2,7 +2,7 @@ from pathlib import Path
 
 from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
 from src.behavior_import.load_trials import load_trials_by_problem
-from src.behavior_visualization.plot_single_session import plot_single_session
+from src.behavior_visualization.task_statistics.plot_single_session import plot_single_session
 from src.settings import get_settings
 
 # task = "grid-maze"

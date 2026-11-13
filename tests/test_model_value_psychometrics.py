@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import model_value_psychometrics as mvp
-from src.behavior_analysis.get_believed_value import rank_weights
-from src.behavior_analysis.stay_switch_psychometrics import stay_switch_curves
+from src.behavior_analysis.data.get_believed_value import rank_weights
+from src.behavior_analysis.value import model_value_psychometrics as mvp
+from src.behavior_analysis.value.stay_switch_psychometrics import stay_switch_curves
 
 
 def test_rank_table_orders_values_and_gives_the_chosen_arms_rank_shares():

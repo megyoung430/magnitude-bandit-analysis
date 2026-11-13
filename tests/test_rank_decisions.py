@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from src.agents import kernel_q_agent as kq
-from src.behavior_analysis import rank_decisions as rd
-from src.behavior_analysis import rank_state as rs
+from src.behavior_analysis.rank_tests import rank_decisions as rd
+from src.behavior_analysis.rank_tests import rank_state as rs
 from tests.test_rank_state import hand_table
 
 

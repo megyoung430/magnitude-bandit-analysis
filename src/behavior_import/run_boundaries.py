@@ -49,7 +49,7 @@ def best_changed(before, after):
     """Whether the best tower differs; a tie resolves to the first-listed tower.
 
     This is the rule that decides whether a logged good reversal is real: it matches
-    :func:`src.behavior_analysis.best_change.best_change_problem`.
+    :func:`src.behavior_analysis.reversals.best_change.best_change_problem`.
 
     Args:
         before (dict | None): ``{tower: magnitude}`` on the earlier trial.

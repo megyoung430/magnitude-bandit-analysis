@@ -1,6 +1,8 @@
 import pytest
 
-from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
+from src.behavior_analysis.reversals.split_early_late_good_reversals import (
+    split_good_reversals_early_late,
+)
 
 
 def reversals(*numbers):

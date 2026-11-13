@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.diagnostic_tables import DIAGNOSTIC_TABLES, stack_diagnostics
+from src.behavior_analysis.review.diagnostic_tables import DIAGNOSTIC_TABLES, stack_diagnostics
 
 PROBLEM_MAP = pd.DataFrame(
     {

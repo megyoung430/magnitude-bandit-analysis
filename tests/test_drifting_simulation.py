@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 
 from src.agents import drifting_simulation as sim
-from src.behavior_analysis.drifting_task_rules import block_changes, complete_block_lengths
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
-from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.data.drifting_task_rules import block_changes, complete_block_lengths
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.data.get_variables_across_sessions import get_vars_across_all_sessions
 
 LAYOUT = sim.MouseLayout(
     ports=["A1", "B3", "C2"],

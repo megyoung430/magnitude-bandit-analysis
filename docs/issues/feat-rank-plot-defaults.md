@@ -23,7 +23,7 @@ status: in review
 - `plot_rank_proportions_average` stays public and unchanged (still `str`-only, no folder creation).
 - The names `by Average Across Mice/Blocks` follow the dispatcher's `<save_path> by <view>` pattern.
 - A `Path` `save_path` is now accepted by the dispatcher too (it builds names with an f-string); before it raised `TypeError` for a `Path`.
-- Callers using only defaults (`src/pipelines/open_field.py`, `scripts/full_pipelines/*.py`, `scripts/individual_analyses/plot_rank_proportions.py`, cohort-1/cohort-3 notebooks, `to_integrate` notebooks) get the new defaults. `plot_cohort_comparison` does not call the dispatcher.
+- Callers using only defaults (`src/pipelines/common/open_field.py`, `scripts/full_pipelines/*.py`, `scripts/individual_analyses/plot_rank_proportions.py`, cohort-1/cohort-3 notebooks, `to_integrate` notebooks) get the new defaults. `plot_cohort_comparison` does not call the dispatcher.
 - Callers that pass `by_mouse=`/`by_block=` explicitly (funcimg notebook) keep them.
 
 ## Results change

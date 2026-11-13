@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import stay_by_run_length as rl
+from src.behavior_analysis.value import stay_by_run_length as rl
 from tests.test_null_agents import hand_table
 
 

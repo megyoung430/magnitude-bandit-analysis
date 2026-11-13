@@ -11,7 +11,7 @@ from collections.abc import Callable, Collection
 
 import numpy as np
 
-from src.behavior_analysis.outcome_events import load_outcome_events
+from src.behavior_analysis.data.outcome_events import load_outcome_events
 from src.funcimg_analysis.collect import collect_each_run, variant_runs
 from src.funcimg_analysis.collect_shared import run_seed
 from src.funcimg_analysis.event_frames import frame_period_s

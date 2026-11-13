@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.behavior_analysis.no_trial_sessions import COLUMNS, no_trial_sessions_table
+from src.behavior_analysis.review.no_trial_sessions import COLUMNS, no_trial_sessions_table
 from src.behavior_import import import_log
 from src.behavior_import.import_log import SkipRecord
 from tests.review_fixtures import BLOCKED_NAME, DRIFTING_NAME, cohort, session

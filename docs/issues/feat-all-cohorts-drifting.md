@@ -8,7 +8,7 @@ status: in review
 
 `scripts/full_pipelines/run_all_drifting_problems.py --cohorts 1 3 4 [--no-cache]` runs the
 analyses of `drifting/all-drifting-problems/` over the drifting problems of the chosen cohorts
-(`src/pipelines/all_cohorts_drifting.py`).
+(`src/pipelines/common/all_cohorts_drifting.py`).
 
 ## Acceptance criteria
 

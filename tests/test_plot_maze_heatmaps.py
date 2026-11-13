@@ -6,9 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.poke_events import ARMS9
-from src.behavior_visualization import plot_maze_heatmaps as module
-from src.behavior_visualization.plot_maze_heatmaps import (
+from src.behavior_analysis.pokes.poke_events import ARMS9
+from src.behavior_visualization.common import plot_maze_heatmaps as module
+from src.behavior_visualization.common.plot_maze_heatmaps import (
     CURRENT_COLOR,
     INITIATION_COLOR,
     MAZE_POSITIONS,

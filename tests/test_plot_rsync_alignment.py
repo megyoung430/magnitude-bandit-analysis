@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_visualization.plot_rsync_alignment import plot_rsync_alignment
+from src.behavior_visualization.common.plot_rsync_alignment import plot_rsync_alignment
 from src.sync.rsync import RsyncAligner
 from tests import plot_capture  # noqa: F401  (selects the Agg backend)
 from tests.sync_fixtures import simulate_pulses

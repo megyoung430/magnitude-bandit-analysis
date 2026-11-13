@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import problem_selection as ps
+from src.behavior_analysis.data import problem_selection as ps
 
 
 def table(rows: list[tuple]) -> pd.DataFrame:

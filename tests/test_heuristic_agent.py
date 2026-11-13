@@ -9,7 +9,7 @@ from scipy.special import expit, log_expit
 from src.agents import drifting_simulation as sim
 from src.agents import heuristic_agent as ha
 from src.agents import null_agents as na
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
 from tests.switch_regression_fixtures import table_from_rows
 
 PORTS = ("A1", "B3", "C2")

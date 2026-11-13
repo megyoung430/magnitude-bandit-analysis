@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from src.behavior_analysis.stats import mean_se_n, nan_standard_error
+from src.behavior_analysis.data.stats import mean_se_n, nan_standard_error
 
 nan = float("nan")
 

@@ -4,7 +4,8 @@ The model follows Aloor, Sit, Geuter, Tutt & Duan (bioRxiv 2026.10.31.763226, Me
 model", eqs 7-14), adapted to three arms with graded rewards. On each trial the agent chooses arm
 ``j`` with probability ``softmax(beta * Q + beta_k * K + plus_bias * c)_j``, where ``Q`` are its
 learned values, ``K`` its choice kernel and ``c`` is 1 for a port in the same row or column as the
-initiation port (a "plus" port, see :func:`src.behavior_analysis.port_preference.port_category`).
+initiation port (a "plus" port, see
+:func:`src.behavior_analysis.pokes.port_preference.port_category`).
 After the choice, with ``delta = r - Q_chosen`` (``r`` is the pulses paid):
 
 - the chosen value moves by ``alpha_pos * delta`` if ``delta > 0`` and by ``alpha_neg * delta``

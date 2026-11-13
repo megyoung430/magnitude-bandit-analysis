@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis import rank_decisions as rd
-from src.behavior_analysis import rank_state as rs
-from src.behavior_analysis import rank_stay as st
+from src.behavior_analysis.rank_tests import rank_decisions as rd
+from src.behavior_analysis.rank_tests import rank_state as rs
+from src.behavior_analysis.rank_tests import rank_stay as st
 from tests.rank_fixtures import rank_mouse, softmax_mouse
 
 

@@ -1,5 +1,8 @@
 import unittest
-from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_value
+
+from src.behavior_analysis.rank_proportions.get_rank_counts_by_good_reversal import (
+    get_rank_counts_by_value,
+)
 
 
 def session(choices, rewards):

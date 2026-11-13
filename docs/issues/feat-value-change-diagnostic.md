@@ -25,12 +25,12 @@ label (`prev_best`, `prev_second`, `third`) names.
   only) and a per-cohort `index.txt`; drifting problems only.
 
 ## Entry points
-- `src.behavior_analysis.value_change_diagnostic.diagnose_session(subject, session_key, session)`
+- `src.behavior_analysis.value.value_change_diagnostic.diagnose_session(subject, session_key, session)`
   returns one `EventDiagnostic` per event (window trial indices, label per trial, arm per label).
-- `src.behavior_analysis.value_change_windows.swap_label_arms(magnitudes)` is the public form of the
+- `src.behavior_analysis.value.value_change_windows.swap_label_arms(magnitudes)` is the public form of the
   analysis's label-to-arm rule.
-- `src.behavior_visualization.plot_value_change_diagnostic.plot_value_change_diagnostic`.
-- `src.pipelines.value_change_diagnostic.run_cohort_diagnostic`.
+- `src.behavior_visualization.value.plot_value_change_diagnostic.plot_value_change_diagnostic`.
+- `src.pipelines.value.value_change_diagnostic.run_cohort_diagnostic`.
 
 ## Decisions
 - Events and windows come from `get_value_change_windows(..., pre=5, post=15,

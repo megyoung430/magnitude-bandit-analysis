@@ -5,8 +5,9 @@ import pandas as pd
 import pytest
 
 from src.agents import drifting_simulation as sim
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
-from src.pipelines.agent_baselines import (
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
+from src.pipelines.common.cohort_analysis import DRIFTING_SELECTION
+from src.pipelines.strategy_models.agent_baselines import (
     SOURCES,
     check_block_change_rule,
     cohorts_folder_name,
@@ -14,7 +15,6 @@ from src.pipelines.agent_baselines import (
     simulate_agents,
     write_agent_baselines,
 )
-from src.pipelines.cohort_analysis import DRIFTING_SELECTION
 
 LAYOUTS = (
     sim.MouseLayout(["A1", "B3", "C2"], "B2", {"A1": 4, "B3": 1, "C2": 0}, [90, 110, 100]),
@@ -100,8 +100,10 @@ def test_a_mouse_simulation_does_not_depend_on_the_other_mice():
 def test_the_regression_panel_states_the_mean_and_the_number_of_animals():
     import pandas as pd
 
-    from src.behavior_analysis.choice_regression import FEATURES
-    from src.behavior_visualization.plot_agent_baselines import plot_regression_weights
+    from src.behavior_analysis.choice_logit.choice_regression import FEATURES
+    from src.behavior_visualization.strategy_models.plot_agent_baselines import (
+        plot_regression_weights,
+    )
 
     weights = pd.DataFrame(
         [

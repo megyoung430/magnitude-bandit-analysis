@@ -13,9 +13,9 @@ problems, use scripts/full_pipelines/run_cohorts.py: it reads the task type of e
 its task name and runs the analyses that apply to each type.
 """
 
-from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
+from src.behavior_analysis.pokes.port_finding_sessions import assign_port_finding_sessions
 from src.behavior_import.load_trials import load_trials_with_log
-from src.pipelines.open_field import ChoiceProbabilitySettings, run_open_field_analysis
+from src.pipelines.common.open_field import ChoiceProbabilitySettings, run_open_field_analysis
 from src.settings import REPO_ROOT, get_settings
 
 TASK = "open-field"

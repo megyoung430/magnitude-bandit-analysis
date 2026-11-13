@@ -5,9 +5,9 @@ import warnings
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import strategy_models as sm
-from src.pipelines import rank_baseline as rb
-from src.pipelines import strategy_comparison as strategy
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.pipelines.rank_tests import rank_baseline as rb
+from src.pipelines.strategy_models import strategy_comparison as strategy
 from tests.strategy_fixtures import simulate_mouse
 
 MODELS = (sm.WSLS_MAGNITUDE, sm.WSLS_HABIT)

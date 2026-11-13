@@ -77,10 +77,11 @@ def test_coverage_lists_undescribed_definitions_and_stale_descriptions():
     assert stale == ["src/gone.py::old"]
 
 
-def test_package_is_the_first_two_path_parts_or_the_top_level():
+def test_package_is_the_folder_a_file_is_in_or_the_top_level():
     assert package_of("src/agents/q.py") == "src/agents"
     assert package_of("src/settings.py") == "src (top level)"
     assert package_of("scripts/full_pipelines/run.py") == "scripts/full_pipelines"
+    assert package_of("src/behavior_analysis/glm_hmm/fit.py") == "src/behavior_analysis/glm_hmm"
 
 
 def test_build_map_orders_packages_as_the_overviews_list_them_and_appends_unknown_ones():

@@ -27,7 +27,7 @@ Results change: none unless --from-cache is passed.
   functions, `check_exclusion_in_cohorts`, `run_cohorts` (via its settings) and
   `run_all_cohorts_drifting`.
 - `--from-cache` on both scripts; exclusive with `--no-cache` in `run_all_drifting_problems.py`.
-- `ImportLog.cache_source` (`CacheSource`); `src/pipelines/cache_provenance.py` writes
+- `ImportLog.cache_source` (`CacheSource`); `src/pipelines/common/cache_provenance.py` writes
   `from-cache.txt`.
 
 ## Acceptance criteria

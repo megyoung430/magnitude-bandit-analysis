@@ -19,7 +19,7 @@ Drifting problems only: the drifting task has block changes, no good or bad reve
 ## Entry point
 
 ```python
-from src.pipelines.value_psychometrics import run_value_psychometric_analysis
+from src.pipelines.value.value_psychometrics import run_value_psychometric_analysis
 
 run_value_psychometric_analysis(
     subjects_trials_by_problem: dict,   # {problem: {subject: {session: session_data}}}
@@ -39,9 +39,9 @@ problem (believed values reset per problem), then added per mouse. Unknown `valu
 `pooling_modes` (anything but real bools) or `tie_modes` raise `ValueError` before anything is
 written.
 
-New modules: `src/behavior_analysis/value_psychometrics.py` (pure tables),
-`src/behavior_visualization/plot_value_psychometrics.py` (drawing),
-`src/pipelines/value_psychometrics.py` (entry point, not wired into the runners).
+New modules: `src/behavior_analysis/value/value_psychometrics.py` (pure tables),
+`src/behavior_visualization/value/plot_value_psychometrics.py` (drawing),
+`src/pipelines/value/value_psychometrics.py` (entry point, not wired into the runners).
 `count_choice_probs(..., use_believed, tie_mode)` / `choice_probs_from_counts` are new in
 `get_choice_probs_by_value`; `accumulate_choice_probs` keeps its return value and gains
 `tie_mode="split"`.

@@ -2,14 +2,14 @@
 
 from src.behavior_import.load_trials import load_trials_with_log
 from src.behavior_import.task_types import DRIFTING, number_within_task_type, regroup_by_task_type
-from src.pipelines.cohort_analysis import (
+from src.pipelines.common.cohort_analysis import (
     DEFAULT_RESULTS_ROOT,
     POOLED_DRIFTING_FOLDER,
     cohort_name,
     cohort_raw_dir,
 )
-from src.pipelines.open_field import VALUE_CHANGE_FOLDER
-from src.pipelines.value_change_analysis import run_value_change_analysis
+from src.pipelines.common.open_field import VALUE_CHANGE_FOLDER
+from src.pipelines.value.value_change_analysis import run_value_change_analysis
 from src.settings import get_settings
 
 COHORTS = [1, 2, 3, 4]

@@ -10,10 +10,10 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
-from src.behavior_analysis import choice_logit_extensions as ext  # noqa: E402
-from src.behavior_visualization import plot_helpers  # noqa: E402
-from src.behavior_visualization import plot_regression_extensions as plots  # noqa: E402
-from src.pipelines import regression_extensions as rx  # noqa: E402
+from src.behavior_analysis.choice_logit import choice_logit_extensions as ext  # noqa: E402
+from src.behavior_visualization.choice_logit import plot_regression_extensions as plots  # noqa: E402
+from src.behavior_visualization.common import plot_helpers  # noqa: E402
+from src.pipelines.choice_logit import regression_extensions as rx  # noqa: E402
 from tests.test_plot_choice_logit import check_files  # noqa: E402
 from tests.test_plot_null_agents import legends_over_panels  # noqa: E402
 

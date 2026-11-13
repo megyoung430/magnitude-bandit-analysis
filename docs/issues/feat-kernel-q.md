@@ -22,7 +22,7 @@ P(stay) by run length, the fitted kernel rate per mouse and a WSLS (Habit) agent
   `value_agent_parameters`. Non-convergence of every start raises.
 - `src/agents/drifting_simulation.py`: `KernelQPolicy`, so the model is simulated with the
   existing machinery.
-- `src/behavior_analysis/strategy_models.py`: `KERNEL_Q`, `WSLS_HABIT` and the four ablations in the
+- `src/behavior_analysis/strategy_models/strategy_models.py`: `KERNEL_Q`, `WSLS_HABIT` and the four ablations in the
   registry (`MODELS` are the candidates and recovery generators, `COMPARED` also holds the
   ablations, which are scored on the same folds but never win and are not generators). New paired
   comparisons (kernel Q against WSLS (Magnitude) and the Q-learner, WSLS (Habit) against WSLS
@@ -30,10 +30,10 @@ P(stay) by run length, the fitted kernel rate per mouse and a WSLS (Habit) agent
   of WSLS (Magnitude) at trace decays 0 (no trace), 0.3, 0.5, 0.7, 0.8, 0.9 and 0.95.
 - `src/agents/null_agents.py`: WSLS (Habit) (`wsls_habit`), a null agent, a comparison candidate
   and a recovery generator.
-- `src/behavior_analysis/choice_logit.py`: the `CHOICE_TAIL` extra and `ALL_EXTRAS`
+- `src/behavior_analysis/choice_logit/choice_logit.py`: the `CHOICE_TAIL` extra and `ALL_EXTRAS`
   (`EXTRAS` is unchanged), `choice_logit_extensions.TAIL_VARIANTS`.
-- `src/behavior_analysis/choice_kernel_timescale.py`, `stay_by_run_length.py`;
-  `src/pipelines/choice_kernel_long.py` (long-lag fits cached per mouse, `recover_choice_kernel`),
+- `src/behavior_analysis/choice_logit/choice_kernel_timescale.py`, `stay_by_run_length.py`;
+  `src/pipelines/choice_logit/choice_kernel_long.py` (long-lag fits cached per mouse, `recover_choice_kernel`),
   `strategy_comparison.py` (ablation, parameter and timescale tables, decay profile), `fitted_q.py`
   (the control generalized over `CONTROLS`).
 - Figures (each saved as pdf, png, svg and a `.caption.txt`): `Kernel Q Ablations`, `Kernel Q

@@ -12,23 +12,23 @@ import pandas as pd
 import pytest
 from matplotlib.patches import RegularPolygon
 
-from src.behavior_analysis.poke_events import ARMS9
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_port_preference import (
+from src.behavior_analysis.pokes.poke_events import ARMS9
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.pokes.plot_port_preference import (
     CATEGORY_LABELS,
     UNDEFINED_COLOR,
     log2_limit,
     plot_category_ratios_panel,
     plot_port_ratio_panel,
 )
-from src.pipelines.cohort_analysis import DRIFTING_SELECTION
-from src.pipelines.open_field import (
+from src.pipelines.common.cohort_analysis import DRIFTING_SELECTION
+from src.pipelines.common.open_field import (
     DRIFTING_ONLY_SECTIONS,
     AnalysisSelection,
     check_selection_for_task_type,
     run_problem,
 )
-from src.pipelines.port_preference import run_port_preference_analysis
+from src.pipelines.pokes.port_preference import run_port_preference_analysis
 from tests.plot_capture import capture_figures
 from tests.test_port_preference import TRIALS, session
 
@@ -266,7 +266,7 @@ def test_a_scope_where_every_mouse_is_excluded_still_draws(tmp_path):
 
 def test_one_problem_heatmaps_outline_current_ports_green_and_previous_red(tmp_path, monkeypatch):
     captured = {}
-    import src.pipelines.port_preference as pipeline
+    import src.pipelines.pokes.port_preference as pipeline
 
     def record(port_ratios, **kwargs):
         captured.update(kwargs)
@@ -286,7 +286,7 @@ def test_one_problem_heatmaps_outline_current_ports_green_and_previous_red(tmp_p
 
 def test_pooled_heatmaps_have_no_green_or_red_outlines(tmp_path, monkeypatch):
     captured = {}
-    import src.pipelines.port_preference as pipeline
+    import src.pipelines.pokes.port_preference as pipeline
 
     monkeypatch.setattr(pipeline, "plot_port_ratio_heatmaps", lambda r, **k: captured.update(k))
     monkeypatch.setattr(pipeline, "plot_category_ratios", lambda *a, **k: None)
@@ -300,8 +300,8 @@ def test_pooled_heatmaps_have_no_green_or_red_outlines(tmp_path, monkeypatch):
 def test_panel_draws_red_and_green_rings(tmp_path):
     import pandas as pd
 
-    from src.behavior_analysis.poke_events import ARMS9
-    from src.behavior_visualization.plot_port_preference import plot_port_ratio_panel
+    from src.behavior_analysis.pokes.poke_events import ARMS9
+    from src.behavior_visualization.pokes.plot_port_preference import plot_port_ratio_panel
 
     ports = pd.DataFrame({"ratio": [1.0] * 9, "n_trials": [5] * 9}, index=list(ARMS9))
     ax = plot_port_ratio_panel(
@@ -323,7 +323,7 @@ def _one_problem_for_outlines():
 def test_choice_towers_stored_per_trial_give_their_union(tmp_path, monkeypatch):
     # The importer can store choice_towers as one list of ports per trial (lists are unhashable).
     captured = {}
-    import src.pipelines.port_preference as pipeline
+    import src.pipelines.pokes.port_preference as pipeline
 
     monkeypatch.setattr(pipeline, "plot_port_ratio_heatmaps", lambda r, **k: captured.update(k))
     sessions = {"ses-1": {**session(TRIALS), "choice_towers": [["B1", "B3", "C2"]] * 3}}

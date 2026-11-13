@@ -21,7 +21,7 @@ also refuse counter-format data themselves, and their figure text speaks of bloc
   (`is_counter_session`).
 - `run_reversal_aligned_arm_analysis` checks prebuilt windows too: each record's
   `boundary_source` must be `"blocks"`.
-- One shared helper per check, in `src/behavior_analysis/reversal_format.py`:
+- One shared helper per check, in `src/behavior_analysis/reversals/reversal_format.py`:
   `check_blocks_only_sessions` and `check_block_change_windows`.
 - `build_windows_with_magnitudes` yields `boundary_source == "blocks"` on blocks-only data.
 - Figure titles, axis labels, legends and docstrings of the arm analysis (analysis, ranks, plot,

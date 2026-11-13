@@ -10,9 +10,9 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
-from src.behavior_analysis import switch_regression as sr  # noqa: E402
-from src.behavior_visualization import plot_switch_regression as plots  # noqa: E402
-from src.pipelines.switch_regression import NullCalibration, SourceSwitchRegression  # noqa: E402
+from src.behavior_analysis.switching import switch_regression as sr  # noqa: E402
+from src.behavior_visualization.switching import plot_switch_regression as plots  # noqa: E402
+from src.pipelines.switching.switch_regression import NullCalibration, SourceSwitchRegression  # noqa: E402
 from tests.test_plot_choice_logit import check_files  # noqa: E402
 from tests.test_plot_regression_extensions import saved_figures  # noqa: E402, F401
 

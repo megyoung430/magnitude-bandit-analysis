@@ -22,7 +22,7 @@ outcome times; the photometry preprocessing notebook imports these modules.
   seeded (`random_state=0`) so an alignment is reproducible. The upstream order check tested
   `cor_times_A` twice; it now tests A and B. `interval_discrepancy_ms()` gives the interval
   disagreement over matched neighbouring pulses.
-- `src/behavior_visualization/plot_rsync_alignment.py`: `plot_rsync_alignment(aligner, axes=None)`,
+- `src/behavior_visualization/common/plot_rsync_alignment.py`: `plot_rsync_alignment(aligner, axes=None)`,
   three panels, draws into given axes or makes a figure.
 - `src/sync/pycontrol_time.py`: pure functions that put other clocks on pyControl seconds:
   `pycontrol_sync_times`, `align_to_pycontrol`, `to_pycontrol_time`, `photometry_sample_times`,
@@ -32,7 +32,7 @@ outcome times; the photometry preprocessing notebook imports these modules.
   unchanged, `read_ppd_header`), `sessions.py` (`find_photometry_sessions`, `PhotometrySession`),
   `recordings.py` (`match_ppd_to_tsv`, `load_photometry_recordings`, `PhotometryRecording`,
   `SkippedRecording`).
-- `src/behavior_analysis/outcome_events.py`: `outcome_events`, `outcome_settings`,
+- `src/behavior_analysis/data/outcome_events.py`: `outcome_events`, `outcome_settings`,
   `session_intervals` (pure), `load_outcome_events` (reads a `.tsv`).
 
 ## Outcome-time definitions and why

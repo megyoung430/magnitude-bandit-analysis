@@ -3,8 +3,8 @@
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import suspect_sessions as ss
-from src.behavior_analysis.suspect_sessions import (
+from src.behavior_analysis.review import suspect_sessions as ss
+from src.behavior_analysis.review.suspect_sessions import (
     COLUMNS,
     SETTINGS_KEYS,
     read_snapshots,

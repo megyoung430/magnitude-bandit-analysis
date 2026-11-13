@@ -16,10 +16,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.exclude_mice import ExcludedMiceError
-from src.behavior_visualization.plot_helpers import current_figure_banner
-from src.pipelines import all_cohorts_drifting as pipeline
-from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
+from src.behavior_analysis.data.exclude_mice import ExcludedMiceError
+from src.behavior_visualization.common.plot_helpers import current_figure_banner
+from src.pipelines.common import all_cohorts_drifting as pipeline
+from src.pipelines.common.all_cohorts_drifting import run_all_cohorts_drifting
 from tests.test_all_cohorts_drifting import (
     RUN_AT,
     SESSIONS_FIGURES,

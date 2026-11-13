@@ -14,9 +14,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-import src.pipelines.port_finding_summary as writers
-from src.behavior_analysis.poke_events import ARMS9
-from src.behavior_analysis.port_finding_summary import (
+import src.pipelines.pokes.port_finding_summary as writers
+from src.behavior_analysis.pokes.poke_events import ARMS9
+from src.behavior_analysis.pokes.port_finding_summary import (
     CURRENT,
     FIRST_BLOCKS,
     FIRST_TRIALS,
@@ -40,7 +40,7 @@ from src.behavior_analysis.port_finding_summary import (
     percent_of_pokes,
     port_category,
 )
-from src.behavior_visualization.plot_maze_heatmaps import draw_maze_heatmap
+from src.behavior_visualization.common.plot_maze_heatmaps import draw_maze_heatmap
 from tests.poke_fixtures import TOWERS, Recording, full_trial, session_record
 
 S1, S2, S3 = "ses-1_date-20260101", "ses-2_date-20260102", "ses-3_date-20260103"

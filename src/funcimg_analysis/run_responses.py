@@ -1,6 +1,6 @@
 """Reward-aligned responses of every cell of one imaging run, by number of reward pulses.
 
-Outcome times come from ``src.behavior_analysis.outcome_events`` (reward onset for rewarded
+Outcome times come from ``src.behavior_analysis.data.outcome_events`` (reward onset for rewarded
 trials, no-reward cue onset for unrewarded ones; ``num_rew_pulses`` 0-4), the same definitions as
 the photometry analysis. Four views of each cell are aligned: raw F and ΔF/F0 of the green
 (functional) channel and of the red (structural) channel. ΔF/F0 is computed by

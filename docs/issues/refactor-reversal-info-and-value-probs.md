@@ -8,7 +8,7 @@ status: done
 
 Refactor the long functions below into small, single-purpose functions (principle 4), separating analysis from plotting (principles 2-3), with identical behaviour.
 
-- **Files:** `src/behavior_analysis/get_bad_reversal_info.py`, `src/behavior_analysis/get_choice_probs_by_value.py`
+- **Files:** `src/behavior_analysis/reversals/get_bad_reversal_info.py`, `src/behavior_analysis/value/get_choice_probs_by_value.py`
 - **Functions over 60 lines:** get_bad_reversal_info (150), accumulate_choice_probs (133)
 
 ## Acceptance criteria

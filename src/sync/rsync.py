@@ -197,7 +197,8 @@ class RsyncAligner:
     other argument are then ignored).
 
     Differences from the upstream ``Rsync_aligner`` (Thomas Akam, GPL-3): plotting lives in
-    ``src.behavior_visualization.plot_rsync_alignment``, the inputs are validated, the mixture
+    ``src.behavior_visualization.common.plot_rsync_alignment``, the inputs are validated, the
+    mixture
     model is seeded, and the order check tests both ``cor_times_A`` and ``cor_times_B``
     (upstream tests ``cor_times_A`` twice, so a mis-ordered B was never caught).
 
