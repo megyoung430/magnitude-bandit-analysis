@@ -1,5 +1,9 @@
 import unittest
-from src.behavior_analysis.trial_block_summary import build_trial_block_tables, subject_numbers_from_paths
+
+from src.behavior_analysis.task_statistics.trial_block_summary import (
+    build_trial_block_tables,
+    subject_numbers_from_paths,
+)
 
 
 def session(blocks):

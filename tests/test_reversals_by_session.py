@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.reversals_by_session import (
+from src.behavior_analysis.reversals.reversals_by_session import (
     centered_moving_average,
     cumulative_by_session,
     curves_by_subject,

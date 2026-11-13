@@ -9,10 +9,10 @@ from scipy.special import expit
 
 from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
-from src.behavior_analysis.drifting_task_rules import block_changes, complete_block_lengths
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
-from src.pipelines import choice_logit_values as logit_pipe
-from src.pipelines import null_agents as pipe
+from src.behavior_analysis.data.drifting_task_rules import block_changes, complete_block_lengths
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
+from src.pipelines.choice_logit import choice_logit_values as logit_pipe
+from src.pipelines.strategy_models import null_agents as pipe
 
 RULES = sim.TaskRules(drift_rate=0.1, block_lengths=np.arange(30, 36))
 RECENCY = na.WslsRecencyParams(a_win=1.0, a_lose=-0.6, w=1.0)
@@ -335,7 +335,7 @@ def test_comparison_tabulates_the_reference_and_every_agent(comparison, real_lik
 @pytest.fixture(scope="module")
 def comparison_with_fitted_q(real_like):
     """The same comparison with a fitted Q-learner (a positive control) as an extra source."""
-    from src.pipelines import fitted_q
+    from src.pipelines.strategy_models import fitted_q
 
     fitted = {m: (0.3, 1.2, 0.5, 0.3) for m in sorted(real_like["mouse"].unique())}
     cohort = fitted_q.simulate_fitted_q_cohort(real_like, fitted, seed=2, rules=RULES)
@@ -383,8 +383,8 @@ def test_an_extra_label_may_not_repeat_a_source(real_like, comparison_with_fitte
 def test_the_fitted_q_learner_appears_in_the_figures_with_its_label_and_a_mouse_color(
     comparison_with_fitted_q, tmp_path, monkeypatch
 ):
-    from src.behavior_visualization import plot_helpers
-    from src.behavior_visualization import plot_null_agents as plots
+    from src.behavior_visualization.common import plot_helpers
+    from src.behavior_visualization.strategy_models import plot_null_agents as plots
 
     legends = {}
     real = plot_helpers._write_figure_files
@@ -410,7 +410,7 @@ def test_the_fitted_q_learner_appears_in_the_figures_with_its_label_and_a_mouse_
 
 
 def test_comparison_plots_write_every_figure_with_a_caption(comparison, tmp_path):
-    from src.behavior_visualization import plot_null_agents as plots
+    from src.behavior_visualization.strategy_models import plot_null_agents as plots
 
     plots.plot_comparison(comparison, tmp_path)
     names = {p.name for p in tmp_path.iterdir()}

@@ -8,7 +8,7 @@ status: done
 
 # Break up get_good_reversal_info
 
-Refactor the long functions in `src/behavior_analysis/get_good_reversal_info.py` to follow the delab coding principles without changing behaviour.
+Refactor the long functions in `src/behavior_analysis/reversals/get_good_reversal_info.py` to follow the delab coding principles without changing behaviour.
 
 Targets: get_good_reversal_info (194 lines).
 

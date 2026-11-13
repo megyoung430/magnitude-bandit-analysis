@@ -8,7 +8,7 @@ import pytest
 
 import src.settings as settings
 from src.behavior_import.cache_store import list_snapshots
-from src.pipelines.cohort_analysis import cohort_raw_dir, load_cohort
+from src.pipelines.common.cohort_analysis import cohort_raw_dir, load_cohort
 from tests.test_import_cache_refresh import first_cohort, grow
 
 pytestmark = pytest.mark.filterwarnings("ignore")

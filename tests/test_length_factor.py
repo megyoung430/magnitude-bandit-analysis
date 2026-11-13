@@ -6,11 +6,11 @@ import pytest
 
 from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
-from src.behavior_analysis import strategy_models as sm
-from src.pipelines import fitted_q as fq
-from src.pipelines import null_agents as nulls
-from src.pipelines import second_best as second
-from src.pipelines import switch_regression as switch_pipe
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.pipelines.strategy_models import fitted_q as fq
+from src.pipelines.strategy_models import null_agents as nulls
+from src.pipelines.switching import second_best as second
+from src.pipelines.switching import switch_regression as switch_pipe
 from tests.strategy_fixtures import RULES, simulate_mouse
 
 pytestmark = pytest.mark.filterwarnings("ignore:the problems of")

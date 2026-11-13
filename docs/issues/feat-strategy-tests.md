@@ -10,10 +10,10 @@ as a source everywhere the WSLS agents appear, longer schedules for the comparis
 fourth null agent (WSLS (Graded)), and leave-one-problem-out scoring of every null agent.
 
 ## Change
-- `src/behavior_analysis/second_best.py` (pure): the switch context, `leave_best_outcome`,
+- `src/behavior_analysis/switching/second_best.py` (pure): the switch context, `leave_best_outcome`,
   `believed_outcome`, `true_outcome`, `analyze_mouse` (proportions and graded curves by magnitude
   difference), `apply_minimum`, `group_summary`, `calibrate`, `calibrated_summary`.
-- `src/pipelines/second_best.py`: `analyze_second_best_source(s)`, `source_summaries`,
+- `src/pipelines/switching/second_best.py`: `analyze_second_best_source(s)`, `source_summaries`,
   `per_mouse_table`, and `calibrate_second_best` (each mouse against its own fitted WSLS (Magnitude)
   and WSLS (Recency) agents replayed on its task, cached per mouse and agent, keyed on
   `code_version()`). `switch_regression._rules_by_mouse` is public as `rules_by_mouse`.
@@ -26,23 +26,23 @@ fourth null agent (WSLS (Graded)), and leave-one-problem-out scoring of every nu
   to 0), `p_recent` in closed form from the informative switches (clipped); too few pairs or switches
   raise. It is the fourth comparison agent and the third calibration agent (WSLS (Magnitude) stays
   the agent whose band is drawn).
-- `src/behavior_analysis/strategy_models.py`: the models behind one registry (WSLS (Magnitude),
+- `src/behavior_analysis/strategy_models/strategy_models.py`: the models behind one registry (WSLS (Magnitude),
   Heuristic+, Q-learner, WSLS (Graded); all four WSLS agents are also scorable), the
   leave-one-problem-out cross-validation, the paired differences, winners and the recovery tables.
-  `src/pipelines/null_agents.py`: `heldout_scores` scores every null agent with that machinery, on the
+  `src/pipelines/strategy_models/null_agents.py`: `heldout_scores` scores every null agent with that machinery, on the
   folds of the choice logit.
-- `src/pipelines/strategy_comparison.py`: `analyze_comparison_source` (parallel over mice, cached per
+- `src/pipelines/strategy_models/strategy_comparison.py`: `analyze_comparison_source` (parallel over mice, cached per
   mouse on `code_version()`), the summaries, and `recover_models` (model and parameter recovery on
   the mice's own schedules).
-- `src/pipelines/fitted_q.py`: the fitted Q-learner positive control: `fits_of` (reuses the
+- `src/pipelines/strategy_models/fitted_q.py`: the fitted Q-learner positive control: `fits_of` (reuses the
   comparison's fits), `fit_q_learners`, `parameters_table` (flags parameters at a bound),
   `simulate_fitted_q_cohort` (a `SyntheticCohort` with `kind="q_fitted"`, simulated on each mouse's
   own layouts under the cohort's task rules, carrying the mouse's name) and `power_check`.
-- `src/pipelines/null_agents.py`: `compare_with_controls(extra_cohorts=...)` analyzes further
+- `src/pipelines/strategy_models/null_agents.py`: `compare_with_controls(extra_cohorts=...)` analyzes further
   simulated sources (the fitted Q-learner) like the agents; `lengthen_layouts` and the
   `length_factor` argument of `simulate_null_cohort`, `null_controls`, `compare_with_controls`.
   `regression_extensions.comparison_inputs` lists the extra cohorts, so 3.4 and 3.5 include them.
-- `src/behavior_visualization/plot_second_best.py`: `Second Best Choices`, `Better Alternative Curves`.
+- `src/behavior_visualization/switching/plot_second_best.py`: `Second Best Choices`, `Better Alternative Curves`.
   `plot_strategy_models.py`: `Strategy Model Comparison`, `Strategy Model Recovery`. Each with pdf,
   png, svg and a caption file, in a `strategy-tests/` subfolder.
 - `scripts/choice_logit_values.ipynb`: sections 2.10 (synthetic: Q-learner, the four WSLS agents,

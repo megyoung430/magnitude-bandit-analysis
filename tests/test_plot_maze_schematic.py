@@ -11,13 +11,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.poke_events import ARMS9
-from src.behavior_visualization.plot_maze_heatmaps import (
+from src.behavior_analysis.pokes.poke_events import ARMS9
+from src.behavior_visualization.common.plot_maze_heatmaps import (
     NODE_RADIUS,
     octagon_vertices,
     port_center,
 )
-from src.behavior_visualization.plot_maze_schematic import (
+from src.behavior_visualization.common.plot_maze_schematic import (
     CHOICE_FILL,
     IDLE_FILL,
     INITIATION_FILL,

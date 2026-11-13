@@ -8,20 +8,20 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.stay_switch_psychometrics import (
+from src.behavior_analysis.value.stay_switch_psychometrics import (
     stay_switch_curves_by_row,
     switch_target_curves_by_row,
 )
-from src.behavior_analysis.value_psychometrics import Curve
-from src.behavior_visualization.plot_helpers import caption_path
-from src.behavior_visualization.plot_stay_switch import (
+from src.behavior_analysis.value.value_psychometrics import Curve
+from src.behavior_visualization.common.plot_helpers import caption_path
+from src.behavior_visualization.value.plot_stay_switch import (
     plot_stay_heatmap_panel,
     plot_stay_switch_curves,
     plot_stay_switch_panel,
     plot_switch_target_curves,
     plot_switch_target_panel,
 )
-from src.pipelines.stay_switch_psychometrics import run_stay_switch_analysis
+from src.pipelines.value.stay_switch_psychometrics import run_stay_switch_analysis
 from tests.plot_capture import capture_figures
 
 

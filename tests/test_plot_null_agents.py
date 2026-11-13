@@ -10,8 +10,8 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
-from src.behavior_visualization import plot_helpers  # noqa: E402
-from src.behavior_visualization import plot_null_agents as plots  # noqa: E402
+from src.behavior_visualization.common import plot_helpers  # noqa: E402
+from src.behavior_visualization.strategy_models import plot_null_agents as plots  # noqa: E402
 from tests.test_plot_choice_logit import check_files, weights_table  # noqa: E402
 
 STATS_LINE = re.compile(r"mean ± se across mice, n=\d+ mice")

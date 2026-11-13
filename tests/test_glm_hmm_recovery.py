@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis import glm_hmm_recovery as rec
+from src.behavior_analysis.glm_hmm import glm_hmm_recovery as rec
 
 TRUE = np.array([[3.0, 0, 0], [0, 3.0, 0], [0, 0, 3.0]])
 

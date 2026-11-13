@@ -3,15 +3,15 @@ import math
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_first_leave_after_good_reversals import (
+from src.behavior_analysis.data.problem_utils import summarize_by_problem, summarize_by_problem_safe
+from src.behavior_analysis.reversals.get_first_leave_after_good_reversals import (
     average_first_leave_across_subjects,
 )
-from src.behavior_analysis.get_task_statistics import _standard_error
-from src.behavior_analysis.problem_summary import (
+from src.behavior_analysis.task_statistics.get_task_statistics import _standard_error
+from src.behavior_analysis.task_statistics.problem_summary import (
     compute_problem_goodrev_summary,
     compute_problem_length_summary,
 )
-from src.behavior_analysis.problem_utils import summarize_by_problem, summarize_by_problem_safe
 
 nan = float("nan")
 

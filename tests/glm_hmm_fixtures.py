@@ -3,7 +3,7 @@
 import numpy as np
 from scipy.special import logsumexp
 
-from src.behavior_analysis import glm_hmm as hmm
+from src.behavior_analysis.glm_hmm import glm_hmm as hmm
 
 TWO_STATES = np.array([[2.5, 0.0], [0.0, 2.5]])
 

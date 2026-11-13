@@ -1,9 +1,13 @@
-from src.behavior_analysis.get_diagnostic_p_value import pvalue_paired_t_best_vs_second_vs_third
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_good_reversal
+from src.behavior_analysis.rank_proportions.get_rank_counts_by_good_reversal import (
+    get_rank_counts_by_good_reversal,
+)
+from src.behavior_analysis.reversals.get_diagnostic_p_value import (
+    pvalue_paired_t_best_vs_second_vs_third,
+)
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
 from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
 from src.behavior_import.load_trials import load_trials_by_problem
-from src.behavior_visualization.plot_rank_proportions import plot_rank_proportions
+from src.behavior_visualization.rank_proportions.plot_rank_proportions import plot_rank_proportions
 from src.settings import get_settings
 
 # task = "grid-maze"

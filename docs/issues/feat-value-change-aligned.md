@@ -16,10 +16,10 @@ into the codebase for the drifting task, with the bugs fixed.
 Drifting problems only: the drifting task has block changes, no good or bad reversals. The entry point raises a `ValueError` naming the mouse and session if it is given a counter-format session (good/bad reversal counters).
 
 New files:
-- `src/behavior_analysis/value_change_windows.py`: event detection, windows, truncation,
+- `src/behavior_analysis/value/value_change_windows.py`: event detection, windows, truncation,
   aggregation, contamination summary (pure).
-- `src/behavior_visualization/plot_value_change_choice_probs.py`: `plot_value_change_panel(curves, ax=None, ...)` and the saving wrapper `plot_value_change_choice_probs(curves, save_path, ...)`.
-- `src/pipelines/value_change_analysis.py`: the entry point (not yet wired into the runner).
+- `src/behavior_visualization/value/plot_value_change_choice_probs.py`: `plot_value_change_panel(curves, ax=None, ...)` and the saving wrapper `plot_value_change_choice_probs(curves, save_path, ...)`.
+- `src/pipelines/value/value_change_analysis.py`: the entry point (not yet wired into the runner).
 
 Entry point:
 

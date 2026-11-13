@@ -10,10 +10,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.poke_events import PokeAlignmentError
+from src.behavior_analysis.pokes.poke_events import PokeAlignmentError
 from src.behavior_import.extract_trials import extract_session_trials
-from src.behavior_visualization import plot_maze_heatmaps
-from src.pipelines.poke_analysis import run_poke_analysis
+from src.behavior_visualization.common import plot_maze_heatmaps
+from src.pipelines.pokes.poke_analysis import run_poke_analysis
 from tests.poke_fixtures import Recording, full_trial, session_record
 
 
@@ -397,7 +397,7 @@ def count_pixels(fig, rgb):
 
 
 def test_red_outlines_of_the_previous_problem_appear_in_problem_two_only(tmp_path, captured):
-    from src.behavior_analysis.poke_counts import (
+    from src.behavior_analysis.pokes.poke_counts import (
         previous_choice_towers_for_problem,
         previous_problem_choice_towers,
     )
@@ -431,11 +431,13 @@ def test_red_outlines_of_the_previous_problem_appear_in_problem_two_only(tmp_pat
 
 
 def test_single_session_of_problem_two_draws_red_outlines_from_the_same_helper(monkeypatch):
-    from src.behavior_analysis.poke_counts import (
+    from src.behavior_analysis.pokes.poke_counts import (
         previous_choice_towers_for_problem,
         previous_problem_choice_towers,
     )
-    from src.behavior_visualization import plot_single_session as single_session_module
+    from src.behavior_visualization.task_statistics import (
+        plot_single_session as single_session_module,
+    )
 
     figures = []
     monkeypatch.setattr(
@@ -501,7 +503,7 @@ def test_panel_titles_count_the_trials_each_map_uses(tmp_path, captured):
 
 
 def test_pre_parsed_counts_are_reused_instead_of_parsing_again(tmp_path, monkeypatch):
-    from src.pipelines import poke_analysis as module
+    from src.pipelines.pokes import poke_analysis as module
 
     data = problem_data()
     first = run_poke_analysis(data, tmp_path / "first")

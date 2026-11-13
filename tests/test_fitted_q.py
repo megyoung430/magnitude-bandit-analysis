@@ -5,10 +5,10 @@ import pytest
 
 from src.agents import drifting_simulation as sim
 from src.agents import kernel_q_agent as kq
-from src.behavior_analysis import strategy_models as sm
-from src.behavior_analysis import switch_regression as sr
-from src.pipelines import fitted_q as fq
-from src.pipelines import switch_regression as switch_pipe
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.behavior_analysis.switching import switch_regression as sr
+from src.pipelines.strategy_models import fitted_q as fq
+from src.pipelines.switching import switch_regression as switch_pipe
 from tests.strategy_fixtures import Q_LEARNER, RULES, simulate_mouse
 
 SIZE = dict(n_problems=4, sessions=2, trials=250)

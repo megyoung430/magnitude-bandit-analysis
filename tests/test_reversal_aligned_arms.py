@@ -9,16 +9,16 @@ import copy
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.reversal_aligned_arms import (
+from src.behavior_analysis.data.stats import nan_standard_error
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.reversal_aligned_arms import (
     EmptySelectionWarning,
     add_magnitude_windows,
     build_windows_with_magnitudes,
     check_windows_built_with,
     compute_reversal_aligned_arms,
 )
-from src.behavior_analysis.reversal_alignment import align_window_values, smooth_pre_post
-from src.behavior_analysis.stats import nan_standard_error
+from src.behavior_analysis.reversals.reversal_alignment import align_window_values, smooth_pre_post
 from tests.plot_fixtures import make_mouse, make_session, session_key
 from tests.reversal_arm_fixtures import make_reversal, stamp_windows
 

@@ -10,7 +10,7 @@ from collections.abc import Callable, Collection
 
 import numpy as np
 
-from src.behavior_analysis.outcome_events import load_outcome_events
+from src.behavior_analysis.data.outcome_events import load_outcome_events
 from src.funcimg_analysis.background_io import load_background
 from src.funcimg_analysis.collect import (
     check_same_window,

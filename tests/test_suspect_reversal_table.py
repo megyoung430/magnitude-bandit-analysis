@@ -7,8 +7,11 @@ import warnings
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
-from src.behavior_analysis.suspect_reversal_table import (
+from src.behavior_analysis.reversals.get_good_reversal_info import (
+    ReversalWarning,
+    get_good_reversal_info,
+)
+from src.behavior_analysis.review.suspect_reversal_table import (
     COLUMNS,
     suspect_reversal_table,
     suspect_reversal_table_by_problem,

@@ -3,8 +3,8 @@ import re
 import numpy as np
 import pytest
 
-from src.behavior_analysis import cumulative_reversal_removal as module
-from src.behavior_analysis.cumulative_reversal_removal import (
+from src.behavior_analysis.reversals import cumulative_reversal_removal as module
+from src.behavior_analysis.reversals.cumulative_reversal_removal import (
     cumulative_counts,
     cumulative_removal_series,
     good_bad_removal_curves,

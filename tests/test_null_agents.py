@@ -7,7 +7,7 @@ from scipy.special import expit, log_expit
 
 from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
-from src.behavior_analysis.drifting_trial_table import COLUMNS, drifting_trial_table
+from src.behavior_analysis.data.drifting_trial_table import COLUMNS, drifting_trial_table
 
 PORTS = ("A1", "B3", "C2")
 LAYOUT = sim.MouseLayout(list(PORTS), "B2", {"A1": 4, "B3": 2, "C2": 0}, [400] * 40)

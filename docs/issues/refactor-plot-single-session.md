@@ -13,7 +13,7 @@ Refactor the long functions below into small, single-purpose functions
 (principle 4), separating analysis from plotting (principles 2–3), with
 identical behaviour.
 
-- **Files:** `src/behavior_visualization/plot_single_session.py`
+- **Files:** `src/behavior_visualization/task_statistics/plot_single_session.py`
 - **Functions over 60 lines:** plot_single_session (191)
 - **Notes:** Fingerprint on the sample session and a synthetic session; keep the saved file names.
 
@@ -32,7 +32,7 @@ identical behaviour.
 Type: `infrastructure` — behavior-preserving refactor, test-first.
 
 1. **Golden snapshot before touching code.** Write a throwaway harness *outside the repo* (scratch dir) that calls every public function in scope on synthetic inputs (and the sample session in `data/3x3_field_blocked_reward_bandit/cohort-01/rawdata`) and saves a canonical fingerprint of the outputs. For plotting functions use the Agg backend, patch `plt.show`, and fingerprint every figure: line x/y data, scatter offsets, bar heights, colours, alpha, linewidths, markers, labels, titles, tick positions and labels, axis limits, legend texts, suptitles, figure size, and the set of saved file names when `save_path` is given. Numbers rounded to 1e-10.
-2. **Refactor** following the `delab-coding-practices` principles, using `src/behavior_visualization/plot_num_reversals.py` + `src/behavior_analysis/reversals_by_session.py` as the template:
+2. **Refactor** following the `delab-coding-practices` principles, using `src/behavior_visualization/reversals/plot_num_reversals.py` + `src/behavior_analysis/reversals/reversals_by_session.py` as the template:
    - computation moves into small, pure, named functions (in `src/behavior_analysis/` when it is analysis that plotting code was doing inline);
    - plotting functions accept `ax=None` (or `axes=None` for grids) and only create a figure when none is given; saving/showing stays in the public wrapper;
    - no function over ~60 lines; loops with index bookkeeping become comprehensions / vectorised pandas-numpy where it reads better;

@@ -8,8 +8,8 @@ from src.agents import drifting_simulation as sim
 from src.agents import glm_hmm_agent as gha
 from src.agents import kernel_q_agent as kq
 from src.agents import null_agents as na
-from src.behavior_analysis import glm_hmm_features as feats
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.glm_hmm import glm_hmm_features as feats
 from tests.strategy_fixtures import HABIT, KERNEL_Q, RULES, WSLS, layouts
 from tests.switch_regression_fixtures import table_from_rows
 

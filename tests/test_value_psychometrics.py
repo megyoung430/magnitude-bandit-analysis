@@ -5,14 +5,14 @@ import warnings
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_choice_probs_by_value import (
+from src.behavior_analysis.data.stats import nan_mean
+from src.behavior_analysis.value.get_choice_probs_by_value import (
     BEST_VALS,
     SECOND_VALS,
     MouseCounts,
     count_choice_probs,
 )
-from src.behavior_analysis.stats import nan_mean
-from src.behavior_analysis.value_psychometrics import heatmap_tables, psychometric_curves
+from src.behavior_analysis.value.value_psychometrics import heatmap_tables, psychometric_curves
 
 
 def counts_for(cells):

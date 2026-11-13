@@ -6,10 +6,10 @@ import pytest
 
 from src.agents import drifting_simulation as sim
 from src.agents import glm_hmm_agent as gha
-from src.behavior_analysis import glm_hmm as hmm
-from src.behavior_analysis import glm_hmm_features as feats
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
-from src.pipelines import glm_hmm as pipe
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.glm_hmm import glm_hmm as hmm
+from src.behavior_analysis.glm_hmm import glm_hmm_features as feats
+from src.pipelines.glm_hmm import glm_hmm as pipe
 from tests.strategy_fixtures import HABIT, KERNEL_Q, RULES, layouts
 
 AGENTS = pipe.Agents(kq=KERNEL_Q, habit=HABIT)

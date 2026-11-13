@@ -7,14 +7,14 @@ import pandas as pd
 import pytest
 
 import src.behavior_import.task_types as task_types
-import src.pipelines.cohort_analysis as cohort_analysis
-import src.pipelines.open_field as pipeline
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning
-from src.behavior_analysis.suspect_reversal_table import COLUMNS
+import src.pipelines.common.cohort_analysis as cohort_analysis
+import src.pipelines.common.open_field as pipeline
+from src.behavior_analysis.reversals.get_good_reversal_info import ReversalWarning
+from src.behavior_analysis.review.suspect_reversal_table import COLUMNS
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.load_trials import ImportedTrials
 from src.behavior_import.task_types import BLOCKED, DRIFTING
-from src.pipelines.cohort_analysis import (
+from src.pipelines.common.cohort_analysis import (
     cohort_id_from_name,
     cohort_name,
     cohort_raw_dir,

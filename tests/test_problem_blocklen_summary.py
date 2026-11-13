@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from src.behavior_analysis.problem_summary import compute_problem_blocklen_summary
+from src.behavior_analysis.task_statistics.problem_summary import compute_problem_blocklen_summary
 
 
 def stats(**problems):

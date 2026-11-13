@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.behavior_analysis.warnings_log import (
+from src.behavior_analysis.data.warnings_log import (
     COLUMNS,
     parse_warning_message,
     warnings_log_table,

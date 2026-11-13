@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 
-from src.behavior_analysis.single_session import chosen_magnitudes
-from src.behavior_visualization.plot_single_session import (
+from src.behavior_analysis.task_statistics.single_session import chosen_magnitudes
+from src.behavior_visualization.task_statistics.plot_single_session import (
     event_indices_from_cumulative,
     plot_choices_by_rank,
     plot_choices_by_tower,

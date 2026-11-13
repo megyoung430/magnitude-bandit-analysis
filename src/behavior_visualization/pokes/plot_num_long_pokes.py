@@ -1,0 +1,221 @@
+"""Visualise non-choice long-poke counts across sessions and subjects.
+
+A "long poke" is an exploratory poke into a port that is not the animal's
+final choice for that trial.  This module provides a session-by-session bar
+chart with per-mouse overlaid lines.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D
+
+from src.behavior_analysis.pokes.long_pokes_by_session import (
+    PokesBySession,
+    summarize_pokes_by_session,
+)
+from src.behavior_import.sort_by_session import get_short_session_label
+from src.behavior_visualization.common.plot_helpers import (
+    Title,
+    axes_or_new,
+    despine,
+    error_drawn,
+    mouse_color_map,
+    save_or_show,
+    set_title,
+    stats_line,
+)
+
+_BAR_COLOR = "#999999"
+_JITTER = 0.03
+
+
+def _plot_session_bars(ax: plt.Axes, x: np.ndarray, summary: PokesBySession, y_text: float) -> None:
+    """Bars of the across-mouse mean with SE caps, each labelled with its value at *y_text*."""
+    ax.bar(
+        x,
+        summary.mean,
+        yerr=summary.se,
+        capsize=6,
+        color=_BAR_COLOR,
+        alpha=0.55,
+        edgecolor="black",
+        linewidth=1.5,
+        zorder=1,
+    )
+    for xi, m in zip(x, summary.mean, strict=True):
+        if np.isfinite(m):
+            ax.text(
+                xi,
+                y_text,
+                f"{m:.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=12,
+                color="black",
+                zorder=10,
+            )
+
+
+def _plot_mouse_lines(
+    ax: plt.Axes, x: np.ndarray, summary: PokesBySession, rng: np.random.Generator | None
+) -> list[Line2D]:
+    """One jittered line per mouse with data; returns matching legend handles."""
+    mouse_to_color = mouse_color_map(summary.mice)
+    handles = []
+    rng = np.random.default_rng() if rng is None else rng
+    for m in summary.mice:
+        c = mouse_to_color[m]
+        y = summary.by_mouse[m]
+        mask = np.isfinite(y)
+        if not np.any(mask):
+            continue
+        xs = x[mask].astype(float)
+        ys = y[mask].astype(float)
+        xs = xs + rng.uniform(-_JITTER, _JITTER, size=len(xs))
+        ax.plot(xs, ys, color=c, linewidth=2.5, alpha=0.9, marker="o", markersize=6, zorder=4)
+        handles.append(Line2D([0], [0], color=c, lw=2.5, marker="o", markersize=6, label=m))
+    return handles
+
+
+def relative_session_label(session_key: str) -> str:
+    """The number of a ``rel_ses-NN`` key without leading zeros (``"rel_ses-03"`` -> ``"3"``).
+
+    Args:
+        session_key (str): A relative session key such as ``"rel_ses-03"``.
+
+    Returns:
+        str: The session number as a string, e.g. ``"3"``.
+
+    Raises:
+        ValueError: If *session_key* is not of the form ``rel_ses-<digits>``.
+    """
+    match = re.fullmatch(r"rel_ses-0*(\d+)", session_key)
+    if match is None:
+        raise ValueError(f"not a relative session key: {session_key!r}")
+    return match[1]
+
+
+def _style_axes(
+    ax: plt.Axes,
+    x: np.ndarray,
+    summary: PokesBySession,
+    y_text: float,
+    *,
+    xlabel: str,
+    title: str | None,
+    tick_label: Callable[[str], str],
+) -> None:
+    # Known issue: the title's subject count includes mice without finite data,
+    # which are not drawn.
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Non-Choice Long Pokes")
+    ax.set_xticks(x)
+    ax.set_xticklabels([tick_label(s) for s in summary.sessions], fontsize=12, rotation=45)
+    ax.tick_params(axis="y", labelsize=13)
+    ax.set_ylim(0, y_text)
+    despine(ax)
+    average = "mean ± se" if error_drawn(summary.se) else "mean"
+    stats = stats_line(average, "mice", [(len(summary.mice), "mouse", "mice")])
+    heading = "Mean Non-Choice Long Pokes Across Sessions" if title is None else title
+    set_title(ax, Title(heading, stats), fontsize=16, pad=25)
+
+
+def plot_num_pokes_panel(
+    avg_num_pokes_across_subjects: dict,
+    y_text: float,
+    *,
+    ax: plt.Axes | None = None,
+    rng: np.random.Generator | None = None,
+    xlabel: str = "Session",
+    title: str | None = None,
+    tick_label: Callable[[str], str] = get_short_session_label,
+) -> plt.Axes:
+    """Draw mean non-choice long pokes per session with per-mouse overlays.
+
+    Args:
+        avg_num_pokes_across_subjects (dict): ``{mouse: {session_key: mean_pokes}}``; see
+            :func:`plot_num_pokes_across_mice`.
+        y_text (float): Y-coordinate for bar-value annotations and the upper y-limit.
+        ax (plt.Axes | None): Axes to draw into; a new 12 x 5.5 inch figure is created if
+            None. Default None.
+        rng (np.random.Generator | None): Generator for the per-mouse x-jitter. Known issue:
+            when None an unseeded generator is used, so the jitter differs on every call.
+            Default None.
+        xlabel (str): X-axis label. Default ``"Session"``.
+        title (str | None): Heading of the axes title; the default (None) is the
+            across-sessions heading. The statistics line with the mouse count is added either
+            way.
+        tick_label (Callable[[str], str]): Maps a session key to its x-tick label. Default the
+            short ``ses-XX`` form (``get_short_session_label``); use
+            :func:`relative_session_label` for ``rel_ses-NN`` keys.
+
+    Returns:
+        plt.Axes: The axes drawn into.
+
+    Raises:
+        ValueError: If there are no mice or no sessions.
+    """
+    summary = summarize_pokes_by_session(avg_num_pokes_across_subjects)
+    x = np.arange(len(summary.sessions))
+    with axes_or_new(ax, figsize=(12, 5.5)) as ax:
+        _plot_session_bars(ax, x, summary, y_text)
+        handles = _plot_mouse_lines(ax, x, summary, rng)
+        _style_axes(ax, x, summary, y_text, xlabel=xlabel, title=title, tick_label=tick_label)
+        if handles:
+            ax.legend(handles=handles, loc="upper right", frameon=True, fontsize=10)
+    return ax
+
+
+def plot_num_pokes_across_mice(
+    avg_num_pokes_across_subjects: dict,
+    y_text: float,
+    save_path: str | Path | None = None,
+    *,
+    rng: np.random.Generator | None = None,
+    xlabel: str = "Session",
+    title: str | None = None,
+    tick_label: Callable[[str], str] = get_short_session_label,
+) -> None:
+    """Plot mean non-choice long-poke counts per session with per-mouse overlays.
+
+    Draws a bar for each session (mean ± se across mice) and overlays
+    individual mouse lines with jitter.  Sessions are sorted by numeric
+    ``ses-XX`` index; x-tick labels show the short ``ses-XX`` form.
+
+    Args:
+        avg_num_pokes_across_subjects (dict): Nested dict
+            ``{mouse: {session_key: mean_pokes_float}}``, optionally including
+            an ``"average_across_subjects"`` key which is excluded from the
+            per-mouse overlay.
+        y_text (float): Y-coordinate for bar-value annotations and the upper y-limit
+            of the axis.
+        save_path (str | Path | None): Base path (without extension) for saving ``.pdf`` and
+            ``.png`` output, creating the parent directory if needed. If None or empty,
+            the figure is shown interactively. Default None.
+        rng (np.random.Generator | None): As for :func:`plot_num_pokes_panel`. Default None.
+        xlabel (str): As for :func:`plot_num_pokes_panel`. Default ``"Session"``.
+        title (str | None): As for :func:`plot_num_pokes_panel`. Default None.
+        tick_label (Callable[[str], str]): As for :func:`plot_num_pokes_panel`. Default the
+            short ``ses-XX`` form.
+
+    Raises:
+        ValueError: If there are no mice or no sessions.
+    """
+    ax = plot_num_pokes_panel(
+        avg_num_pokes_across_subjects,
+        y_text,
+        rng=rng,
+        xlabel=xlabel,
+        title=title,
+        tick_label=tick_label,
+    )
+    fig = ax.figure
+    fig.tight_layout()
+    # An empty save_path means "show" here, so it is passed on as None.
+    save_or_show(fig, save_path or None)

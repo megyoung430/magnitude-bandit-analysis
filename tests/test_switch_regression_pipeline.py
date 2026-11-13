@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import switch_regression as sr
-from src.pipelines import choice_logit_values as logit_pipe
-from src.pipelines import switch_regression as pipe
+from src.behavior_analysis.switching import switch_regression as sr
+from src.pipelines.choice_logit import choice_logit_values as logit_pipe
+from src.pipelines.switching import switch_regression as pipe
 from tests.switch_regression_fixtures import simulate_switch_mouse
 
 GRID = (0.5, 0.9)

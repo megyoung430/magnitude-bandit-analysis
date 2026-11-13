@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import rank_decisions as rd
-from src.behavior_analysis import rank_state as rs
-from src.behavior_analysis import rank_worst_split as ws
+from src.behavior_analysis.rank_tests import rank_decisions as rd
+from src.behavior_analysis.rank_tests import rank_state as rs
+from src.behavior_analysis.rank_tests import rank_worst_split as ws
 from tests.switch_regression_fixtures import table_from_rows
 
 NAN = np.nan

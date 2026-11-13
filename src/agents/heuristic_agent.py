@@ -26,7 +26,7 @@ weakly identified. The decay is a field of the parameters so another value can b
 Session starts, and the first trial after a dropped trial, have no previous choice: the choice is
 uniform over the three arms and the trace is cleared; believed values carry over a problem's
 sessions. Everything here is pure; fits take the drifting trial table
-(:func:`src.behavior_analysis.drifting_trial_table.drifting_trial_table`) of one mouse.
+(:func:`src.behavior_analysis.data.drifting_trial_table.drifting_trial_table`) of one mouse.
 """
 
 import warnings
@@ -38,8 +38,8 @@ import pandas as pd
 from scipy.special import expit, log_expit
 
 from src.agents import null_agents as na
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis import switch_regression as sr
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.switching import switch_regression as sr
 
 N_ARMS = na.N_ARMS
 DEFAULT_DECAY = na.DEFAULT_DECAY

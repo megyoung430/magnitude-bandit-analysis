@@ -28,9 +28,9 @@ run_reversal_aligned_arm_analysis(
       "figure_paths": [Path], "windows_by_problem": {...}}
 ```
 
-`src/pipelines/reversal_aligned_arms.py`. Input is `{problem: {subject: {session: dict}}}` (one problem = one entry) or `{problem: {subject: [reversal]}}` built with `build_windows_with_magnitudes`. Scopes: `pooled`, plus one per problem when there are several. Files: `reversal_aligned_arms_<scope>_<scheme>_<type>.png/.pdf` and `reversal_aligned_arms_counts.csv`. `out_dir` None or `""` shows the figures. A combination with no reversal left makes no figure and warns (`EmptySelectionWarning`). Not wired into the runner.
+`src/pipelines/reversals/reversal_aligned_arms.py`. Input is `{problem: {subject: {session: dict}}}` (one problem = one entry) or `{problem: {subject: [reversal]}}` built with `build_windows_with_magnitudes`. Scopes: `pooled`, plus one per problem when there are several. Files: `reversal_aligned_arms_<scope>_<scheme>_<type>.png/.pdf` and `reversal_aligned_arms_counts.csv`. `out_dir` None or `""` shows the figures. A combination with no reversal left makes no figure and warns (`EmptySelectionWarning`). Not wired into the runner.
 
-Modules: `src/behavior_analysis/reversal_arm_ranks.py` (rankings, labels, types, selection), `src/behavior_analysis/reversal_aligned_arms.py` (windows, alignment, curves), `src/behavior_visualization/plot_reversal_aligned_arms.py` (panel with `ax=None`, saving wrapper).
+Modules: `src/behavior_analysis/reversals/reversal_arm_ranks.py` (rankings, labels, types, selection), `src/behavior_analysis/reversals/reversal_aligned_arms.py` (windows, alignment, curves), `src/behavior_visualization/reversals/plot_reversal_aligned_arms.py` (panel with `ax=None`, saving wrapper).
 
 ## Acceptance criteria
 

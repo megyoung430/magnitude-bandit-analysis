@@ -24,45 +24,45 @@ reward magnitude at each arm drifts over time and periodically reverses.
 - Negative controls in the same notebook: soft win-stay/lose-shift agents (magnitude ignored,
   recency-guided switches, and magnitude-graded staying) fitted to each mouse, played on that
   mouse's own problems and run through the same pipeline (`src/agents/null_agents.py`,
-  `src/pipelines/null_agents.py`)
+  `src/pipelines/strategy_models/null_agents.py`)
 - Regression extensions of the choice logit in the same notebook, for the mice, a simulated
   Q-learner and the null agents: a believed-value regressor with a never-visited indicator,
   binary against pulse reward coding, unique and shared variance of the regressor groups, and
   calibration plots with the observed choice fraction on the y axis
-  (`src/behavior_analysis/choice_logit_extensions.py`, `src/pipelines/regression_extensions.py`)
+  (`src/behavior_analysis/choice_logit/choice_logit_extensions.py`, `src/pipelines/choice_logit/regression_extensions.py`)
 - Switch regression in the same notebook: on switch trials, does the value of the two
   alternatives predict where the mouse goes beyond choice lags, a slow choice trace, trials since
   chosen and tower bias, after unrewarded and after rewarded choices, with each mouse calibrated
   against its own fitted null agents replayed on its task
-  (`src/behavior_analysis/switch_regression.py`, `src/pipelines/switch_regression.py`)
+  (`src/behavior_analysis/switching/switch_regression.py`, `src/pipelines/switching/switch_regression.py`)
 - Strategy tests in the same notebook: the second-best test (where a switch from the best arm goes,
   with graded curves by magnitude difference) and a held-out comparison of WSLS (Magnitude), a
   Heuristic+, a Q-learner and WSLS (Graded) per mouse (every null agent is also scored
   leave-one-problem-out), with model and parameter recovery, a fitted Q-learner as
   positive control and longer schedules for the comparison agents
-  (`src/behavior_analysis/second_best.py`, `src/behavior_analysis/strategy_models.py`,
-  `src/pipelines/second_best.py`, `src/pipelines/strategy_comparison.py`,
-  `src/pipelines/fitted_q.py`)
+  (`src/behavior_analysis/switching/second_best.py`, `src/behavior_analysis/strategy_models/strategy_models.py`,
+  `src/pipelines/switching/second_best.py`, `src/pipelines/strategy_models/strategy_comparison.py`,
+  `src/pipelines/strategy_models/fitted_q.py`)
 - Kernel Q-learner and the flat choice kernel in the same notebook (sections 2.11 and 3.7): a Q-learner
   with asymmetric learning rates, forgetting and a multi-trial choice kernel (after Aloor et al.,
   bioRxiv 2026.10.31.763226) and four ablations, WSLS (Habit), the choice logit to lag 15 with a choice
   tail, P(stay) by run length, and the held-out trace-decay profile of WSLS (Magnitude); see
   `docs/issues/feat-kernel-q.md`
-  (`src/agents/kernel_q_agent.py`, `src/behavior_analysis/stay_by_run_length.py`,
-  `src/pipelines/choice_kernel_long.py`, `src/behavior_visualization/plot_kernel_q.py`)
+  (`src/agents/kernel_q_agent.py`, `src/behavior_analysis/value/stay_by_run_length.py`,
+  `src/pipelines/choice_logit/choice_kernel_long.py`, `src/behavior_visualization/strategy_models/plot_kernel_q.py`)
 - Rank-signature tests (`scripts/rank_signatures.ipynb`): five behavioral tests of a ranked value
   algorithm against a softmax value learner (stay depends on the second best, abrupt switching at
   believed crossings, a categorical third option, ranks over values, transfer and block-change
   inference), each calibrated against replays of agents fitted per mouse, on drifting problems
   1 to 7 of cohort 1 and all of cohort 3; see `docs/issues/feat-rank-signatures.md`
-  (`src/behavior_analysis/rank_*.py`, `src/pipelines/rank_signatures.py`,
-  `src/behavior_visualization/plot_rank_signatures.py`)
+  (`src/behavior_analysis/rank_tests/rank_*.py`, `src/pipelines/rank_tests/rank_signatures.py`,
+  `src/behavior_visualization/rank_tests/plot_rank_signatures.py`)
 - GLM-HMM (`scripts/glm_hmm.ipynb`): do the mice switch between strategy states? Hidden states with
   sticky transitions, each a conditional logit on value, WSLS and habit signals, scored on held-out
   sessions and calibrated against replays of the fitted static Q-learner, first on simulated agents with
-  known switching; see `docs/issues/feat-glm-hmm.md` (`src/behavior_analysis/glm_hmm*.py`,
-  `src/agents/glm_hmm_agent.py`, `src/pipelines/glm_hmm.py`,
-  `src/behavior_visualization/plot_glm_hmm.py`)
+  known switching; see `docs/issues/feat-glm-hmm.md` (`src/behavior_analysis/glm_hmm/glm_hmm*.py`,
+  `src/agents/glm_hmm_agent.py`, `src/pipelines/glm_hmm/glm_hmm.py`,
+  `src/behavior_visualization/glm_hmm/plot_glm_hmm.py`)
 
 ## Project organisation
 
@@ -79,8 +79,9 @@ magnitude-bandit-analysis/
 │   └── to_integrate/
 └── src/                 # the actual analysis library
     ├── behavior_import/
-    ├── behavior_analysis/
-    ├── behavior_visualization/
+    ├── behavior_analysis/       # one subfolder per analysis (see Code organisation)
+    ├── behavior_visualization/  # the same subfolders, for figures
+    ├── pipelines/               # the same subfolders, for end-to-end runs
     └── task_simulations/
 ```
 
@@ -245,12 +246,12 @@ folder without any bump. Finished results always stay readable in the old folder
 | Module | What it does |
 |---|---|
 | `src/behavior_import/` | Parses raw pyControl `.tsv` logs into trial-level structures. `import_data.py` is the main entry point; handles field-name aliasing across protocol versions. |
-| `src/behavior_analysis/` | Computes derived metrics from imported trials — reversals, choice probabilities, task statistics, GLM utilities, cross-problem summaries. |
-| `src/behavior_visualization/` | One plotting function per analysis in `behavior_analysis/`. |
-| `src/pipelines/` | End-to-end analysis pipelines as functions with typed settings (`open_field.py`: every standard open-field figure, per problem; `cohort_analysis.py`: the whole suite for a cohort, split by blocked/drifting task type). Scripts and notebooks call these rather than copying or exec-ing script code. |
+| `src/behavior_analysis/` | Computes derived metrics from imported trials, one subfolder per analysis: `data/` (trial table, believed values, problem selection, shared statistics), `reversals/`, `rank_proportions/`, `task_statistics/`, `pokes/`, `value/` (psychometrics, stay/switch, value changes), `choice_logit/`, `switching/` (switch regression, second best), `strategy_models/`, `rank_tests/`, `glm_hmm/` and `review/` (tables for checking the data). |
+| `src/behavior_visualization/` | One plotting module per analysis, in subfolders of the same names; `common/` holds the shared style, save step, legends and maze drawings. |
+| `src/pipelines/` | End-to-end analysis pipelines as functions with typed settings, in subfolders of the same names as `behavior_analysis/`; `common/` holds the cohort runners (`open_field.py`: every standard open-field figure, per problem; `cohort_analysis.py`: the whole suite for a cohort, split by blocked/drifting task type). Scripts and notebooks call these rather than copying or exec-ing script code. |
 | `src/task_simulations/` | Synthetic bandit sessions (GP-driven and Markov-chain reward dynamics) for comparing real behavior against simulated agents. |
 | `scripts/individual_analyses/` | Standalone scripts, one per analysis/plot type — thin wrappers around `src/`. |
-| `scripts/full_pipelines/` | Entry points for full cohort runs (`run_cohorts.py` calls `src/pipelines/cohort_analysis.py`; `run_all_drifting_problems.py` calls `src/pipelines/all_cohorts_drifting.py`; `run_open_field_analysis.py` calls `src/pipelines/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
+| `scripts/full_pipelines/` | Entry points for full cohort runs (`run_cohorts.py` calls `src/pipelines/common/cohort_analysis.py`; `run_all_drifting_problems.py` calls `src/pipelines/common/all_cohorts_drifting.py`; `run_open_field_analysis.py` calls `src/pipelines/common/open_field.py`; `run_grid_maze_analysis.py`) and the cohort notebooks. |
 | `scripts/to_integrate/` | Exploratory notebooks not yet folded into `src/`. |
 
 A searchable map of every file and function (inputs, outputs, what it does) is built with
@@ -381,7 +382,7 @@ report all failures at the end.
   edge, best-arm change before the event, or missing choice), so every time point averages the
   same events. A block or best arm that starts exactly at t = -pre still counts as complete, and a
   best/second tie in the pre window counts as a best-arm change. It has no rank-swap truncation.
-  `COMPLETE_WINDOW = (2, 4)` in `src/pipelines/value_change_analysis.py` sets the default; change
+  `COMPLETE_WINDOW = (2, 4)` in `src/pipelines/value/value_change_analysis.py` sets the default; change
   it or switch it off per call with `run_value_change_analysis(..., complete_window=(pre, post) |
   None)`. Equal sides keep the old names (`Symmetric ±6 Trials`, mode `symmetric_6`); complete-window
   figures of another size left from an earlier run are deleted when the folder is rewritten. The
@@ -406,7 +407,7 @@ report all failures at the end.
   across block changes and never span sessions or a missed trial. Ties are named relative to the
   chosen arm (V(chosen) = V(alt), the two alternatives tie, all three): excluded, or kept with a
   switch between tied alternatives split half and half (see
-  `src/behavior_analysis/stay_switch_psychometrics.py`).
+  `src/behavior_analysis/value/stay_switch_psychometrics.py`).
 - **Value-change diagnostic** (`scripts/individual_analyses/plot_value_change_diagnostic.py --cohorts 1 3
   [--no-cache]`): one PNG per drifting session in `figures/value-change-diagnostic/cohort-XX/problem-KK/<mouse>/`,
   showing the session's magnitudes and choices with each best-decrease rank-swap event's counted pre and post
@@ -536,7 +537,7 @@ the files always match `cohorts.txt`; the captions say "all drifting problems, c
 - There are no per-mouse figures (the "Per Mouse" value heatmaps and port-preference mazes are in
   the cohort folders) and no legends naming mice; the per-mouse lines are still drawn, and the
   legends for curve types (P(best), P(second), ...) stay. The code is
-  `src/pipelines/all_cohorts_drifting.py`.
+  `src/pipelines/common/all_cohorts_drifting.py`.
 
 ### Port-finding summary
 
@@ -569,9 +570,9 @@ problem sessions, for example); every caption lists who was left out and why.
   `all-cohorts/port-finding-summary/`.
 
 They run with the poke analysis (`run_poke_analysis`). The code is
-`src/behavior_analysis/port_finding_summary.py` (counts),
-`src/behavior_visualization/plot_port_finding_summary.py` (figures) and
-`src/pipelines/port_finding_summary.py` (files).
+`src/behavior_analysis/pokes/port_finding_summary.py` (counts),
+`src/behavior_visualization/pokes/plot_port_finding_summary.py` (figures) and
+`src/pipelines/pokes/port_finding_summary.py` (files).
 
 ### Agent baselines and the choice regression
 
@@ -582,14 +583,14 @@ uv run python scripts/full_pipelines/run_agent_baselines.py --cohorts 1 3 --jobs
 checks what the pooled drifting figures can and cannot show about magnitude learning. It pools
 the drifting problems of the listed cohorts (as above) and:
 
-- **Measures the task rules** from the trials (`src/behavior_analysis/drifting_task_rules.py`):
+- **Measures the task rules** from the trials (`src/behavior_analysis/data/drifting_task_rules.py`):
   at each block change, whether the arm set to 0 was the one the mouse chose most in that block,
   and whether the arm that was at 0 took its value; how often non-zero arms drift; the block
   lengths (`task_rules_summary.csv`). The simulated task zeroes the most chosen arm and gives
   the old zero arm its value, so a block change removes the mouse's current favourite and
   moves its value to the arm it was avoiding; the run stops with an error if the data follow
   that rule in fewer than 80% (most chosen) or 95% (value inherited) of block changes.
-- **Fits a choice regression** per mouse (`src/behavior_analysis/choice_regression.py`): a
+- **Fits a choice regression** per mouse (`src/behavior_analysis/choice_logit/choice_regression.py`): a
   conditional logit over the three ports with the value the mouse last received at each port,
   whether that visit paid 0, whether the port is still unvisited, stay, and plus-port bias.
   The `last_value` weight is magnitude sensitivity beyond avoiding the empty port, repeating
@@ -612,7 +613,7 @@ with the mice's own figures there. Tables (`task_rules_*.csv`, `agent_fits.csv`,
 folder. Fits are cached in `.cache/agent_baselines/`, keyed on each mouse's trials, the
 settings and `value_agent.MODEL_VERSION` (bump it when the model changes); `--no-cache`
 refits. Drift rate and block lengths are pooled over the cohorts given, so pool cohorts that
-ran with the same task settings. The code is `src/pipelines/agent_baselines.py`.
+ran with the same task settings. The code is `src/pipelines/strategy_models/agent_baselines.py`.
 
 ### Figure files, titles and captions
 
@@ -628,9 +629,9 @@ with `<name>.caption.txt` next to it; the file names are the same as before.
   the scope (cohort, problem, "without <mice>" for an exclusion set), labelling, smoothing,
   window mode, weighting, tie handling, left-out events and caveats. The file is written for
   every figure, empty when there is nothing to add. The code is `Title`, `set_title` and
-  `add_caption` in `src/behavior_visualization/plot_helpers.py`.
+  `add_caption` in `src/behavior_visualization/common/plot_helpers.py`.
 - **Legends and labels** are tidied when a figure is saved
-  (`src/behavior_visualization/plot_legends.py`): no frame, short handles, moved out of the data
+  (`src/behavior_visualization/common/plot_legends.py`): no frame, short handles, moved out of the data
   (below the axes when short, beside them for long mouse lists), drawn once when repeated on
   several panels, and a legend entry for a single mouse goes to the caption as
   "line: MY_175_L". Legend, axis and colour-bar labels are in title case (articles,

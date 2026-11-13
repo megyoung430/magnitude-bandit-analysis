@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 from matplotlib.container import ErrorbarContainer
 
-from src.behavior_analysis.first_leave_fractions import first_leave_fractions
-from src.behavior_visualization import plot_first_leave_after_good_reversals as module
-from src.behavior_visualization.plot_first_leave_after_good_reversals import (
+from src.behavior_analysis.reversals.first_leave_fractions import first_leave_fractions
+from src.behavior_visualization.common.plot_style import MOUSE_COLORS
+from src.behavior_visualization.reversals import plot_first_leave_after_good_reversals as module
+from src.behavior_visualization.reversals.plot_first_leave_after_good_reversals import (
     plot_first_leave_after_good_reversals,
     plot_first_leave_panel,
 )
-from src.behavior_visualization.plot_style import MOUSE_COLORS
 from tests.plot_capture import cap_size, capture_figures, title_pad_points, was_tight_laid_out
 
 MEAN = {"new_best": 0.7, "third": 0.3, "num_reversals": 20}

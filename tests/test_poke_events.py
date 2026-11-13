@@ -5,7 +5,7 @@ import warnings
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.poke_events import (
+from src.behavior_analysis.pokes.poke_events import (
     NO_PRINT,
     PokeAlignmentError,
     PokeParseError,

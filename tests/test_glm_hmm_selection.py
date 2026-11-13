@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import glm_hmm as hmm
-from src.behavior_analysis import glm_hmm_selection as sel
+from src.behavior_analysis.glm_hmm import glm_hmm as hmm
+from src.behavior_analysis.glm_hmm import glm_hmm_selection as sel
 from tests.glm_hmm_fixtures import make_sequences
 
 FAST = dict(n_restarts=3, seed=0, max_iterations=60)

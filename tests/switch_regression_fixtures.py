@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import expit
 
-from src.pipelines.choice_logit_values import SIMULATED_PORTS
+from src.pipelines.choice_logit.choice_logit_values import SIMULATED_PORTS
 
 DECAY = 0.9
 

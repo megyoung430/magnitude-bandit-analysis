@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis import choice_logit_extensions as ext
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.choice_logit import choice_logit_extensions as ext
 from tests.test_choice_logit import trial_frame
 
 PORTS = ["A1", "B3", "C2"]

@@ -6,8 +6,10 @@ must neither end a block nor start one; only a real reversal does.
 
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.get_rank_counts_by_good_reversal import get_rank_counts_by_good_reversal
+from src.behavior_analysis.rank_proportions.get_rank_counts_by_good_reversal import (
+    get_rank_counts_by_good_reversal,
+)
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
 
 RANK_NAMES = ("best", "second", "third")
 

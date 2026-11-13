@@ -8,7 +8,7 @@ status: done
 
 # Break up GLM input formatting
 
-Refactor the long functions in `src/behavior_analysis/glm_utils.py` to follow the delab coding principles without changing behaviour.
+Refactor the long functions in `src/behavior_analysis/choice_logit/glm_utils.py` to follow the delab coding principles without changing behaviour.
 
 Targets: format_glm_input_by_rank (181 lines), format_glm_input (106).
 

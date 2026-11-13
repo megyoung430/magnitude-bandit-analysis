@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis.single_session import (
+from src.behavior_analysis.task_statistics.single_session import (
     choice_counts_by_tower,
     choice_probability_matrix,
     chosen_magnitudes,

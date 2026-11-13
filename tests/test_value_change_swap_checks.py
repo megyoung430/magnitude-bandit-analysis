@@ -18,7 +18,10 @@ best just before the drop. These tests pin that meaning three ways:
 import numpy as np
 import pytest
 
-from src.behavior_analysis.value_change_windows import get_value_change_windows, summarize_windows
+from src.behavior_analysis.value.value_change_windows import (
+    get_value_change_windows,
+    summarize_windows,
+)
 
 ARMS = ("A", "B", "C")
 

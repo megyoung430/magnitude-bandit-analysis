@@ -44,7 +44,7 @@ status: in review
 
 ## Follow-up: shared alignment module and pre windows that stop at the previous block change
 
-`src/behavior_analysis/reversal_alignment.py` (public, no `_` names) now holds the pieces the choice-probability analysis and the reversal-aligned arm plots share:
+`src/behavior_analysis/reversals/reversal_alignment.py` (public, no `_` names) now holds the pieces the choice-probability analysis and the reversal-aligned arm plots share:
 
 ```
 keep_zero_then_skip(post_list, skip) -> list

@@ -6,18 +6,18 @@ import pandas as pd
 import pytest
 from matplotlib.collections import PolyCollection
 
-from src.behavior_analysis.value_change_windows import (
+from src.behavior_analysis.value.value_change_windows import (
     ValueChangeConfig,
     describe_value_change,
     get_value_change_windows,
     summarize_windows,
 )
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_value_change_choice_probs import (
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.value.plot_value_change_choice_probs import (
     plot_value_change_choice_probs,
     plot_value_change_panel,
 )
-from src.pipelines.value_change_analysis import run_value_change_analysis
+from src.pipelines.value.value_change_analysis import run_value_change_analysis
 from tests.test_value_change_windows import BASE, key, mag, recording, script, session
 
 
@@ -231,7 +231,7 @@ def full_run(tmp_path_factory):
 def no_figures(monkeypatch):
     """Skip drawing for tests that only look at the returned summaries."""
     monkeypatch.setattr(
-        "src.pipelines.value_change_analysis.plot_value_change_choice_probs",
+        "src.pipelines.value.value_change_analysis.plot_value_change_choice_probs",
         lambda curves, base, **kwargs: None,
     )
 
@@ -322,7 +322,7 @@ def test_entry_refuses_a_contamination_table_that_disagrees_with_the_counts(
     tmp_path, no_figures, monkeypatch
 ):
     monkeypatch.setattr(
-        "src.pipelines.value_change_analysis.contamination_summary",
+        "src.pipelines.value.value_change_analysis.contamination_summary",
         lambda events: {"n_events": -1},
     )
     with pytest.raises(ValueError, match="summarised"):

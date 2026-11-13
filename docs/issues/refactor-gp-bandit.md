@@ -71,7 +71,7 @@ non-positive block lengths without validation.
 Type: `infrastructure` — behavior-preserving refactor, test-first.
 
 1. **Golden snapshot before touching code.** Write a throwaway harness *outside the repo* (scratch dir) that calls every public function in scope on several seeds and parameter settings and saves a canonical fingerprint of the outputs. For plotting functions use the Agg backend, patch `plt.show`, and fingerprint every figure: line x/y data, bar heights, colours, alpha, linewidths, labels, titles, tick labels, legend texts, suptitles, figure size, and the set of saved file names when `save_path` is given. Numbers rounded to 1e-10.
-2. **Refactor** following the `delab-coding-practices` principles, using `src/behavior_visualization/plot_num_reversals.py` + `src/behavior_analysis/reversals_by_session.py` as the template:
+2. **Refactor** following the `delab-coding-practices` principles, using `src/behavior_visualization/reversals/plot_num_reversals.py` + `src/behavior_analysis/reversals/reversals_by_session.py` as the template:
    - computation moves into small, pure, named functions;
    - plotting functions accept `ax=None` (or `axes=None` for grids) and only create a figure when none is given; saving/showing stays in the public wrapper;
    - no function over ~60 lines; loops with index bookkeeping become comprehensions / vectorised numpy where it reads better (but never change the order of RNG draws);

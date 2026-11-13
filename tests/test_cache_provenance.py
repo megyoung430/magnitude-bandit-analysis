@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from src.behavior_import.import_log import CacheSource, ImportLog
-from src.pipelines.cache_provenance import (
+from src.pipelines.common.cache_provenance import (
     FROM_CACHE_FILE,
     cache_sources,
     from_cache_description,

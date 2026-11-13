@@ -7,13 +7,13 @@ exercised by the inputs below (truncated/NaN windows, skips, unsorted indices...
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_choice_probs_around_good_reversals import (
+from src.behavior_analysis.reversals.get_choice_probs_around_good_reversals import (
     NoReversalsError,
     apply_moving_average_to_choice_probs,
     get_choice_probs_around_good_reversals,
     remove_trials_after_bad_rev,
 )
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning
+from src.behavior_analysis.reversals.get_good_reversal_info import ReversalWarning
 
 ROLES = ("prev_best", "next_best", "third")
 

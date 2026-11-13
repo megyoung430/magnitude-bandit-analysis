@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from matplotlib.container import ErrorbarContainer
 
-from src.behavior_visualization import plot_task_statistics as ts
-from src.behavior_visualization.plot_style import MOUSE_COLORS
-from src.behavior_visualization.plot_task_statistics import (
+from src.behavior_visualization.common.plot_style import MOUSE_COLORS
+from src.behavior_visualization.task_statistics import plot_task_statistics as ts
+from src.behavior_visualization.task_statistics.plot_task_statistics import (
     plot_block_length_panel,
     plot_block_lengths,
 )

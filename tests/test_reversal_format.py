@@ -3,15 +3,15 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis.cumulative_reversal_removal import removal_curves_by_kind
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.get_total_reversals import (
+from src.behavior_analysis.reversals.cumulative_reversal_removal import removal_curves_by_kind
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.get_total_reversals import (
     get_all_reversal_indices,
     get_reversal_indices_by_kind,
     get_unclassified_reversal_indices,
 )
-from src.behavior_analysis.reversal_format import check_formats_agree
-from src.behavior_analysis.reversals_by_trial import reversal_trial_series
+from src.behavior_analysis.reversals.reversal_format import check_formats_agree
+from src.behavior_analysis.reversals.reversals_by_trial import reversal_trial_series
 
 
 def blocks_only(blocks):

@@ -3,7 +3,7 @@
 The value learner of :mod:`src.agents.value_agent` chooses with probability
 ``softmax(beta * Q + kappa * stay + plus_bias * plus)``. :func:`true_utilities` replays one
 simulated animal's trials to recover that utility (and the values ``Q``) on every trial, with
-the arms in the order of :func:`src.behavior_analysis.choice_logit.design_matrix`.
+the arms in the order of :func:`src.behavior_analysis.choice_logit.choice_logit.design_matrix`.
 
 The choice logit is linear in lagged rewards, but ``Q`` is not: a reward is forgotten by a
 factor ``1 - learning_rate`` at each later *visit* of the same arm, not at each later trial, and
@@ -20,7 +20,7 @@ import pandas as pd
 from scipy.special import logsumexp
 
 from src.agents.drifting_simulation import plus_ports
-from src.behavior_analysis import choice_logit as cl
+from src.behavior_analysis.choice_logit import choice_logit as cl
 
 N_ARMS = 3
 REFERENCE_L2 = 1e-6

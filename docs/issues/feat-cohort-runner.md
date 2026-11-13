@@ -13,7 +13,7 @@ command, with the task type taken from the task name.
 
 ## Acceptance criteria
 - `uv run python scripts/full_pipelines/run_cohorts.py --cohorts 1 2 3 4` runs the suite for
-  each cohort (`src/pipelines/cohort_analysis.py`: `run_cohort`, `run_cohorts`); the notebook
+  each cohort (`src/pipelines/common/cohort_analysis.py`: `run_cohort`, `run_cohorts`); the notebook
   `cohort-analysis.ipynb` does the same with `cohort_ids = [1, 2, 3, 4]`.
 - Task type is classified from the session's `task_name` (`classify_task_name`): last path
   component, case-insensitive, `blocked`/`structured` is blocked, `drifting` is drifting;

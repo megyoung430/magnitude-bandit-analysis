@@ -19,12 +19,12 @@ Meg asked for two things:
 
 ## 1. Complete-window value-change figures
 
-- `src/behavior_analysis/value_change_complete_window.py` (was `value_change_symmetric.py`):
+- `src/behavior_analysis/value/value_change_complete_window.py` (was `value_change_symmetric.py`):
   `select_complete_windows` keeps the events whose whole `-pre .. +post` window is intact, with
   the exclusion rules of the symmetric version (block or third-arm change, session edge, best-arm
   change before the event, missing choice). `pre` and `post` need not be equal; (6, 6) gives the
   same events, exclusion counts and counts as the former symmetric selection.
-- `COMPLETE_WINDOW = (2, 4)` in `src/pipelines/value_change_analysis.py` is the default;
+- `COMPLETE_WINDOW = (2, 4)` in `src/pipelines/value/value_change_analysis.py` is the default;
   `run_value_change_analysis(..., complete_window=(pre, post) | None)` changes it per call.
 - Names: `... (<filter>, -2 to +4 Trials)` (ASCII hyphen, as in the other file names); equal
   sides keep `Symmetric ±N Trials`. Mode `complete_pre2_post4` (`symmetric_N` when equal).
@@ -37,8 +37,8 @@ Meg asked for two things:
 
 ## 2. Stay/switch psychometrics
 
-`src/behavior_analysis/stay_switch_psychometrics.py`, `src/behavior_visualization/
-plot_stay_switch.py`, `src/pipelines/stay_switch_psychometrics.py`; figures in
+`src/behavior_analysis/value/stay_switch_psychometrics.py`, `src/behavior_visualization/
+plot_stay_switch.py`, `src/pipelines/value/stay_switch_psychometrics.py`; figures in
 `value-psychometrics-stay-switch/`, made wherever `value-psychometrics/` is (each drifting
 problem, a cohort's pooled drifting problems, the all-cohorts pool).
 

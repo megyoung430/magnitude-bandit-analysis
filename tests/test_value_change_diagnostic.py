@@ -30,23 +30,23 @@ import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 from matplotlib.collections import PolyCollection  # noqa: E402
 
-from src.behavior_analysis.value_change_diagnostic import (  # noqa: E402
+from src.behavior_analysis.value.value_change_diagnostic import (  # noqa: E402
     contiguous_runs,
     diagnose_session,
     nearest_event_labels,
 )
-from src.behavior_analysis.value_change_windows import (  # noqa: E402
+from src.behavior_analysis.value.value_change_windows import (  # noqa: E402
     get_value_change_windows,
     summarize_windows,
 )
 from src.behavior_import.load_trials import ImportedTrials  # noqa: E402
-from src.behavior_visualization.plot_value_change_diagnostic import (  # noqa: E402
+from src.behavior_visualization.value.plot_value_change_diagnostic import (  # noqa: E402
     POST_COLOR,
     PRE_COLOR,
     event_text,
     plot_value_change_diagnostic,
 )
-from src.pipelines import value_change_diagnostic as pipeline  # noqa: E402
+from src.pipelines.value import value_change_diagnostic as pipeline  # noqa: E402
 from tests.cohort_fixtures import BLOCKED_NAME, DRIFTING_NAME  # noqa: E402
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts" / "individual_analyses"
@@ -447,7 +447,7 @@ def test_index_lists_the_csvs(written_tree):
 
 
 def test_csv_mean_rows_equal_the_figure_pipeline_curves_for_both_modes(tmp_path):
-    from src.pipelines.value_change_analysis import run_value_change_analysis
+    from src.pipelines.value.value_change_analysis import run_value_change_analysis
 
     session = make_session(EVENT_SCRIPT, EVENT_CHOICES)
     other = make_session(EVENT_SCRIPT[:-4], EVENT_CHOICES[:-4])

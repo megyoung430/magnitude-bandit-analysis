@@ -8,11 +8,11 @@ status: done
 
 # Split plot_choice_probs_around_good_reversals.py into analysis + ax panels
 
-Refactor the long functions in `src/behavior_visualization/plot_choice_probs_around_good_reversals.py` to follow the delab coding principles without changing behaviour.
+Refactor the long functions in `src/behavior_visualization/reversals/plot_choice_probs_around_good_reversals.py` to follow the delab coding principles without changing behaviour.
 
 Targets: add_cumulative_rev_axis (158 lines), plot_choice_probs_around_good_reversals (145), cumulative_reversal_events_over_post (99), cumulative_total_events_over_post (81).
 
-Move the cumulative-event computations into src/behavior_analysis (pure, unit-tested). Follow src/behavior_visualization/plot_num_reversals.py as the template: panel functions accept ax=None, public function keeps its signature and saved file names. Golden-test all argument combinations used in src/pipelines/open_field.py (add_cumulative_axis True/False, only_good, use_total, skip_n_trials_after_reversal) with save_path=None and with a tmp save_path.
+Move the cumulative-event computations into src/behavior_analysis (pure, unit-tested). Follow src/behavior_visualization/reversals/plot_num_reversals.py as the template: panel functions accept ax=None, public function keeps its signature and saved file names. Golden-test all argument combinations used in src/pipelines/common/open_field.py (add_cumulative_axis True/False, only_good, use_total, skip_n_trials_after_reversal) with save_path=None and with a tmp save_path.
 
 ## Method (applies to every refactor item)
 Behaviour-preserving refactor, test-first (principle 7):

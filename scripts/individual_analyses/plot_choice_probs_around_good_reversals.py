@@ -1,19 +1,21 @@
 from pathlib import Path
 
-from src.behavior_analysis.get_choice_probs_around_good_reversals import (
+from src.behavior_analysis.reversals.get_choice_probs_around_good_reversals import (
     apply_moving_average_to_choice_probs,
     get_choice_probs_around_good_reversals,
     remove_trials_after_bad_rev,
 )
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.get_total_reversals import get_reversal_indices_by_kind
-from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
-from src.behavior_analysis.split_good_reversals_by_best_change import (
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.get_total_reversals import get_reversal_indices_by_kind
+from src.behavior_analysis.reversals.split_early_late_good_reversals import (
+    split_good_reversals_early_late,
+)
+from src.behavior_analysis.reversals.split_good_reversals_by_best_change import (
     split_good_reversals_by_best_change,
 )
 from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
 from src.behavior_import.load_trials import load_trials_by_problem
-from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
+from src.behavior_visualization.reversals.plot_choice_probs_around_good_reversals import (
     plot_choice_probs_around_good_reversals,
 )
 from src.settings import get_settings

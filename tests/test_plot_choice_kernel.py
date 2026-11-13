@@ -10,9 +10,9 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
-from src.behavior_analysis import stay_by_run_length as rl  # noqa: E402
-from src.behavior_visualization import plot_choice_kernel as plots  # noqa: E402
-from src.pipelines.choice_kernel_long import LongKernel  # noqa: E402
+from src.behavior_analysis.value import stay_by_run_length as rl  # noqa: E402
+from src.behavior_visualization.choice_logit import plot_choice_kernel as plots  # noqa: E402
+from src.pipelines.choice_logit.choice_kernel_long import LongKernel  # noqa: E402
 from tests.test_plot_choice_logit import check_files  # noqa: E402
 from tests.test_plot_regression_extensions import saved_figures  # noqa: E402, F401
 

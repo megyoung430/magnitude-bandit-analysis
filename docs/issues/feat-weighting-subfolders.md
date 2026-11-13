@@ -17,7 +17,7 @@ Every averaged figure of two analyses comes in two versions, each in its own sub
 - Value change (`run_value_change_analysis`): the mouse-weighted figures move from
   `<value-change folder>/` to `<value-change folder>/mouse-weighted/`; the event-weighted ones stay
   in `event-weighted/`. Nothing is written at the top level. The folder names are constants in
-  `src/pipelines/weighting_folders.py`.
+  `src/pipelines/common/weighting_folders.py`.
 - Reversal-aligned arms: `compute_reversal_aligned_arms(..., weighting="subject" | "event")`
   (default `"subject"`; anything else raises) and `ReversalAlignedArms.weighting`.
   - `"subject"`: block changes averaged into a subject curve (choice probabilities smoothed by the

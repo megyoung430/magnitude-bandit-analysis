@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from matplotlib.container import ErrorbarContainer
 
-from src.behavior_analysis.cohort_comparison_stats import (
+from src.behavior_analysis.task_statistics.cohort_comparison_stats import (
     cap_problem_two,
     mean_and_sem,
     mouse_rank_cell,
@@ -15,10 +15,10 @@ from src.behavior_analysis.cohort_comparison_stats import (
     rank_proportions,
     reversal_values,
 )
-from src.behavior_visualization import plot_cohort_comparison as pcc
-from src.behavior_visualization.plot_cohort_comparison import plot_cohort_comparison
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_style import MOUSE_COLORS
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.common.plot_style import MOUSE_COLORS
+from src.behavior_visualization.task_statistics import plot_cohort_comparison as pcc
+from src.behavior_visualization.task_statistics.plot_cohort_comparison import plot_cohort_comparison
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse, make_session, session_key
 

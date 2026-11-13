@@ -2,10 +2,10 @@
 
 import pytest
 
-from src.behavior_analysis.get_first_leave_after_good_reversals import (
+from src.behavior_analysis.reversals.get_first_leave_after_good_reversals import (
     get_first_leave_after_good_reversals,
 )
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning
+from src.behavior_analysis.reversals.get_good_reversal_info import ReversalWarning
 
 
 def reversal(prev_best, next_best, first_choices, **flags):

@@ -3,14 +3,14 @@
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.best_change import best_change_problem
-from src.behavior_analysis.get_total_reversals import get_total_reversals
-from src.behavior_analysis.problem_summary import (
+from src.behavior_analysis.reversals.best_change import best_change_problem
+from src.behavior_analysis.reversals.get_total_reversals import get_total_reversals
+from src.behavior_analysis.reversals.reversals_by_session import reversal_counts_by_session
+from src.behavior_analysis.review.suspect_reversals import count_suspect_good_reversals
+from src.behavior_analysis.task_statistics.problem_summary import (
     compute_problem_goodrev_summary,
     compute_suspect_good_reversals_per_session,
 )
-from src.behavior_analysis.reversals_by_session import reversal_counts_by_session
-from src.behavior_analysis.suspect_reversals import count_suspect_good_reversals
 
 
 def rewards(best_per_trial):

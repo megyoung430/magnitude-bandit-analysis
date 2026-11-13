@@ -8,7 +8,7 @@ status: done
 
 # Split choice-probabilities-around-reversals analysis
 
-Refactor the long functions in `src/behavior_analysis/get_choice_probs_around_good_reversals.py` to follow the delab coding principles without changing behaviour.
+Refactor the long functions in `src/behavior_analysis/reversals/get_choice_probs_around_good_reversals.py` to follow the delab coding principles without changing behaviour.
 
 Targets: get_choice_probs_around_good_reversals (142 lines), apply_moving_average_to_choice_probs (136), remove_trials_after_bad_rev (95).
 

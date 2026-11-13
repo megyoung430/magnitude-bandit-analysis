@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.behavior_analysis.no_second_best import COLUMNS, no_second_best_table
+from src.behavior_analysis.switching.no_second_best import COLUMNS, no_second_best_table
 from tests.review_fixtures import BLOCKED_NAME, cohort, session
 
 S1, S2 = "ses-1_date-20260101", "ses-2_date-20260102"

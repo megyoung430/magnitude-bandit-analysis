@@ -7,18 +7,18 @@ import pandas as pd
 import pytest
 from matplotlib.container import ErrorbarContainer
 
-from src.behavior_analysis.trial_block_summary import build_trial_block_tables
-from src.behavior_analysis.trial_count_summaries import (
+from src.behavior_analysis.task_statistics.trial_block_summary import build_trial_block_tables
+from src.behavior_analysis.task_statistics.trial_count_summaries import (
     daily_mean_trials,
     ecdf,
     mean_trials_by_problem_and_mouse,
     mice_by_subject_number,
     summarize_trials_by_problem,
 )
-from src.behavior_visualization import plot_trial_block_summary as pbs
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_style import MOUSE_COLORS
-from src.behavior_visualization.plot_trial_block_summary import (
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.common.plot_style import MOUSE_COLORS
+from src.behavior_visualization.task_statistics import plot_trial_block_summary as pbs
+from src.behavior_visualization.task_statistics.plot_trial_block_summary import (
     _plot_problem_means,
     plot_trial_block_summaries,
 )

@@ -8,7 +8,7 @@ status: done
 
 # Split plot_rank_proportions.py into analysis + ax panels
 
-Refactor the long functions in `src/behavior_visualization/plot_rank_proportions.py` to follow the delab coding principles without changing behaviour.
+Refactor the long functions in `src/behavior_visualization/rank_proportions/plot_rank_proportions.py` to follow the delab coding principles without changing behaviour.
 
 Targets: plot_rank_proportions_average (152 lines), plot_rank_proportions_by_block (107), plot_rank_proportions_by_mouse (82).
 

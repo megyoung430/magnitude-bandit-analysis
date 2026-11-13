@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.behavior_analysis.blocklen_distributions import (
+from src.behavior_analysis.task_statistics.blocklen_distributions import (
     collect_blocklens,
     drop_last_problem_per_mouse_raw,
     pooled_blocklens,

@@ -9,7 +9,7 @@ against replays of a fitted static agent. Notebook: `scripts/glm_hmm.ipynb`; fig
 `results/figures/glm-hmm/`.
 
 ## Model
-- **Own implementation** (`src/behavior_analysis/glm_hmm.py`); no new dependency.
+- **Own implementation** (`src/behavior_analysis/glm_hmm/glm_hmm.py`); no new dependency.
 - **Emissions**: a three-alternative conditional logit. In state `z`, `P(arm j) = softmax_j(w_z . x_j)`
   with per-arm features `x_j`. Weights are state specific.
 - **Features** (`src/agents/glm_hmm_agent.py`, `FEATURES`): `q` (kernel-Q value of the arm), `habit`

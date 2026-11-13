@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.exclude_mice import (
+from src.behavior_analysis.data.exclude_mice import (
     ExcludedMiceError,
     check_mouse_ids,
     exclude_mice_from_problems,

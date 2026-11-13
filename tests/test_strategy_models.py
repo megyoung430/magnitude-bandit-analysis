@@ -11,7 +11,7 @@ from src.agents import heuristic_agent as ha
 from src.agents import kernel_q_agent as kq
 from src.agents import null_agents as na
 from src.agents import value_agent as va
-from src.behavior_analysis import strategy_models as sm
+from src.behavior_analysis.strategy_models import strategy_models as sm
 from tests.strategy_fixtures import PARAMETERS, simulate_mouse
 from tests.switch_regression_fixtures import table_from_rows
 

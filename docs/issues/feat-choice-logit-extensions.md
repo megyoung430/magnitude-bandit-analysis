@@ -8,7 +8,7 @@ and shared variance of the regressor groups, and a calibration figure whose y ax
 choices.
 
 ## Change
-- `src/behavior_analysis/choice_logit.py`: `design_matrix(..., extras=...)` appends optional
+- `src/behavior_analysis/choice_logit/choice_logit.py`: `design_matrix(..., extras=...)` appends optional
   column groups after the standard columns (their names and order are unchanged).
   - `BINARY`: `binary_lag<k>` (1 if the arm paid on trial `t-k`, else 0) and `binary_tail`, the
     same structure as the pulse lags.
@@ -18,7 +18,7 @@ choices.
   - `binary_tail_decay` sets the binary tail's decay apart from the pulse tail's (default: the
     same). A repeated extra or an unknown one raises.
   - `select_features` and `weights_table` know the new groups.
-- `src/behavior_analysis/choice_logit_extensions.py` (pure): `cross_validate_variants` scores any
+- `src/behavior_analysis/choice_logit/choice_logit_extensions.py` (pure): `cross_validate_variants` scores any
   set of feature groups leave-one-problem-out and returns the held-out probabilities;
   `VARIANTS` names the models; `believed_value_table`, `binary_pulse_table`, `gain_summary`
   (mean, se, Wilcoxon and sign tests across mice, from `MIN_TEST_MICE` = 6 mice: five mice cannot
@@ -26,14 +26,14 @@ choices.
   `variance_partition`, and `calibration_bins` / `calibration_table` / `calibration_summary` /
   `calibration_noise_floor`.
   `choice_logit_cv.model_comparison` takes an optional model order.
-- `src/pipelines/regression_extensions.py`: `analyse_extensions` (all variants per mouse, parallel
+- `src/pipelines/choice_logit/regression_extensions.py`: `analyse_extensions` (all variants per mouse, parallel
   over mice with `n_jobs`, each mouse's result cached under `cache_dir`; the cache key holds the
   variants, the extras, the binary decays and a hash of the choice-logit module sources, so
   editing a variant or the code misses the cache; warnings of the workers are returned and
   re-emitted in the parent, also on a cache hit), `select_binary_decay`, `extension_tables`,
   `comparison_inputs` (reuses the null-agent cohorts of a `NullComparison`), `analyse_sources`,
   `source_summaries`, `per_mouse_summary`.
-- `src/behavior_visualization/plot_regression_extensions.py`: `plot_believed_value`,
+- `src/behavior_visualization/choice_logit/plot_regression_extensions.py`: `plot_believed_value`,
   `plot_binary_vs_pulse`, `plot_variance_partition`, `plot_calibration`, and `plot_extensions` for
   all of them (pdf, png, svg and a caption file each).
 - `scripts/choice_logit_values.ipynb`: sections 2.8 (synthetic: Q-learner and null agents,

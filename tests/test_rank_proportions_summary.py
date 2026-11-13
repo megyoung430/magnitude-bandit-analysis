@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis.rank_proportions_summary import (
+from src.behavior_analysis.rank_proportions.rank_proportions_summary import (
     mean_rank_proportions_by_subject,
     rank_mean_and_se,
 )

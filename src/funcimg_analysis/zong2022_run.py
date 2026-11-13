@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.behavior_analysis.outcome_events import OutcomeParseError, load_outcome_events
+from src.behavior_analysis.data.outcome_events import OutcomeParseError, load_outcome_events
 from src.funcimg_analysis.collect import check_same_window, variant_runs
 from src.funcimg_analysis.event_frames import mean_by_category, pooled_mean_sem
 from src.funcimg_analysis.frame_times import (

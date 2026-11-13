@@ -8,8 +8,8 @@ and a per-cohort ``index.txt``. Pass ``--no-cache`` to re-import the raw files.
 import argparse
 from pathlib import Path
 
-from src.pipelines.cohort_analysis import DEFAULT_RESULTS_ROOT
-from src.pipelines.value_change_diagnostic import run_cohort_diagnostic
+from src.pipelines.common.cohort_analysis import DEFAULT_RESULTS_ROOT
+from src.pipelines.value.value_change_diagnostic import run_cohort_diagnostic
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
 
 TOWERS = "ABC"
 RANKS = ("best", "second", "third")

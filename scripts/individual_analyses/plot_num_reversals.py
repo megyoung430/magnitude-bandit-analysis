@@ -2,7 +2,7 @@ from pathlib import Path
 
 from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
 from src.behavior_import.load_trials import load_trials_by_problem
-from src.behavior_visualization.plot_num_reversals import (
+from src.behavior_visualization.reversals.plot_num_reversals import (
     plot_moving_avg_reversals_over_time,
     plot_num_reversals,
     plot_num_reversals_over_time,

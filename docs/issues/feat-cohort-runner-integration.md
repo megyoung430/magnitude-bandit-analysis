@@ -6,8 +6,8 @@ status: in review
 
 # Wire the value, reversal-aligned and poke analyses into the cohort runner
 
-`run_cohort` (`src/pipelines/cohort_analysis.py`) and `run_problem` / `run_single_session_analysis`
-(`src/pipelines/open_field.py`) did not call the analyses added on the branches
+`run_cohort` (`src/pipelines/common/cohort_analysis.py`) and `run_problem` / `run_single_session_analysis`
+(`src/pipelines/common/open_field.py`) did not call the analyses added on the branches
 `feat-value-psychometrics`, `feat-reversal-aligned-arms`, `feat-value-change-aligned` and
 `feat-poke-heatmaps`. Running a cohort now produces all of them.
 

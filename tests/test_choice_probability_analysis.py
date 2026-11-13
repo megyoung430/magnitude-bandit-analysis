@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-import src.pipelines.open_field as pipeline
-from src.pipelines.open_field import (
+import src.pipelines.common.open_field as pipeline
+from src.pipelines.common.open_field import (
     ChoiceProbabilitySettings,
     run_choice_probability_analysis,
 )

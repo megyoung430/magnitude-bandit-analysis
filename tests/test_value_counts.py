@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.get_choice_probs_by_value import (
+from src.behavior_analysis.value.get_choice_probs_by_value import (
     TIE_EXCLUDE,
     TIE_SPLIT,
     accumulate_choice_probs,

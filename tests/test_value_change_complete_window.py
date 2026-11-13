@@ -8,19 +8,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.value_change_complete_window import (
+from src.behavior_analysis.value.value_change_complete_window import (
     ANY_CAUSE_KEYS,
     EXCLUSION_KEYS,
     select_complete_windows,
 )
-from src.behavior_analysis.value_change_windows import (
+from src.behavior_analysis.value.value_change_windows import (
     get_value_change_windows,
     merge_value_change_windows,
     summarize_windows,
     truncate_windows_at_rank_swap,
 )
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.pipelines.value_change_analysis import COMPLETE_WINDOW, run_value_change_analysis
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.pipelines.value.value_change_analysis import COMPLETE_WINDOW, run_value_change_analysis
 from tests.test_value_change_windows import BASE, key, mag, recording, script, session
 
 N = 6
@@ -373,7 +373,7 @@ def three_events():
 @pytest.fixture
 def no_figures(monkeypatch):
     monkeypatch.setattr(
-        "src.pipelines.value_change_analysis.plot_value_change_choice_probs",
+        "src.pipelines.value.value_change_analysis.plot_value_change_choice_probs",
         lambda curves, base, **kwargs: None,
     )
 
@@ -469,7 +469,7 @@ def test_a_rerun_with_another_window_removes_the_old_complete_window_figures(tmp
 def test_complete_window_title_and_caption(window, caption):
     import matplotlib.pyplot as plt
 
-    from src.behavior_visualization.plot_value_change_choice_probs import (
+    from src.behavior_visualization.value.plot_value_change_choice_probs import (
         plot_value_change_panel,
     )
 

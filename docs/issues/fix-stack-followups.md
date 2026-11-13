@@ -21,7 +21,7 @@ Sessions were ordered by date then number in `problem_numbering`, `problem_utils
 
 ## 2. Mixed formats raise (PI decision: raise, any counter)
 
-`src/behavior_analysis/reversal_format.py`:
+`src/behavior_analysis/reversals/reversal_format.py`:
 
 - *counter format*: a session with trials and `has_good` or `has_bad`. A bad-only session is counter format too (its block changes are bad reversals, not reversals of unknown kind).
 - *blocks-only format*: a session with trials and neither.

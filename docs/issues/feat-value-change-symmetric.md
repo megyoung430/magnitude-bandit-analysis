@@ -47,7 +47,7 @@ problem, pooled drifting problems and the all-cohorts runner; one new table,
 On `origin/feat-incremental-cohort-runs` the table merge (`incremental.merge_diagnostic_tables`)
 loops over whatever `stack_diagnostics` returns, which is `DIAGNOSTIC_TABLES`, so
 `value_change_symmetric_exclusions` is picked up without a code change. Hard-coded lists to
-update by whoever merges second: `TABLE_NAMES` in `src/pipelines/all_cohorts_drifting.py` (same on
+update by whoever merges second: `TABLE_NAMES` in `src/pipelines/common/all_cohorts_drifting.py` (same on
 both branches), the table lists in `tests/test_incremental_run.py`,
 `tests/test_cohort_review_tables.py`, `tests/test_all_cohorts_drifting.py`,
 `tests/test_review_diagnostic_tables.py`, and the README sentences that name the diagnostic

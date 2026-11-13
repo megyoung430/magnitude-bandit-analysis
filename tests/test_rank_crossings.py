@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis import rank_crossings as rc
-from src.behavior_analysis import rank_decisions as rd
-from src.behavior_analysis import rank_state as rs
+from src.behavior_analysis.rank_tests import rank_crossings as rc
+from src.behavior_analysis.rank_tests import rank_decisions as rd
+from src.behavior_analysis.rank_tests import rank_state as rs
 from tests.rank_fixtures import rank_mouse, softmax_mouse
 from tests.switch_regression_fixtures import table_from_rows
 

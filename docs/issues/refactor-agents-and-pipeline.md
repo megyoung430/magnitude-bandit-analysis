@@ -20,7 +20,7 @@ status: done
 
 Refactor the long functions below into small, single-purpose functions (principle 4) with identical behaviour.
 
-- **Files:** `src/agents/{cohort_fitting,parameter_recovery,trajectory_viewer}.py`, `src/pipelines/open_field.py`
+- **Files:** `src/agents/{cohort_fitting,parameter_recovery,trajectory_viewer}.py`, `src/pipelines/common/open_field.py`
 - **Functions over 60 lines:** run_problem_cross_validation (126), run_recovery (86), trajectory_viewer (71), run_choice_probability_analysis (63)
 
 ## Acceptance criteria

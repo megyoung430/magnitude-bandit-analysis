@@ -6,7 +6,7 @@ status: in review
 
 # GLM design matrices: session boundaries, NaN rows, labels, merged sessions, errors
 
-`src/behavior_analysis/glm_utils.py` builds the multinomial-GLM design matrices
+`src/behavior_analysis/choice_logit/glm_utils.py` builds the multinomial-GLM design matrices
 (`format_glm_input`, `format_glm_input_by_rank`). Sessions were concatenated
 before the history lags were formed, NaN outcomes could stay in the fit, the
 column labels could disagree with the matrix, a short list in one session

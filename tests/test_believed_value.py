@@ -1,6 +1,6 @@
 import pytest
 
-from src.behavior_analysis.get_believed_value import compute_believed_value
+from src.behavior_analysis.data.get_believed_value import compute_believed_value
 
 
 def beliefs(choices, magnitudes, field):

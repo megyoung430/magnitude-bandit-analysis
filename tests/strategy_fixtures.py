@@ -6,9 +6,9 @@ import pandas as pd
 from src.agents import drifting_simulation as sim
 from src.agents import heuristic_agent as ha
 from src.agents import null_agents as na
-from src.behavior_analysis import strategy_models as sm
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
-from src.pipelines.choice_logit_values import SIMULATED_PORTS, START_MAGNITUDES
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.pipelines.choice_logit.choice_logit_values import SIMULATED_PORTS, START_MAGNITUDES
 
 RULES = sim.TaskRules(drift_rate=0.1, block_lengths=np.arange(30, 36))
 WSLS = na.WslsMagnitudeParams(a_win=0.4, a_lose=-0.3, b=0.2, w=0.7)

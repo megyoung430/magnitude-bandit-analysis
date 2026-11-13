@@ -4,10 +4,10 @@ import warnings
 
 import pytest
 
-import src.pipelines.open_field as pipeline
-from src.behavior_analysis import get_good_reversal_info as good
-from src.behavior_analysis.get_num_long_pokes import get_num_long_pokes
-from src.behavior_analysis.warnings_log import warnings_log_table
+import src.pipelines.common.open_field as pipeline
+from src.behavior_analysis.data.warnings_log import warnings_log_table
+from src.behavior_analysis.pokes.get_num_long_pokes import get_num_long_pokes
+from src.behavior_analysis.reversals import get_good_reversal_info as good
 from src.behavior_import.warning_records import record_warnings
 from tests.review_fixtures import cohort, session
 

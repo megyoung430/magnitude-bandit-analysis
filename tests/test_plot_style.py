@@ -12,9 +12,11 @@ import numpy as np
 import pytest
 from matplotlib.colors import to_rgb
 
-from src.behavior_visualization.plot_helpers import mouse_color_map, save_or_show
-from src.behavior_visualization.plot_rank_proportions import plot_average_across_mice
-from src.behavior_visualization.plot_style import FONT_RC, MOUSE_COLORS
+from src.behavior_visualization.common.plot_helpers import mouse_color_map, save_or_show
+from src.behavior_visualization.common.plot_style import FONT_RC, MOUSE_COLORS
+from src.behavior_visualization.rank_proportions.plot_rank_proportions import (
+    plot_average_across_mice,
+)
 from tests.rank_rows import make_row
 
 OKABE_ITO_MICE = ["#E69F00", "#56B4E9", "#D55E00", "#CC79A7", "#F0E442", "#0072B2", "#009E73"]

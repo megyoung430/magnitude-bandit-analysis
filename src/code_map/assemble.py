@@ -159,9 +159,9 @@ def coverage(
 
 
 def package_of(path: str) -> str:
-    """The folder a file is listed under: its first two path parts, or "<top> (top level)"."""
+    """The folder a file is listed under: the folder it is in, or "<top> (top level)"."""
     parts = path.split("/")
-    return f"{parts[0]} (top level)" if len(parts) == 2 else "/".join(parts[:2])
+    return f"{parts[0]} (top level)" if len(parts) == 2 else "/".join(parts[:-1])
 
 
 def module_entry(m: ModuleRecord, overviews: Overviews, descriptions: Mapping[str, str]) -> dict:

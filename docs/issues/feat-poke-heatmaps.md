@@ -26,7 +26,7 @@ initiation, per mouse and problem, plus the two session-level maps in the single
   `previous_choice_towers`.
 
 ## Entry points
-- `src.pipelines.poke_analysis.run_poke_analysis(subjects_trials_by_problem: dict, out_dir: Path, *,
+- `src.pipelines.pokes.poke_analysis.run_poke_analysis(subjects_trials_by_problem: dict, out_dir: Path, *,
   previous_choice_towers: dict | None = None) -> dict`. `subjects_trials_by_problem` is the sessions
   of ONE problem, `{mouse: {session_key: session_dict}}` (what `run_problem` receives); a dict keyed
   by problem raises. `previous_choice_towers` is `{mouse: frozenset | None}` and must cover every
@@ -35,7 +35,7 @@ initiation, per mouse and problem, plus the two session-level maps in the single
   folder). `Poke Trial Summary.csv` columns: `mouse, session, n_trials, n_trials_counted,
   n_trials_dropped_no_print, n_trials_dropped_inconsistent, n_open_after_choice_windows,
   n_long_poke_checked, n_long_poke_agree, parse_error`.
-- `src.behavior_analysis.poke_counts.previous_problem_choice_towers(all_problems) ->
+- `src.behavior_analysis.pokes.poke_counts.previous_problem_choice_towers(all_problems) ->
   {mouse: {overall_problem: frozenset | None}}` and
   `previous_choice_towers_for_problem(subjects_sessions, previous) -> {mouse: frozenset | None}`
   (reads each session's `"problem"`, so it works on task-type-regrouped problems; a mouse or problem

@@ -8,9 +8,10 @@ import numpy as np
 import pytest
 from matplotlib.colors import to_hex, to_rgba
 
-from src.behavior_visualization import plot_rank_proportions as rank_module
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_rank_proportions import (
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.common.plot_style import MOUSE_COLORS
+from src.behavior_visualization.rank_proportions import plot_rank_proportions as rank_module
+from src.behavior_visualization.rank_proportions.plot_rank_proportions import (
     _MOUSE_PANEL_BAR_STYLE,
     BLOCK_COLORS,
     plot_average_across_blocks,
@@ -24,7 +25,6 @@ from src.behavior_visualization.plot_rank_proportions import (
     plot_rank_proportions_by_block,
     plot_rank_proportions_by_mouse,
 )
-from src.behavior_visualization.plot_style import MOUSE_COLORS
 from tests.rank_rows import RANKS, make_row
 
 LABEL_Y = 1.05  # height at which the bar means are written
@@ -764,7 +764,8 @@ def test_pooled_mouse_panel_does_not_average_proportions_it_discards():
 
 def test_star_import_exposes_plot_functions_but_not_drawing_constants():
     namespace = {}
-    exec("from src.behavior_visualization.plot_rank_proportions import *", namespace)
+    module = "src.behavior_visualization.rank_proportions.plot_rank_proportions"
+    exec(f"from {module} import *", namespace)
     public = {name for name in namespace if not name.startswith("__")}
     assert {
         "plot_rank_proportions",

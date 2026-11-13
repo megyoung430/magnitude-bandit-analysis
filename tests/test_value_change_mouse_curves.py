@@ -15,13 +15,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.value_change_mouse_curves import (
+from src.behavior_analysis.value.value_change_mouse_curves import (
     MEAN_ROW,
     N_EVENTS_LABEL,
     mouse_curves_table,
     t_column_name,
 )
-from src.behavior_analysis.value_change_windows import (
+from src.behavior_analysis.value.value_change_windows import (
     ValueChangeConfig,
     ValueChangeEvent,
     ValueChangeWindows,

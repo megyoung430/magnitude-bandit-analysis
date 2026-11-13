@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_choice_probs_by_value import MouseCounts
-from src.behavior_analysis.value_psychometrics import heatmap_tables, psychometric_curves
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_value_psychometrics import (
+from src.behavior_analysis.value.get_choice_probs_by_value import MouseCounts
+from src.behavior_analysis.value.value_psychometrics import heatmap_tables, psychometric_curves
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.value.plot_value_psychometrics import (
     annotation_position,
     label_placements,
     plot_overall_heatmaps,
@@ -123,7 +123,7 @@ def test_per_mouse_heatmaps_have_a_row_per_mouse_and_a_column_per_choice(tmp_pat
 
 
 def test_per_mouse_heatmap_layout(monkeypatch):
-    from src.behavior_visualization import plot_value_psychometrics as module
+    from src.behavior_visualization.value import plot_value_psychometrics as module
 
     seen = {}
     monkeypatch.setattr(module, "save_or_show", lambda fig, path: seen.update(fig=fig))
@@ -176,7 +176,7 @@ def test_curves_figure_has_three_panels_and_is_saved(tmp_path):
 
 
 def test_curves_figure_panels_and_title(monkeypatch):
-    from src.behavior_visualization import plot_value_psychometrics as module
+    from src.behavior_visualization.value import plot_value_psychometrics as module
 
     seen = {}
     monkeypatch.setattr(module, "save_or_show", lambda fig, path: seen.update(fig=fig))
@@ -198,7 +198,7 @@ def test_curves_figure_panels_and_title(monkeypatch):
 
 def curve_panels(tie_mode):
     """The three axes of a psychometric figure drawn from two mice without tied trials."""
-    from src.behavior_visualization import plot_value_psychometrics as module
+    from src.behavior_visualization.value import plot_value_psychometrics as module
 
     curves = psychometric_curves(two_mice(), pool_trials=True, tie_mode=tie_mode)
     captured = {}
@@ -318,7 +318,7 @@ def test_tie_summary_gives_the_three_totals_and_the_fate_of_the_trials():
 
 
 def capture_figure(monkeypatch):
-    from src.behavior_visualization import plot_value_psychometrics as module
+    from src.behavior_visualization.value import plot_value_psychometrics as module
 
     seen = {}
     monkeypatch.setattr(module, "save_or_show", lambda fig, path: seen.update(fig=fig))
@@ -399,7 +399,7 @@ def test_side_labels_are_drawn_beside_their_points_with_a_nonzero_offset():
 
 
 def test_a_mean_that_is_nan_for_only_one_choice_raises():
-    from src.behavior_visualization.plot_value_psychometrics import _placements_at
+    from src.behavior_visualization.value.plot_value_psychometrics import _placements_at
 
     assert _placements_at(np.nan, np.nan) == (None, None)
     with pytest.raises(ValueError, match="NaN together"):

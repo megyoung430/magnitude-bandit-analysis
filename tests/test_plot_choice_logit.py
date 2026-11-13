@@ -10,9 +10,9 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 
-from src.behavior_analysis import model_value_psychometrics as mvp  # noqa: E402
-from src.behavior_visualization import plot_choice_logit as plots  # noqa: E402
-from src.behavior_visualization import plot_helpers  # noqa: E402
+from src.behavior_analysis.value import model_value_psychometrics as mvp  # noqa: E402
+from src.behavior_visualization.choice_logit import plot_choice_logit as plots  # noqa: E402
+from src.behavior_visualization.common import plot_helpers  # noqa: E402
 
 STATS_LINE = re.compile(r"(mean|median)( ± (se|std))? across mice, n=\d+ mice")
 EXTENSIONS = ("pdf", "png", "svg", "caption.txt")
@@ -262,7 +262,7 @@ def plot_xlabels(base):
 
 
 def test_switch_target_panel_draws_the_baseline_and_a_legend_only_for_it():
-    from src.behavior_visualization.plot_stay_switch import plot_switch_target_panel
+    from src.behavior_visualization.value.plot_stay_switch import plot_switch_target_panel
 
     curves, baselines = mvp.switch_target_curves_by_reward(pairs_frame(), n_bins=4)
     plain = plot_switch_target_panel(curves["rewarded"], "Row")
@@ -287,8 +287,8 @@ def test_stay_switch_figure_keeps_an_empty_row(tmp_path, titles):
 
 
 def test_a_curve_figure_with_a_single_row_is_drawn(tmp_path):
-    from src.behavior_visualization.plot_helpers import Title
-    from src.behavior_visualization.plot_stay_switch import plot_stay_switch_grid
+    from src.behavior_visualization.common.plot_helpers import Title
+    from src.behavior_visualization.value.plot_stay_switch import plot_stay_switch_grid
 
     curves, _ = mvp.stay_switch_curves_by_reward(pairs_frame(), pool_trials=True, n_bins=4)
     base = tmp_path / "one-row"

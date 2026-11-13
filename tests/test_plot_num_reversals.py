@@ -7,14 +7,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_visualization.plot_num_reversals import (
+from src.behavior_visualization.common.plot_style import TOTAL_COLOR
+from src.behavior_visualization.reversals.plot_num_reversals import (
     THRESHOLD_STYLE,
     plot_num_reversals,
     plot_reversal_curves_across_mice,
     plot_reversal_curves_for_mouse,
     plot_reversal_totals,
 )
-from src.behavior_visualization.plot_style import TOTAL_COLOR
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse
 

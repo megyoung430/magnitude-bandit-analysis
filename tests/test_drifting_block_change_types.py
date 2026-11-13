@@ -16,16 +16,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning, get_good_reversal_info
-from src.behavior_analysis.get_total_reversals import get_total_reversals
-from src.behavior_analysis.reversal_aligned_arms import (
+from src.behavior_analysis.reversals.get_good_reversal_info import (
+    ReversalWarning,
+    get_good_reversal_info,
+)
+from src.behavior_analysis.reversals.get_total_reversals import get_total_reversals
+from src.behavior_analysis.reversals.reversal_aligned_arms import (
     build_windows_with_magnitudes,
     compute_reversal_aligned_arms,
 )
-from src.behavior_analysis.suspect_reversal_table import suspect_reversal_table
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_reversal_aligned_arms import plot_reversal_aligned_arms
-from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
+from src.behavior_analysis.review.suspect_reversal_table import suspect_reversal_table
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.reversals.plot_reversal_aligned_arms import (
+    plot_reversal_aligned_arms,
+)
+from src.pipelines.reversals.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from tests.plot_capture import capture_figures
 
 DRIFTING_NAME = "Meg\\3x3_field_drifting_value_bandit"

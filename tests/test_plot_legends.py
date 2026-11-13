@@ -8,8 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_visualization.plot_helpers import save_or_show
-from src.behavior_visualization.plot_legends import (
+from src.behavior_visualization.common.plot_helpers import save_or_show
+from src.behavior_visualization.common.plot_legends import (
     HANDLE_LENGTH,
     tidy_legends,
     title_case,

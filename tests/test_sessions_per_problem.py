@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
-from src.behavior_analysis.sessions_per_problem import (
+from src.behavior_analysis.pokes.port_finding_sessions import assign_port_finding_sessions
+from src.behavior_analysis.task_statistics.sessions_per_problem import (
     TABLE_COLUMNS,
     session_without_part,
     sessions_per_problem_table,

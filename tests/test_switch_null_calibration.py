@@ -14,10 +14,10 @@ import pytest
 
 from src.agents import drifting_simulation as sim
 from src.agents import null_agents as na
-from src.behavior_analysis import switch_regression as sr
-from src.pipelines import choice_logit_values as logit_pipe
-from src.pipelines import null_agents as null_pipe
-from src.pipelines import switch_regression as pipe
+from src.behavior_analysis.switching import switch_regression as sr
+from src.pipelines.choice_logit import choice_logit_values as logit_pipe
+from src.pipelines.strategy_models import null_agents as null_pipe
+from src.pipelines.switching import switch_regression as pipe
 
 RULES = sim.TaskRules(drift_rate=0.1, block_lengths=np.arange(30, 36))
 GRID = (0.5, 0.9)

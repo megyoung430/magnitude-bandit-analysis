@@ -7,7 +7,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
 
-from src.behavior_visualization.plot_helpers import (
+from src.behavior_visualization.common.plot_helpers import (
     CAPTION_SUFFIX,
     FIGURE_FORMATS,
     FigureOutput,

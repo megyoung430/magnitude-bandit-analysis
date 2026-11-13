@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from src.agents import null_agents as na
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis import switch_regression as sr
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.switching import switch_regression as sr
 from tests.switch_regression_fixtures import DECAY, simulate_switch_mouse, table_from_rows
 
 D = 0.8  # trace decay of the hand-computed features
@@ -162,7 +162,7 @@ def test_believed_value_is_the_last_magnitude_received_in_the_problem(hand):
 
 
 def test_true_value_follows_task_values_convention():
-    from src.pipelines import choice_logit_values as pipe
+    from src.pipelines.choice_logit import choice_logit_values as pipe
 
     trials = simulate_switch_mouse("m1", 6, value_weight=0.5, trials_per_session=150)
     analysis = pipe.analyse_trial_table(trials, n_lags=2, tail_decay=None, min_trials=10)

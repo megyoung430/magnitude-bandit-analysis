@@ -11,14 +11,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.reversal_aligned_arms import (
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.reversal_aligned_arms import (
     EmptySelectionWarning,
     add_magnitude_windows,
     build_windows_with_magnitudes,
 )
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.pipelines.reversals.reversal_aligned_arms import run_reversal_aligned_arm_analysis
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse as make_counter_mouse
 

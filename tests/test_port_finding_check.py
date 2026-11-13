@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from src.behavior_analysis.port_finding_check import (
+from src.behavior_analysis.pokes.port_finding_check import (
     port_finding_check_table,
     session_port_finding_settings,
 )

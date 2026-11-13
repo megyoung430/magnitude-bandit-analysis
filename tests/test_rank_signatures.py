@@ -5,10 +5,10 @@ import warnings
 import numpy as np
 import pytest
 
-from src.behavior_analysis import rank_result as rr
-from src.behavior_analysis import rank_signatures as sg
-from src.behavior_analysis import rank_state as rs
-from src.behavior_analysis import rank_transfer as rt
+from src.behavior_analysis.rank_tests import rank_result as rr
+from src.behavior_analysis.rank_tests import rank_signatures as sg
+from src.behavior_analysis.rank_tests import rank_state as rs
+from src.behavior_analysis.rank_tests import rank_transfer as rt
 from tests.rank_fixtures import inferring_rank_mouse, rank_mouse, softmax_mouse
 from tests.strategy_fixtures import KERNEL_Q
 

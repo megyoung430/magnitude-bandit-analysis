@@ -33,7 +33,7 @@ magnitude just received.
   `probabilities` and `update` through the task; `simulate_problem` is `play_problem` with a
   `ValuePolicy`. The value learner's simulations are pinned by golden digests of
   `simulate_problem` and `simulate_mouse` (both learner kinds, two seeds).
-- `src/pipelines/null_agents.py`: `simulate_null_cohort` plays one fitted agent per mouse on that
+- `src/pipelines/strategy_models/null_agents.py`: `simulate_null_cohort` plays one fitted agent per mouse on that
   mouse's towers, initiation port, starting magnitudes and session lengths and returns a
   `SyntheticCohort` tagged with the agent kind; `null_controls` fits, simulates and analyzes all
   three; `compare_with_controls` returns every table of the comparison with a reference analysis
@@ -48,7 +48,7 @@ magnitude just received.
     problems in two cohorts. Explicit rules may be one set or one per cohort.
   - `generating_values`, `reference_weights`, `value_agreement` and `kernel_comparison` raise on
     a cohort whose `kind` is not `"value"`.
-- `src/behavior_visualization/plot_null_agents.py`: fit and implied stay rule figure, kernels by
+- `src/behavior_visualization/strategy_models/plot_null_agents.py`: fit and implied stay rule figure, kernels by
   source overlay (each source's n in the legend when the sources' n differ).
   `plot_choice_logit.kernel_matrix` and `mice_stats` are public so the new figures reuse them.
 - `scripts/choice_logit_values.ipynb`: sections 2.7 (Q-learner reference) and 3.3 (mice), figures

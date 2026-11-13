@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis.get_task_statistics import get_block_lengths
+from src.behavior_analysis.task_statistics.get_task_statistics import get_block_lengths
 from tests.test_reversal_boundaries import session, snapshot
 
 

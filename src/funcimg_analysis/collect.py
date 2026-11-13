@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.behavior_analysis.outcome_events import OutcomeParseError, load_outcome_events
+from src.behavior_analysis.data.outcome_events import OutcomeParseError, load_outcome_events
 from src.funcimg_analysis.background_io import BackgroundUnavailableError, load_background
 from src.funcimg_analysis.event_frames import (
     pooled_mean_sem,

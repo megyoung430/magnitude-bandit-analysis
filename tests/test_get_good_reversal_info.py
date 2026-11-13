@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from src.behavior_analysis import get_good_reversal_info as mod
-from src.behavior_analysis.get_good_reversal_info import _SubjectSeries
+from src.behavior_analysis.reversals import get_good_reversal_info as mod
+from src.behavior_analysis.reversals.get_good_reversal_info import _SubjectSeries
 from src.behavior_import.extract_trials import reward_magnitude_features
 
 
@@ -264,7 +264,7 @@ def test_classify_towers_does_not_depend_on_hash_seed():
     # PYTHONHASHSEED is fixed at interpreter start, so each seed needs its own process.
     code = (
         "import json;"
-        "from src.behavior_analysis.get_good_reversal_info import "
+        "from src.behavior_analysis.reversals.get_good_reversal_info import "
         "classify_towers_at_good_reversals as f;"
         "same = {'reward_magnitudes_by_tower_before': {'T1': 4, 'T2': 1, 'T3': 0, 'T4': 0},"
         " 'reward_magnitudes_by_tower_after': {'T1': 4, 'T2': 0, 'T3': 1, 'T4': 0}};"
@@ -360,7 +360,9 @@ def test_warning_is_shown_on_every_run_not_only_the_first():
     code = (
         "import warnings\n"
         "from tests.test_get_good_reversal_info import make_session\n"
-        "from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info\n"
+        "from src.behavior_analysis.reversals.get_good_reversal_info import (\n"
+        "    get_good_reversal_info,\n"
+        ")\n"
         "data = {'m': {'ses-1': make_session(8, good=[0]*3 + [1]*5, blocks=[1]*8)}}\n"
         "with warnings.catch_warnings(record=True) as caught:\n"
         "    for _ in range(2):\n"

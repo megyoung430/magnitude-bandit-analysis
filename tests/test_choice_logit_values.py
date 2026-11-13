@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from src.agents.choice_logit_truth import true_utilities
-from src.behavior_analysis import model_value_psychometrics as mvp
-from src.pipelines import choice_logit_values as pipe
+from src.behavior_analysis.value import model_value_psychometrics as mvp
+from src.pipelines.choice_logit import choice_logit_values as pipe
 from tests.all_cohorts_fixtures import synthetic_cohort
 
 PARAMETER_SETS = [(0.3, 1.2, 0.0, 0.0), (0.3, 1.2, 0.8, 0.6)]

@@ -12,7 +12,7 @@ comparison with equal numbers of parameters. Each fitted agent then plays the dr
 (:func:`simulate_mouse`) with that mouse's ports, initiation port, starting magnitudes and
 trials per session, in a task whose drift rate and block lengths are measured from the data and
 whose block-change rule is the one the data follow
-(:mod:`src.behavior_analysis.drifting_task_rules`; the pipeline checks the data against it):
+(:mod:`src.behavior_analysis.data.drifting_task_rules`; the pipeline checks the data against it):
 
 - each non-zero arm drifts by one step to the nearest free value in 1-4 with probability
   ``drift_rate`` per trial (as in :class:`src.tasks.drifting_bandit.DriftingBanditTask`);
@@ -45,7 +45,7 @@ import numpy as np
 import pandas as pd
 
 from src.agents import kernel_q_agent, value_agent
-from src.behavior_analysis.port_preference import port_category
+from src.behavior_analysis.pokes.port_preference import port_category
 from src.behavior_import.extract_trials import extract_session_trials
 from src.behavior_import.reconcile_reversals import reconcile_reversals
 
