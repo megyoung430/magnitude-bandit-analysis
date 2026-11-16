@@ -21,9 +21,10 @@ def test_a_template_without_the_placeholder_fails_loudly():
         render_html({}, "<p>no slot</p>")
 
 
-def test_the_shipped_template_has_a_title_and_the_placeholder_once():
+def test_the_shipped_template_is_a_full_page_with_the_placeholder_once():
     text = template_text()
-    assert text.count(PLACEHOLDER) == 1 and text.startswith("<title>")
+    assert text.count(PLACEHOLDER) == 1 and text.startswith("<!doctype html>")
+    assert '<meta charset="utf-8">' in text and "<title>" in text
 
 
 def make_repo(root):
