@@ -214,16 +214,54 @@ def test_a_cohort_table_numbers_each_problem_within_its_type_and_overall():
     assert set(table["cohort"]) == {4}
 
 
-def test_the_pipeline_writes_the_tables_and_both_figures(tmp_path):
+def test_the_pipeline_writes_the_tables_and_both_figures_of_each_coding(tmp_path):
     trials = pd.concat([mouse_trials(f"m{i}", 1, SEQUENCE, n_trials=200, seed=i)
                         for i in range(3)])  # fmt: skip
-    result = pipe.run_logit_by_problem(trials, {1: None}, tmp_path)
-    assert not result.weights.empty and len(result.tests) == 12
+    results = pipe.run_logit_by_problem(trials, {1: None}, tmp_path)
+    assert set(results) == set(lbp.CODINGS)
+    assert set(results[lbp.OUTCOME].tests["group"]) == {lbp.OUTCOME_X_CHOICE, cl.CHOICE}
+    assert all(len(r.tests) == 12 for r in results.values())
     written = {p.name for p in tmp_path.rglob("*") if p.is_file()}
-    for name in plots.FIGURE_NAMES:
-        assert {f"{name}.{ext}" for ext in ("pdf", "png", "svg", "caption.txt")} <= written
-    for table in ("weights", "summaries", "trends", "tests"):
-        assert f"logit_by_problem_{table}.csv" in written
+    for coding in lbp.CODINGS:
+        for base in plots.FIGURE_NAMES:
+            name = plots.figure_name(base, coding)
+            assert {f"{name}.{ext}" for ext in ("pdf", "png", "svg", "caption.txt")} <= written
+        for table in ("weights", "summaries", "trends", "tests"):
+            assert f"logit_by_problem_{coding}_{table}.csv" in written
+
+
+# ---------------------------------------------------------------------------
+# the paper's coding
+# ---------------------------------------------------------------------------
+
+
+def test_outcome_x_choice_is_plus_one_after_a_paid_choice_minus_one_after_a_zero_else_zero():
+    rows = pd.DataFrame(problem_rows("m", 1, "drifting", 1, 1, 40, np.random.default_rng(0)))
+    design = lbp.outcome_design(cl.design_matrix(rows, n_lags=2, extras=(cl.BINARY,)))
+    names = design.feature_names
+    interaction = design.X[:, :, names.index("binary_lag1")]
+    choice = design.X[:, :, names.index("choice_lag1")]
+    previous = rows["reward"].shift(1).to_numpy()
+    for t in range(1, len(rows)):
+        expected = choice[t] * (1 if previous[t] > 0 else -1)
+        assert interaction[t] == pytest.approx(expected)
+    assert not any(n.startswith("reward_") for n in names)
+
+
+def test_the_outcome_coding_names_its_weights_outcome_x_choice():
+    rows = pd.DataFrame(problem_rows("m", 1, "drifting", 1, 1, 300, np.random.default_rng(1)))
+    weights = lbp.fit_problem(rows, n_lags=3, coding=lbp.OUTCOME)
+    lagged = weights[weights["lag"].notna()]
+    assert set(lagged["group"]) == {lbp.OUTCOME_X_CHOICE, cl.CHOICE}
+    assert "outcome_x_choice_lag1" in set(weights["feature"])
+    # a learner that follows the last payout stays after a paid choice and leaves after a zero
+    assert weights.set_index("feature").loc["outcome_x_choice_lag1", "weight"] > 0
+
+
+def test_an_unknown_coding_raises():
+    rows = pd.DataFrame(problem_rows("m", 1, "drifting", 1, 1, 50, np.random.default_rng(0)))
+    with pytest.raises(ValueError, match="coding"):
+        lbp.fit_problem(rows, coding="binary")
 
 
 def test_drifting_problems_are_placed_after_the_structured_ones_with_a_gap():

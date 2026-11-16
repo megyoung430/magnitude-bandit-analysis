@@ -604,6 +604,11 @@ past outcomes more strongly in later problems.
   of choosing that port now. A large lag-1 weight means the mouse follows the last payout closely.
 - **Choice weight**: how much having chosen a port k trials ago raises the log-odds of choosing it
   again, whatever it paid (perseveration).
+- **Outcome x choice**: the paper's own coding, fitted as a second version. The outcome is +1 if
+  the choice paid anything and -1 if it paid 0, whatever the magnitude. Its weight is half the
+  difference between staying after a rewarded and an unrewarded choice (win-stay versus
+  lose-shift), and the choice weight then becomes the average pull of a past choice, rewarded or
+  not. In the standard version, the choice weight is the pull of a choice that paid 0.
 - **Lag 1 and lags 2+**: the paper's two summaries, the weight of the last trial and the average
   weight of the older trials.
 - **Slope**: for each mouse, how much a weight changes per problem within a phase. A positive mean

@@ -28,8 +28,14 @@ from src.behavior_visualization.value.plot_value_psychometrics import finish_fig
 WEIGHTS_BY_PROBLEM = "Logit Weights by Problem"
 KERNELS_BY_PROBLEM = "Logit Kernels by Problem"
 FIGURE_NAMES = (WEIGHTS_BY_PROBLEM, KERNELS_BY_PROBLEM)
+# The figures of the paper's coding carry this suffix (file names avoid the "×" sign).
+CODING_SUFFIX = {lbp.MAGNITUDE: "", lbp.OUTCOME: " (Outcome x Choice)"}
 MIN_MEAN_MICE = 3  # a problem with fewer fitted mice shows its mice but no mean
-GROUP_HEADINGS = {cl.REWARD: "Reward", cl.CHOICE: "Choice"}
+GROUP_HEADINGS = {
+    cl.REWARD: "Reward",
+    lbp.OUTCOME_X_CHOICE: "Outcome × Choice",
+    cl.CHOICE: "Choice",
+}
 SUMMARY_HEADINGS = {lbp.LAG_ONE: "Lag 1", lbp.OLDER: "Mean of Lags 2+"}
 MEASURE_TEXT = {
     f"slope_{lbp.STRUCTURED}": "slope per structured problem",
@@ -128,20 +134,49 @@ def _test_lines(tests: pd.DataFrame) -> list[str]:
     return lines
 
 
-def _method_lines(n_lags: int, l2: float) -> tuple[str, ...]:
-    """Caption lines shared by both figures: the model, the problem selection and the drawing."""
+def figure_name(base: str, coding: str) -> str:
+    """The name of one of ``FIGURE_NAMES`` for a coding: the paper's coding adds a suffix."""
+    return f"{base}{CODING_SUFFIX[coding]}"
+
+
+def lagged_groups(table: pd.DataFrame) -> list[str]:
+    """The lagged groups in *table*, history first (reward or outcome x choice), then choice."""
+    present = set(table["group"])
+    return [g for g in GROUP_HEADINGS if g in present]
+
+
+def _coding_lines(coding: str, n_lags: int) -> tuple[str, ...]:
+    """Caption lines that say how the history is coded."""
+    if coding == lbp.OUTCOME:
+        return (
+            f"Per port and lag (1 to {n_lags}): choice (1 if chosen) and outcome x choice (+1 if "
+            "chosen and paid anything, -1 if chosen and paid 0, else 0), as in Samborska et al. "
+            "2022; the magnitude is ignored. The choice weight is the average pull of a past "
+            "choice, rewarded or not; the outcome x choice weight is half the difference between "
+            "a rewarded and an unrewarded one (win-stay versus lose-shift). The paper's "
+            "outcome-alone regressor is the same for all three ports, so it cancels.",
+        )
     return (
-        f"The three-arm choice logit (reward magnitude in pulses and choice at lags 1 to {n_lags} "
-        f"per port, a bias per tower; L2 {l2:g}) fitted to each mouse's problems one at a time, "
-        f"problems with at least {lbp.MIN_TRIALS} trials. Structured problems (S) are the blocked "
-        "problems before a mouse's first drifting problem (D); later blocked problems and drifting "
-        "problems after the cohort's cutoff are left out.",
-        "The number under each problem label is the number of mice fitted. Thin lines: single "
-        f"mice; black: mean ± se across mice, drawn for problems with at least {MIN_MEAN_MICE} "
-        "mice and not joined across the switch (dashed line).",
+        f"Per port and lag (1 to {n_lags}): choice (1 if chosen) and reward (the pulses received "
+        "there). The reward weight is the analogue of the paper's outcome x choice term, per "
+        "pulse; the choice weight is the pull of a past choice that paid 0.",
         "Structured problems pay 0, 1 or 4 pulses (sometimes 3), drifting problems 0 to 4, so a "
         "step in the reward weight at the switch can reflect the payouts as well as learning; the "
         "slopes within a phase compare like with like.",
+    )
+
+
+def _method_lines(n_lags: int, l2: float, coding: str) -> tuple[str, ...]:
+    """Caption lines shared by both figures: the model, the problem selection and the drawing."""
+    return (
+        f"A three-arm choice logit (a bias per tower; L2 {l2:g}) fitted to each mouse's problems "
+        f"one at a time, problems with at least {lbp.MIN_TRIALS} trials. Structured problems (S) "
+        "are the blocked problems before a mouse's first drifting problem (D); later blocked "
+        "problems and drifting problems after the cohort's cutoff are left out.",
+        *_coding_lines(coding, n_lags),
+        "The number under each problem label is the number of mice fitted. Thin lines: single "
+        f"mice; black: mean ± se across mice, drawn for problems with at least {MIN_MEAN_MICE} "
+        "mice and not joined across the switch (dashed line).",
     )
 
 
@@ -152,8 +187,9 @@ def plot_weights_by_problem(
     *,
     n_lags: int = cl.DEFAULT_LAGS,
     l2: float = cl.DEFAULT_L2,
+    coding: str = lbp.MAGNITUDE,
 ) -> None:
-    """Reward and choice weights at lag 1 and older lags against problem, as Fig. 1k,l of the paper.
+    """History and choice weights at lag 1 and older lags against problem, as Fig. 1k,l.
 
     Args:
         summaries (pd.DataFrame): :func:`logit_by_problem.weight_summaries`.
@@ -161,6 +197,8 @@ def plot_weights_by_problem(
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
         n_lags (int): Lags of the fits, for the caption. Default ``choice_logit.DEFAULT_LAGS``.
         l2 (float): Penalty of the fits, for the caption. Default ``choice_logit.DEFAULT_L2``.
+        coding (str): The coding of the fits (``logit_by_problem.CODINGS``), for the title and
+            caption. Default ``logit_by_problem.MAGNITUDE``.
 
     Raises:
         ValueError: If *summaries* is empty.
@@ -172,7 +210,7 @@ def plot_weights_by_problem(
     ticks, labels = _tick_labels(summaries, positions)
     width = max(9.0, 0.42 * len(positions) * 2 + 3.0)
     with new_figure(nrows=2, ncols=2, figsize=(width, 7.4), sharex=True) as (fig, axs):
-        for i, group in enumerate((cl.REWARD, cl.CHOICE)):
+        for i, group in enumerate(lagged_groups(summaries)):
             for j, summary in enumerate((lbp.LAG_ONE, lbp.OLDER)):
                 ax = axs[i, j]
                 rows = summaries[(summaries["group"] == group) & (summaries["summary"] == summary)]
@@ -192,12 +230,12 @@ def plot_weights_by_problem(
             axs[0, 1].plot([], [], "-", color=color, lw=1.2, label=mouse)
         axs[0, 1].plot([], [], "-o", color="black", lw=2.2, ms=4.5, label="Mean ± se")
         axs[0, 1].legend(loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False, fontsize=8)
-        caption = (*_method_lines(n_lags, l2),
+        caption = (*_method_lines(n_lags, l2, coding),
                    "Lags 2+: the mean weight of lags 2 to the last lag.",
                    "Per mouse, the least-squares slope of the weight against the problem number "
                    f"within a phase (from {lbp.MIN_PROBLEMS} problems), and the step at the "
                    "switch:", *_test_lines(tests))  # fmt: skip
-        finish_figure(fig, Title(WEIGHTS_BY_PROBLEM, None, caption))
+        finish_figure(fig, Title(figure_name(WEIGHTS_BY_PROBLEM, coding), None, caption))
     save_or_show(fig, save_path or None)
 
 
@@ -207,19 +245,22 @@ def plot_kernels_by_problem(
     *,
     n_lags: int = cl.DEFAULT_LAGS,
     l2: float = cl.DEFAULT_L2,
+    coding: str = lbp.MAGNITUDE,
 ) -> None:
-    """The reward and choice kernels (lags 1 to n) of every problem in turn, as Fig. 1i,j.
+    """The history and choice kernels (lags 1 to n) of every problem in turn, as Fig. 1i,j.
 
     Args:
         weights (pd.DataFrame): :func:`logit_by_problem.fit_by_problem`.
         save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
         n_lags (int): Lags of the fits. Default ``choice_logit.DEFAULT_LAGS``.
         l2 (float): Penalty of the fits, for the caption. Default ``choice_logit.DEFAULT_L2``.
+        coding (str): The coding of the fits, for the title and caption. Default
+            ``logit_by_problem.MAGNITUDE``.
 
     Raises:
         ValueError: If *weights* is empty.
     """
-    lagged = weights[weights["group"].isin([cl.REWARD, cl.CHOICE]) & weights["lag"].notna()]
+    lagged = weights[weights["lag"].notna()]
     if lagged.empty:
         raise ValueError("no weights to plot")
     counts = lagged.groupby(["phase", "phase_problem"])["mouse"].nunique()
@@ -230,7 +271,7 @@ def plot_kernels_by_problem(
         fig,
         axs,
     ):
-        for ax, group in zip(axs, (cl.REWARD, cl.CHOICE), strict=True):
+        for ax, group in zip(axs, lagged_groups(lagged), strict=True):
             errors = []
             for i, (phase, k) in enumerate(order):
                 rows = lagged[(lagged["group"] == group) & (lagged["phase"] == phase)
@@ -259,12 +300,12 @@ def plot_kernels_by_problem(
             ax.set_ylabel(f"{GROUP_HEADINGS[group]} Weight (Logit)", fontsize=12)
             despine(ax)
         axs[1].set_xlabel("Problem (Mice Fitted)", fontsize=12)
-        caption = (*_method_lines(n_lags, l2),
+        caption = (*_method_lines(n_lags, l2, coding),
                    f"Each problem's kernel is drawn over lags 1 to {n_lags} (left to right); "
                    "black: structured problems, gray: drifting problems; the number under each "
                    f"label is the number of mice fitted. Problems with fewer than {MIN_MEAN_MICE} "
                    "fitted mice are left out.")  # fmt: skip
-        finish_figure(fig, Title(KERNELS_BY_PROBLEM, None, caption))
+        finish_figure(fig, Title(figure_name(KERNELS_BY_PROBLEM, coding), None, caption))
     save_or_show(fig, save_path or None)
 
 
@@ -276,8 +317,9 @@ def plot_logit_by_problem_figures(
     *,
     n_lags: int = cl.DEFAULT_LAGS,
     l2: float = cl.DEFAULT_L2,
+    coding: str = lbp.MAGNITUDE,
 ) -> None:
-    """Save both figures into *out_dir*.
+    """Save both figures of one coding into *out_dir* (named by :func:`figure_name`).
 
     Args:
         weights (pd.DataFrame): :func:`logit_by_problem.fit_by_problem`.
@@ -286,16 +328,22 @@ def plot_logit_by_problem_figures(
         out_dir (str | Path): Folder of the figures.
         n_lags (int): Lags of the fits. Default ``choice_logit.DEFAULT_LAGS``.
         l2 (float): Penalty of the fits. Default ``choice_logit.DEFAULT_L2``.
+        coding (str): The coding of the fits. Default ``logit_by_problem.MAGNITUDE``.
     """
     out_dir = Path(out_dir)
-    plot_weights_by_problem(summaries, tests, out_dir / WEIGHTS_BY_PROBLEM, n_lags=n_lags, l2=l2)
-    plot_kernels_by_problem(weights, out_dir / KERNELS_BY_PROBLEM, n_lags=n_lags, l2=l2)
+    options = dict(n_lags=n_lags, l2=l2, coding=coding)
+    plot_weights_by_problem(
+        summaries, tests, out_dir / figure_name(WEIGHTS_BY_PROBLEM, coding), **options
+    )
+    plot_kernels_by_problem(weights, out_dir / figure_name(KERNELS_BY_PROBLEM, coding), **options)
 
 
 __all__ = [
     "FIGURE_NAMES",
     "KERNELS_BY_PROBLEM",
     "WEIGHTS_BY_PROBLEM",
+    "figure_name",
+    "lagged_groups",
     "plot_kernels_by_problem",
     "plot_logit_by_problem_figures",
     "plot_weights_by_problem",

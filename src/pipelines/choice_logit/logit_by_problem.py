@@ -92,29 +92,38 @@ def run_logit_by_problem(
     out_dir: str | Path,
     n_lags: int = cl.DEFAULT_LAGS,
     l2: float = cl.DEFAULT_L2,
-) -> LogitByProblem:
+    codings: Sequence[str] = lbp.CODINGS,
+) -> dict[str, LogitByProblem]:
     """Fit every problem, test the trends and write the tables and figures into *out_dir*.
 
     Args:
         trials (pd.DataFrame): :func:`load_training_trial_table`.
         max_drifting_by_cohort (dict): As :func:`logit_by_problem.training_trials`.
-        out_dir (str | Path): Folder of the figures; the tables go into its ``tables/``.
-        n_lags (int): Reward and choice lags. Default ``choice_logit.DEFAULT_LAGS``.
+        out_dir (str | Path): Folder of the figures; the tables go into its ``tables/``, named
+            ``logit_by_problem_<coding>_<table>.csv``.
+        n_lags (int): History and choice lags. Default ``choice_logit.DEFAULT_LAGS``.
         l2 (float): Penalty weight. Default ``choice_logit.DEFAULT_L2``.
+        codings (Sequence[str]): The codings to fit (``logit_by_problem.CODINGS``). Default
+            both: the standard magnitude coding and the paper's outcome x choice coding.
 
     Returns:
-        LogitByProblem: The tables.
+        dict[str, LogitByProblem]: The tables of each coding.
     """
     out_dir = Path(out_dir)
     tables_dir = out_dir / "tables"
     tables_dir.mkdir(parents=True, exist_ok=True)
     selected = lbp.training_trials(trials, max_drifting_by_cohort)
-    weights = lbp.fit_by_problem(selected, n_lags, l2)
-    summaries = lbp.weight_summaries(weights)
-    trends = lbp.phase_trends(summaries)
-    tests = lbp.trend_tests(trends)
-    for name, table in dict(weights=weights, summaries=summaries, trends=trends,
-                            tests=tests).items():  # fmt: skip
-        table.to_csv(tables_dir / f"logit_by_problem_{name}.csv", index=False)
-    plots.plot_logit_by_problem_figures(weights, summaries, tests, out_dir, n_lags=n_lags, l2=l2)
-    return LogitByProblem(weights, summaries, trends, tests)
+    results = {}
+    for coding in codings:
+        weights = lbp.fit_by_problem(selected, n_lags, l2, coding=coding)
+        summaries = lbp.weight_summaries(weights)
+        trends = lbp.phase_trends(summaries)
+        tests = lbp.trend_tests(trends)
+        result = LogitByProblem(weights, summaries, trends, tests)
+        for name, table in result._asdict().items():
+            table.to_csv(tables_dir / f"logit_by_problem_{coding}_{name}.csv", index=False)
+        plots.plot_logit_by_problem_figures(
+            weights, summaries, tests, out_dir, n_lags=n_lags, l2=l2, coding=coding
+        )
+        results[coding] = result
+    return results
