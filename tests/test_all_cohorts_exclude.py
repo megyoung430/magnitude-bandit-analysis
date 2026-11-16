@@ -167,9 +167,8 @@ def test_a_rerun_without_the_option_leaves_the_extra_set_alone(plain_and_extra, 
 
 @pytest.fixture(scope="module")
 def script():
-    path = (
-        Path(pipeline.__file__).parents[2] / "scripts/full_pipelines/run_all_drifting_problems.py"
-    )
+    # the repo root is the folder above tests/, wherever the pipeline module lives
+    path = Path(__file__).parents[1] / "scripts/full_pipelines/run_all_drifting_problems.py"
     spec = importlib.util.spec_from_file_location("run_all_drifting_problems", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
