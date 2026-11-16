@@ -14,6 +14,7 @@ import pandas as pd
 
 from src.behavior_analysis.choice_logit import choice_logit as cl
 from src.behavior_analysis.choice_logit import logit_by_problem as lbp
+from src.behavior_analysis.data import training_stages as stages
 from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
 from src.behavior_import.task_types import number_within_task_type, regroup_by_task_type
 from src.behavior_visualization.choice_logit import plot_logit_by_problem as plots
@@ -78,12 +79,18 @@ class LogitByProblem(NamedTuple):
         summaries (pd.DataFrame): :func:`logit_by_problem.weight_summaries`.
         trends (pd.DataFrame): :func:`logit_by_problem.phase_trends`.
         tests (pd.DataFrame): :func:`logit_by_problem.trend_tests`.
+        early (pd.DataFrame): Weight summaries of the fits to each problem's early trials.
+        late (pd.DataFrame): Weight summaries of the fits to each problem's late trials.
+        early_late_tests (pd.DataFrame): :func:`logit_by_problem.early_late_tests`.
     """
 
     weights: pd.DataFrame
     summaries: pd.DataFrame
     trends: pd.DataFrame
     tests: pd.DataFrame
+    early: pd.DataFrame
+    late: pd.DataFrame
+    early_late_tests: pd.DataFrame
 
 
 def run_logit_by_problem(
@@ -98,7 +105,7 @@ def run_logit_by_problem(
 
     Args:
         trials (pd.DataFrame): :func:`load_training_trial_table`.
-        max_drifting_by_cohort (dict): As :func:`logit_by_problem.training_trials`.
+        max_drifting_by_cohort (dict): As :func:`training_stages.training_trials`.
         out_dir (str | Path): Folder of the figures; the tables go into its ``tables/``, named
             ``logit_by_problem_<coding>_<table>.csv``.
         n_lags (int): History and choice lags. Default ``choice_logit.DEFAULT_LAGS``.
@@ -112,18 +119,35 @@ def run_logit_by_problem(
     out_dir = Path(out_dir)
     tables_dir = out_dir / "tables"
     tables_dir.mkdir(parents=True, exist_ok=True)
-    selected = lbp.training_trials(trials, max_drifting_by_cohort)
+    selected = stages.training_trials(trials, max_drifting_by_cohort)
     results = {}
     for coding in codings:
         weights = lbp.fit_by_problem(selected, n_lags, l2, coding=coding)
         summaries = lbp.weight_summaries(weights)
         trends = lbp.phase_trends(summaries)
         tests = lbp.trend_tests(trends)
-        result = LogitByProblem(weights, summaries, trends, tests)
+        early, late = (
+            lbp.weight_summaries(lbp.fit_by_problem(selected, n_lags, l2, coding=coding, part=p))
+            for p in (lbp.EARLY_TRIALS, lbp.LATE_TRIALS)
+        )
+        early_late = lbp.early_late_tests(early, late)
+        result = LogitByProblem(weights, summaries, trends, tests, early, late, early_late)
         for name, table in result._asdict().items():
             table.to_csv(tables_dir / f"logit_by_problem_{coding}_{name}.csv", index=False)
         plots.plot_logit_by_problem_figures(
             weights, summaries, tests, out_dir, n_lags=n_lags, l2=l2, coding=coding
         )
+        if early.empty or late.empty:
+            print(f"[INFO] {coding}: no problem has both early and late fits; no early/late figure")
+        else:
+            plots.plot_weights_early_late(
+                early,
+                late,
+                early_late,
+                out_dir / plots.figure_name(plots.EARLY_LATE_BY_PROBLEM, coding),
+                n_lags=n_lags,
+                l2=l2,
+                coding=coding,
+            )
         results[coding] = result
     return results

@@ -27,7 +27,13 @@ from src.behavior_visualization.value.plot_value_psychometrics import finish_fig
 
 WEIGHTS_BY_PROBLEM = "Logit Weights by Problem"
 KERNELS_BY_PROBLEM = "Logit Kernels by Problem"
-FIGURE_NAMES = (WEIGHTS_BY_PROBLEM, KERNELS_BY_PROBLEM)
+EARLY_LATE_BY_PROBLEM = "Logit Weights by Problem, Early vs Late Trials"
+FIGURE_NAMES = (WEIGHTS_BY_PROBLEM, KERNELS_BY_PROBLEM, EARLY_LATE_BY_PROBLEM)
+# Okabe-Ito blue for the early trials of a problem; the late trials are black
+PART_STYLE = {
+    lbp.EARLY_TRIALS: dict(color="#0072B2", ls="--", marker="s", label="Early Trials"),
+    lbp.LATE_TRIALS: dict(color="black", ls="-", marker="o", label="Late Trials"),
+}
 # The figures of the paper's coding carry this suffix (file names avoid the "×" sign).
 CODING_SUFFIX = {lbp.MAGNITUDE: "", lbp.OUTCOME: " (Outcome x Choice)"}
 MIN_MEAN_MICE = 3  # a problem with fewer fitted mice shows its mice but no mean
@@ -87,9 +93,17 @@ def _mark_switch(ax: plt.Axes, positions: dict) -> None:
 
 
 def _phase_means(
-    ax: plt.Axes, rows: pd.DataFrame, positions: dict, value: str = "weight"
+    ax: plt.Axes,
+    rows: pd.DataFrame,
+    positions: dict,
+    value: str = "weight",
+    style: dict | None = None,
 ) -> list[np.ndarray]:
-    """Mean ± se across mice per problem, one line per phase; returns the se drawn."""
+    """Mean ± se across mice per problem, one line per phase; returns the se drawn.
+
+    *style* (``color``, ``ls``, ``marker``) defaults to black solid lines with dots.
+    """
+    style = style or dict(color="black", ls="-", marker="o")
     errors = []
     for phase in lbp.PHASES:
         mine = rows[rows["phase"] == phase]
@@ -103,9 +117,11 @@ def _phase_means(
         mean = nan_mean(matrix.to_numpy(), axis=0)
         se = nan_standard_error(matrix.to_numpy())
         if error_drawn(se):
-            ax.fill_between(x, mean - se, mean + se, color="black", alpha=0.2, lw=0, zorder=3)
+            ax.fill_between(x, mean - se, mean + se, color=style["color"], alpha=0.2, lw=0,
+                            zorder=3)  # fmt: skip
             errors.append(se)
-        ax.plot(x, mean, "-o", color="black", lw=2.2, ms=4.5, zorder=5)
+        ax.plot(x, mean, color=style["color"], ls=style["ls"], marker=style["marker"], lw=2.2,
+                ms=4.5, zorder=5)  # fmt: skip
     return errors
 
 
@@ -122,6 +138,8 @@ def _test_lines(tests: pd.DataFrame) -> list[str]:
     lines = []
     for row in tests.itertuples():
         heading = f"{GROUP_HEADINGS[row.group]}, {SUMMARY_HEADINGS[row.summary].lower()}"
+        if "series" in tests.columns:
+            heading = f"{row.series.capitalize()} trials: {heading}"
         if row.n_mice == 0:
             lines.append(f"{heading}, {MEASURE_TEXT[row.measure]}: no mouse has it.")
             continue
@@ -239,6 +257,79 @@ def plot_weights_by_problem(
     save_or_show(fig, save_path or None)
 
 
+def plot_weights_early_late(
+    early: pd.DataFrame,
+    late: pd.DataFrame,
+    tests: pd.DataFrame,
+    save_path: str | Path | None = None,
+    *,
+    n_lags: int = cl.DEFAULT_LAGS,
+    l2: float = cl.DEFAULT_L2,
+    coding: str = lbp.MAGNITUDE,
+    n_early: int = lbp.N_EARLY_TRIALS,
+) -> None:
+    """The weights of each problem's early trials and late trials against problem.
+
+    Learning to learn predicts that the early-trial weights grow across problems and approach
+    the late-trial weights.
+
+    Args:
+        early (pd.DataFrame): :func:`logit_by_problem.weight_summaries` of the early-trial fits.
+        late (pd.DataFrame): The same of the late-trial fits.
+        tests (pd.DataFrame): :func:`logit_by_problem.early_late_tests`, for the caption.
+        save_path (str | Path | None): Base path without extension; ``None`` shows the figure.
+        n_lags (int): Lags of the fits, for the caption. Default ``choice_logit.DEFAULT_LAGS``.
+        l2 (float): Penalty of the fits, for the caption. Default ``choice_logit.DEFAULT_L2``.
+        coding (str): The coding of the fits, for the title and caption. Default
+            ``logit_by_problem.MAGNITUDE``.
+        n_early (int): Trials in the early part, for the caption. Default
+            ``logit_by_problem.N_EARLY_TRIALS``.
+
+    Raises:
+        ValueError: If *early* or *late* is empty.
+    """
+    if early.empty or late.empty:
+        raise ValueError("no early or no late weights to plot")
+    both = pd.concat([early, late])
+    positions = problem_positions(both)
+    ticks, labels = _tick_labels(late, positions)
+    width = max(9.0, 0.42 * len(positions) * 2 + 3.0)
+    with new_figure(nrows=2, ncols=2, figsize=(width, 7.4), sharex=True) as (fig, axs):
+        for i, group in enumerate(lagged_groups(both)):
+            for j, summary in enumerate((lbp.LAG_ONE, lbp.OLDER)):
+                ax = axs[i, j]
+                errors = []
+                for part, table in ((lbp.EARLY_TRIALS, early), (lbp.LATE_TRIALS, late)):
+                    rows = table[(table["group"] == group) & (table["summary"] == summary)]
+                    errors += _phase_means(ax, rows, positions, style=PART_STYLE[part])
+                _mark_switch(ax, positions)
+                ax.axhline(0, color="0.7", lw=0.8, zorder=1)
+                heading = f"{GROUP_HEADINGS[group]}, {SUMMARY_HEADINGS[summary]}"
+                n_mice = both.loc[both["group"] == group, "mouse"].nunique()
+                set_title(ax, Title(heading, mice_stats(n_mice, *errors)), fontsize=12)
+                ax.set_xticks(ticks, labels, fontsize=8)
+                ax.set_ylabel(f"{GROUP_HEADINGS[group]} Weight (Logit)", fontsize=12)
+                despine(ax)
+        for ax in axs[1]:
+            ax.set_xlabel("Problem (Mice Fitted, Late Trials)", fontsize=12)
+        for part in (lbp.EARLY_TRIALS, lbp.LATE_TRIALS):
+            style = PART_STYLE[part]
+            axs[0, 1].plot([], [], color=style["color"], ls=style["ls"], marker=style["marker"],
+                           lw=2.2, ms=4.5, label=f"{style['label']}, Mean ± se")  # fmt: skip
+        axs[0, 1].legend(loc="upper left", bbox_to_anchor=(1.02, 1), frameon=False, fontsize=9)
+        caption = (*_method_lines(n_lags, l2, coding),
+                   f"Early trials: each problem's first {n_early} trials, fitted on their own; "
+                   f"late trials: the rest of the problem, if at least {lbp.MIN_TRIALS} trials. "
+                   "The history of the first late trials reaches back into the early ones. "
+                   "Learning to learn predicts that the early-trial weights grow across problems "
+                   "and the late-minus-early gap shrinks.",
+                   "Per mouse, the least-squares slope against the problem number within a phase "
+                   f"(from {lbp.MIN_PROBLEMS} problems) and the step at the switch, for each "
+                   "series:", *_test_lines(tests))  # fmt: skip
+        finish_figure(fig, Title(figure_name(EARLY_LATE_BY_PROBLEM, coding), None, caption))
+    save_or_show(fig, save_path or None)
+
+
 def plot_kernels_by_problem(
     weights: pd.DataFrame,
     save_path: str | Path | None = None,
@@ -341,11 +432,13 @@ def plot_logit_by_problem_figures(
 __all__ = [
     "FIGURE_NAMES",
     "KERNELS_BY_PROBLEM",
+    "EARLY_LATE_BY_PROBLEM",
     "WEIGHTS_BY_PROBLEM",
     "figure_name",
     "lagged_groups",
     "plot_kernels_by_problem",
     "plot_logit_by_problem_figures",
+    "plot_weights_early_late",
     "plot_weights_by_problem",
     "problem_positions",
 ]

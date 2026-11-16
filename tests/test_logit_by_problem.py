@@ -8,6 +8,7 @@ import pytest
 
 from src.behavior_analysis.choice_logit import choice_logit as cl
 from src.behavior_analysis.choice_logit import logit_by_problem as lbp
+from src.behavior_analysis.data import training_stages as stages
 from src.behavior_visualization.choice_logit import plot_logit_by_problem as plots
 from src.pipelines.choice_logit import logit_by_problem as pipe
 
@@ -70,7 +71,7 @@ def problems_of(table):
 def test_structured_problems_are_the_blocked_problems_before_the_first_drifting_one():
     late_blocked = [*SEQUENCE[:3], ("blocked", 3), *SEQUENCE[3:]]
     trials = mouse_trials("m1", 1, late_blocked, n_trials=10)
-    kept = lbp.training_trials(trials, {1: None})
+    kept = stages.training_trials(trials, {1: None})
     assert problems_of(kept) == [
         ("m1", "drifting", 1), ("m1", "drifting", 2), ("m1", "drifting", 3),
         ("m1", "structured", 1), ("m1", "structured", 2),
@@ -80,7 +81,7 @@ def test_structured_problems_are_the_blocked_problems_before_the_first_drifting_
 def test_drifting_problems_after_the_cutoff_are_dropped_per_cohort():
     trials = pd.concat([mouse_trials("m1", 1, SEQUENCE, n_trials=10),
                         mouse_trials("m3", 3, SEQUENCE, n_trials=10)])  # fmt: skip
-    kept = lbp.training_trials(trials, {1: 2, 3: None})
+    kept = stages.training_trials(trials, {1: 2, 3: None})
     drifting = kept[kept["phase"] == lbp.DRIFTING].groupby("mouse")["phase_problem"].max()
     assert drifting.to_dict() == {"m1": 2, "m3": 3}
     assert set(kept.loc[kept["phase"] == lbp.STRUCTURED, "phase_problem"]) == {1, 2}
@@ -88,20 +89,20 @@ def test_drifting_problems_after_the_cutoff_are_dropped_per_cohort():
 
 def test_a_mouse_without_drifting_problems_keeps_its_structured_ones():
     trials = mouse_trials("m1", 1, SEQUENCE[:2], n_trials=10)
-    kept = lbp.training_trials(trials, {1: None})
+    kept = stages.training_trials(trials, {1: None})
     assert set(kept["phase"]) == {lbp.STRUCTURED}
 
 
 def test_a_cohort_without_a_cutoff_entry_raises():
     trials = mouse_trials("m1", 1, SEQUENCE, n_trials=10)
     with pytest.raises(ValueError, match="cohort 1"):
-        lbp.training_trials(trials, {3: None})
+        stages.training_trials(trials, {3: None})
 
 
 def test_an_unknown_task_raises():
     trials = mouse_trials("m1", 1, SEQUENCE, n_trials=10).assign(task="pretraining")
     with pytest.raises(ValueError, match="pretraining"):
-        lbp.training_trials(trials, {1: None})
+        stages.training_trials(trials, {1: None})
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ def test_an_unknown_task_raises():
 def fitted():
     trials = pd.concat([mouse_trials(f"m{i}", 1, SEQUENCE, n_trials=300, seed=i)
                         for i in range(3)])  # fmt: skip
-    return lbp.fit_by_problem(lbp.training_trials(trials, {1: None}))
+    return lbp.fit_by_problem(stages.training_trials(trials, {1: None}))
 
 
 def test_every_problem_of_every_mouse_gets_one_fit(fitted):
@@ -133,7 +134,7 @@ def test_a_learner_that_follows_the_last_payout_has_a_positive_lag_one_reward_we
 
 def test_problems_with_too_few_trials_get_no_fit():
     trials = mouse_trials("m1", 1, SEQUENCE[:3], n_trials=lbp.MIN_TRIALS - 1)
-    assert lbp.fit_by_problem(lbp.training_trials(trials, {1: None})).empty
+    assert lbp.fit_by_problem(stages.training_trials(trials, {1: None})).empty
 
 
 def test_lag_one_and_the_mean_of_the_older_lags_are_summarized():
@@ -215,9 +216,11 @@ def test_a_cohort_table_numbers_each_problem_within_its_type_and_overall():
 
 
 def test_the_pipeline_writes_the_tables_and_both_figures_of_each_coding(tmp_path):
-    trials = pd.concat([mouse_trials(f"m{i}", 1, SEQUENCE, n_trials=200, seed=i)
+    # 300 trials: an early part of 150 and a late part of 150
+    trials = pd.concat([mouse_trials(f"m{i}", 1, SEQUENCE, n_trials=300, seed=i)
                         for i in range(3)])  # fmt: skip
     results = pipe.run_logit_by_problem(trials, {1: None}, tmp_path)
+    assert all(not r.early.empty and not r.late.empty for r in results.values())
     assert set(results) == set(lbp.CODINGS)
     assert set(results[lbp.OUTCOME].tests["group"]) == {lbp.OUTCOME_X_CHOICE, cl.CHOICE}
     assert all(len(r.tests) == 12 for r in results.values())

@@ -7,12 +7,17 @@ problems. Here the standard three-arm logit of :mod:`.choice_logit` (reward magn
 at lags 1 to ``n_lags`` per port, a bias per tower) is fitted to each mouse's problems one at a
 time, through the structured (blocked) problems that come first and then the drifting ones.
 
-- **Training order** (:func:`training_trials`): a mouse's structured problems are the blocked
-  problems before its first drifting problem; blocked problems that come later (cohort 1, after
-  surgery) are not part of the training sequence and are dropped, as are drifting problems after
-  the cohort's cutoff. Each problem gets its ``phase`` and its number within the phase.
+- **Training order** (:func:`~src.behavior_analysis.data.training_stages.training_trials`): a
+  mouse's structured problems are the blocked problems before its first drifting problem, then
+  its drifting problems up to the cohort's cutoff.
 - **Fits** (:func:`fit_by_problem`): one fit per mouse and problem with at least ``MIN_TRIALS``
-  trials; the tower biases are fitted per problem.
+  trials; the tower biases are fitted per problem. ``part`` fits the whole problem (``ALL``), its
+  first ``N_EARLY_TRIALS`` trials (``EARLY_TRIALS``) or the trials after them
+  (``LATE_TRIALS``). Learning to learn predicts that the early-trial weights grow across problems
+  (a new problem is picked up faster) and the gap to the late-trial weights shrinks; growth only
+  in the late trials points to a more exploitative end state instead. The history of the first
+  late trials still reaches into the early trials: the design is built on the whole problem and
+  then cut.
 - **Summaries** (:func:`weight_summaries`): as in the paper, the lag-1 weight and the mean weight
   of lags 2 to ``n_lags``, for reward and choice.
 - **Trends** (:func:`phase_trends`, :func:`trend_tests`): per mouse, the least-squares slope of a
@@ -47,65 +52,19 @@ import pandas as pd
 from scipy import stats
 
 from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.data.training_stages import DRIFTING, PHASES, STRUCTURED
 
-STRUCTURED, DRIFTING = "structured", "drifting"
-PHASES = (STRUCTURED, DRIFTING)
-TASK_PHASE = {"blocked": STRUCTURED, "drifting": DRIFTING}
 MIN_TRIALS = 150  # fewer trials than this in a problem: no fit (too few for 2 * lags + 2 weights)
 MIN_PROBLEMS = 2  # a slope needs this many problems in the phase
 MAGNITUDE, OUTCOME = "magnitude", "outcome"
 CODINGS = (MAGNITUDE, OUTCOME)
 OUTCOME_X_CHOICE = "outcome_x_choice"
+ALL, EARLY_TRIALS, LATE_TRIALS = "all", "early", "late"
+PARTS = (ALL, EARLY_TRIALS, LATE_TRIALS)
+# the early part of a problem: its first trials, as many as one fit needs
+N_EARLY_TRIALS = MIN_TRIALS
 LAG_ONE, OLDER = "lag 1", "lags 2+"
 SUMMARY_COLUMNS = ["mouse", "cohort", "phase", "phase_problem", "group", "summary", "weight"]
-
-
-def _first_drifting(problems: pd.DataFrame) -> float:
-    """The training position of a mouse's first drifting problem (inf if it has none)."""
-    drifting = problems.loc[problems["phase"] == DRIFTING, "position"]
-    return drifting.min() if len(drifting) else np.inf
-
-
-def training_trials(
-    trials: pd.DataFrame, max_drifting_by_cohort: dict, order_column: str = "overall_problem"
-) -> pd.DataFrame:
-    """The trials of each mouse's training sequence: structured problems, then drifting ones.
-
-    Args:
-        trials (pd.DataFrame): A trial table of both task types with ``cohort``, ``task``
-            (``"blocked"`` or ``"drifting"``) and ``k`` (the problem number within the task
-            type), plus *order_column*, which orders a mouse's problems in time.
-        max_drifting_by_cohort (dict): ``{cohort: last drifting problem kept}``, ``None`` for all.
-            Every cohort of *trials* needs an entry.
-        order_column (str): A column that orders the problems (their first value is used).
-            Default ``"overall_problem"`` (the problem's number in the mouse's whole sequence).
-
-    Returns:
-        pd.DataFrame: The kept rows with ``phase`` (``"structured"`` or ``"drifting"``) and
-        ``phase_problem`` (1, 2, ... within the phase, as ``k``).
-
-    Raises:
-        ValueError: If a cohort has no cutoff entry or a task is neither blocked nor drifting.
-    """
-    missing = sorted(set(trials["cohort"]) - set(max_drifting_by_cohort))
-    if missing:
-        raise ValueError(f"cohort {missing[0]} has no entry in max_drifting_by_cohort")
-    unknown = sorted(set(trials["task"]) - set(TASK_PHASE))
-    if unknown:
-        raise ValueError(f"unknown task {unknown[0]!r}; expected one of {sorted(TASK_PHASE)}")
-    out = trials.assign(phase=trials["task"].map(TASK_PHASE), phase_problem=trials["k"])
-    problems = (
-        out.groupby(["mouse", "phase", "phase_problem"], as_index=False)[order_column]
-        .min()
-        .rename(columns={order_column: "position"})
-    )
-    first = problems.groupby("mouse").apply(_first_drifting, include_groups=False)
-    keep = problems["phase"].eq(DRIFTING) | (problems["position"] < problems["mouse"].map(first))
-    kept = problems.loc[keep, ["mouse", "phase", "phase_problem"]]
-    out = out.merge(kept, on=["mouse", "phase", "phase_problem"])
-    last = {c: np.inf if k is None else k for c, k in max_drifting_by_cohort.items()}
-    late = out["phase"].eq(DRIFTING) & (out["phase_problem"] > out["cohort"].map(last))
-    return out.loc[~late].reset_index(drop=True)
 
 
 def outcome_design(design: cl.LogitDesign) -> cl.LogitDesign:
@@ -131,11 +90,23 @@ def outcome_design(design: cl.LogitDesign) -> cl.LogitDesign:
     return kept._replace(X=X)
 
 
+def _part_mask(n_trials: int, part: str, n_early: int) -> np.ndarray:
+    """Which of a problem's trials (in design order) belong to *part*."""
+    position = np.arange(n_trials)
+    if part == EARLY_TRIALS:
+        return position < n_early
+    if part == LATE_TRIALS:
+        return position >= n_early
+    return np.ones(n_trials, dtype=bool)
+
+
 def fit_problem(
     rows: pd.DataFrame,
     n_lags: int = cl.DEFAULT_LAGS,
     l2: float = cl.DEFAULT_L2,
     coding: str = MAGNITUDE,
+    part: str = ALL,
+    n_early: int = N_EARLY_TRIALS,
 ) -> pd.DataFrame:
     """The logit weights of one mouse's problem.
 
@@ -146,6 +117,9 @@ def fit_problem(
         l2 (float): Penalty weight. Default ``choice_logit.DEFAULT_L2``.
         coding (str): ``MAGNITUDE`` or ``OUTCOME`` (see the module docstring). Default
             ``MAGNITUDE``.
+        part (str): ``ALL``, ``EARLY_TRIALS`` (the first *n_early* trials) or ``LATE_TRIALS``
+            (the rest). Default ``ALL``.
+        n_early (int): Trials in the early part. Default ``N_EARLY_TRIALS``.
 
     Returns:
         pd.DataFrame: :func:`choice_logit.weights_table` (``feature``, ``group``, ``lag``,
@@ -153,15 +127,18 @@ def fit_problem(
         ``OUTCOME_X_CHOICE`` and features ``outcome_x_choice_lag<k>``.
 
     Raises:
-        ValueError: For an unknown *coding*.
+        ValueError: For an unknown *coding* or *part*.
     """
     if coding not in CODINGS:
         raise ValueError(f"unknown coding {coding!r}; expected one of {CODINGS}")
+    if part not in PARTS:
+        raise ValueError(f"unknown part {part!r}; expected one of {PARTS}")
     if coding == MAGNITUDE:
         design = cl.design_matrix(rows, n_lags=n_lags)
     else:
         design = outcome_design(cl.design_matrix(rows, n_lags=n_lags, extras=(cl.BINARY,)))
-    fit = cl.fit_logit(design.X, design.chosen, design.feature_names, l2=l2)
+    mask = _part_mask(len(design.chosen), part, n_early)
+    fit = cl.fit_logit(design.X[mask], design.chosen[mask], design.feature_names, l2=l2)
     weights = cl.weights_table(rows["mouse"].iloc[0], design.feature_names, fit.beta)
     binary = weights["group"] == cl.BINARY
     weights.loc[binary, "group"] = OUTCOME_X_CHOICE
@@ -177,15 +154,21 @@ def fit_by_problem(
     l2: float = cl.DEFAULT_L2,
     min_trials: int = MIN_TRIALS,
     coding: str = MAGNITUDE,
+    part: str = ALL,
+    n_early: int = N_EARLY_TRIALS,
 ) -> pd.DataFrame:
-    """Fit the logit to every mouse's problems one at a time.
+    """Fit the logit to every mouse's problems (or one part of each) one at a time.
 
     Args:
         trials (pd.DataFrame): :func:`training_trials`.
         n_lags (int): Reward and choice lags. Default ``choice_logit.DEFAULT_LAGS``.
         l2 (float): Penalty weight. Default ``choice_logit.DEFAULT_L2``.
-        min_trials (int): Problems with fewer trials get no fit. Default ``MIN_TRIALS``.
+        min_trials (int): A problem (or part) with fewer trials gets no fit. Default
+            ``MIN_TRIALS``.
         coding (str): ``MAGNITUDE`` or ``OUTCOME``. Default ``MAGNITUDE``.
+        part (str): ``ALL``, ``EARLY_TRIALS`` or ``LATE_TRIALS`` (see :func:`fit_problem`).
+            Default ``ALL``.
+        n_early (int): Trials in the early part. Default ``N_EARLY_TRIALS``.
 
     Returns:
         pd.DataFrame: The weights of every fit, with ``cohort``, ``phase``, ``phase_problem``
@@ -194,10 +177,11 @@ def fit_by_problem(
     keys = ["mouse", "cohort", "phase", "phase_problem"]
     fits = []
     for key, rows in trials.groupby(keys, sort=True):
-        if len(rows) < min_trials:
+        n_part = int(_part_mask(len(rows), part, n_early).sum())
+        if n_part < min_trials:
             continue
-        weights = fit_problem(rows, n_lags, l2, coding).drop(columns="mouse")
-        fits.append(weights.assign(**dict(zip(keys, key, strict=True)), n_trials=len(rows)))
+        weights = fit_problem(rows, n_lags, l2, coding, part, n_early).drop(columns="mouse")
+        fits.append(weights.assign(**dict(zip(keys, key, strict=True)), n_trials=n_part))
     if not fits:
         return pd.DataFrame(columns=[*keys, "n_trials", "feature", "group", "lag", "weight"])
     table = pd.concat(fits, ignore_index=True)
@@ -288,3 +272,39 @@ def trend_tests(trends: pd.DataFrame) -> pd.DataFrame:
             rows.append(dict(group=group, summary=summary, measure=measure, mean=mean, se=se,
                              n_mice=n, t=float(t), p=float(p)))  # fmt: skip
     return pd.DataFrame(rows)
+
+
+GAP = "late minus early"
+
+
+def early_late_gap(early: pd.DataFrame, late: pd.DataFrame) -> pd.DataFrame:
+    """Per mouse, problem and summary: the late-trial weight minus the early-trial weight.
+
+    Args:
+        early (pd.DataFrame): :func:`weight_summaries` of the ``EARLY_TRIALS`` fits.
+        late (pd.DataFrame): :func:`weight_summaries` of the ``LATE_TRIALS`` fits.
+
+    Returns:
+        pd.DataFrame: ``SUMMARY_COLUMNS`` with ``weight`` the difference, for the problems with
+        both parts.
+    """
+    keys = [c for c in SUMMARY_COLUMNS if c != "weight"]
+    both = early.merge(late, on=keys, suffixes=("_early", "_late"))
+    return both.assign(weight=both["weight_late"] - both["weight_early"])[SUMMARY_COLUMNS]
+
+
+def early_late_tests(early: pd.DataFrame, late: pd.DataFrame) -> pd.DataFrame:
+    """The trend tests of the early-trial weights, the late-trial weights and their gap.
+
+    Args:
+        early (pd.DataFrame): :func:`weight_summaries` of the ``EARLY_TRIALS`` fits.
+        late (pd.DataFrame): :func:`weight_summaries` of the ``LATE_TRIALS`` fits.
+
+    Returns:
+        pd.DataFrame: :func:`trend_tests` of each, with ``series`` (``"early"``, ``"late"``,
+        ``GAP``) in front.
+    """
+    series = {EARLY_TRIALS: early, LATE_TRIALS: late, GAP: early_late_gap(early, late)}
+    tests = [trend_tests(phase_trends(table)).assign(series=name) for name, table in series.items()]
+    out = pd.concat(tests, ignore_index=True)
+    return out[["series", *[c for c in out.columns if c != "series"]]]
