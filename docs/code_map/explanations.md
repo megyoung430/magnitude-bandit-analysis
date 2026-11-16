@@ -591,6 +591,27 @@ logit (`choice_logit.py`) instead.
 Builds, for each mouse, the table of predictors (a constant, recent choices of each arm, recent
 rewards, and their interactions) and the chosen arm on each trial, ready for the regression.
 
+## src/behavior_analysis/choice_logit/logit_by_problem.py
+
+Do the mice lean more on recent history as training goes on? This file fits the choice logit (a
+model of which port the mouse picks next, from the rewards and choices of the last few trials) to
+each problem separately, first through the structured (blocked) problems and then through the
+drifting ones, so the weights can be followed across training. It copies the analysis of
+Samborska et al. (2022, Fig. 1i-l), which found that mice in a two-port reversal task weighted
+past outcomes more strongly in later problems.
+
+- **Reward weight**: how much one more pulse received at a port k trials ago raises the log-odds
+  of choosing that port now. A large lag-1 weight means the mouse follows the last payout closely.
+- **Choice weight**: how much having chosen a port k trials ago raises the log-odds of choosing it
+  again, whatever it paid (perseveration).
+- **Lag 1 and lags 2+**: the paper's two summaries, the weight of the last trial and the average
+  weight of the older trials.
+- **Slope**: for each mouse, how much a weight changes per problem within a phase. A positive mean
+  slope across mice means the weight grows with training.
+- **Step**: the first drifting problem's weight minus the last structured problem's. The two
+  tasks pay differently (structured problems mostly 0, 1 or 4 pulses, drifting ones 0 to 4), so a
+  step can come from the change of task as well as from learning.
+
 ## src/behavior_analysis/pokes/long_pokes_by_session.py
 
 Summarizes long pokes (pokes held at a port that was not the choice) session by session: the mean

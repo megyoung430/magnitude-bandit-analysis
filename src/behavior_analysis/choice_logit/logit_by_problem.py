@@ -1,0 +1,226 @@
+"""The choice logit fitted to each problem on its own, across structured and drifting training.
+
+Do the mice integrate more history as they learn the task? Samborska et al. (2022, *Nat
+Neurosci*, Fig. 1i-l) fitted a logistic regression of choices on past choices and past
+outcome x choice in every problem of a two-arm reversal task, and found the weights grow across
+problems. Here the standard three-arm logit of :mod:`.choice_logit` (reward magnitude and choice
+at lags 1 to ``n_lags`` per port, a bias per tower) is fitted to each mouse's problems one at a
+time, through the structured (blocked) problems that come first and then the drifting ones.
+
+- **Training order** (:func:`training_trials`): a mouse's structured problems are the blocked
+  problems before its first drifting problem; blocked problems that come later (cohort 1, after
+  surgery) are not part of the training sequence and are dropped, as are drifting problems after
+  the cohort's cutoff. Each problem gets its ``phase`` and its number within the phase.
+- **Fits** (:func:`fit_by_problem`): one fit per mouse and problem with at least ``MIN_TRIALS``
+  trials; the tower biases are fitted per problem.
+- **Summaries** (:func:`weight_summaries`): as in the paper, the lag-1 weight and the mean weight
+  of lags 2 to ``n_lags``, for reward and choice.
+- **Trends** (:func:`phase_trends`, :func:`trend_tests`): per mouse, the least-squares slope of a
+  summary against the problem number within each phase, and the step at the switch (first
+  drifting problem minus last structured problem); tested across mice with a one-sample t-test
+  against 0.
+
+The reward weight is per pulse. Structured problems pay 0, 1 or 4 pulses (sometimes 3) and
+drifting problems every magnitude from 0 to 4, so a step at the switch can come from the
+different payouts as well as from learning; the slopes within each phase compare like with like.
+
+Everything here is pure: trial tables in, tables out.
+"""
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+from src.behavior_analysis.choice_logit import choice_logit as cl
+
+STRUCTURED, DRIFTING = "structured", "drifting"
+PHASES = (STRUCTURED, DRIFTING)
+TASK_PHASE = {"blocked": STRUCTURED, "drifting": DRIFTING}
+MIN_TRIALS = 150  # fewer trials than this in a problem: no fit (too few for 2 * lags + 2 weights)
+MIN_PROBLEMS = 2  # a slope needs this many problems in the phase
+LAG_ONE, OLDER = "lag 1", "lags 2+"
+SUMMARY_COLUMNS = ["mouse", "cohort", "phase", "phase_problem", "group", "summary", "weight"]
+
+
+def _first_drifting(problems: pd.DataFrame) -> float:
+    """The training position of a mouse's first drifting problem (inf if it has none)."""
+    drifting = problems.loc[problems["phase"] == DRIFTING, "position"]
+    return drifting.min() if len(drifting) else np.inf
+
+
+def training_trials(
+    trials: pd.DataFrame, max_drifting_by_cohort: dict, order_column: str = "overall_problem"
+) -> pd.DataFrame:
+    """The trials of each mouse's training sequence: structured problems, then drifting ones.
+
+    Args:
+        trials (pd.DataFrame): A trial table of both task types with ``cohort``, ``task``
+            (``"blocked"`` or ``"drifting"``) and ``k`` (the problem number within the task
+            type), plus *order_column*, which orders a mouse's problems in time.
+        max_drifting_by_cohort (dict): ``{cohort: last drifting problem kept}``, ``None`` for all.
+            Every cohort of *trials* needs an entry.
+        order_column (str): A column that orders the problems (their first value is used).
+            Default ``"overall_problem"`` (the problem's number in the mouse's whole sequence).
+
+    Returns:
+        pd.DataFrame: The kept rows with ``phase`` (``"structured"`` or ``"drifting"``) and
+        ``phase_problem`` (1, 2, ... within the phase, as ``k``).
+
+    Raises:
+        ValueError: If a cohort has no cutoff entry or a task is neither blocked nor drifting.
+    """
+    missing = sorted(set(trials["cohort"]) - set(max_drifting_by_cohort))
+    if missing:
+        raise ValueError(f"cohort {missing[0]} has no entry in max_drifting_by_cohort")
+    unknown = sorted(set(trials["task"]) - set(TASK_PHASE))
+    if unknown:
+        raise ValueError(f"unknown task {unknown[0]!r}; expected one of {sorted(TASK_PHASE)}")
+    out = trials.assign(phase=trials["task"].map(TASK_PHASE), phase_problem=trials["k"])
+    problems = (
+        out.groupby(["mouse", "phase", "phase_problem"], as_index=False)[order_column]
+        .min()
+        .rename(columns={order_column: "position"})
+    )
+    first = problems.groupby("mouse").apply(_first_drifting, include_groups=False)
+    keep = problems["phase"].eq(DRIFTING) | (problems["position"] < problems["mouse"].map(first))
+    kept = problems.loc[keep, ["mouse", "phase", "phase_problem"]]
+    out = out.merge(kept, on=["mouse", "phase", "phase_problem"])
+    last = {c: np.inf if k is None else k for c, k in max_drifting_by_cohort.items()}
+    late = out["phase"].eq(DRIFTING) & (out["phase_problem"] > out["cohort"].map(last))
+    return out.loc[~late].reset_index(drop=True)
+
+
+def fit_problem(
+    rows: pd.DataFrame, n_lags: int = cl.DEFAULT_LAGS, l2: float = cl.DEFAULT_L2
+) -> pd.DataFrame:
+    """The logit weights of one mouse's problem.
+
+    Args:
+        rows (pd.DataFrame): The trials of one mouse and one problem.
+        n_lags (int): Reward and choice lags. Default ``choice_logit.DEFAULT_LAGS``.
+        l2 (float): Penalty weight. Default ``choice_logit.DEFAULT_L2``.
+
+    Returns:
+        pd.DataFrame: :func:`choice_logit.weights_table` (``feature``, ``group``, ``lag``,
+        ``weight``) of the fit.
+    """
+    design = cl.design_matrix(rows, n_lags=n_lags)
+    fit = cl.fit_logit(design.X, design.chosen, design.feature_names, l2=l2)
+    return cl.weights_table(rows["mouse"].iloc[0], design.feature_names, fit.beta)
+
+
+def fit_by_problem(
+    trials: pd.DataFrame,
+    n_lags: int = cl.DEFAULT_LAGS,
+    l2: float = cl.DEFAULT_L2,
+    min_trials: int = MIN_TRIALS,
+) -> pd.DataFrame:
+    """Fit the logit to every mouse's problems one at a time.
+
+    Args:
+        trials (pd.DataFrame): :func:`training_trials`.
+        n_lags (int): Reward and choice lags. Default ``choice_logit.DEFAULT_LAGS``.
+        l2 (float): Penalty weight. Default ``choice_logit.DEFAULT_L2``.
+        min_trials (int): Problems with fewer trials get no fit. Default ``MIN_TRIALS``.
+
+    Returns:
+        pd.DataFrame: The weights of every fit, with ``cohort``, ``phase``, ``phase_problem``
+        and ``n_trials`` in front of the weights-table columns.
+    """
+    keys = ["mouse", "cohort", "phase", "phase_problem"]
+    fits = []
+    for key, rows in trials.groupby(keys, sort=True):
+        if len(rows) < min_trials:
+            continue
+        weights = fit_problem(rows, n_lags, l2).drop(columns="mouse")
+        fits.append(weights.assign(**dict(zip(keys, key, strict=True)), n_trials=len(rows)))
+    if not fits:
+        return pd.DataFrame(columns=[*keys, "n_trials", "feature", "group", "lag", "weight"])
+    table = pd.concat(fits, ignore_index=True)
+    return table[[*keys, "n_trials", *[c for c in table.columns if c not in [*keys, "n_trials"]]]]
+
+
+def weight_summaries(weights: pd.DataFrame) -> pd.DataFrame:
+    """The lag-1 weight and the mean weight of the older lags, for reward and choice.
+
+    Args:
+        weights (pd.DataFrame): :func:`fit_by_problem`.
+
+    Returns:
+        pd.DataFrame: ``SUMMARY_COLUMNS``: one row per fit, group (``"reward"``, ``"choice"``)
+        and summary (``"lag 1"``, ``"lags 2+"``).
+    """
+    lagged = weights[weights["group"].isin([cl.REWARD, cl.CHOICE]) & weights["lag"].notna()]
+    lagged = lagged.assign(summary=np.where(lagged["lag"] == 1, LAG_ONE, OLDER))
+    keys = ["mouse", "cohort", "phase", "phase_problem", "group", "summary"]
+    out = lagged.groupby(keys, as_index=False)["weight"].mean()
+    return out[SUMMARY_COLUMNS]
+
+
+def _slope(x: np.ndarray, y: np.ndarray) -> float:
+    """Least-squares slope of *y* on *x*; NaN with fewer than ``MIN_PROBLEMS`` points."""
+    if len(x) < MIN_PROBLEMS or np.unique(x).size < 2:
+        return np.nan
+    return float(np.polyfit(x, y, 1)[0])
+
+
+def _mouse_trends(rows: pd.DataFrame) -> pd.Series:
+    """One mouse's slope in each phase and its step at the switch, for one summary."""
+    out = {}
+    for phase in PHASES:
+        mine = rows[rows["phase"] == phase].sort_values("phase_problem")
+        out[f"slope_{phase}"] = _slope(
+            mine["phase_problem"].to_numpy(float), mine["weight"].to_numpy()
+        )
+    structured = rows[rows["phase"] == STRUCTURED]
+    drifting = rows[rows["phase"] == DRIFTING]
+    if len(structured) and len(drifting):
+        last = structured.loc[structured["phase_problem"].idxmax(), "weight"]
+        first = drifting.loc[drifting["phase_problem"].idxmin(), "weight"]
+        out["step"] = first - last
+    else:
+        out["step"] = np.nan
+    return pd.Series(out)
+
+
+def phase_trends(summaries: pd.DataFrame) -> pd.DataFrame:
+    """Per mouse and summary: the slope within each phase and the step at the switch.
+
+    Args:
+        summaries (pd.DataFrame): :func:`weight_summaries`.
+
+    Returns:
+        pd.DataFrame: ``mouse, cohort, group, summary, slope_structured, slope_drifting, step``.
+        A slope is NaN with fewer than ``MIN_PROBLEMS`` problems in the phase; the step is NaN
+        without both phases.
+    """
+    keys = ["mouse", "cohort", "group", "summary"]
+    return (
+        summaries.groupby(keys)[["phase", "phase_problem", "weight"]]
+        .apply(_mouse_trends)
+        .reset_index()
+    )
+
+
+def trend_tests(trends: pd.DataFrame) -> pd.DataFrame:
+    """One-sample t-tests across mice of each slope and step against 0.
+
+    Args:
+        trends (pd.DataFrame): :func:`phase_trends`.
+
+    Returns:
+        pd.DataFrame: ``group, summary, measure, mean, se, n_mice, t, p`` per summary and measure
+        (``slope_structured``, ``slope_drifting``, ``step``); ``t`` and ``p`` are NaN with fewer
+        than 2 mice.
+    """
+    rows = []
+    for (group, summary), mine in trends.groupby(["group", "summary"], sort=False):
+        for measure in (f"slope_{STRUCTURED}", f"slope_{DRIFTING}", "step"):
+            values = mine[measure].dropna().to_numpy()
+            n = len(values)
+            se = values.std(ddof=1) / np.sqrt(n) if n > 1 else np.nan
+            t, p = stats.ttest_1samp(values, 0.0) if n > 1 else (np.nan, np.nan)
+            mean = values.mean() if n else np.nan
+            rows.append(dict(group=group, summary=summary, measure=measure, mean=mean, se=se,
+                             n_mice=n, t=float(t), p=float(p)))  # fmt: skip
+    return pd.DataFrame(rows)
