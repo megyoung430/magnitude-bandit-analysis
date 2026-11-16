@@ -10,11 +10,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.poke_counts import session_poke_counts, unparsed_session_counts
-from src.behavior_analysis.poke_events import PokeAlignmentError
-from src.behavior_visualization import plot_single_session as module
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_single_session import plot_single_session
+from src.behavior_analysis.pokes.poke_counts import session_poke_counts, unparsed_session_counts
+from src.behavior_analysis.pokes.poke_events import PokeAlignmentError
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.task_statistics import plot_single_session as module
+from src.behavior_visualization.task_statistics.plot_single_session import plot_single_session
 from tests.poke_fixtures import Recording, full_trial, session_record
 
 TOWERS = ["A1", "B1", "C1"]

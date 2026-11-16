@@ -5,7 +5,7 @@ import pandas as pd
 
 from src.agents import drifting_simulation as sim
 from src.agents.rank_agent import RankPolicy
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
 from tests.strategy_fixtures import RULES, layouts
 
 # Learning rate 1 makes the learner's value the last payout, as the believed value is; beta sets

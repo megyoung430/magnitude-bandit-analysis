@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.pipelines.choice_logit_values import SIMULATED_PORTS
+from src.pipelines.choice_logit.choice_logit_values import SIMULATED_PORTS
 
 
 def _softmax(utility: np.ndarray) -> np.ndarray:

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import softmax
 
-from src.behavior_analysis.choice_regression import (
+from src.behavior_analysis.choice_logit.choice_regression import (
     FEATURES,
     choice_design,
     fit_by_mouse,

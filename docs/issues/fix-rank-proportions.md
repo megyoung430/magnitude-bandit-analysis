@@ -26,7 +26,7 @@ status: in review
   the only caller was `plot_rank_proportions_by_mouse`), and `n_blocks_excluding_last`
   is renamed `n_blocks`. No notebook or script uses either, so no deprecated alias is kept.
 - `nan_standard_error` (per-column SE over non-NaN rows, NaN below two) and `mean_se_n` live in
-  `src/behavior_analysis/stats.py`; every module imports them from there. The function body is
+  `src/behavior_analysis/data/stats.py`; every module imports them from there. The function body is
   identical to the helper on
   `fix-choice-prob-windows`; the two are meant to be merged into one.
 - Pooled mean and SE: the pooled proportion averages trials, so its SE is across the same
@@ -123,7 +123,7 @@ Main vs branch on synthetic no-NaN inputs with at least two units: `mean_and_sem
 ## Review follow-ups
 
 **Merge note: `fix-choice-prob-windows` must import `nan_standard_error` from
-`src.behavior_analysis.stats` and delete its own copy when the second branch merges.** The body is
+`src.behavior_analysis.data.stats` and delete its own copy when the second branch merges.** The body is
 identical; only the docstring differs (it now says a 1-D input is one column, giving one 0-d value
 over all elements, not one value per element).
 

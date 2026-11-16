@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import second_best as sb
-from src.behavior_analysis import switch_regression as sr
+from src.behavior_analysis.switching import second_best as sb
+from src.behavior_analysis.switching import switch_regression as sr
 from tests.second_best_fixtures import hand_mouse
 from tests.switch_regression_fixtures import simulate_switch_mouse
 

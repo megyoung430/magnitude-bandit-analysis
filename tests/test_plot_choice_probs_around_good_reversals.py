@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.reversals.plot_choice_probs_around_good_reversals import (
     add_cumulative_rev_axis,
     cumulative_reversal_events_over_post,
     cumulative_total_events_over_post,
@@ -17,7 +18,6 @@ from src.behavior_visualization.plot_choice_probs_around_good_reversals import (
     plot_choice_probs_with_removal,
     plot_cumulative_removed,
 )
-from src.behavior_visualization.plot_helpers import figure_caption
 
 X = np.arange(-3, 12)
 WINDOWS = {"A": [{"reversal_idx": 10}, {"reversal_idx": 20}], "B": [{"reversal_idx": 4}]}

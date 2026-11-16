@@ -1,4 +1,4 @@
-"""Tests for value-change-aligned windows (src.behavior_analysis.value_change_windows).
+"""Tests for value-change-aligned windows (src.behavior_analysis.value.value_change_windows).
 
 Every fixture is built here from three arms A, B, C whose magnitudes follow a
 piecewise-constant script, so the expected events, windows and counts are known.
@@ -7,7 +7,7 @@ piecewise-constant script, so the expected events, windows and counts are known.
 import numpy as np
 import pytest
 
-from src.behavior_analysis.value_change_windows import (
+from src.behavior_analysis.value.value_change_windows import (
     ValueChangeEvent,
     aggregate_windows,
     contamination_summary,

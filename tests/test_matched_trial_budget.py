@@ -1,7 +1,9 @@
 import unittest
+
 from test_reversal_boundaries import session, snapshot
-from src.behavior_analysis.matched_trial_budget import match_trial_budget
-from src.behavior_analysis.get_total_reversals import get_total_reversals
+
+from src.behavior_analysis.data.matched_trial_budget import match_trial_budget
+from src.behavior_analysis.reversals.get_total_reversals import get_total_reversals
 
 
 class BudgetTests(unittest.TestCase):

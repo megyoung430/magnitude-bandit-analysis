@@ -3,8 +3,8 @@
 import numpy as np
 from scipy.special import logsumexp
 
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis.choice_logit_cv import cross_validate_mouse
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.choice_logit.choice_logit_cv import cross_validate_mouse
 from tests.test_choice_logit import three_problem_design
 
 

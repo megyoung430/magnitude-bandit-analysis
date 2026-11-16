@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy.special import expit
 
-from src.behavior_analysis import rank_logit as rl
+from src.behavior_analysis.rank_tests import rank_logit as rl
 
 
 def simulate(n=4000, beta=(-0.5, 1.2, -0.8), seed=0):

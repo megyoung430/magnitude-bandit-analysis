@@ -7,7 +7,7 @@ import pytest
 from scipy.optimize import minimize
 from scipy.special import logsumexp
 
-from src.behavior_analysis import glm_hmm as hmm
+from src.behavior_analysis.glm_hmm import glm_hmm as hmm
 from tests.glm_hmm_fixtures import TWO_STATES, make_sequences, sticky
 
 

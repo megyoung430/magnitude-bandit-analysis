@@ -5,15 +5,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.behavior_analysis.average_choice_probs import average_across_problem_curves
-from src.behavior_visualization import plot_averaged_choice_probs as module
-from src.behavior_visualization.plot_averaged_choice_probs import (
+from src.behavior_analysis.reversals.average_choice_probs import average_across_problem_curves
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.common.plot_style import CHOICE_PROB_COLOR_MAP
+from src.behavior_visualization.reversals import plot_averaged_choice_probs as module
+from src.behavior_visualization.reversals.plot_averaged_choice_probs import (
     fraction_removed_by_problem,
     plot_choice_probs_with_fraction_removed_axis,
     plot_choice_probs_with_fraction_removed_panel,
 )
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_style import CHOICE_PROB_COLOR_MAP
 from tests.plot_capture import (
     capture_figures,
     lines_by_label,

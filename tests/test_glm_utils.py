@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis import glm_utils as g
+from src.behavior_analysis.choice_logit import glm_utils as g
 
 NAN = np.nan
 CONST = {"A": 1.0, "B": 2.0, "C": 3.0}

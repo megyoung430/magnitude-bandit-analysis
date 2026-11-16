@@ -2,9 +2,13 @@
 
 from pathlib import Path
 
-import src.pipelines.open_field as pipeline
-from src.behavior_analysis.port_finding_sessions import assign_port_finding_sessions
-from src.pipelines.open_field import AnalysisSelection, run_drifting_value_analyses, run_problem
+import src.pipelines.common.open_field as pipeline
+from src.behavior_analysis.pokes.port_finding_sessions import assign_port_finding_sessions
+from src.pipelines.common.open_field import (
+    AnalysisSelection,
+    run_drifting_value_analyses,
+    run_problem,
+)
 
 NOTHING_BUT = dict.fromkeys(
     (

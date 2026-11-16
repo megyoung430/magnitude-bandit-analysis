@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.behavior_analysis.poke_counts import (
+from src.behavior_analysis.pokes.poke_counts import (
     mouse_poke_counts,
     previous_choice_towers_for_problem,
     previous_problem_choice_towers,
@@ -11,7 +11,7 @@ from src.behavior_analysis.poke_counts import (
     total_counts,
     total_port_finding_counts,
 )
-from src.behavior_analysis.poke_events import ARMS9
+from src.behavior_analysis.pokes.poke_events import ARMS9
 from tests.poke_fixtures import Recording, full_trial, session_record
 
 

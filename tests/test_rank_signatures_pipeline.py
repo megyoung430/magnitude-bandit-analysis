@@ -3,9 +3,9 @@
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import rank_signatures as sg
-from src.behavior_analysis import strategy_models as sm
-from src.pipelines import rank_signatures as pipe
+from src.behavior_analysis.rank_tests import rank_signatures as sg
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.pipelines.rank_tests import rank_signatures as pipe
 from tests.strategy_fixtures import PARAMETERS, RULES, simulate_mouse
 
 SIZE = dict(n_problems=4, sessions=2, trials=250)

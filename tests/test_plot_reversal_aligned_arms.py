@@ -9,9 +9,9 @@ import pytest
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import to_hex
 
-from src.behavior_analysis.reversal_aligned_arms import compute_reversal_aligned_arms
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_reversal_aligned_arms import (
+from src.behavior_analysis.reversals.reversal_aligned_arms import compute_reversal_aligned_arms
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.reversals.plot_reversal_aligned_arms import (
     ROLE_COLORS,
     figure_heading,
     figure_stem,

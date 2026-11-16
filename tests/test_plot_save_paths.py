@@ -10,17 +10,17 @@ import pytest
 from test_reversal_boundaries import session, snapshot
 
 from src.behavior_import.reconcile_reversals import reconcile_reversals
-from src.behavior_visualization.plot_averaged_choice_probs import (
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.reversals.plot_averaged_choice_probs import (
     plot_choice_probs_with_fraction_removed_axis,
 )
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_num_reversals import (
+from src.behavior_visualization.reversals.plot_num_reversals import (
     plot_moving_avg_reversals_over_time,
     plot_num_reversals,
     plot_num_reversals_over_time,
 )
-from src.behavior_visualization.plot_problem_summary import plot_metric_by_problem
-from src.behavior_visualization.plot_reversals_by_trial import plot_reversals_by_trial
+from src.behavior_visualization.reversals.plot_reversals_by_trial import plot_reversals_by_trial
+from src.behavior_visualization.task_statistics.plot_problem_summary import plot_metric_by_problem
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse
 

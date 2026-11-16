@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from src.behavior_analysis.get_task_statistics import get_block_lengths
+from src.behavior_analysis.task_statistics.get_task_statistics import get_block_lengths
 from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
 from src.behavior_import.load_trials import load_trials_by_problem
-from src.behavior_visualization.plot_task_statistics import plot_block_lengths
+from src.behavior_visualization.task_statistics.plot_task_statistics import plot_block_lengths
 from src.settings import get_settings
 
 # task = "grid-maze"

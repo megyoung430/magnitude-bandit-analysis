@@ -2,8 +2,11 @@
 
 import pandas as pd
 
-from src.behavior_analysis import starting_magnitudes as sm
-from src.behavior_analysis.starting_magnitudes import COLUMNS, starting_magnitudes_table
+from src.behavior_analysis.task_statistics import starting_magnitudes as sm
+from src.behavior_analysis.task_statistics.starting_magnitudes import (
+    COLUMNS,
+    starting_magnitudes_table,
+)
 from src.behavior_import import import_log
 from src.behavior_import.import_log import SkipRecord
 from src.behavior_import.run_boundaries import describe_boundary

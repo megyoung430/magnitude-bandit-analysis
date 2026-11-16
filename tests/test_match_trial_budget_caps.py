@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from src.behavior_analysis.matched_trial_budget import match_trial_budget
+from src.behavior_analysis.data.matched_trial_budget import match_trial_budget
 from tests.test_reversal_boundaries import session, snapshot
 
 

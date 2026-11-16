@@ -56,7 +56,8 @@ for older commands and changes nothing.
 
 Raw data is read from <BANDIT_DATA_ROOT>/3x3_field_magnitude_bandit/rawdata/cohort-0N. Figures
 go to results/figures/open-field/cohort-0N/{blocked,drifting}/problem-KK/ and tables to
-results/tables/open-field/cohort-0N/ (see src/pipelines/cohort_analysis.py). Every problem also
+results/tables/open-field/cohort-0N/ (see src/pipelines/common/cohort_analysis.py). Every problem
+also
 gets a long-pokes/ folder; drifting problems get value-psychometrics/, reversal-aligned-arms/
 and value-change/, which are repeated over all drifting problems in all-drifting-problems/.
 Switch an analysis off in the selections below (e.g. run_value_change_analysis=False).
@@ -64,15 +65,15 @@ Switch an analysis off in the selections below (e.g. run_value_change_analysis=F
 
 import argparse
 
-from src.behavior_analysis.exclude_mice import ExcludedMiceError, parse_mouse_id
-from src.pipelines.cache_provenance import CACHE_FIRST_NOTE, FROM_CACHE_HELP, REFRESH_HELP
-from src.pipelines.cohort_analysis import (
+from src.behavior_analysis.data.exclude_mice import ExcludedMiceError, parse_mouse_id
+from src.pipelines.common.cache_provenance import CACHE_FIRST_NOTE, FROM_CACHE_HELP, REFRESH_HELP
+from src.pipelines.common.cohort_analysis import (
     BLOCKED_SELECTION,
     DEFAULT_RESULTS_ROOT,
     DRIFTING_SELECTION,
     run_cohorts,
 )
-from src.pipelines.open_field import ChoiceProbabilitySettings
+from src.pipelines.common.open_field import ChoiceProbabilitySettings
 
 COHORT_IDS = [1, 2, 3, 4]
 # Stop at the first cohort that fails (False), or run the others and report all failures (True).

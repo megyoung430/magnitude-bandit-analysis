@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 
-import src.pipelines.open_field as pipeline
-from src.behavior_analysis.get_choice_probs_around_good_reversals import (
+import src.pipelines.common.open_field as pipeline
+from src.behavior_analysis.reversals.get_choice_probs_around_good_reversals import (
     NoReversalsError,
     get_choice_probs_around_good_reversals,
 )
-from src.behavior_analysis.get_good_reversal_info import ReversalWarning
-from src.pipelines.open_field import (
+from src.behavior_analysis.reversals.get_good_reversal_info import ReversalWarning
+from src.pipelines.common.open_field import (
     ChoiceProbabilitySettings,
     run_choice_probability_analysis,
     run_first_leave_analysis,

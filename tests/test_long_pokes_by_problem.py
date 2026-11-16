@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis.long_pokes_by_session import (
+from src.behavior_analysis.pokes.long_pokes_by_session import (
     problem_mean_long_pokes,
     session_mean_long_pokes,
     summarize_pokes_by_session,

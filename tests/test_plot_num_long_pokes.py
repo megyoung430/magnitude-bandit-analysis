@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 from matplotlib.container import ErrorbarContainer
 
-from src.behavior_analysis.long_pokes_by_session import summarize_pokes_by_session
-from src.behavior_visualization import plot_num_long_pokes as module
-from src.behavior_visualization.plot_num_long_pokes import (
+from src.behavior_analysis.pokes.long_pokes_by_session import summarize_pokes_by_session
+from src.behavior_visualization.common.plot_style import MOUSE_COLORS
+from src.behavior_visualization.pokes import plot_num_long_pokes as module
+from src.behavior_visualization.pokes.plot_num_long_pokes import (
     plot_num_pokes_across_mice,
     plot_num_pokes_panel,
 )
-from src.behavior_visualization.plot_style import MOUSE_COLORS
 from tests.plot_capture import cap_size, capture_figures, title_pad_points, was_tight_laid_out
 
 S1, S2, S3 = "ses-01_date-20260301", "ses-02_date-20260302", "ses-10_date-20260310"

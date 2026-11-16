@@ -7,7 +7,7 @@ P(best alternative | switch after choosing non-0), P(other arm | switch after ch
 
 ## Change
 - `switch_target_curves` / `switch_target_curves_by_row` in
-  `src/behavior_analysis/stay_switch_psychometrics.py`: the switch targets computed over the
+  `src/behavior_analysis/value/stay_switch_psychometrics.py`: the switch targets computed over the
   switches only, so the two targets add up to 1. A mouse without switches in a row is not one of
   that row's mice; `Curve.n_trials` counts switches. `stay_switch_curves` now gives only P(stay)
   and P(switch).

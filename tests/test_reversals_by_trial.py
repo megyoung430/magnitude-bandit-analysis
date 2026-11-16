@@ -1,8 +1,13 @@
 import unittest
+
 import numpy as np
 from test_reversal_boundaries import session, snapshot
+
+from src.behavior_analysis.reversals.reversals_by_trial import (
+    reversal_trial_series,
+    trailing_reversal_rate,
+)
 from src.behavior_import.reconcile_reversals import reconcile_reversals
-from src.behavior_analysis.reversals_by_trial import reversal_trial_series, trailing_reversal_rate
 
 
 class TrialReversalTests(unittest.TestCase):

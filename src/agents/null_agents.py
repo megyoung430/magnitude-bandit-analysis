@@ -43,12 +43,13 @@ in the logit's analyses with no value guidance; a fast trace (decay 0.5) does no
 
 **Session starts.** The first trial of a session, and the first trial after a dropped trial,
 has no previous choice: it is uniform over the three arms, and the trace is cleared, as the
-choice history of :mod:`src.behavior_analysis.choice_logit` is. A pair of consecutive trials
+choice history of :mod:`src.behavior_analysis.choice_logit.choice_logit` is. A pair of consecutive
+trials
 within such a segment is one stay/switch decision. There is no tower bias: a first choice and a
 switch target are uniform (or trace-guided), so the agents have no preference between ports.
 
 Everything here is pure; fits take the drifting trial table
-(:func:`src.behavior_analysis.drifting_trial_table.drifting_trial_table`) and are per mouse.
+(:func:`src.behavior_analysis.data.drifting_trial_table.drifting_trial_table`) and are per mouse.
 """
 
 from dataclasses import dataclass, fields

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from src.pipelines.value_psychometrics import run_value_psychometric_analysis
+from src.pipelines.value.value_psychometrics import run_value_psychometric_analysis
 
 
 @pytest.fixture(autouse=True)

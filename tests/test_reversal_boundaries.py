@@ -1,11 +1,15 @@
 import unittest
+
 import pandas as pd
 
+from src.behavior_analysis.data.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.reversals.get_bad_reversal_info import get_bad_reversal_info
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.get_total_reversals import (
+    get_all_reversal_indices,
+    get_total_reversals,
+)
 from src.behavior_import.reconcile_reversals import reconcile_reversals
-from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
-from src.behavior_analysis.get_total_reversals import get_total_reversals, get_all_reversal_indices
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.get_bad_reversal_info import get_bad_reversal_info
 
 
 def snapshot(good=0, bad=0, tg=0, tb=0, mags=None, problem=1):

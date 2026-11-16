@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.behavior_analysis.get_believed_value import (
+from src.behavior_analysis.data.get_believed_value import (
     compute_believed_value,
     rank_weights,
     tie_category,

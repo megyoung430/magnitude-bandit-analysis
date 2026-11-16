@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.drifting_task_rules import (
+from src.behavior_analysis.data.drifting_task_rules import (
     block_change_summary,
     block_changes,
     complete_block_lengths,

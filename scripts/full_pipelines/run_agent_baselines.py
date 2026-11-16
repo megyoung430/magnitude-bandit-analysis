@@ -8,13 +8,14 @@ the import cache. Figures go to results/figures/open-field/agent-baselines/cohor
 summary.png (regression weights of mice and agents, and the per-mouse likelihood comparison)
 and one folder per agent with the same pooled drifting figures as all-cohorts/. Tables go to
 results/tables/open-field/agent-baselines/cohorts-<ids>/. The agent fits are cached in
-.cache/agent_baselines, so a rerun only refits what changed. See src/pipelines/agent_baselines.py.
+.cache/agent_baselines, so a rerun only refits what changed. See
+src/pipelines/strategy_models/agent_baselines.py.
 """
 
 import argparse
 
-from src.pipelines.agent_baselines import run_agent_baselines
-from src.pipelines.cohort_analysis import DEFAULT_RESULTS_ROOT, DRIFTING_SELECTION
+from src.pipelines.common.cohort_analysis import DEFAULT_RESULTS_ROOT, DRIFTING_SELECTION
+from src.pipelines.strategy_models.agent_baselines import run_agent_baselines
 
 
 def parse_args(argv=None) -> argparse.Namespace:

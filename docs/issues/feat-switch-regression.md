@@ -10,22 +10,22 @@ to absorb long-range recency, and a mouse's value weight has to be read against 
 ignore value produce.
 
 ## Change
-- `src/behavior_analysis/switch_regression.py` (pure): `switch_data` and `switch_data_by_decay`
+- `src/behavior_analysis/switching/switch_regression.py` (pure): `switch_data` and `switch_data_by_decay`
   (switch trials, choice sets, history features and values of both alternatives; the design is built
   once and only the trace column changes across decays), `choice_trace`, `trials_since_chosen`,
   `fit_switch_logit` (two-alternative conditional logit, L2 and optional Firth, Laplace standard
   errors), `cross_validate` (leave-one-problem-out), `analyze_mouse`, `value_table`,
   `history_weight_table`, `random_effects` (DerSimonian-Laird), `group_summary`, `null_calibration`,
   `calibrated_summary`, and `TooFewSwitchesError`.
-- `src/pipelines/switch_regression.py`: `analyze_switch_source(s)` (per source, with the lags, penalty
+- `src/pipelines/switching/switch_regression.py`: `analyze_switch_source(s)` (per source, with the lags, penalty
   and held-out model values of that source's logit analysis; parallel over mice, cached per mouse;
   only `TooFewSwitchesError` skips a mouse, with a warning naming its switch counts; worker warnings
   re-emitted, also on a cache hit), `source_summaries`, `per_mouse_table`, and the null calibration
   `calibrate_source` (`simulate_mouse_null`, cached per mouse and null agent).
-- `src/behavior_visualization/plot_switch_regression.py`: `Switch Regression Value Weights`,
+- `src/behavior_visualization/switching/plot_switch_regression.py`: `Switch Regression Value Weights`,
   `Switch Regression Model Comparison`, `Switch Regression History Weights` (pdf, png, svg and a
   caption file each), and `plot_switch_regression` for all three.
-- `src/behavior_visualization/plot_regression_extensions.py`: the drawing helpers both figure modules
+- `src/behavior_visualization/choice_logit/plot_regression_extensions.py`: the drawing helpers both figure modules
   share are public (`colors_of`, `draw_column`, `source_stats_line`, `source_ticks`,
   `counts_caption`, `style_source_axis`; they were underscore-prefixed), and `draw_column` takes
   optional per-mouse `bands` and `summary=False`. The extension figures draw as before.

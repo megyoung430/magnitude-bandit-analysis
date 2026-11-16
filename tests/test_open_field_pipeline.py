@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-import src.pipelines.open_field as pipeline
-from src.pipelines.open_field import AnalysisSelection, run_open_field_analysis, run_problem
+import src.pipelines.common.open_field as pipeline
+from src.pipelines.common.open_field import AnalysisSelection, run_open_field_analysis, run_problem
 
 SECTIONS = [
     "run_choice_probability_analysis",

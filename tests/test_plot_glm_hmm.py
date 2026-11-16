@@ -12,10 +12,10 @@ import pandas as pd
 import pytest
 
 from src.agents import glm_hmm_agent as gha
-from src.behavior_analysis import strategy_models as sm
-from src.behavior_visualization import plot_glm_hmm as plots
-from src.behavior_visualization.plot_helpers import FIGURE_FORMATS, caption_path
-from src.pipelines import glm_hmm as pipe
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.behavior_visualization.common.plot_helpers import FIGURE_FORMATS, caption_path
+from src.behavior_visualization.glm_hmm import plot_glm_hmm as plots
+from src.pipelines.glm_hmm import glm_hmm as pipe
 
 STATS = re.compile(
     r"^(mean ± se across mice, n=\d+ mice|per mouse, n=\d+ mice|"

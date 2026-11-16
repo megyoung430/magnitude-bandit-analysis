@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 
 from src.agents import null_agents as na
-from src.behavior_analysis import strategy_models as sm
-from src.pipelines import choice_logit_values as logit_pipe
-from src.pipelines import null_agents as pipe
+from src.behavior_analysis.strategy_models import strategy_models as sm
+from src.pipelines.choice_logit import choice_logit_values as logit_pipe
+from src.pipelines.strategy_models import null_agents as pipe
 from tests.test_null_agents import RULES, hand_table
 
 pytestmark = pytest.mark.filterwarnings("ignore:the problems of")

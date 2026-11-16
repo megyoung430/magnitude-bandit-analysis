@@ -15,14 +15,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
 
-from src.behavior_analysis.port_finding_sessions import (
+from src.behavior_analysis.pokes.port_finding_sessions import (
     assign_port_finding_sessions,
     port_finding_sessions_for_problem,
 )
 from src.behavior_import.extract_trials import extract_session_trials
 from src.behavior_import.import_log import ImportLog
-from src.behavior_visualization import plot_maze_heatmaps
-from src.pipelines.poke_analysis import run_poke_analysis
+from src.behavior_visualization.common import plot_maze_heatmaps
+from src.pipelines.pokes.poke_analysis import run_poke_analysis
 from tests.poke_fixtures import Recording, full_trial, session_record
 
 TASK_SESSION = "ses-2_date-20260102"

@@ -15,11 +15,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
 
-import src.pipelines.cohort_analysis as cohort_analysis
-from src.behavior_visualization import plot_helpers
-from src.behavior_visualization.plot_legends import title_case
-from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
-from src.pipelines.cohort_analysis import run_cohort
+import src.pipelines.common.cohort_analysis as cohort_analysis
+from src.behavior_visualization.common import plot_helpers
+from src.behavior_visualization.common.plot_legends import title_case
+from src.pipelines.common.all_cohorts_drifting import run_all_cohorts_drifting
+from src.pipelines.common.cohort_analysis import run_cohort
 from tests.all_cohorts_fixtures import synthetic_cohort
 from tests.cohort_fixtures import blocked_then_two_drifting
 

@@ -16,12 +16,12 @@ matplotlib.use("Agg")
 import pandas as pd
 import pytest
 
-import src.pipelines.cohort_analysis as cohort_analysis
-import src.pipelines.open_field as pipeline
-from src.behavior_analysis.exclude_mice import ExcludedMiceError
+import src.pipelines.common.cohort_analysis as cohort_analysis
+import src.pipelines.common.open_field as pipeline
+from src.behavior_analysis.data.exclude_mice import ExcludedMiceError
 from src.behavior_import.task_types import BLOCKED, DRIFTING
-from src.behavior_visualization.plot_helpers import current_figure_banner
-from src.pipelines.cohort_analysis import run_cohort, run_cohort_incremental, run_cohorts
+from src.behavior_visualization.common.plot_helpers import current_figure_banner
+from src.pipelines.common.cohort_analysis import run_cohort, run_cohort_incremental, run_cohorts
 from tests.cohort_fixtures import blocked_then_two_drifting
 from tests.test_cohort_runner_integration import (
     ENTRY_POINTS,

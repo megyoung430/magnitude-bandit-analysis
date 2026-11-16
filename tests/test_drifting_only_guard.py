@@ -6,19 +6,21 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pytest
 
-from src.behavior_analysis.reversal_aligned_arms import (
+from src.behavior_analysis.reversals.reversal_aligned_arms import (
     build_windows_with_magnitudes,
     compute_reversal_aligned_arms,
 )
-from src.behavior_analysis.reversal_format import (
+from src.behavior_analysis.reversals.reversal_format import (
     check_block_change_windows,
     check_blocks_only_sessions,
 )
-from src.behavior_visualization.plot_helpers import figure_caption
-from src.behavior_visualization.plot_reversal_aligned_arms import plot_reversal_aligned_arms
-from src.pipelines.reversal_aligned_arms import run_reversal_aligned_arm_analysis
-from src.pipelines.value_change_analysis import run_value_change_analysis
-from src.pipelines.value_psychometrics import run_value_psychometric_analysis
+from src.behavior_visualization.common.plot_helpers import figure_caption
+from src.behavior_visualization.reversals.plot_reversal_aligned_arms import (
+    plot_reversal_aligned_arms,
+)
+from src.pipelines.reversals.reversal_aligned_arms import run_reversal_aligned_arm_analysis
+from src.pipelines.value.value_change_analysis import run_value_change_analysis
+from src.pipelines.value.value_psychometrics import run_value_psychometric_analysis
 from tests.plot_capture import capture_figures
 from tests.plot_fixtures import make_mouse
 from tests.reversal_arm_fixtures import make_reversal, stamp_windows

@@ -16,15 +16,15 @@ matplotlib.use("Agg")
 
 import pytest
 
-import src.pipelines.all_cohorts_drifting as all_cohorts
-import src.pipelines.cohort_analysis as cohort_analysis
-import src.pipelines.open_field as open_field
+import src.pipelines.common.all_cohorts_drifting as all_cohorts
+import src.pipelines.common.cohort_analysis as cohort_analysis
+import src.pipelines.common.open_field as open_field
 from src.behavior_import.extract_trials import extract_session_trials
 from src.behavior_import.import_log import ImportLog
-from src.pipelines.all_cohorts_drifting import run_all_cohorts_drifting
-from src.pipelines.cohort_analysis import run_cohort
-from src.pipelines.open_field import AnalysisSelection, run_problem
-from src.pipelines.poke_analysis import run_poke_analysis
+from src.pipelines.common.all_cohorts_drifting import run_all_cohorts_drifting
+from src.pipelines.common.cohort_analysis import run_cohort
+from src.pipelines.common.open_field import AnalysisSelection, run_problem
+from src.pipelines.pokes.poke_analysis import run_poke_analysis
 from tests.all_cohorts_fixtures import synthetic_cohort
 from tests.cohort_fixtures import blocked_then_two_drifting
 from tests.test_cohort_runner_integration import (

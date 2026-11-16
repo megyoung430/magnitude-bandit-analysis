@@ -9,9 +9,9 @@ with.
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import starting_magnitudes as sm
-from src.behavior_analysis.review_context import ProblemIndex
-from src.behavior_analysis.starting_magnitudes import starting_magnitudes_table
+from src.behavior_analysis.review.review_context import ProblemIndex
+from src.behavior_analysis.task_statistics import starting_magnitudes as sm
+from src.behavior_analysis.task_statistics.starting_magnitudes import starting_magnitudes_table
 from src.behavior_import.load_trials import load_trials_with_log
 from src.behavior_import.problem_numbering import ProblemNumberingWarning
 from src.behavior_import.task_types import (

@@ -1,15 +1,17 @@
 from pathlib import Path
 
-from src.behavior_analysis.get_diagnostic_p_value import pvalue_paired_t_new_vs_third
-from src.behavior_analysis.get_first_leave_after_good_reversals import (
+from src.behavior_analysis.reversals.get_diagnostic_p_value import pvalue_paired_t_new_vs_third
+from src.behavior_analysis.reversals.get_first_leave_after_good_reversals import (
     average_first_leave_across_subjects,
     get_first_leave_after_good_reversals,
 )
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.split_early_late_good_reversals import split_good_reversals_early_late
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.split_early_late_good_reversals import (
+    split_good_reversals_early_late,
+)
 from src.behavior_import.fix_grid_maze_cohort_02_problems import fix_grid_maze_cohort_02_problems
 from src.behavior_import.load_trials import load_trials_by_problem
-from src.behavior_visualization.plot_first_leave_after_good_reversals import (
+from src.behavior_visualization.reversals.plot_first_leave_after_good_reversals import (
     plot_first_leave_after_good_reversals,
 )
 from src.settings import get_settings

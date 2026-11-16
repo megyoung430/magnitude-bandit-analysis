@@ -5,14 +5,16 @@ from datetime import datetime
 
 import pytest
 
-from src.behavior_analysis.merge_across_problems import merge_first_leave_dicts, sum_count_dicts
-from src.behavior_analysis.problem_utils import (
+from src.behavior_analysis.data.merge_across_problems import (
+    merge_first_leave_dicts,
+    sum_count_dicts,
+)
+from src.behavior_analysis.data.problem_utils import (
     mean_block_length_from_indices,
     reversals_from_blocks_counter,
 )
 from src.behavior_import.extract_trials import add_dicts
 from src.behavior_import.import_data import parse_content_json, parse_file_timestamp
-
 
 # --- parse_content_json -------------------------------------------------------
 

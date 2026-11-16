@@ -8,7 +8,7 @@ status: done
 
 Show exactly what the mouse-weighted value-change plot averages: for every mouse its total number of events, its `prev_best` / `prev_second` / `third` choice-probability arrays and how many of its events have a trial at each t.
 
-- **Files:** `src/behavior_analysis/value_change_windows.py`, `src/behavior_analysis/value_change_mouse_curves.py` (new), `src/pipelines/value_change_diagnostic.py`, `tests/test_value_change_mouse_curves.py` (new), `tests/test_value_change_diagnostic.py`
+- **Files:** `src/behavior_analysis/value/value_change_windows.py`, `src/behavior_analysis/value/value_change_mouse_curves.py` (new), `src/pipelines/value/value_change_diagnostic.py`, `tests/test_value_change_mouse_curves.py` (new), `tests/test_value_change_diagnostic.py`
 
 ## What changes
 - `ValueChangeCurves` gains `per_subject_n_events` (`{subject: events with a trial at each t}`) and `per_subject_total_events` (`{subject: int}`), at the end with a `None` default. No existing number changes.

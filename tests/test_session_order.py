@@ -3,17 +3,17 @@
 import pytest
 
 from src.agents.cohort_fitting import prepare_cohort_sequences
-from src.behavior_analysis.get_good_reversal_info import get_good_reversal_info
-from src.behavior_analysis.get_total_reversals import (
+from src.behavior_analysis.data.get_variables_across_sessions import get_vars_across_all_sessions
+from src.behavior_analysis.data.matched_trial_budget import match_trial_budget
+from src.behavior_analysis.data.problem_utils import flatten_trials
+from src.behavior_analysis.reversals.get_good_reversal_info import get_good_reversal_info
+from src.behavior_analysis.reversals.get_total_reversals import (
     get_all_reversal_indices,
     get_reversal_indices_by_kind,
     get_unclassified_reversal_indices,
 )
-from src.behavior_analysis.get_variables_across_sessions import get_vars_across_all_sessions
-from src.behavior_analysis.matched_trial_budget import match_trial_budget
-from src.behavior_analysis.problem_utils import flatten_trials
-from src.behavior_analysis.reversals_by_session import reversal_counts_by_session
-from src.behavior_analysis.trial_block_summary import build_trial_block_tables
+from src.behavior_analysis.reversals.reversals_by_session import reversal_counts_by_session
+from src.behavior_analysis.task_statistics.trial_block_summary import build_trial_block_tables
 from src.behavior_import.extract_trials import group_sessions_by_problem, signed_sessions
 from src.behavior_import.import_data import _sorted_session_keys
 from src.behavior_import.reconcile_reversals import reconcile_reversals

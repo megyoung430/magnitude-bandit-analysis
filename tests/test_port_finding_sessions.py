@@ -4,7 +4,7 @@ import warnings
 
 import pytest
 
-from src.behavior_analysis.port_finding_sessions import (
+from src.behavior_analysis.pokes.port_finding_sessions import (
     assign_port_finding_sessions,
     port_finding_sessions_for_problem,
 )

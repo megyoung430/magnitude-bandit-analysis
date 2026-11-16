@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import rank_calibration as rc
+from src.behavior_analysis.rank_tests import rank_calibration as rc
 
 
 def null(mouse, values):

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.get_choice_probs_by_value import (
+from src.behavior_analysis.value.get_choice_probs_by_value import (
     BEST_VALS,
     SECOND_VALS,
     accumulate_choice_probs,

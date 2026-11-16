@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.outcome_events import (
+from src.behavior_analysis.data.outcome_events import (
     OUTCOME_COLUMNS,
     OutcomeParseError,
     load_outcome_events,

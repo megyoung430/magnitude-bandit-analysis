@@ -7,11 +7,11 @@ reversal trial, so the pre length must not change them.
 
 import pytest
 
-from src.behavior_analysis.get_first_leave_after_good_reversals import (
-    get_first_leave_after_good_reversals,
-)
-from src.behavior_analysis.get_rank_counts_by_good_reversal import (
+from src.behavior_analysis.rank_proportions.get_rank_counts_by_good_reversal import (
     get_rank_counts_by_good_reversal,
+)
+from src.behavior_analysis.reversals.get_first_leave_after_good_reversals import (
+    get_first_leave_after_good_reversals,
 )
 
 TOWERS = ("A", "B", "C")

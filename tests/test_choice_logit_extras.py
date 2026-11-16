@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis import choice_logit as cl
+from src.behavior_analysis.choice_logit import choice_logit as cl
 from tests.test_choice_logit import PORTS, trial_frame
 
 

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from src.behavior_analysis.reversal_alignment import (
+from src.behavior_analysis.reversals.reversal_alignment import (
     align_window_values,
     bin_offsets,
     keep_zero_then_skip,

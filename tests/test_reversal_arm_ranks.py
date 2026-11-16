@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.behavior_analysis.reversal_arm_ranks import (
+from src.behavior_analysis.reversals.reversal_arm_ranks import (
     arm_labels,
     classify_reversal_type,
     consistent_rankings,

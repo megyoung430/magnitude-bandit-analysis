@@ -7,8 +7,8 @@ from scipy.special import logsumexp
 from src.agents import choice_logit_truth as truth
 from src.agents import drifting_simulation as sim
 from src.agents import value_agent
-from src.behavior_analysis import choice_logit as cl
-from src.behavior_analysis.drifting_trial_table import drifting_trial_table
+from src.behavior_analysis.choice_logit import choice_logit as cl
+from src.behavior_analysis.data.drifting_trial_table import drifting_trial_table
 
 PARAMETERS = (0.3, 1.2, 0.8, 0.5)  # learning rate, beta, kappa, plus bias
 

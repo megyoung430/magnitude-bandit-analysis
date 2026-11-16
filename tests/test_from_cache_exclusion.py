@@ -2,7 +2,7 @@
 
 import pytest
 
-import src.pipelines.cohort_analysis as cohort_analysis
+import src.pipelines.common.cohort_analysis as cohort_analysis
 from src.behavior_import.import_log import ImportLog
 from src.behavior_import.load_trials import ImportedTrials
 from tests.cohort_fixtures import blocked_then_two_drifting

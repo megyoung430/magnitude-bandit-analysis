@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.stay_switch_psychometrics import (
+from src.behavior_analysis.value.stay_switch_psychometrics import (
     CHOSEN_NONZERO,
     CHOSEN_ROWS,
     CHOSEN_ZERO,

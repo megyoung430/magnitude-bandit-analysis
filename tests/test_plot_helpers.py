@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_visualization.plot_helpers import (
+from src.behavior_visualization.common.plot_helpers import (
     FigureOutput,
     TableOutput,
     axes_or_new,
@@ -21,7 +21,7 @@ from src.behavior_visualization.plot_helpers import (
     save_or_show,
     write_outputs,
 )
-from src.behavior_visualization.plot_style import MOUSE_COLORS
+from src.behavior_visualization.common.plot_style import MOUSE_COLORS
 from tests.plot_capture import capture_figures, was_tight_laid_out
 
 

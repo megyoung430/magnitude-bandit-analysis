@@ -6,7 +6,7 @@ Switch target plots: condition on the earlier choice being the 0 option (top) or
 the value gap between the best and second-best of the options not chosen on the earlier trial.
 
 ## Change
-- `switch_target_curves` (`src/behavior_analysis/stay_switch_psychometrics.py`) returns one
+- `switch_target_curves` (`src/behavior_analysis/value/stay_switch_psychometrics.py`) returns one
   `Curve`: P(switch to the best alternative | switch) against `alt_gap = v_alt - v_other`.
   Switches between tied alternatives (gap 0) are left out; they have no best alternative.
   `switch_target_curves_by_row` returns `{row: Curve | None}`.

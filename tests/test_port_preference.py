@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.behavior_analysis.poke_events import ARMS9
-from src.behavior_analysis.port_preference import (
+from src.behavior_analysis.pokes.poke_events import ARMS9
+from src.behavior_analysis.pokes.port_preference import (
     add_ratio,
     category_summary,
     count_nan_ratios,
