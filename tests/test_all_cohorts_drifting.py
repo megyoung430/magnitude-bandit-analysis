@@ -22,7 +22,6 @@ import pytest
 from src.behavior_analysis.pokes.poke_counts import session_choice_ports
 from src.behavior_analysis.value.get_choice_probs_by_value import count_choice_probs
 from src.behavior_import.import_log import ImportLog
-from src.pipelines.common import all_cohorts_drifting as pipeline
 from src.pipelines.common.all_cohorts_drifting import (
     drifting_problems,
     pool_cohorts,
@@ -526,9 +525,8 @@ def test_a_problem_folder_still_skips_x_versus_plus(monkeypatch, pooled, tmp_pat
 
 @pytest.fixture(scope="module")
 def script():
-    path = (
-        Path(pipeline.__file__).parents[2] / "scripts/full_pipelines/run_all_drifting_problems.py"
-    )
+    # the repo root is the folder above tests/, wherever the pipeline module lives
+    path = Path(__file__).parents[1] / "scripts/full_pipelines/run_all_drifting_problems.py"
     spec = importlib.util.spec_from_file_location("run_all_drifting_problems", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
