@@ -591,6 +591,32 @@ logit (`choice_logit.py`) instead.
 Builds, for each mouse, the table of predictors (a constant, recent choices of each arm, recent
 rewards, and their interactions) and the chosen arm on each trial, ready for the regression.
 
+## src/behavior_analysis/choice_logit/logit_by_problem.py
+
+Do the mice lean more on recent history as training goes on? This file fits the choice logit (a
+model of which port the mouse picks next, from the rewards and choices of the last few trials) to
+each problem separately, first through the structured (blocked) problems and then through the
+drifting ones, so the weights can be followed across training. It copies the analysis of
+Samborska et al. (2022, Fig. 1i-l), which found that mice in a two-port reversal task weighted
+past outcomes more strongly in later problems.
+
+- **Reward weight**: how much one more pulse received at a port k trials ago raises the log-odds
+  of choosing that port now. A large lag-1 weight means the mouse follows the last payout closely.
+- **Choice weight**: how much having chosen a port k trials ago raises the log-odds of choosing it
+  again, whatever it paid (perseveration).
+- **Outcome x choice**: the paper's own coding, fitted as a second version. The outcome is +1 if
+  the choice paid anything and -1 if it paid 0, whatever the magnitude. Its weight is half the
+  difference between staying after a rewarded and an unrewarded choice (win-stay versus
+  lose-shift), and the choice weight then becomes the average pull of a past choice, rewarded or
+  not. In the standard version, the choice weight is the pull of a choice that paid 0.
+- **Lag 1 and lags 2+**: the paper's two summaries, the weight of the last trial and the average
+  weight of the older trials.
+- **Slope**: for each mouse, how much a weight changes per problem within a phase. A positive mean
+  slope across mice means the weight grows with training.
+- **Step**: the first drifting problem's weight minus the last structured problem's. The two
+  tasks pay differently (structured problems mostly 0, 1 or 4 pulses, drifting ones 0 to 4), so a
+  step can come from the change of task as well as from learning.
+
 ## src/behavior_analysis/pokes/long_pokes_by_session.py
 
 Summarizes long pokes (pokes held at a port that was not the choice) session by session: the mean
@@ -716,6 +742,19 @@ trial starts. Other files count and plot these.
 
 Tables summarizing the poke analysis per session (trials counted, dropped, port-finding trials,
 and whether raw and logged long-poke counts agree), for checking the data.
+
+## src/behavior_analysis/pokes/port_finding_by_stage.py
+
+Where do the mice poke when they meet a new layout of ports, early in training compared with
+late? This copies Fig. 1h of Samborska et al. (2022), where mice made fewer out-of-sequence
+pokes (pokes that break the initiate-then-choose order) in later problems.
+
+- **Port categories**: the current problem's choice ports, the previous problem's ports, the
+  initiation port and any other port.
+- **Windows**: port finding, the first 50 trials after it, and the first three blocks.
+- **In sequence**: the next step of the trial. After initiating, that is one of the current choice
+  ports; after choosing, it is going back to the initiation port. More in-sequence pokes in
+  later problems mean the mice learned the trial structure and carry it to each new layout.
 
 ## src/behavior_analysis/pokes/port_finding_check.py
 
@@ -965,6 +1004,19 @@ ambiguous instead of being guessed.
 
 The type of one block change, such as "the best arm became third" or "the second arm became third",
 or "ambiguous" if ties allow more than one answer.
+
+## src/behavior_analysis/reversals/reversal_curves_by_stage.py
+
+How quickly do the mice move to the new best arm after a block change, early in training
+compared with late? This copies Fig. 1f of Samborska et al. (2022), where late in training mice
+switch to the new good port faster after a reversal.
+
+- **Curves**: the probability of choosing the new best arm, the previous best arm and the third
+  arm on each trial from 10 before to 40 after a block change, averaged over a problem's block
+  changes, then over the problems of a training stage.
+- **Readout**: each mouse's mean probability of choosing the new best arm over the first 10
+  trials after the change. A higher value late in training means the mice adapt faster to a
+  change, which is one sign of learning to learn.
 
 ## src/behavior_analysis/reversals/reversal_format.py
 
@@ -1229,6 +1281,21 @@ more than habit and schedule alone can explain.
 ## src/behavior_analysis/switching/switch_regression.py::calibrated_summary
 
 Across mice: mean and standard error of the calibrated z-scores with Wilcoxon and sign tests.
+
+## src/behavior_analysis/data/training_stages.py
+
+Puts each mouse's problems in the order it ran them, structured (blocked) problems first and
+then drifting ones, and marks three stages of that training for comparing early and late
+behavior.
+
+- **Training order**: the blocked problems before a mouse's first drifting problem, then its
+  drifting problems up to the cohort's cutoff. Blocked problems run after the drifting ones (in
+  cohort 1, after surgery) are left out.
+- **Stages**: the first two structured problems, the first two drifting problems and the mouse's
+  last two drifting problems. Comparing the stages asks whether behavior changes over training,
+  and whether it changes again at the switch to the drifting task.
+- **Stage tests**: a paired t-test across mice between two stages, so each mouse is compared
+  with itself.
 
 ## src/behavior_analysis/task_statistics/trial_block_summary.py
 
