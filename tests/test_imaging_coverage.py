@@ -24,14 +24,14 @@ def test_the_led_setting_is_read_from_every_variable_row():
     assert ic.led_setting(frame(("run_start", {"with_LED": True}))) == ic.ON
     changed = frame(("run_start", {"led": True}), ("user_set", {"led": False}))
     assert ic.led_setting(changed) == ic.MIXED
-    assert ic.led_setting(frame(("run_start", {"num_t": 0}))) == ic.UNSET
+    assert ic.led_setting(frame(("run_start", {"num_t": 0}))) == ic.ON  # no setting: LED on
 
 
 def test_a_multi_file_session_reads_all_its_files():
     files = [frame(("run_start", {"led": False})), frame(("run_start", {"led": False}))]
     assert ic.led_setting(files) == ic.OFF
     assert ic.led_setting([frame(("run_start", {"led": False})), frame()]) == ic.OFF
-    assert ic.led_setting(None) == ic.UNSET
+    assert ic.led_setting(None) == ic.ON
 
 
 def test_rows_that_are_not_json_dicts_are_skipped():
@@ -67,7 +67,7 @@ def test_the_session_table_has_one_row_per_imported_session():
     table = ic.session_table(imported())
     assert len(table) == 5
     assert table.set_index("ses_id")["led_setting"].to_dict() == {
-        "ses-9_date-20260101": ic.UNSET, "ses-10_date-20260102": ic.UNSET,
+        "ses-9_date-20260101": ic.ON, "ses-10_date-20260102": ic.ON,
         "ses-11_date-20260103": ic.OFF, "ses-12_date-20260104": ic.ON,
         "ses-13_date-20260105": ic.OFF,
     }  # fmt: skip
@@ -94,15 +94,13 @@ def test_imaged_sessions_need_both_folders_and_keep_sessions_without_a_problem()
     assert list(imaged["ses_id"]) == ["ses-10_date-20260102", "ses-11_date-20260103",
                                       "ses-12_date-20260104", "ses-14_date-20260106"]  # fmt: skip
     no_problem = imaged.set_index("ses_id").loc["ses-14_date-20260106"]
-    assert pd.isna(no_problem["problem"]) and no_problem["led_setting"] == ic.UNSET
+    assert pd.isna(no_problem["problem"]) and no_problem["led_setting"] == ic.UNKNOWN
+    assert not no_problem["led_on"]
 
 
-def test_an_unset_led_counts_as_on_unless_told_otherwise():
-    sessions = ic.session_table(imported())
-    on = ic.imaged_sessions(sessions, modality()).set_index("ses_id")["led_on"]
+def test_a_session_without_the_led_variable_is_led_on():
+    on = ic.imaged_sessions(ic.session_table(imported()), modality()).set_index("ses_id")["led_on"]
     assert on["ses-10_date-20260102"] and not on["ses-11_date-20260103"]
-    strict = ic.imaged_sessions(sessions, modality(), unset_means_on=False)
-    assert not strict.set_index("ses_id").loc["ses-10_date-20260102", "led_on"]
 
 
 def test_coverage_counts_imaged_and_led_on_sessions_out_of_the_problem_total():
@@ -114,8 +112,7 @@ def test_coverage_counts_imaged_and_led_on_sessions_out_of_the_problem_total():
     assert rows.loc[5, "imaged_fraction"] == pytest.approx(2 / 3)
     assert rows.loc[5, "led_on_sessions"] == "ses-12_date-20260104"
     assert rows.loc[5, "led_off_sessions"] == "ses-11_date-20260103"
-    assert rows.loc[4, "led_on_sessions"] == "ses-10_date-20260102 (not set)"
-    assert rows.loc[4, "n_led_not_set"] == 1 and rows.loc[5, "n_led_not_set"] == 0
+    assert rows.loc[4, "led_on_sessions"] == "ses-10_date-20260102"
 
 
 def test_sessions_are_listed_in_session_number_order():

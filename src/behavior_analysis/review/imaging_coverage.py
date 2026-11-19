@@ -8,9 +8,8 @@ problem's sessions they are, and the LED setting of each.
 **LED.** The task file records the LED setting as a task variable (``led`` in the recording
 task; ``with_LED`` is accepted too, see ``LED_KEYS``). Its value is read from every variable row
 of a session's files that carries it: ``run_start``, ``run_end`` and any ``user_set`` change
-during the session. A session whose files never carry the variable ran a task without the
-setting; ``led_on`` then follows *unset_means_on* (default ``True``: the LED was always on before
-the setting existed).
+during the session. Tasks without the variable always ran with the LED on, so a session whose
+files never carry it is LED on.
 
 Pure: session dicts and tables in, tables out.
 """
@@ -22,7 +21,8 @@ from collections.abc import Iterable, Mapping
 import pandas as pd
 
 LED_KEYS = ("with_LED", "with_led", "led", "LED")
-ON, OFF, MIXED, UNSET = "on", "off", "mixed", "not set"
+ON, OFF, MIXED = "on", "off", "mixed"
+UNKNOWN = "unknown"  # an imaged session the import has no data for
 SESSION_COLUMNS = ["mouse", "ses_id", "problem", "task_type", "led_setting"]
 # the suffix of a session the import split by layout (see split_recording_configurations)
 PART_SUFFIX = re.compile(r"_part-\d+$")
@@ -63,7 +63,7 @@ def led_values(frames) -> set[bool]:
 
 
 def led_setting(frames) -> str:
-    """``ON``, ``OFF``, ``MIXED`` (both during the session) or ``UNSET`` (never recorded).
+    """``ON``, ``OFF`` or ``MIXED`` (both during the session); ``ON`` if never recorded.
 
     Args:
         frames (pd.DataFrame | list[pd.DataFrame] | None): As :func:`led_values`.
@@ -72,8 +72,8 @@ def led_setting(frames) -> str:
         str: The session's LED setting.
     """
     values = led_values(frames)
-    if not values:
-        return UNSET
+    if not values:  # a task without the setting: the LED was always on
+        return ON
     if len(values) > 1:
         return MIXED
     return ON if values.pop() else OFF
@@ -81,10 +81,8 @@ def led_setting(frames) -> str:
 
 def _combined_setting(settings: pd.Series) -> str:
     """The LED setting of a session folder from those of its parts."""
-    recorded = set(settings) - {UNSET}
-    if not recorded:
-        return UNSET
-    return recorded.pop() if len(recorded) == 1 else MIXED
+    settings = set(settings)
+    return settings.pop() if len(settings) == 1 else MIXED
 
 
 def session_table(trials_by_problem: Mapping[int, Mapping[str, Mapping]]) -> pd.DataFrame:
@@ -134,36 +132,35 @@ def _session_list(ses_ids: pd.Series) -> str:
     return ", ".join(sorted(ses_ids, key=number))
 
 
-def imaged_sessions(
-    sessions: pd.DataFrame, modality: pd.DataFrame, unset_means_on: bool = True
-) -> pd.DataFrame:
+def imaged_sessions(sessions: pd.DataFrame, modality: pd.DataFrame) -> pd.DataFrame:
     """The sessions with both ``behav`` and ``funcimg``, with their problem and LED.
 
     Args:
         sessions (pd.DataFrame): :func:`session_table`.
         modality (pd.DataFrame): The notebook's modality table: ``subject_id, ses_id, date,
             has_behav, has_funcimg``.
-        unset_means_on (bool): Whether a session without an LED variable counts as LED on.
-            Default ``True``.
 
     Returns:
         pd.DataFrame: ``mouse, ses_id, date, problem, task_type, led_setting, led_on``; an
-        imaged session the import has no problem for (a flagged or unreadable session) keeps a
-        missing problem.
+        imaged session the import has no data for (a flagged or unreadable session) keeps a
+        missing problem and LED setting ``UNKNOWN``.
     """
     both = modality[modality["has_behav"] & modality["has_funcimg"]]
     imaged = both[["subject_id", "ses_id", "date"]].rename(columns={"subject_id": "mouse"})
     out = imaged.merge(sessions, on=["mouse", "ses_id"], how="left")
-    out["led_setting"] = out["led_setting"].fillna(UNSET)
-    on = out["led_setting"].eq(ON) | (out["led_setting"].eq(UNSET) & unset_means_on)
-    return out.assign(led_on=on).sort_values(["mouse", "date", "ses_id"]).reset_index(drop=True)
+    out["led_setting"] = out["led_setting"].fillna(UNKNOWN)
+    return (
+        out.assign(led_on=out["led_setting"].eq(ON))
+        .sort_values(["mouse", "date", "ses_id"])
+        .reset_index(drop=True)
+    )
 
 
 def _marked(rows: pd.DataFrame) -> str:
-    """Session ids in session-number order, a setting that is not plain on/off marked."""
-    marks = {UNSET: " (not set)", MIXED: " (mixed)"}
+    """Session ids in session-number order, a session that changed the LED marked ``(mixed)``."""
     labels = {
-        s: s + marks.get(m, "") for s, m in zip(rows["ses_id"], rows["led_setting"], strict=True)
+        s: s + (" (mixed)" if m == MIXED else "")
+        for s, m in zip(rows["ses_id"], rows["led_setting"], strict=True)
     }
     return ", ".join(labels[s] for s in _session_list(rows["ses_id"]).split(", ") if s)
 
@@ -177,11 +174,9 @@ def coverage_by_problem(sessions: pd.DataFrame, imaged: pd.DataFrame) -> pd.Data
 
     Returns:
         pd.DataFrame: ``mouse, problem, task_type, n_sessions, n_imaged, imaged_fraction,
-        n_led_on, n_led_not_set, imaged_sessions, led_on_sessions, led_off_sessions``; only
-        problems with at least one imaged session. ``n_led_on`` follows the ``led_on`` of
-        *imaged* (sessions without the setting included when it counted them as on), and
-        ``n_led_not_set`` says how many imaged sessions have no setting. In the session lists a
-        session without the setting is marked ``(not set)`` and one that changed it ``(mixed)``.
+        n_led_on, imaged_sessions, led_on_sessions, led_off_sessions``; only problems with at
+        least one imaged session. A session that changed the LED during the session is counted
+        as off and marked ``(mixed)``.
     """
     totals = sessions.groupby(["mouse", "problem"], as_index=False).agg(
         task_type=("task_type", "first"), n_sessions=("ses_id", "size")
@@ -194,7 +189,6 @@ def coverage_by_problem(sessions: pd.DataFrame, imaged: pd.DataFrame) -> pd.Data
                 problem=int(problem),
                 n_imaged=len(mine),
                 n_led_on=int(mine["led_on"].sum()),
-                n_led_not_set=int(mine["led_setting"].eq(UNSET).sum()),
                 imaged_sessions=_session_list(mine["ses_id"]),
                 led_on_sessions=_marked(mine[mine["led_on"]]),
                 led_off_sessions=_marked(mine[~mine["led_on"]]),
@@ -208,7 +202,6 @@ def coverage_by_problem(sessions: pd.DataFrame, imaged: pd.DataFrame) -> pd.Data
         "n_imaged",
         "imaged_fraction",
         "n_led_on",
-        "n_led_not_set",
         "imaged_sessions",
         "led_on_sessions",
         "led_off_sessions",
