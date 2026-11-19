@@ -18,6 +18,8 @@ POOR_COUPLING_PCT = 10  # brain fraction below this means the attachment barely 
 
 
 def style() -> None:
+    """Set the figure style: Arial (or a close sans-serif), no top or right spines, editable text
+    in svg and pdf."""
     mpl.rcParams.update({
         "font.family": "sans-serif",
         "font.sans-serif": ["Arial", "Liberation Sans", "Helvetica", "DejaVu Sans"],
@@ -49,6 +51,17 @@ def per_mouse_points(ax, mice: pd.DataFrame, column: str, ylabel: str, title: st
 
 
 def summary_figure(table: pd.DataFrame) -> None:
+    """Four panels comparing the combinations on the mouse recordings, with a caption file.
+
+    Throughput (brain signal per mA, log axis), brain fraction, noise after motion correction
+    and the largest connection step, one point per mouse recording. Recordings where less than
+    ``POOR_COUPLING_PCT`` % of the light came from the brain are hollow and left out of the noise
+    panel. Saved as ``fiber_qc_summary`` (pdf, png, svg) and ``fiber_qc_summary.caption.txt`` in
+    ``OUT``.
+
+    Args:
+        table (pd.DataFrame): ``fiber_qc_per_recording.csv`` written by ``fiber_qc.main``.
+    """
     mice = table[table["kind"].isin(MOUSE_COLORS)].copy()
     mice["brain_pct"] = 100 * mice["signal_brain_fraction"]
     mice["brain_mv_per_ma"] = 1000 * mice["signal_brain_v_per_ma"]
@@ -135,6 +148,7 @@ def traces_figure() -> None:
 
 
 def save(fig, name: str) -> None:
+    """Save *fig* as ``<name>.pdf``, ``.png`` and ``.svg`` in ``OUT``, then close it."""
     OUT.mkdir(parents=True, exist_ok=True)
     for extension in ("pdf", "png", "svg"):
         fig.savefig(OUT / f"{name}.{extension}", bbox_inches="tight")
@@ -142,6 +156,7 @@ def save(fig, name: str) -> None:
 
 
 def main() -> None:
+    """Draw both figures from ``fiber_qc_per_recording.csv`` in the current folder."""
     style()
     table = pd.read_csv("fiber_qc_per_recording.csv")
     summary_figure(table)

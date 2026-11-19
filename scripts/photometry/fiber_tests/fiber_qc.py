@@ -35,6 +35,18 @@ TOUCH_FRACTION = 0.5  # of the way from off-level to peak, on the 405 channel
 
 
 def parse_name(stem: str) -> dict:
+    """What one recording is, read from its file name.
+
+    Names look like ``rotary2_fiber4_RT_65-2026-11-13-142530``; the misspelling ``basline``
+    is read as ``baseline``.
+
+    Args:
+        stem (str): The file name without extension.
+
+    Returns:
+        dict: ``combo`` (e.g. ``"R2 F4"``), ``rotary`` and ``fiber`` numbers, ``kind`` (one of
+        ``KINDS``), ``label`` (the free text of the name) and ``time`` (``HHMMSS``).
+    """
     match = re.match(r"rotary(\d)_fiber(\d)_(.*)-(2026-11-13-\d{6})", stem)
     rotary, fiber, rest, stamp = match.groups()
     clean = rest.lower().replace("basline", "baseline")
@@ -44,6 +56,16 @@ def parse_name(stem: str) -> dict:
 
 
 def load(path: Path) -> dict:
+    """One ``.ppd`` recording with its name fields, sampling rate, LED currents and both channels.
+
+    Args:
+        path (Path): The ``.ppd`` file.
+
+    Returns:
+        dict: The fields of :func:`parse_name` plus ``fs`` (Hz), ``led_signal_ma`` and
+        ``led_control_ma`` (LED currents), ``signal`` (465 nm, ``analog_1``) and ``control``
+        (405 nm, ``analog_2``), unfiltered, in volts.
+    """
     data = import_ppd(path, low_pass=None, high_pass=None)
     return {**parse_name(path.stem), "fs": data["sampling_rate"],
             "led_signal_ma": data["LED_current"][0], "led_control_ma": data["LED_current"][1],
@@ -51,6 +73,16 @@ def load(path: Path) -> dict:
 
 
 def lowpass(x: np.ndarray, fs: float, cutoff: float) -> np.ndarray:
+    """Zero-phase second-order Butterworth low-pass filter.
+
+    Args:
+        x (np.ndarray): The trace.
+        fs (float): Sampling rate (Hz).
+        cutoff (float): Cutoff frequency (Hz).
+
+    Returns:
+        np.ndarray: The filtered trace, the same length as *x*.
+    """
     return sps.sosfiltfilt(sps.butter(2, cutoff / (fs / 2), output="sos"), x)
 
 
@@ -77,6 +109,11 @@ def paper_measures(rec: dict) -> dict:
 
 
 def _label_runs(mask: np.ndarray) -> tuple:
+    """Number the runs of consecutive ``True`` samples 1, 2, ...; 0 outside a run.
+
+    Returns:
+        tuple: ``(labels, n_runs)``: an integer array the length of *mask*, and the run count.
+    """
     edges = np.diff(np.concatenate([[0], mask.astype(int)]))
     labels = np.cumsum(edges == 1) * mask
     return labels, int(labels.max())
@@ -110,6 +147,24 @@ def count_steps(x: np.ndarray, fs: float) -> tuple:
 
 
 def mouse_measures(rec: dict, background: dict) -> dict:
+    """Brain-derived level, throughput, motion correction, noise and steps of a mouse recording.
+
+    For each channel: the median level, the level minus *background* (the brain-derived light),
+    its share of the total and per mA of LED current, and the steps of :func:`count_steps`.
+    The 465 channel is then motion corrected by regressing it on the 405 channel (both low-passed
+    at ``LOWPASS_HZ`` and quadratically detrended), and the noise is the SD before and after.
+
+    Args:
+        rec (dict): A mouse recording from :func:`load`.
+        background (dict): :func:`background_for` of the recording (``signal`` and ``control``
+            levels, volts).
+
+    Returns:
+        dict: ``duration_min``; per channel ``<channel>_v``, ``_brain_v``, ``_brain_fraction``,
+        ``_brain_v_per_ma``, ``_steps_per_min`` and ``_largest_step_pct``; ``motion_r2`` (the
+        share of 465 variance the 405 channel explains); ``raw_sd_pct_of_brain``,
+        ``corrected_sd_pct_of_brain`` and ``corrected_sd_pct_of_total``.
+    """
     fs, minutes = rec["fs"], len(rec["signal"]) / rec["fs"] / 60
     out = {"duration_min": minutes}
     detrended = {}
@@ -140,6 +195,7 @@ def mouse_measures(rec: dict, background: dict) -> dict:
 
 
 def seconds_of_day(stamp: str) -> int:
+    """Seconds since midnight of an ``HHMMSS`` time stamp."""
     return int(stamp[:2]) * 3600 + int(stamp[2:4]) * 60 + int(stamp[4:])
 
 
@@ -192,6 +248,12 @@ def background_for(rec: dict, recordings: list) -> dict:
 
 
 def main() -> None:
+    """Measure every recording in ``DATA``, write ``fiber_qc_per_recording.csv`` and print tables.
+
+    Baseline and paper recordings get their tip-in-air and paper-touch measures; each mouse
+    recording gets :func:`mouse_measures` against the background interpolated to its time. The
+    CSV is written to the current folder; three tables (mice, baseline, paper) are printed.
+    """
     recordings = [load(p) for p in sorted(DATA.glob("*.ppd"))]
 
     per_recording = []
