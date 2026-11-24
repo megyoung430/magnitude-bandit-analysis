@@ -5,20 +5,23 @@ import pytest
 
 pytest.importorskip("mini2p_preprocessing")  # the optional funcimg extra
 
-from src.funcimg_import.planes import recorded_config, registered_plane, variant_of
+from mini2p_preprocessing.config import SETTINGS_RECORD, settings_from_toml
+
+from src.funcimg_import.planes import registered_plane, variant_of
 
 VARIANT = "with_distortion_correction/with_destriping"
 
 
-def write_config(path: Path, save_folder="suite2p_rigid_sigma3", source="structural"):
-    path.write_text(
-        "[distortion]\n"
-        'mode = "off"\n'
-        "[registration]\n"
-        f'save_folder = "{save_folder}"\n'
-        f'motion_alignment_source = "{source}"\n'
+def write_settings(variant_dir: Path, save_folder="suite2p_rigid_sigma3", source="structural"):
+    """The pipeline_settings.json mini2p writes in each variant folder."""
+    settings = settings_from_toml(
+        {
+            "distortion": {"mode": "off"},
+            "registration": {"save_folder": save_folder, "motion_alignment_source": source},
+        }
     )
-    return path
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    (variant_dir / SETTINGS_RECORD).write_text(settings.model_dump_json())
 
 
 def make_plane(variant_dir: Path, *parts) -> Path:
@@ -28,17 +31,17 @@ def make_plane(variant_dir: Path, *parts) -> Path:
     return plane
 
 
-def record(variant_dir: Path, config: Path | None) -> None:
+def batch_manifest(variant_dir: Path, config="/ceph/elsewhere/batch_config_x.toml"):
+    """A source_tiff.json as mini2p's batch writes it, naming a config on another mount."""
     variant_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {"source_tiff": "/raw/71rtask_00039.tif"}
-    if config is not None:
-        manifest["pipeline_config"] = str(config)
+    manifest = {"source_tiff": "/raw/71rtask_00039.tif", "pipeline_config": config}
     (variant_dir / "source_tiff.json").write_text(json.dumps(manifest))
 
 
-def test_the_plane_follows_the_config_the_batch_recorded(tmp_path):
+def test_the_plane_follows_the_settings_the_run_recorded(tmp_path):
     variant_dir = tmp_path / "run-01" / VARIANT
-    record(variant_dir, write_config(tmp_path / "batch_config.toml"))
+    write_settings(variant_dir)
+    batch_manifest(variant_dir)  # a config path this machine cannot see is not needed
     make_plane(variant_dir, "aligned_structural", "suite2p", "plane0")  # another registration
     wanted = make_plane(variant_dir, "aligned_structural", "suite2p_rigid_sigma3", "plane0")
     assert registered_plane(variant_dir) == wanted
@@ -46,7 +49,7 @@ def test_the_plane_follows_the_config_the_batch_recorded(tmp_path):
 
 def test_the_recorded_alignment_channel_is_used(tmp_path):
     variant_dir = tmp_path / "run-01" / VARIANT
-    record(variant_dir, write_config(tmp_path / "c.toml", "suite2p", "functional"))
+    write_settings(variant_dir, "suite2p", "functional")
     make_plane(variant_dir, "aligned_structural", "suite2p", "plane0")
     wanted = make_plane(variant_dir, "aligned_functional", "suite2p", "plane0")
     assert registered_plane(variant_dir) == wanted
@@ -54,23 +57,16 @@ def test_the_recorded_alignment_channel_is_used(tmp_path):
 
 def test_a_recorded_registration_that_is_not_there_gives_none(tmp_path):
     variant_dir = tmp_path / "run-01" / VARIANT
-    record(variant_dir, write_config(tmp_path / "c.toml"))
+    write_settings(variant_dir)
     make_plane(variant_dir, "aligned_structural", "suite2p", "plane0")
     assert registered_plane(variant_dir) is None
 
 
-def test_a_recorded_config_that_is_gone_is_refused(tmp_path):
-    variant_dir = tmp_path / "run-01" / VARIANT
-    record(variant_dir, tmp_path / "deleted.toml")
-    with pytest.raises(FileNotFoundError, match="batch_config"):
-        registered_plane(variant_dir)
-
-
-def test_an_older_run_keeps_its_suite2p_plane(tmp_path):
+def test_an_older_run_keeps_its_suite2p_plane_whatever_it_recorded(tmp_path):
     variant_dir = tmp_path / "run-01" / "with_destriping"
-    record(variant_dir, None)
+    batch_manifest(variant_dir)
+    (variant_dir / SETTINGS_RECORD).write_text('{"phase": {"method": "chunked"}}')  # unreadable
     wanted = make_plane(variant_dir, "suite2p", "plane0")
-    assert recorded_config(variant_dir) is None
     assert registered_plane(variant_dir) == wanted
 
 
@@ -89,6 +85,7 @@ def test_a_variant_without_a_registration_has_no_plane(tmp_path):
     "plane, variant",
     [
         (f"{VARIANT}/aligned_structural/suite2p_rigid/plane0", VARIANT),
+        (f"{VARIANT}/aligned_structural/suite2p/plane0", VARIANT),  # mini2p's default folder
         ("with_destriping/suite2p/plane0", "with_destriping"),
     ],
 )

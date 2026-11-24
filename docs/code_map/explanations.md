@@ -1708,10 +1708,10 @@ Lists fitted parameters at the edge of their allowed range.
 
 mini2p can register one recording in several ways, each in its own folder
 (`with_distortion_correction/with_destriping/aligned_structural/<save_folder>/plane0`), so the
-folder name alone does not say which registration a run's traces come from. When the batch
-preprocesses a run it records the config it used beside it, and this file reads that config with
-mini2p's own functions to find the plane folder. Older runs, made before those folders, keep their
-plane at `<variant>/suite2p/plane0`.
+folder name alone does not say which registration a run's traces come from. mini2p records the
+settings each run was made with in its variant folder (`pipeline_settings.json`), and this file
+reads them with mini2p's own functions to find the plane folder, on whichever computer the data
+are mounted. Older runs, made before those folders, keep their plane at `<variant>/suite2p/plane0`.
 
 ## src/funcimg_import/runs.py::session_run_alignments
 
@@ -1719,7 +1719,8 @@ For every imaging TIFF of a session, says whether it can be put on pyControl tim
 (the n-th TIFF goes with the n-th DAQ file) must have rsync pulses that line up with exactly one
 behavior file's. A TIFF that fails is listed with the reason, and the others in the session are
 still used. `scripts/funcimg/list_aligned_runs.py` writes this for a whole mouse as a CSV, which
-mini2p's batch reads to preprocess only the TIFFs that can be aligned.
+mini2p's batch reads to preprocess only the TIFFs that can be aligned, and the frame-times step
+uses the same choice, so the two agree on which runs have behavior.
 
 ## src/funcimg_analysis/background.py
 

@@ -395,10 +395,12 @@ def analyse_run(
     """Extract, process and test one run.
 
     Args:
-        plane_dir: The variant's ``suite2p/plane0`` (registered binaries and ``ops.npy``).
+        plane_dir: The variant's registered plane folder (binaries and ``ops.npy``; see
+            :func:`src.funcimg_import.planes.registered_plane`).
         run_dir: The run's derivatives folder (frame times, and the Cellpose segmentation under
             ``suite2p/plane0``).
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        variant (str): The variant folder relative to ``run-XX/``, e.g.
+            ``"with_distortion_correction/with_destriping"`` (``"with_destriping"`` for older runs).
         settings (Zong2022Settings): Signal-processing parameters.
         responses (ResponseSettings): Alignment and shuffle-test parameters.
         motion (MotionSettings): Registration-metric parameters.
@@ -469,7 +471,8 @@ def analyse_runs(
         subject_dir: ``derivatives/<cohort>/<subject>``.
         first_session (int): First session number.
         last_session (int): Last session number.
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        variant (str): The variant folder relative to ``run-XX/``, e.g.
+            ``"with_distortion_correction/with_destriping"`` (``"with_destriping"`` for older runs).
         runs: Run folder names to keep (``("run-02",)``), or None for every run.
         report (Callable[[str], None]): Receives progress lines. Default ``print``.
         **kwargs: Passed to :func:`analyse_run` (``settings``, ``responses``, ``motion``,

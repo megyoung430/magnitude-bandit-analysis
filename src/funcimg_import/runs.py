@@ -52,8 +52,9 @@ def acquisition_counter(path: Path) -> int:
 
 
 def pair_by_acquisition(paths: list[Path]) -> list[Path]:
-    """*paths* in acquisition order; see :func:`acquisition_counter`."""
-    return sorted(paths, key=acquisition_counter)
+    """*paths* in acquisition order (see :func:`acquisition_counter`), files with the same
+    counter by name ignoring case, as mini2p's batch numbers them."""
+    return sorted(paths, key=lambda p: (acquisition_counter(p), Path(p).name.lower()))
 
 
 def _aligns(daq_rsync_s, pycontrol_rsync_s) -> bool:
@@ -127,7 +128,9 @@ def session_tiffs(session_dir, source_substring: str) -> list[Path]:
         _visible(
             p
             for p in folder.iterdir()
-            if p.suffix.lower() == ".tif" and source_substring.lower() in p.name.lower()
+            if p.is_file()
+            and p.suffix.lower() == ".tif"
+            and source_substring.lower() in p.name.lower()
         )
     )
 
@@ -171,9 +174,10 @@ class RunAlignment:
         return not self.reason
 
 
-def sync_matches(daq_rsync_s: list, pycontrol_rsync_s: list) -> list[str | int]:
+def sync_matches(daq_rsync_s: list, pycontrol_rsync_s: list, names: list[str]) -> list[str | int]:
     """For each DAQ file, the index of the one behavior file whose pulses align with its
-    own (see :func:`_aligns`), or the reason there is none.
+    own (see :func:`_aligns`), or the reason there is none, naming behavior files by
+    *names* (one per entry of *pycontrol_rsync_s*).
 
     Unlike :func:`match_by_sync`, one DAQ file that does not match leaves the others
     matched. A behavior file claimed by two DAQ files is refused for both.
@@ -188,22 +192,25 @@ def sync_matches(daq_rsync_s: list, pycontrol_rsync_s: list) -> list[str | int]:
         if not found:
             matches.append("its rsync pulses align with no behavior file")
         elif len(found) > 1:
-            matches.append(f"its rsync pulses align with several behavior files {found}")
+            several = [names[i] for i in found]
+            matches.append(f"its rsync pulses align with several behavior files {several}")
         elif claimed.count(found[0]) > 1:
-            matches.append(f"another DAQ file aligns with the same behavior file {found[0]}")
+            matches.append(f"another DAQ file aligns with the same behavior file {names[found[0]]}")
         else:
             matches.append(found[0])
     return matches
 
 
 def _daq_rsync(h5: Path) -> np.ndarray | str:
-    """The rsync pulse times of a DAQ file, or why they cannot be read."""
-    from src.funcimg_import.daq_sync import load_daq_sync
+    """The rsync pulse times of a DAQ file, or why it holds none (a line missing or flat).
+    A file that cannot be opened raises: that is a storage problem, not a fact about the
+    recording to write into the listing."""
+    from src.funcimg_import.daq_sync import NoPulsesError, load_daq_sync
 
     try:
         return load_daq_sync(h5).rsync_s
-    except (KeyError, ValueError, OSError) as error:
-        return f"{h5.name} cannot be read: {error}"
+    except (KeyError, NoPulsesError) as error:
+        return f"{h5.name} has no usable sync lines: {error}"
 
 
 def session_run_alignments(session_dir, source_substring: str) -> list[RunAlignment]:
@@ -233,7 +240,9 @@ def session_run_alignments(session_dir, source_substring: str) -> list[RunAlignm
     matched = dict(
         zip(
             readable,
-            sync_matches([rsync[i] for i in readable], [t for _, t in pulses]),
+            sync_matches(
+                [rsync[i] for i in readable], [t for _, t in pulses], [p.name for p, _ in pulses]
+            ),
             strict=True,
         )
     )
@@ -259,13 +268,31 @@ def numbered_sessions(raw_subject_dir) -> list[Path]:
 
 
 def subject_run_alignments(raw_subject_dir, source_substring: str) -> list[RunAlignment]:
-    """:func:`session_run_alignments` for every numbered session with a ``funcimg/`` folder."""
-    return [
-        alignment
-        for session_dir in numbered_sessions(raw_subject_dir)
-        if (session_dir / "funcimg").is_dir()
-        for alignment in session_run_alignments(session_dir, source_substring)
-    ]
+    """:func:`session_run_alignments` for every numbered session with a ``funcimg/`` folder.
+
+    Raises:
+        ValueError: Naming the session, if its TIFFs or DAQ files cannot be put in
+            acquisition order (a name without ``_<digits>``).
+    """
+    alignments = []
+    for session_dir in numbered_sessions(raw_subject_dir):
+        if not (session_dir / "funcimg").is_dir():
+            continue
+        try:
+            alignments += session_run_alignments(session_dir, source_substring)
+        except ValueError as error:
+            raise ValueError(f"{session_dir.name}: {error}") from error
+    return alignments
+
+
+def aligned_run_files(session_dir, source_substring: str) -> tuple[list[RunFiles], list]:
+    """The runs of a session that can be put on pyControl time, as :class:`RunFiles`, and
+    the :class:`RunAlignment` of each that cannot, with its reason: the same choice as
+    ``scripts/funcimg/list_aligned_runs.py``, so mini2p's batch and the frame-times step
+    agree on which runs have behavior."""
+    alignments = session_run_alignments(session_dir, source_substring)
+    aligned = [RunFiles(a.run_name, a.tiff, a.h5, a.tsv) for a in alignments if a.aligned]
+    return aligned, [a for a in alignments if not a.aligned]
 
 
 def alignment_table(alignments: list[RunAlignment]) -> pd.DataFrame:

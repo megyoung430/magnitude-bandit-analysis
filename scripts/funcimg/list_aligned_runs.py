@@ -6,10 +6,12 @@ Usage (from the repo root):
 
 For every numbered session (``ses-<number>_...``) with a ``funcimg/`` folder, each TIFF whose
 name holds SOURCE_SUBSTRING (e.g. ``71rtask``) is paired with its DAQ file and, by rsync
-pulses, its behavior file, exactly as the frame-times step does
-(:func:`src.funcimg_import.runs.session_run_alignments`). The CSV has one row per TIFF, with
+pulses, its behavior file (:func:`src.funcimg_import.runs.session_run_alignments`, which the
+frame-times step of ``reward_responses.ipynb`` also uses). The CSV has one row per TIFF, with
 ``aligned`` and, when it is False, the ``reason``. Point mini2p's ``[batch]
-aligned_runs_csv`` at it to preprocess only the aligned TIFFs.
+aligned_runs_csv`` at it to preprocess only the aligned TIFFs. Its paths are absolute, so run
+this where the batch will see the raw data at the same paths (on the cluster, for a cluster
+batch).
 """
 
 import argparse

@@ -27,8 +27,10 @@ from src.funcimg_analysis.run_responses import (
     pulse_responses,
 )
 from src.funcimg_import.runs import (
+    aligned_run_files,
     alignment_table,
     numbered_sessions,
+    pair_by_acquisition,
     session_run_alignments,
     session_run_files,
     subject_run_alignments,
@@ -477,7 +479,14 @@ def test_an_unreadable_daq_file_is_reported_and_the_other_run_kept(raw_session):
         broken.attrs["samplerate"] = 5000.0  # no FrameClock or PyControlPulse lines
     first, second = session_run_alignments(session_dir, "71rtask")
     assert first.aligned
-    assert not second.aligned and "file_01941.h5 cannot be read" in second.reason
+    assert not second.aligned and "file_01941.h5 has no usable sync lines" in second.reason
+
+
+def test_a_daq_file_that_cannot_be_opened_stops_the_listing(raw_session):
+    session_dir, _ = raw_session
+    (session_dir / "funcimg" / "file_01941.h5").write_bytes(b"not hdf5")
+    with pytest.raises(OSError):
+        session_run_alignments(session_dir, "71rtask")
 
 
 def test_a_session_without_a_behav_folder_has_no_aligned_runs(raw_session):
@@ -490,8 +499,41 @@ def test_a_session_without_a_behav_folder_has_no_aligned_runs(raw_session):
 
 def test_two_daq_files_claiming_one_behavior_file_are_both_refused():
     pulses = np.cumsum(np.random.default_rng(1).uniform(0.6, 4.5, 200))
-    matches = sync_matches([pulses, pulses + 5.0], [pulses])
-    assert all(isinstance(m, str) and "same behavior file" in m for m in matches)
+    matches = sync_matches([pulses, pulses + 5.0], [pulses], ["M-120000.tsv"])
+    assert all(isinstance(m, str) and "same behavior file M-120000.tsv" in m for m in matches)
+
+
+def test_tiffs_with_the_same_counter_are_ordered_by_name_as_in_mini2p(tmp_path):
+    names = ["B_00001.tif", "a_00001.tif", "c_00000.tif"]
+    assert [p.name for p in pair_by_acquisition([tmp_path / n for n in names])] == [
+        "c_00000.tif",
+        "a_00001.tif",
+        "B_00001.tif",
+    ]
+
+
+def test_a_session_whose_tiffs_cannot_be_ordered_is_named(raw_session):
+    session_dir, _ = raw_session
+    (session_dir / "funcimg" / "71rtask_retry.tif").write_bytes(b"")
+    with pytest.raises(ValueError, match="ses-001_date-20260101: 71rtask_retry.tif"):
+        subject_run_alignments(session_dir.parent, "71rtask")
+
+
+def test_the_frame_time_step_gets_the_aligned_runs_and_the_reasons(raw_session):
+    session_dir, _ = raw_session
+    (session_dir / "behav" / "M-2026-01-01-120000.tsv").unlink()
+    runs, unaligned = aligned_run_files(session_dir, "71rtask")
+    assert [r.run_name for r in runs] == ["run-02"] and runs[0].tsv is not None
+    assert [(a.run_name, "no behavior file" in a.reason) for a in unaligned] == [("run-01", True)]
+
+
+def test_an_empty_qc_folder_beside_a_recorded_variant_is_passed_over(raw_session, tmp_path):
+    session_dir, _ = raw_session
+    run = session_run_files(session_dir, "71rtask")[0]
+    run_dir = tmp_path / "der" / "run-01"
+    write_manifest(run_dir / "without_destriping", run.tiff)
+    (run_dir / "with_distortion_correction" / "with_destriping").mkdir(parents=True)  # empty
+    assert write_frame_times(run, run_dir) == run_dir / FRAME_TIMES_FILE
 
 
 def test_only_numbered_sessions_with_imaging_are_listed(raw_session):

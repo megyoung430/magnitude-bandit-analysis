@@ -150,7 +150,10 @@ def check_run_source(tiff_name: str, run_dir, variants=VARIANTS) -> None:
             f"{run_dir} has no variant folder among {list(variants)}, so no {BATCH_MANIFEST} "
             "or TIFF names to confirm its TIFF."
         )
-    for variant in present:
+    # A folder with neither a record nor processed TIFFs (e.g. an unfinished QC run) holds
+    # no evidence either way; it is passed over when another variant holds some.
+    evidence = [v for v in present if v in recorded or processed_tiff_names(run_dir / v)]
+    for variant in evidence or present:
         if variant not in recorded:
             _check_variant_by_names(tiff_name, run_dir, variant)
 
