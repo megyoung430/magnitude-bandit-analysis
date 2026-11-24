@@ -1,6 +1,7 @@
 """Reward responses across every run of one destriping variant, and each run's top cells.
 
-Runs are found under ``derivatives/<subject>/ses-*/funcimg/run-*/<variant>/suite2p/plane0``. A run
+Runs are found under ``derivatives/<subject>/ses-*/funcimg/run-*/<variant>/``, each with its
+plane where mini2p put it (:func:`src.funcimg_import.planes.registered_plane`). A run
 contributes only with an extracted plane and a ``frame_times.npz``; any other run is listed with
 the reason it was left out, never dropped silently.
 """
@@ -34,6 +35,7 @@ from src.funcimg_analysis.run_responses import (
     plane_views,
     pulse_responses,
 )
+from src.funcimg_import.planes import registered_plane, variant_of
 
 RANKINGS = ("max_dff", "p_cell")
 SESSION = re.compile(r"^ses-(\d+)_")
@@ -52,7 +54,9 @@ def variant_runs(
         subject_dir (str | Path): ``derivatives/<cohort>/<subject>``.
         first_session (int): First session number to include.
         last_session (int): Last session number to include.
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        variant (str): The variant folder relative to ``run-XX/``, e.g.
+            ``"with_distortion_correction/with_destriping"``, or ``"with_destriping"`` for runs
+            from before mini2p's distortion folders.
         runs (Collection[str] | None): Run folder names to keep, e.g. ``("run-02",)``, in every
             session of the range. Default None, meaning every run.
 
@@ -72,8 +76,8 @@ def variant_runs(
         if not match or not first_session <= int(match.group(1)) <= last_session:
             continue
         for run_dir in sorted((session_dir / "funcimg").glob("run-*")):
-            plane_dir = run_dir / variant / "suite2p" / "plane0"
-            if (plane_dir / "ops.npy").is_file():
+            plane_dir = registered_plane(run_dir / variant)
+            if plane_dir is not None:
                 found.append((session_dir.name, run_dir, plane_dir))
     found.sort(key=lambda r: (int(SESSION.match(r[0]).group(1)), r[1].name))
     if runs is None:
@@ -193,7 +197,9 @@ def collect_pulse_responses(
         subject_dir (str | Path): ``derivatives/<cohort>/<subject>``.
         first_session (int): First session number to include.
         last_session (int): Last session number to include.
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        variant (str): The variant folder relative to ``run-XX/``, e.g.
+            ``"with_distortion_correction/with_destriping"``, or ``"with_destriping"`` for runs
+            from before mini2p's distortion folders.
         window_s (tuple[float, float]): Window around the outcome (s).
         phases (tuple[str, ...]): Trial phases to include.
         load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
@@ -268,7 +274,9 @@ def collect_background_responses(
         subject_dir (str | Path): ``derivatives/<cohort>/<subject>``.
         first_session (int): First session number to include.
         last_session (int): Last session number to include.
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        variant (str): The variant folder relative to ``run-XX/``, e.g.
+            ``"with_distortion_correction/with_destriping"``, or ``"with_destriping"`` for runs
+            from before mini2p's distortion folders.
         window_s (tuple[float, float]): Window around the outcome (s).
         phases (tuple[str, ...]): Trial phases to include.
         load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
@@ -336,7 +344,7 @@ def top_cells(
     """The *n* top-ranked cells of a run, with what a figure needs.
 
     Args:
-        plane_dir: The run's ``suite2p/plane0`` folder.
+        plane_dir: The run's registered plane folder (see :func:`variant_runs`).
         run_dir: The run's derivatives folder.
         n (int): Number of cells.
         load_outcomes (Callable): Reads a behaviour file's outcome table (for tests).
@@ -358,7 +366,7 @@ def top_cells(
     if rank_by not in RANKINGS:
         raise ValueError(f"rank_by must be one of {RANKINGS}, not {rank_by!r}.")
     frames = load_frame_times(run_dir)
-    check_run_source(frames.tiff.name, run_dir, variants=(Path(plane_dir).parents[1].name,))
+    check_run_source(frames.tiff.name, run_dir, variants=(variant_of(plane_dir, run_dir),))
     views, traces = plane_views(plane_dir)
     dff = views[("green", "dF/F0")]
     if dff.shape[1] != len(frames.time_s):

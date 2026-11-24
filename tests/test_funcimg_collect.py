@@ -313,3 +313,21 @@ def test_unknown_measures_are_refused_even_when_no_run_is_found(tmp_path):
 def test_each_run_reports_its_trials_without_a_baseline(derivatives):
     _, runs, _ = collect(derivatives)
     assert [r["n_trials_no_baseline"] for r in runs] == [0, 0]
+
+
+def test_runs_in_mini2p_s_distortion_folders_are_found_by_their_recorded_config(tmp_path):
+    variant = "with_distortion_correction/with_destriping"
+    config = tmp_path / "batch_config.toml"
+    config.write_text('[distortion]\nmode = "off"\n[registration]\nsave_folder = "rigid"\n')
+    planes = {}
+    for run in ("run-01", "run-02"):
+        variant_dir = tmp_path / "ses-224_date-20260809" / "funcimg" / run / variant
+        plane = variant_dir / "aligned_structural" / "rigid" / "plane0"
+        plane.mkdir(parents=True)
+        (plane / "ops.npy").write_bytes(b"")
+        (variant_dir / "source_tiff.json").write_text(
+            json.dumps({"source_tiff": f"/raw/{run}.tif", "pipeline_config": str(config)})
+        )
+        planes[run] = plane
+    found = variant_runs(tmp_path, 224, 224, variant)
+    assert [(run_dir.name, plane) for _, run_dir, plane in found] == list(planes.items())

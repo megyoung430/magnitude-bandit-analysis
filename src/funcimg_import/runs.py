@@ -26,6 +26,7 @@ from src.sync.pycontrol_time import (
 from src.sync.rsync import RsyncError, RsyncWarning
 
 COUNTER = re.compile(r"_(\d+)$")
+SESSION_NUMBER = re.compile(r"^ses-(\d+)_")
 # Two trains are one when this many pulses match and their intervals agree this closely; an
 # unrelated train can still pass the aligner's own check by chance.
 MIN_FRACTION_MATCHED = 0.9
@@ -113,6 +114,177 @@ def _pycontrol_pulses(tsv: Path):
         return None
 
 
+def _visible(paths) -> list[Path]:
+    """*paths* without macOS AppleDouble files (``._*``), which are metadata, not data."""
+    return [p for p in paths if not p.name.startswith("._")]
+
+
+def session_tiffs(session_dir, source_substring: str) -> list[Path]:
+    """The session's imaging TIFFs (``funcimg/*.tif`` whose name holds *source_substring*,
+    any case), in acquisition order: the order the batch preprocessing numbers its runs in."""
+    folder = Path(session_dir) / "funcimg"
+    return pair_by_acquisition(
+        _visible(
+            p
+            for p in folder.iterdir()
+            if p.suffix.lower() == ".tif" and source_substring.lower() in p.name.lower()
+        )
+    )
+
+
+def session_daq_files(session_dir) -> list[Path]:
+    """The session's DAQ files (``funcimg/*.h5``), in acquisition order."""
+    return pair_by_acquisition(_visible((Path(session_dir) / "funcimg").glob("*.h5")))
+
+
+def behavior_pulses(session_dir) -> list[tuple[Path, np.ndarray]]:
+    """Each behavior file of the session that has rsync pulses, with their times (pyControl
+    clock); files without pulses are left out."""
+    behav = Path(session_dir) / "behav"
+    tsvs = sorted(_visible(behav.glob("*.tsv"))) if behav.is_dir() else []
+    pulses = [(tsv, _pycontrol_pulses(tsv)) for tsv in tsvs]
+    return [(tsv, times) for tsv, times in pulses if times is not None]
+
+
+def _count_mismatch(session_dir: Path, tiffs: list, daq_files: list) -> str:
+    """Why a session whose TIFFs and DAQ files differ in number cannot be paired."""
+    return (
+        f"{Path(session_dir).name}: {len(tiffs)} TIFFs but {len(daq_files)} DAQ files; cannot "
+        "tell which acquisition is which."
+    )
+
+
+@dataclass(frozen=True)
+class RunAlignment:
+    """Whether one imaging TIFF can be put on pyControl time, and with which files."""
+
+    session_dir: Path
+    run_name: str  # run-01, run-02, ... as the batch preprocessing numbers them
+    tiff: Path
+    h5: Path | None  # None when the TIFF cannot be paired with a DAQ file
+    tsv: Path | None  # None when the DAQ file matches no single behavior file
+    reason: str  # why it cannot be aligned; empty when it can
+
+    @property
+    def aligned(self) -> bool:
+        """Whether the TIFF has a DAQ file and a behavior file (no reason against it)."""
+        return not self.reason
+
+
+def sync_matches(daq_rsync_s: list, pycontrol_rsync_s: list) -> list[str | int]:
+    """For each DAQ file, the index of the one behavior file whose pulses align with its
+    own (see :func:`_aligns`), or the reason there is none.
+
+    Unlike :func:`match_by_sync`, one DAQ file that does not match leaves the others
+    matched. A behavior file claimed by two DAQ files is refused for both.
+    """
+    hits = [
+        [i for i, pycontrol in enumerate(pycontrol_rsync_s) if _aligns(daq, pycontrol)]
+        for daq in daq_rsync_s
+    ]
+    claimed = [found[0] for found in hits if len(found) == 1]
+    matches = []
+    for found in hits:
+        if not found:
+            matches.append("its rsync pulses align with no behavior file")
+        elif len(found) > 1:
+            matches.append(f"its rsync pulses align with several behavior files {found}")
+        elif claimed.count(found[0]) > 1:
+            matches.append(f"another DAQ file aligns with the same behavior file {found[0]}")
+        else:
+            matches.append(found[0])
+    return matches
+
+
+def _daq_rsync(h5: Path) -> np.ndarray | str:
+    """The rsync pulse times of a DAQ file, or why they cannot be read."""
+    from src.funcimg_import.daq_sync import load_daq_sync
+
+    try:
+        return load_daq_sync(h5).rsync_s
+    except (KeyError, ValueError, OSError) as error:
+        return f"{h5.name} cannot be read: {error}"
+
+
+def session_run_alignments(session_dir, source_substring: str) -> list[RunAlignment]:
+    """Whether each imaging TIFF of a raw session can be aligned to pyControl time.
+
+    A TIFF is aligned when its DAQ file (paired by acquisition order, as in
+    :func:`session_run_files`) has rsync pulses that match exactly one behavior file's.
+    Unlike :func:`session_run_files`, a TIFF that cannot be aligned is reported, with the
+    reason, instead of stopping the session.
+
+    Returns:
+        list[RunAlignment]: One per TIFF, in acquisition order (``run-01`` first).
+    """
+    session_dir = Path(session_dir)
+    tiffs = session_tiffs(session_dir, source_substring)
+    daq_files = session_daq_files(session_dir)
+
+    def row(number, tiff, h5=None, tsv=None, reason=""):
+        return RunAlignment(session_dir, f"run-{number:02d}", tiff, h5, tsv, reason)
+
+    if len(tiffs) != len(daq_files):
+        reason = _count_mismatch(session_dir, tiffs, daq_files)
+        return [row(n, tiff, reason=reason) for n, tiff in enumerate(tiffs, 1)]
+    pulses = behavior_pulses(session_dir)
+    rsync = [_daq_rsync(h5) for h5 in daq_files]
+    readable = [i for i, times in enumerate(rsync) if not isinstance(times, str)]
+    matched = dict(
+        zip(
+            readable,
+            sync_matches([rsync[i] for i in readable], [t for _, t in pulses]),
+            strict=True,
+        )
+    )
+    rows = []
+    for number, (tiff, h5) in enumerate(zip(tiffs, daq_files, strict=True), 1):
+        found = matched.get(number - 1, rsync[number - 1])
+        if isinstance(found, str):
+            rows.append(row(number, tiff, h5, reason=found))
+        else:
+            rows.append(row(number, tiff, h5, pulses[found][0]))
+    return rows
+
+
+def numbered_sessions(raw_subject_dir) -> list[Path]:
+    """The subject's numbered raw sessions (``ses-<number>_...``), in number order; others
+    (``ses-test``, ``ses-baseplating``) are not task recordings and are left out."""
+    sessions = [
+        (int(m.group(1)), d)
+        for d in Path(raw_subject_dir).iterdir()
+        if d.is_dir() and (m := SESSION_NUMBER.match(d.name))
+    ]
+    return [d for _, d in sorted(sessions)]
+
+
+def subject_run_alignments(raw_subject_dir, source_substring: str) -> list[RunAlignment]:
+    """:func:`session_run_alignments` for every numbered session with a ``funcimg/`` folder."""
+    return [
+        alignment
+        for session_dir in numbered_sessions(raw_subject_dir)
+        if (session_dir / "funcimg").is_dir()
+        for alignment in session_run_alignments(session_dir, source_substring)
+    ]
+
+
+def alignment_table(alignments: list[RunAlignment]) -> pd.DataFrame:
+    """One row per TIFF: ``session``, ``run``, ``tiff``, ``h5``, ``tsv`` (absolute paths,
+    empty when missing), ``aligned`` and ``reason``."""
+    return pd.DataFrame(
+        {
+            "session": [a.session_dir.name for a in alignments],
+            "run": [a.run_name for a in alignments],
+            "tiff": [str(a.tiff.resolve()) for a in alignments],
+            "h5": [str(a.h5.resolve()) if a.h5 else "" for a in alignments],
+            "tsv": [str(a.tsv.resolve()) if a.tsv else "" for a in alignments],
+            "aligned": [a.aligned for a in alignments],
+            "reason": [a.reason for a in alignments],
+        },
+        columns=["session", "run", "tiff", "h5", "tsv", "aligned", "reason"],
+    )
+
+
 def session_run_files(session_dir, source_substring: str) -> list[RunFiles]:
     """The TIFF, DAQ file and behaviour file of each run of a raw session.
 
@@ -130,26 +302,11 @@ def session_run_files(session_dir, source_substring: str) -> list[RunFiles]:
     from src.funcimg_import.daq_sync import load_daq_sync
 
     session_dir = Path(session_dir)
-    tiffs = pair_by_acquisition(
-        [
-            p
-            for p in (session_dir / "funcimg").iterdir()
-            if p.suffix.lower() == ".tif"
-            and source_substring.lower() in p.name.lower()
-            and not p.name.startswith("._")
-        ]
-    )
-    daq_files = pair_by_acquisition(
-        [p for p in (session_dir / "funcimg").glob("*.h5") if not p.name.startswith("._")]
-    )
+    tiffs = session_tiffs(session_dir, source_substring)
+    daq_files = session_daq_files(session_dir)
     if len(tiffs) != len(daq_files):
-        raise ValueError(
-            f"{session_dir.name}: {len(tiffs)} TIFFs but {len(daq_files)} DAQ files; cannot "
-            "tell which acquisition is which."
-        )
-    tsvs = sorted(p for p in (session_dir / "behav").glob("*.tsv") if not p.name.startswith("._"))
-    pulses = [(tsv, _pycontrol_pulses(tsv)) for tsv in tsvs]
-    pulses = [(tsv, times) for tsv, times in pulses if times is not None]
+        raise ValueError(_count_mismatch(session_dir, tiffs, daq_files))
+    pulses = behavior_pulses(session_dir)
     daq_rsync = [load_daq_sync(path).rsync_s for path in daq_files]
     matches = match_by_sync(daq_rsync, [times for _, times in pulses])
     return [

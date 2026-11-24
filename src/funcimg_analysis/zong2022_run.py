@@ -53,6 +53,7 @@ from src.funcimg_analysis.zong2022_responses import (
     valid_span,
 )
 from src.funcimg_analysis.zong2022_signal import SignalResult, Zong2022Settings, analyse_traces
+from src.funcimg_import.planes import variant_of
 
 OUTCOME_KINDS = {"reward": True, "no_reward": False}  # name: rewarded?
 
@@ -127,7 +128,7 @@ def extract_run(
         if not path.is_file():
             raise MissingInputError(f"no Cellpose {what}: {path}")
     ops = np.load(plane_dir / "ops.npy", allow_pickle=True).item()
-    report(f"masks: aligning {seg_file.name} onto {plane_dir.parents[1].name}")
+    report(f"masks: aligning {seg_file.name} onto {variant_of(plane_dir, run_dir)}")
     try:
         aligned, alignment = aligned_labels(seg_file, mask_image, ops, diameter_px)
     except ValueError as error:

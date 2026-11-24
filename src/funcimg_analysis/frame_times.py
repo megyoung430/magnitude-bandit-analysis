@@ -42,7 +42,15 @@ FRAME_TIMES_FILE = "frame_times.npz"
 VIDEO_FRAME_TIMES_FILE = "video_frame_times.npz"
 # The batch preprocessing's record of which raw TIFF each variant of a run was made from.
 BATCH_MANIFEST = "source_tiff.json"
-VARIANTS = ("without_destriping", "with_destriping")
+DESTRIPING_VARIANTS = ("without_destriping", "with_destriping")
+# mini2p writes each variant inside a distortion folder (run-XX/<distortion>/<destriping>/);
+# runs preprocessed before it did have the destriping folders directly in run-XX/.
+DISTORTION_FOLDERS = ("with_distortion_correction", "without_distortion_correction")
+VARIANTS = DESTRIPING_VARIANTS + tuple(
+    f"{distortion}/{destriping}"
+    for distortion in DISTORTION_FOLDERS
+    for destriping in DESTRIPING_VARIANTS
+)
 TIFF_SUFFIXES = (".tif", ".tiff")
 # The batch's processed-TIFF names, ``<stem>_dynamic_bidiphase[_destriped][_undistorted].tif``,
 # are built in mini2p_preprocessing.config (corrected_tiff_path, undistorted_tiff_path); a test
