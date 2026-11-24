@@ -17,6 +17,10 @@ PYCONTROL_PULSE = "PyControlPulse"
 MIN_SWING_V = 0.5
 
 
+class NoPulsesError(ValueError):
+    """A DAQ line never swings between low and high: it was not recording pulses."""
+
+
 def rising_edges(signal: np.ndarray) -> np.ndarray:
     """Sample indices where *signal* goes from low to high.
 
@@ -29,12 +33,12 @@ def rising_edges(signal: np.ndarray) -> np.ndarray:
         np.ndarray: Index of the first high sample of each pulse.
 
     Raises:
-        ValueError: If the line never swings by ``MIN_SWING_V``, so holds no pulses.
+        NoPulsesError: If the line never swings by ``MIN_SWING_V``, so holds no pulses.
     """
     signal = np.asarray(signal, dtype=float)
     low, high = np.percentile(signal, [0.1, 99.9])
     if high - low < MIN_SWING_V:
-        raise ValueError(f"The line swings by only {high - low:.3f} V: it holds no pulses.")
+        raise NoPulsesError(f"The line swings by only {high - low:.3f} V: it holds no pulses.")
     is_high = signal > (low + high) / 2
     return np.flatnonzero(~is_high[:-1] & is_high[1:]) + 1
 

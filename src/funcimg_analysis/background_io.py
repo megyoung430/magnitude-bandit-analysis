@@ -141,7 +141,7 @@ def load_background(
     """The background F of both channels of a plane, and what a sanity figure needs.
 
     Args:
-        plane_dir (str | Path): ``<run>/<variant>/suite2p/plane0``.
+        plane_dir (str | Path): The run variant's registered plane folder.
         roi_margin_px (int): Pixels to exclude around every ROI (see ``background_mask``).
         cache_dir (str | Path | None): Where traces are cached. Default None, meaning
             ``<settings cache_dir>/funcimg_background`` (git-ignored). Never beside the data.

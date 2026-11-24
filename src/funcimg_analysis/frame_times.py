@@ -42,7 +42,15 @@ FRAME_TIMES_FILE = "frame_times.npz"
 VIDEO_FRAME_TIMES_FILE = "video_frame_times.npz"
 # The batch preprocessing's record of which raw TIFF each variant of a run was made from.
 BATCH_MANIFEST = "source_tiff.json"
-VARIANTS = ("without_destriping", "with_destriping")
+DESTRIPING_VARIANTS = ("without_destriping", "with_destriping")
+# mini2p writes each variant inside a distortion folder (run-XX/<distortion>/<destriping>/);
+# runs preprocessed before it did have the destriping folders directly in run-XX/.
+DISTORTION_FOLDERS = ("with_distortion_correction", "without_distortion_correction")
+VARIANTS = DESTRIPING_VARIANTS + tuple(
+    f"{distortion}/{destriping}"
+    for distortion in DISTORTION_FOLDERS
+    for destriping in DESTRIPING_VARIANTS
+)
 TIFF_SUFFIXES = (".tif", ".tiff")
 # The batch's processed-TIFF names, ``<stem>_dynamic_bidiphase[_destriped][_undistorted].tif``,
 # are built in mini2p_preprocessing.config (corrected_tiff_path, undistorted_tiff_path); a test
@@ -142,7 +150,10 @@ def check_run_source(tiff_name: str, run_dir, variants=VARIANTS) -> None:
             f"{run_dir} has no variant folder among {list(variants)}, so no {BATCH_MANIFEST} "
             "or TIFF names to confirm its TIFF."
         )
-    for variant in present:
+    # A folder with neither a record nor processed TIFFs (e.g. an unfinished QC run) holds
+    # no evidence either way; it is passed over when another variant holds some.
+    evidence = [v for v in present if v in recorded or processed_tiff_names(run_dir / v)]
+    for variant in evidence or present:
         if variant not in recorded:
             _check_variant_by_names(tiff_name, run_dir, variant)
 

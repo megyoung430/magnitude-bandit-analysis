@@ -53,6 +53,7 @@ from src.funcimg_analysis.zong2022_responses import (
     valid_span,
 )
 from src.funcimg_analysis.zong2022_signal import SignalResult, Zong2022Settings, analyse_traces
+from src.funcimg_import.planes import variant_of
 
 OUTCOME_KINDS = {"reward": True, "no_reward": False}  # name: rewarded?
 
@@ -127,7 +128,7 @@ def extract_run(
         if not path.is_file():
             raise MissingInputError(f"no Cellpose {what}: {path}")
     ops = np.load(plane_dir / "ops.npy", allow_pickle=True).item()
-    report(f"masks: aligning {seg_file.name} onto {plane_dir.parents[1].name}")
+    report(f"masks: aligning {seg_file.name} onto {variant_of(plane_dir, run_dir)}")
     try:
         aligned, alignment = aligned_labels(seg_file, mask_image, ops, diameter_px)
     except ValueError as error:
@@ -394,10 +395,12 @@ def analyse_run(
     """Extract, process and test one run.
 
     Args:
-        plane_dir: The variant's ``suite2p/plane0`` (registered binaries and ``ops.npy``).
+        plane_dir: The variant's registered plane folder (binaries and ``ops.npy``; see
+            :func:`src.funcimg_import.planes.registered_plane`).
         run_dir: The run's derivatives folder (frame times, and the Cellpose segmentation under
             ``suite2p/plane0``).
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        variant (str): The variant folder relative to ``run-XX/``, e.g.
+            ``"with_distortion_correction/with_destriping"`` (``"with_destriping"`` for older runs).
         settings (Zong2022Settings): Signal-processing parameters.
         responses (ResponseSettings): Alignment and shuffle-test parameters.
         motion (MotionSettings): Registration-metric parameters.
@@ -468,7 +471,8 @@ def analyse_runs(
         subject_dir: ``derivatives/<cohort>/<subject>``.
         first_session (int): First session number.
         last_session (int): Last session number.
-        variant (str): ``"without_destriping"`` or ``"with_destriping"``.
+        variant (str): The variant folder relative to ``run-XX/``, e.g.
+            ``"with_distortion_correction/with_destriping"`` (``"with_destriping"`` for older runs).
         runs: Run folder names to keep (``("run-02",)``), or None for every run.
         report (Callable[[str], None]): Receives progress lines. Default ``print``.
         **kwargs: Passed to :func:`analyse_run` (``settings``, ``responses``, ``motion``,

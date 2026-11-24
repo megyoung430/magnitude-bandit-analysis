@@ -313,3 +313,36 @@ def test_unknown_measures_are_refused_even_when_no_run_is_found(tmp_path):
 def test_each_run_reports_its_trials_without_a_baseline(derivatives):
     _, runs, _ = collect(derivatives)
     assert [r["n_trials_no_baseline"] for r in runs] == [0, 0]
+
+
+def test_runs_in_mini2p_s_distortion_folders_are_found_by_their_recorded_settings(tmp_path):
+    from mini2p_preprocessing.config import SETTINGS_RECORD, settings_from_toml
+
+    variant = "with_distortion_correction/with_destriping"
+    settings = settings_from_toml(
+        {"distortion": {"mode": "off"}, "registration": {"save_folder": "rigid"}}
+    )
+    planes = {}
+    for run in ("run-01", "run-02"):
+        variant_dir = tmp_path / "ses-224_date-20260809" / "funcimg" / run / variant
+        plane = variant_dir / "aligned_structural" / "rigid" / "plane0"
+        plane.mkdir(parents=True)
+        (plane / "ops.npy").write_bytes(b"")
+        (variant_dir / SETTINGS_RECORD).write_text(settings.model_dump_json())
+        manifest = {"source_tiff": f"/raw/{run}.tif", "pipeline_config": "/ceph/gone.toml"}
+        (variant_dir / "source_tiff.json").write_text(json.dumps(manifest))
+        planes[run] = plane
+    found = variant_runs(tmp_path, 224, 224, variant)
+    assert [(run_dir.name, plane) for _, run_dir, plane in found] == list(planes.items())
+
+
+def test_older_runs_whose_batch_recorded_a_config_are_still_found(derivatives):
+    run_dirs = sorted((derivatives / "ses-224_date-20260809" / "funcimg").glob("run-*"))
+    for run_dir in run_dirs:
+        manifest = run_dir / "without_destriping" / "source_tiff.json"
+        if manifest.is_file():
+            record = json.loads(manifest.read_text())
+            record["pipeline_config"] = "/ceph/elsewhere/batch_config_x.toml"
+            manifest.write_text(json.dumps(record))
+    found = variant_runs(derivatives, 224, 224, "without_destriping")
+    assert [run_dir.name for _, run_dir, _ in found] == [r.name for r in run_dirs]
