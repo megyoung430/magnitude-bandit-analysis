@@ -602,3 +602,10 @@ def test_the_listing_script_refuses_a_subject_without_matching_tiffs(raw_session
     session_dir, _ = raw_session
     with pytest.raises(SystemExit, match="No TIFF named"):
         main([str(session_dir.parent), "72ltask", str(tmp_path / "out.csv")])
+
+
+def test_a_video_mismatch_names_the_run_not_its_position():
+    from src.funcimg_import.runs import match_videos
+
+    with pytest.raises(ValueError, match="run-02 matches no camera table"):
+        match_videos({}, [np.arange(10.0)], ["run-02"])

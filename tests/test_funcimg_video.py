@@ -84,7 +84,7 @@ def test_each_run_gets_the_camera_files_whose_pulses_match_its_behaviour(raw_ses
 def test_a_run_without_its_camera_table_is_refused(raw_session_with_video):
     session_dir, _ = raw_session_with_video
     (session_dir / "behav" / "camera_2026-01-01T12_00_00_GPIO_data.csv").unlink()
-    with pytest.raises(ValueError, match="Run 1 matches no camera table"):
+    with pytest.raises(ValueError, match="run-01 matches no camera table"):
         session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
 
 
@@ -108,7 +108,7 @@ def test_two_camera_tables_for_one_run_are_refused(raw_session_with_video):
     copy = behav / "camera_copy_GPIO_data.csv"
     copy.write_text((behav / "camera_2026-01-01T12_00_00_GPIO_data.csv").read_text())
     (behav / "camera_copy.avi").write_bytes(b"")
-    with pytest.raises(ValueError, match="Run 1 matches camera tables"):
+    with pytest.raises(ValueError, match="run-01 matches camera tables"):
         session_video_files(session_dir, session_run_files(session_dir, "71rtask"))
 
 

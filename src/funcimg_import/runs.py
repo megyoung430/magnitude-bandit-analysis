@@ -271,8 +271,8 @@ def subject_run_alignments(raw_subject_dir, source_substring: str) -> list[RunAl
     """:func:`session_run_alignments` for every numbered session with a ``funcimg/`` folder.
 
     Raises:
-        ValueError: Naming the session, if its TIFFs or DAQ files cannot be put in
-            acquisition order (a name without ``_<digits>``).
+        ValueError: Any a session raises (e.g. a file name without ``_<digits>``, so no
+            acquisition order, or an unreadable behavior file), naming the session.
     """
     alignments = []
     for session_dir in numbered_sessions(raw_subject_dir):
@@ -414,7 +414,9 @@ def video_match_quality(gpio_df: pd.DataFrame, pycontrol_rsync_s) -> dict | None
     return sync_quality(aligner)
 
 
-def match_videos(tables: dict[str, pd.DataFrame], run_pulses: list) -> list[str]:
+def match_videos(
+    tables: dict[str, pd.DataFrame], run_pulses: list, run_names: list[str] | None = None
+) -> list[str]:
     """For each run's pyControl pulses, the one camera table (by name) that matches it.
 
     Raises:
@@ -434,7 +436,8 @@ def match_videos(tables: dict[str, pd.DataFrame], run_pulses: list) -> list[str]
         hits = [name for name, ok in accepted.items() if ok[run]]
         if len(hits) != 1:
             found = "no camera table" if not hits else f"camera tables {hits}"
-            raise ValueError(f"Run {run + 1} matches {found} of {sorted(tables)}.")
+            name = run_names[run] if run_names is not None else f"Run {run + 1}"
+            raise ValueError(f"{name} matches {found} of {sorted(tables)}.")
         matches.append(hits[0])
     if len(set(matches)) != len(matches):
         raise ValueError(f"One camera table matches several runs: {matches}.")
@@ -453,5 +456,5 @@ def session_video_files(session_dir, runs: list[RunFiles]) -> list[VideoFiles]:
     paths = sorted(p for p in behav.glob(f"*{GPIO_SUFFIX}") if not p.name.startswith("._"))
     tables = {p.name: pd.read_csv(p) for p in paths}
     pulses = [pycontrol_sync_times(read_tsv_file(run.tsv)) for run in runs]
-    names = match_videos(tables, pulses)
+    names = match_videos(tables, pulses, [run.run_name for run in runs])
     return [VideoFiles(video_beside(behav / name), behav / name) for name in names]
