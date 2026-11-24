@@ -1,15 +1,21 @@
 """Which DAQ file and behaviour file belong to each imaging run.
 
-The batch preprocessing numbers a session's raw TIFFs ``run-01``, ``run-02``, ... in order of
-their acquisition counter (``71rtask_00039.tif``). The DAQ files (``file_01940.h5``) are numbered
-the same way, so the n-th TIFF and the n-th DAQ file are one acquisition. Behaviour files are
-matched by their sync pulses instead: a DAQ file belongs to the one ``.tsv`` whose rsync pulses
-align with its own.
+:func:`session_run_alignments` pairs every TIFF of a session with its DAQ file
+(``file_01940.h5``) by acquisition order and number of frames, whatever the TIFFs are named
+and even if a file is missing, then each DAQ file with the one ``.tsv`` whose rsync pulses
+align with its own. The TIFFs that reach a behaviour file are the session's runs,
+``run-01``, ``run-02``, ... in acquisition order; mini2p's batch takes those numbers from
+the listing ``scripts/funcimg/list_aligned_runs.py`` writes.
+
+:func:`session_run_files` is the older pairing, for runs numbered by the batch itself: the
+n-th TIFF named with a source substring (by its acquisition counter, ``71rtask_00039.tif``)
+with the n-th DAQ file.
 """
 
 import re
 import warnings
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -157,14 +163,102 @@ def _count_mismatch(session_dir: Path, tiffs: list, daq_files: list) -> str:
     )
 
 
+# ---- pairing each TIFF with its DAQ file, whatever the file names ----------------------
+
+EPOCH = re.compile(r"^epoch\s*=\s*\[([^\]]*)\]", re.MULTILINE)
+# A TIFF and a DAQ file are one recording when their numbers of frames differ by at most
+# this: a recording stopped mid-frame, and the TIFF's count estimated from its size.
+FRAME_COUNT_TOLERANCE = 3
+
+
+@dataclass(frozen=True)
+class TiffInfo:
+    """What a ScanImage TIFF's first pages say about its recording."""
+
+    path: Path
+    start: datetime  # ScanImage's acquisition start (``epoch`` in the first frame's header)
+    timepoints: int  # frames per channel, estimated from the file size and page spacing
+
+
+def tiff_info(path, n_channels: int) -> TiffInfo:
+    """The acquisition start and number of timepoints of a ScanImage TIFF, read from its
+    first pages only, so even a 12 GB file over a share takes a moment.
+
+    ScanImage writes every frame with the same size, so the number of pages is the file's
+    size past the first page divided by the spacing of consecutive pages.
+
+    Raises:
+        ValueError: If the first frame's header has no ``epoch``, or the file has fewer than
+            three pages.
+    """
+    import tifffile
+
+    path = Path(path)
+    with tifffile.TiffFile(path) as tiff:
+        match = EPOCH.search(tiff.pages[0].description or "")
+        if match is None:
+            raise ValueError(f"{path.name}: no ScanImage epoch in the first frame's header")
+        if len(tiff.pages) < 3:
+            raise ValueError(f"{path.name}: fewer than three pages, so not a recording")
+        offsets = [tiff.pages[k].offset for k in range(3)]
+    year, month, day, hour, minute, second = (float(v) for v in match.group(1).split())
+    start = datetime(int(year), int(month), int(day), int(hour), int(minute)) + timedelta(
+        seconds=second
+    )
+    stride = offsets[2] - offsets[1]
+    n_pages = round((path.stat().st_size - offsets[0]) / stride)
+    return TiffInfo(path, start, round(n_pages / n_channels))
+
+
+def pair_by_frame_count(
+    tiff_frames: list[int], daq_frames: list[int], tolerance: int = FRAME_COUNT_TOLERANCE
+) -> list[int | None]:
+    """For each TIFF, the index of its DAQ file, or None: both lists in acquisition order,
+    pairs keeping that order, as many pairs as possible, and a pair only where the numbers
+    of frames agree within *tolerance*.
+
+    A missing file on either side then costs only its own recording. Equal-length
+    recordings (fixed-length pre-task acquisitions) are told apart by their order; among
+    equally good pairings the earliest DAQ file is taken.
+    """
+    n_tiff, n_daq = len(tiff_frames), len(daq_frames)
+
+    def agree(i, j):
+        return abs(tiff_frames[i] - daq_frames[j]) <= tolerance
+
+    # best[i][j]: most pairs among TIFFs i.. and DAQ files j..
+    best = [[0] * (n_daq + 1) for _ in range(n_tiff + 1)]
+    for i in range(n_tiff - 1, -1, -1):
+        for j in range(n_daq - 1, -1, -1):
+            best[i][j] = max(
+                best[i + 1][j],
+                best[i][j + 1],
+                best[i + 1][j + 1] + 1 if agree(i, j) else 0,
+            )
+    pairs: list[int | None] = [None] * n_tiff
+    i = j = 0
+    while i < n_tiff and j < n_daq:
+        if agree(i, j) and best[i][j] == best[i + 1][j + 1] + 1:
+            pairs[i] = j
+            i, j = i + 1, j + 1
+        elif best[i][j] == best[i][j + 1]:
+            j += 1
+        else:
+            i += 1
+    return pairs
+
+
 @dataclass(frozen=True)
 class RunAlignment:
     """Whether one imaging TIFF can be put on pyControl time, and with which files."""
 
     session_dir: Path
-    run_name: str  # run-01, run-02, ... as the batch preprocessing numbers them
+    run_name: str  # run-01, run-02, ... over the session's aligned TIFFs; "" when not aligned
     tiff: Path
+    start: datetime | None  # the TIFF's acquisition start; None if its header has none
+    timepoints: int | None  # the TIFF's estimated number of frames
     h5: Path | None  # None when the TIFF cannot be paired with a DAQ file
+    daq_frames: int | None  # frame-clock pulses in that DAQ file
     tsv: Path | None  # None when the DAQ file matches no single behavior file
     reason: str  # why it cannot be aligned; empty when it can
 
@@ -201,58 +295,94 @@ def sync_matches(daq_rsync_s: list, pycontrol_rsync_s: list, names: list[str]) -
     return matches
 
 
-def _daq_rsync(h5: Path) -> np.ndarray | str:
-    """The rsync pulse times of a DAQ file, or why it holds none (a line missing or flat).
-    A file that cannot be opened raises: that is a storage problem, not a fact about the
+def _daq_sync_or_reason(h5: Path):
+    """The DAQ file's pulse times, or why it holds none (a line missing or flat). A file
+    that cannot be opened raises: that is a storage problem, not a fact about the
     recording to write into the listing."""
     from src.funcimg_import.daq_sync import NoPulsesError, load_daq_sync
 
     try:
-        return load_daq_sync(h5).rsync_s
+        return load_daq_sync(h5)
     except (KeyError, NoPulsesError) as error:
         return f"{h5.name} has no usable sync lines: {error}"
 
 
-def session_run_alignments(session_dir, source_substring: str) -> list[RunAlignment]:
-    """Whether each imaging TIFF of a raw session can be aligned to pyControl time.
+def session_recordings(session_dir) -> list[Path]:
+    """Every TIFF in the session's ``funcimg/`` (task, pre-task or test, whatever its name)."""
+    folder = Path(session_dir) / "funcimg"
+    return sorted(
+        _visible(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".tif")
+    )
 
-    A TIFF is aligned when its DAQ file (paired by acquisition order, as in
-    :func:`session_run_files`) has rsync pulses that match exactly one behavior file's.
-    Unlike :func:`session_run_files`, a TIFF that cannot be aligned is reported, with the
-    reason, instead of stopping the session.
+
+def session_run_alignments(session_dir, n_channels: int = 2) -> list[RunAlignment]:
+    """Whether each TIFF of a raw session can be put on pyControl time, and its run number.
+
+    1. TIFFs are put in order of their acquisition start (ScanImage's header), DAQ files
+       (``file_<counter>.h5``, numbered across all recordings) by their counter.
+    2. Each TIFF is paired with a DAQ file in that order where their numbers of frames agree
+       (:func:`pair_by_frame_count`), so neither file names nor a missing file on either
+       side can pair a TIFF with another recording's DAQ file.
+    3. A paired DAQ file whose rsync pulses match exactly one behavior file's
+       (:func:`sync_matches`) makes its TIFF aligned.
+    4. The aligned TIFFs are numbered ``run-01``, ``run-02``, ... in acquisition order;
+       others (no DAQ file, no behavior: pre-task and test recordings) get no number.
+
+    Args:
+        n_channels (int): Channels interleaved in each TIFF, to count its timepoints.
 
     Returns:
-        list[RunAlignment]: One per TIFF, in acquisition order (``run-01`` first).
+        list[RunAlignment]: One per TIFF, in acquisition order, each unaligned one with the
+        reason.
+
+    Raises:
+        ValueError: If a TIFF has no ScanImage header or a DAQ file name no counter.
     """
     session_dir = Path(session_dir)
-    tiffs = session_tiffs(session_dir, source_substring)
+    tiffs = sorted(
+        (tiff_info(p, n_channels) for p in session_recordings(session_dir)),
+        key=lambda t: (t.start, t.path.name.lower()),
+    )
     daq_files = session_daq_files(session_dir)
-
-    def row(number, tiff, h5=None, tsv=None, reason=""):
-        return RunAlignment(session_dir, f"run-{number:02d}", tiff, h5, tsv, reason)
-
-    if len(tiffs) != len(daq_files):
-        reason = _count_mismatch(session_dir, tiffs, daq_files)
-        return [row(n, tiff, reason=reason) for n, tiff in enumerate(tiffs, 1)]
+    daq = [_daq_sync_or_reason(h5) for h5 in daq_files]
+    readable = [k for k, d in enumerate(daq) if not isinstance(d, str)]
+    pairs = pair_by_frame_count(
+        [t.timepoints for t in tiffs], [len(daq[k].frame_s) for k in readable]
+    )
     pulses = behavior_pulses(session_dir)
-    rsync = [_daq_rsync(h5) for h5 in daq_files]
-    readable = [i for i, times in enumerate(rsync) if not isinstance(times, str)]
-    matched = dict(
+    paired = [readable[p] for p in pairs if p is not None]
+    behavior = dict(
         zip(
-            readable,
+            paired,
             sync_matches(
-                [rsync[i] for i in readable], [t for _, t in pulses], [p.name for p, _ in pulses]
+                [daq[k].rsync_s for k in paired],
+                [t for _, t in pulses],
+                [p.name for p, _ in pulses],
             ),
             strict=True,
         )
     )
-    rows = []
-    for number, (tiff, h5) in enumerate(zip(tiffs, daq_files, strict=True), 1):
-        found = matched.get(number - 1, rsync[number - 1])
-        if isinstance(found, str):
-            rows.append(row(number, tiff, h5, reason=found))
-        else:
-            rows.append(row(number, tiff, h5, pulses[found][0]))
+    unreadable = "; ".join(d for d in daq if isinstance(d, str))
+    rows, number = [], 0
+    for tiff, pair in zip(tiffs, pairs, strict=True):
+        common = {"session_dir": session_dir, "tiff": tiff.path, "start": tiff.start}
+        common["timepoints"] = tiff.timepoints
+        if pair is None:
+            reason = f"no DAQ file with {tiff.timepoints} frames (+-{FRAME_COUNT_TOLERANCE}) "
+            reason += "in acquisition order" + (f" ({unreadable})" if unreadable else "")
+            rows.append(RunAlignment(run_name="", h5=None, daq_frames=None, tsv=None,
+                                     reason=reason, **common))  # fmt: skip
+            continue
+        k = readable[pair]
+        match = behavior[k]
+        h5, frames = daq_files[k], len(daq[k].frame_s)
+        if isinstance(match, str):
+            rows.append(RunAlignment(run_name="", h5=h5, daq_frames=frames, tsv=None,
+                                     reason=match, **common))  # fmt: skip
+            continue
+        number += 1
+        rows.append(RunAlignment(run_name=f"run-{number:02d}", h5=h5, daq_frames=frames,
+                                 tsv=pulses[match][0], reason="", **common))  # fmt: skip
     return rows
 
 
@@ -267,7 +397,7 @@ def numbered_sessions(raw_subject_dir) -> list[Path]:
     return [d for _, d in sorted(sessions)]
 
 
-def subject_run_alignments(raw_subject_dir, source_substring: str) -> list[RunAlignment]:
+def subject_run_alignments(raw_subject_dir, n_channels: int = 2) -> list[RunAlignment]:
     """:func:`session_run_alignments` for every numbered session with a ``funcimg/`` folder.
 
     Raises:
@@ -279,37 +409,48 @@ def subject_run_alignments(raw_subject_dir, source_substring: str) -> list[RunAl
         if not (session_dir / "funcimg").is_dir():
             continue
         try:
-            alignments += session_run_alignments(session_dir, source_substring)
+            alignments += session_run_alignments(session_dir, n_channels)
         except ValueError as error:
             raise ValueError(f"{session_dir.name}: {error}") from error
     return alignments
 
 
-def aligned_run_files(session_dir, source_substring: str) -> tuple[list[RunFiles], list]:
+def aligned_run_files(session_dir, n_channels: int = 2) -> tuple[list[RunFiles], list]:
     """The runs of a session that can be put on pyControl time, as :class:`RunFiles`, and
     the :class:`RunAlignment` of each that cannot, with its reason: the same choice as
     ``scripts/funcimg/list_aligned_runs.py``, so mini2p's batch and the frame-times step
     agree on which runs have behavior."""
-    alignments = session_run_alignments(session_dir, source_substring)
+    alignments = session_run_alignments(session_dir, n_channels)
     aligned = [RunFiles(a.run_name, a.tiff, a.h5, a.tsv) for a in alignments if a.aligned]
     return aligned, [a for a in alignments if not a.aligned]
 
 
 def alignment_table(alignments: list[RunAlignment]) -> pd.DataFrame:
-    """One row per TIFF: ``session``, ``run``, ``tiff``, ``h5``, ``tsv`` (absolute paths,
-    empty when missing), ``aligned`` and ``reason``."""
+    """One row per TIFF, in acquisition order: ``session``, ``run`` (empty when not aligned),
+    ``tiff``, ``h5``, ``tsv`` (absolute paths, empty when missing), ``aligned``, ``reason``,
+    and the evidence for the pairing: ``tiff_start``, ``tiff_timepoints``, ``daq_frames``."""
+
+    def path(p):
+        return str(p.resolve()) if p else ""
+
     return pd.DataFrame(
         {
             "session": [a.session_dir.name for a in alignments],
             "run": [a.run_name for a in alignments],
-            "tiff": [str(a.tiff.resolve()) for a in alignments],
-            "h5": [str(a.h5.resolve()) if a.h5 else "" for a in alignments],
-            "tsv": [str(a.tsv.resolve()) if a.tsv else "" for a in alignments],
+            "tiff": [path(a.tiff) for a in alignments],
+            "h5": [path(a.h5) for a in alignments],
+            "tsv": [path(a.tsv) for a in alignments],
             "aligned": [a.aligned for a in alignments],
             "reason": [a.reason for a in alignments],
+            "tiff_start": [a.start.isoformat() if a.start else "" for a in alignments],
+            "tiff_timepoints": [a.timepoints for a in alignments],
+            "daq_frames": [a.daq_frames if a.daq_frames is not None else "" for a in alignments],
         },
-        columns=["session", "run", "tiff", "h5", "tsv", "aligned", "reason"],
-    )
+        columns=[
+            "session", "run", "tiff", "h5", "tsv", "aligned", "reason",
+            "tiff_start", "tiff_timepoints", "daq_frames",
+        ],
+    )  # fmt: skip
 
 
 def session_run_files(session_dir, source_substring: str) -> list[RunFiles]:
