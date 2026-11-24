@@ -2,11 +2,12 @@
 
 Usage (from the repo root, on the machine the batch will run on):
     uv run --extra funcimg python scripts/funcimg/list_aligned_runs.py \
-        RAW_SUBJECT_DIR OUTPUT_CSV [--channels 2] [--overwrite]
+        RAW_SUBJECT_DIR OUTPUT_CSV [--channels N] [--overwrite]
 
 For every numbered session (``ses-<number>_...``) with a ``funcimg/`` folder, every TIFF
 (task, pre-task or test, whatever its name) is paired with its DAQ file by acquisition
-order and number of frames, and the DAQ file with its behavior file by rsync pulses
+order and number of frames (a TIFF whose pairing equal-length recordings leave ambiguous is
+not used), and the DAQ file with its behavior file by rsync pulses
 (:func:`src.funcimg_import.runs.session_run_alignments`, which the frame-times step of
 ``reward_responses.ipynb`` also uses). The TIFFs that reach a behavior file are numbered
 ``run-01``, ``run-02``, ... per session. The CSV has one row per TIFF: ``run``, ``aligned``,
@@ -27,7 +28,10 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("raw_subject_dir", type=Path)
     parser.add_argument("output_csv", type=Path)
-    parser.add_argument("--channels", type=int, default=2, help="channels in each TIFF")
+    parser.add_argument(
+        "--channels", type=int, default=None,
+        help="channels in each TIFF (default: from ScanImage's header)",
+    )  # fmt: skip
     parser.add_argument("--overwrite", action="store_true", help="replace an existing CSV")
     args = parser.parse_args(argv)
     if args.output_csv.exists() and not args.overwrite:

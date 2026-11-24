@@ -1719,7 +1719,8 @@ For every TIFF of a session (task, pre-task or test, whatever it is named), says
 be put on pyControl time and which run it is. Each TIFF is paired with its DAQ file by
 acquisition order (the TIFF's start time from its ScanImage header; the DAQ file's counter,
 which runs across all recordings) and by number of frames, which must agree, so a missing file
-on either side costs only its own recording. A paired DAQ file must then have rsync pulses that
+on either side costs only its own recording. Where recordings of equal length next to a missing
+file leave the pairing open to doubt, the TIFF is not used. A paired DAQ file must then have rsync pulses that
 line up with exactly one behavior file's. The TIFFs that make it are numbered `run-01`,
 `run-02`, ... in acquisition order; the others are listed with the reason.
 `scripts/funcimg/list_aligned_runs.py` writes this for a whole mouse as a CSV, which mini2p's

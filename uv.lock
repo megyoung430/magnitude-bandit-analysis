@@ -1415,6 +1415,8 @@ dependencies = [
 funcimg = [
     { name = "h5py" },
     { name = "mini2p-preprocessing" },
+    { name = "tifffile", version = "2026.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "tifffile", version = "2026.10.15", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 notebooks = [
     { name = "ipykernel" },
@@ -1463,6 +1465,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.9.1" },
     { name = "scipy", specifier = ">=1.17.0" },
     { name = "statsmodels", marker = "extra == 'notebooks'", specifier = ">=0.14" },
+    { name = "tifffile", marker = "extra == 'funcimg'", specifier = ">=2025.1.10" },
 ]
 provides-extras = ["notebooks", "paper-rl", "reference-tests", "funcimg"]
 

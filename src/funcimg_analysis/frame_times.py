@@ -212,6 +212,24 @@ def write_frame_times(run: RunFiles, run_dir, overwrite: bool = False) -> Path:
     return path
 
 
+def check_frame_times_belong(saved: "FrameTimes", run: RunFiles) -> None:
+    """Refuse a saved ``frame_times.npz`` made from another acquisition than *run*'s: a
+    file left from an earlier numbering of the runs would otherwise give one recording's
+    frames another's clock and behavior.
+
+    Raises:
+        RunMismatchError: If its TIFF, DAQ file or behavior file is not *run*'s.
+    """
+    recorded = {"TIFF": saved.tiff.name, "DAQ file": saved.h5.name, "behavior file": saved.tsv.name}
+    expected = {"TIFF": run.tiff.name, "DAQ file": run.h5.name, "behavior file": run.tsv.name}
+    wrong = {k: v for k, v in recorded.items() if v != expected[k]}
+    if wrong:
+        raise RunMismatchError(
+            f"{FRAME_TIMES_FILE} of {run.run_name} was made from {wrong}, not this run's "
+            f"{ {k: expected[k] for k in wrong} }; move it aside and write it again."
+        )
+
+
 def load_frame_times(run_dir) -> FrameTimes:
     """Read ``run_dir/frame_times.npz``."""
     with np.load(Path(run_dir) / FRAME_TIMES_FILE) as saved:
@@ -287,6 +305,20 @@ def write_video_frame_times(
         raise FileExistsError(f"{path} exists; pass overwrite=True to replace it.")
     np.savez(path, **video_frame_times_from_files(video, run.tsv))
     return path
+
+
+def check_video_frame_times_belong(saved: "VideoFrameTimes", run: RunFiles) -> None:
+    """Refuse a saved ``video_frame_times.npz`` made against another behavior file than
+    *run*'s (left from an earlier numbering of the runs).
+
+    Raises:
+        RunMismatchError: If its behavior file is not *run*'s.
+    """
+    if saved.tsv.name != run.tsv.name:
+        raise RunMismatchError(
+            f"{VIDEO_FRAME_TIMES_FILE} of {run.run_name} was made against {saved.tsv.name}, "
+            f"not this run's {run.tsv.name}; move it aside and write it again."
+        )
 
 
 def load_video_frame_times(run_dir) -> VideoFrameTimes:
