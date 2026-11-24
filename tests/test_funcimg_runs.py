@@ -592,7 +592,18 @@ def test_equal_length_recordings_beside_a_missing_daq_file_are_not_used(tmp_path
     write_daq(session_dir / "funcimg" / "file_00002.h5", sessions[1])  # the first is missing
     rows = session_run_alignments(session_dir, 2)
     assert not any(r.aligned for r in rows)
-    assert "ambiguous" in rows[0].reason
+    assert "ambiguous: file_00002.h5" in rows[0].reason and rows[0].h5 is None
+
+
+def test_an_empty_daq_line_is_a_reason_not_a_crash(recorded_session):
+    import h5py
+
+    with h5py.File(recorded_session / "funcimg" / "file_01800.h5", "w") as empty:
+        empty.attrs["samplerate"] = 5000.0
+        empty["FrameClock"] = np.zeros(0, np.float32)
+        empty["PyControlPulse"] = np.zeros(0, np.float32)
+    rows = session_run_alignments(recorded_session, 2)
+    assert "file_01800.h5 has no FrameClock samples" in rows[1].reason
 
 
 def test_tiff_info_reads_the_start_and_counts_timepoints(tmp_path):

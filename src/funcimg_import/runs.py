@@ -251,8 +251,8 @@ def daq_lines(h5) -> DaqLines:
         rate = float(daq.attrs["samplerate"])
         found, problems = {}, []
         for line in (FRAME_CLOCK, PYCONTROL_PULSE):
-            if line not in daq:
-                problems.append(f"{h5.name} has no {line} line")
+            if line not in daq or daq[line].size == 0:
+                problems.append(f"{h5.name} has no {line} samples")
                 continue
             try:
                 found[line] = edge_times(daq[line][:], rate)
@@ -386,7 +386,8 @@ def align_session(
         pulses: Each behavior file with its rsync times (pyControl clock).
 
     Returns:
-        list[RunAlignment]: The readable TIFFs in acquisition order, then the unreadable.
+        list[RunAlignment]: The readable TIFFs in acquisition order, then the unreadable
+        ones (whose start is unknown).
     """
     pairs, ambiguous = pair_by_frame_count([t.timepoints for t in tiffs], [d.frames for d in daqs])
     usable = [j for i, j in enumerate(pairs) if j is not None and i not in ambiguous]
@@ -413,8 +414,10 @@ def align_session(
             if uncounted:  # one of these may be its own
                 reason += f"; DAQ files without a frame count: {'; '.join(uncounted)}"
         elif i in ambiguous:
-            reason = f"ambiguous: another DAQ file of {daq.frames} frames could be its own "
-            reason += "(equal-length recordings next to a missing file)"
+            reason = f"ambiguous: {daq.path.name} ({daq.frames} frames) is not certainly its "
+            reason += "own; an equally good pairing gives it another DAQ file or none "
+            reason += "(equal-length recordings, or DAQ files of near-equal length)"
+            daq = None  # not accepted, so not written as its DAQ file
         elif daq.rsync_s is None:
             reason = daq.problem
         elif isinstance(behavior[j], str):
