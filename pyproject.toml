@@ -38,6 +38,7 @@ reference-tests = [
 funcimg = [
     "h5py>=3.11",
     "mini2p-preprocessing",
+    "tifffile>=2025.1.10",
 ]
 
 [dependency-groups]
