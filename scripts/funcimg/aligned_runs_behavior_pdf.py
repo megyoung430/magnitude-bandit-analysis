@@ -12,7 +12,8 @@ runs. For each aligned run whose ``run-XX/<variant>/`` registration has a mean i
 page: the green (``meanImg``) and red (``meanImg_chan2``) mean images at the fixed contrast
 (black and white percentiles, gamma), and under them the single-session plot's top panel (each
 tower's reward magnitude, the choices and the reversals) for that run's behavior file. Runs
-without a mean image are listed at the end and in ``OUTPUT.caption.txt``.
+without a usable mean image, and pages without behavior, are listed at the end and in
+``OUTPUT.caption.txt``, with the reason.
 """
 
 import argparse
@@ -46,19 +47,19 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     if args.output_pdf.suffix != ".pdf":
         parser.error(f"OUTPUT_PDF must end in .pdf, not {args.output_pdf.name}")
-    if args.output_pdf.exists() and not args.overwrite:
-        parser.error(f"{args.output_pdf} exists; pass --overwrite to replace it")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    pages, skipped = write_run_behavior_pdf(
-        args.aligned_runs_csv, args.derivatives_subject_dir, args.variant, args.output_pdf,
-        Contrast(*args.contrast), overwrite=args.overwrite,
-    )  # fmt: skip
-    print(f"Wrote {args.output_pdf}: {len(pages)} pages")
-    for page in pages:
-        if page.behavior is None:
-            print(f"  no behavior on {page.run.session} {page.run.run}: {page.behavior_problem}")
-    for left_out in skipped:
-        print(f"  left out {left_out.run.session} {left_out.run.run}: {left_out.reason}")
+    try:
+        outcomes = write_run_behavior_pdf(
+            args.aligned_runs_csv, args.derivatives_subject_dir, args.variant, args.output_pdf,
+            Contrast(*args.contrast), overwrite=args.overwrite,
+        )  # fmt: skip
+    except (FileExistsError, ValueError) as refused:
+        parser.error(str(refused))
+    print(f"Wrote {args.output_pdf}: {sum(o.page for o in outcomes)} pages")
+    for outcome in outcomes:
+        if outcome.problem:
+            what = "no behavior on" if outcome.page else "left out"
+            print(f"  {what} {outcome.run.session} {outcome.run.run}: {outcome.problem}")
 
 
 if __name__ == "__main__":

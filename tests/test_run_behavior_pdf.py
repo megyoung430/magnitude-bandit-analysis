@@ -6,6 +6,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
@@ -77,44 +78,120 @@ def subject(tmp_path):
     return listing, der, tsvs
 
 
+def page_of(listing, der, index=0):
+    run = module.load_listing(listing)[index]
+    return module.load_run_page(run, der, VARIANT, module.DEFAULT_CONTRAST)
+
+
+def behavior_axes(fig):
+    return next(ax for ax in fig.axes if ax.get_label() == "behavior")
+
+
 def test_each_run_with_a_mean_image_gets_its_own_behavior_file_s_trials(subject, tmp_path):
     listing, der, tsvs = subject
     output = tmp_path / "meanImg_aligned_runs_behavior.pdf"
-    pages, skipped = module.write_run_behavior_pdf(listing, der, VARIANT, output)
-    assert [(p.run.run, p.run.tsv) for p in pages] == [("run-01", tsvs[0]), ("run-02", tsvs[1])]
-    assert [len(p.behavior["reward_magnitudes_by_tower"]["A1"]) for p in pages] == [12, 5]
-    assert [s.run.run for s in skipped] == ["run-03"]
-    assert output.stat().st_size > 0
+    outcomes = module.write_run_behavior_pdf(listing, der, VARIANT, output)
+    assert [(o.run.run, o.run.tsv, o.page) for o in outcomes] == [
+        ("run-01", tsvs[0], True), ("run-02", tsvs[1], True), ("run-03", tsvs[2], False),
+    ]  # fmt: skip
+    assert outcomes[2].problem.startswith("no registration")
+    assert [len(page_of(listing, der, i).behavior["reward_magnitudes_by_tower"]["A1"])
+            for i in (0, 1)] == [12, 5]  # fmt: skip
+    assert output.stat().st_size > 0 and not list(tmp_path.glob(".*.partial"))
     caption = output.with_suffix(".caption.txt").read_text()
-    assert "2 pages" in caption and "run-03" in caption
+    assert "2 pages" in caption and "run-03: no registration" in caption
 
 
 def test_the_behavior_panel_is_the_single_session_top_panel(subject):
     listing, der, _ = subject
-    page = module.load_run_page(module.load_listing(listing)[0], der, VARIANT)
-    fig = module.draw_run_page(page, module.DEFAULT_CONTRAST)
-    behavior_ax = fig.axes[2]
-    assert behavior_ax.get_ylabel() == "Reward Magnitude"
-    assert behavior_ax.get_title().endswith(page.run.tsv.name)
-    assert len(behavior_ax.collections[0].get_offsets()) == 12  # one choice dot per trial
-    assert behavior_ax.get_legend().get_frame_on() is False
+    page = page_of(listing, der)
+    fig, problem = module.draw_run_page(page, module.DEFAULT_CONTRAST)
+    ax = behavior_axes(fig)
+    assert problem == ""
+    assert ax.get_ylabel() == "Reward Magnitude"
+    assert ax.get_title().endswith(page.run.tsv.name)
+    assert len(ax.collections[0].get_offsets()) == 12  # one choice dot per trial
+    reversal_lines = [line.get_xdata()[0] for line in ax.lines if line.get_label() == "Good Rev"]
+    assert reversal_lines == [5.5]  # between trials 5 and 6, as the session plot draws it
+    legend = ax.get_legend()
+    assert legend.get_frame_on() is False
+    fig.canvas.draw()
+    assert legend.get_window_extent().x0 > ax.get_window_extent().x1  # outside the data
+    plt.close(fig)
+
+
+def test_a_flat_mean_image_leaves_out_its_run_and_the_pdf_is_still_written(subject, tmp_path):
+    listing, der, _ = subject
+    plane = der / "ses-005_date-20260301" / "funcimg" / "run-02" / VARIANT / "aligned_functional"
+    ops_path = plane / "suite2p" / "plane0" / "ops.npy"
+    ops = np.load(ops_path, allow_pickle=True).item()
+    np.save(ops_path, ops | {"meanImg_chan2": np.zeros((32, 40))}, allow_pickle=True)
+    output = tmp_path / "out.pdf"
+    outcomes = module.write_run_behavior_pdf(listing, der, VARIANT, output)
+    assert [o.page for o in outcomes] == [True, False, False]
+    assert outcomes[1].problem.startswith("meanImg_chan2 cannot be shown")
+    assert output.is_file()
+
+
+def test_a_registration_on_both_channels_is_left_out_with_why(subject):
+    listing, der, _ = subject
+    variant_dir = der / "ses-005_date-20260301" / "funcimg" / "run-01" / VARIANT
+    other = variant_dir / "aligned_structural" / "suite2p" / "plane0"
+    other.mkdir(parents=True)
+    np.save(other / "ops.npy", {"meanImg": np.ones((2, 2))}, allow_pickle=True)
+    with pytest.raises(module.NoMeanImage, match="registration not found"):
+        page_of(listing, der)
 
 
 def test_a_registration_without_a_red_mean_image_gets_no_page(tmp_path):
-    rng = np.random.default_rng(1)
     variant_dir = tmp_path / "run-01" / VARIANT
-    write_plane(variant_dir, rng, with_red=False)
-    with pytest.raises(KeyError, match="meanImg_chan2"):
-        module.load_mean_images(variant_dir)
+    write_plane(variant_dir, np.random.default_rng(1), with_red=False)
+    with pytest.raises(module.NoMeanImage, match="meanImg_chan2"):
+        module.load_mean_images(variant_dir, module.DEFAULT_CONTRAST)
 
 
-def test_an_unreadable_behavior_file_is_shown_on_the_page(subject, tmp_path):
+def test_an_unreadable_behavior_file_says_why_on_the_page(subject, tmp_path):
     listing, der, _ = subject
     run = module.load_listing(listing)[0]
-    missing = module.ListedRun(run.session, run.run, run.tiff, tmp_path / "sub-1" / "gone.tsv")
-    page = module.load_run_page(missing, der, VARIANT)
-    assert page.behavior is None and page.behavior_problem
-    module.draw_run_page(page, module.DEFAULT_CONTRAST)
+    broken = tmp_path / "raw" / SUBJECT / "ses-005_date-20260301" / "behav" / "broken.tsv"
+    broken.write_text("not a pyControl file\n\x00\x01")
+    page = module.load_run_page(module.ListedRun(run.session, run.run, run.tiff, broken), der,
+                                VARIANT, module.DEFAULT_CONTRAST)  # fmt: skip
+    assert page.behavior is None
+    assert "broken.tsv" in page.behavior_problem and "gives 0 sessions:" in page.behavior_problem
+    fig, problem = module.draw_run_page(page, module.DEFAULT_CONTRAST)
+    assert problem == page.behavior_problem
+    plt.close(fig)
+
+
+def test_a_missing_behavior_file_is_named(subject, tmp_path):
+    listing, der, _ = subject
+    run = module.load_listing(listing)[0]
+    gone = module.ListedRun(run.session, run.run, run.tiff, tmp_path / "gone.tsv")
+    page = module.load_run_page(gone, der, VARIANT, module.DEFAULT_CONTRAST)
+    assert page.behavior_problem == f"no behavior file {tmp_path / 'gone.tsv'}"
+
+
+def test_no_usable_mean_image_at_all_writes_nothing(subject, tmp_path):
+    listing, _, _ = subject
+    output = tmp_path / "out.pdf"
+    with pytest.raises(ValueError, match="no aligned run|No aligned run"):
+        module.write_run_behavior_pdf(listing, tmp_path / "nowhere", VARIANT, output)
+    assert not output.exists() and not list(tmp_path.glob(".*.partial"))
+
+
+@pytest.mark.parametrize(("column", "value", "match"), [
+    ("aligned", "yes", "must be True or False"),
+    ("tsv", "", "without a run or behavior file"),
+])  # fmt: skip
+def test_a_listing_with_unclear_rows_is_refused(subject, column, value, match):
+    listing, _, _ = subject
+    table = pd.read_csv(listing, keep_default_na=False)
+    table[column] = table[column].astype(str)
+    table.loc[0, column] = value
+    table.to_csv(listing, index=False)
+    with pytest.raises(ValueError, match=match):
+        module.load_listing(listing)
 
 
 def test_an_existing_pdf_is_kept_unless_asked(subject, tmp_path):
